@@ -465,75 +465,78 @@ impl ErrorRecoveryManager {
         let mut strategies_guard = match self.recovery_strategies.write() {
             Ok(guard) => guard,
             Err(e) => {
-                warn!("Recovery strategies lock poisoned during initialization: {}", e);
+                warn!(
+                    "Recovery strategies lock poisoned during initialization: {}",
+                    e
+                );
                 return;
             }
         };
 
-            // Network errors - aggressive retry with circuit breaker
-            strategies_guard.insert(
-                    ErrorCategory::Network,
-                    RecoveryStrategy::new(ErrorCategory::Network)
-                        .with_auto_retry(true)
-                        .with_retry_policy(RetryPolicy {
-                            max_attempts: 5,
-                            base_delay_ms: 500,
-                            max_delay_ms: 10000,
-                            backoff_multiplier: 1.5,
-                            jitter: true,
-                        })
-                        .with_fallback(true),
-                );
+        // Network errors - aggressive retry with circuit breaker
+        strategies_guard.insert(
+            ErrorCategory::Network,
+            RecoveryStrategy::new(ErrorCategory::Network)
+                .with_auto_retry(true)
+                .with_retry_policy(RetryPolicy {
+                    max_attempts: 5,
+                    base_delay_ms: 500,
+                    max_delay_ms: 10000,
+                    backoff_multiplier: 1.5,
+                    jitter: true,
+                })
+                .with_fallback(true),
+        );
 
-            // Database errors - moderate retry with connection pool reset
-            strategies_guard.insert(
-                ErrorCategory::Database,
-                RecoveryStrategy::new(ErrorCategory::Database)
-                    .with_auto_retry(true)
-                    .with_retry_policy(RetryPolicy {
-                        max_attempts: 3,
-                        base_delay_ms: 1000,
-                        max_delay_ms: 5000,
-                        backoff_multiplier: 2.0,
-                        jitter: true,
-                    })
-                    .with_fallback(true),
-            );
+        // Database errors - moderate retry with connection pool reset
+        strategies_guard.insert(
+            ErrorCategory::Database,
+            RecoveryStrategy::new(ErrorCategory::Database)
+                .with_auto_retry(true)
+                .with_retry_policy(RetryPolicy {
+                    max_attempts: 3,
+                    base_delay_ms: 1000,
+                    max_delay_ms: 5000,
+                    backoff_multiplier: 2.0,
+                    jitter: true,
+                })
+                .with_fallback(true),
+        );
 
-            // Validation errors - no retry, immediate fallback
-            strategies_guard.insert(
-                ErrorCategory::Validation,
-                RecoveryStrategy::new(ErrorCategory::Validation)
-                    .with_auto_retry(false)
-                    .with_fallback(true),
-            );
+        // Validation errors - no retry, immediate fallback
+        strategies_guard.insert(
+            ErrorCategory::Validation,
+            RecoveryStrategy::new(ErrorCategory::Validation)
+                .with_auto_retry(false)
+                .with_fallback(true),
+        );
 
-            // Model errors - limited retry with fallback
-            strategies_guard.insert(
-                ErrorCategory::Model,
-                RecoveryStrategy::new(ErrorCategory::Model)
-                    .with_auto_retry(true)
-                    .with_fallback(true)
-                    .with_retry_policy(RetryPolicy {
-                        max_attempts: 2,
-                        base_delay_ms: 200,
-                        max_delay_ms: 1000,
-                        backoff_multiplier: 1.5,
-                        jitter: false,
-                    }),
-            );
+        // Model errors - limited retry with fallback
+        strategies_guard.insert(
+            ErrorCategory::Model,
+            RecoveryStrategy::new(ErrorCategory::Model)
+                .with_auto_retry(true)
+                .with_fallback(true)
+                .with_retry_policy(RetryPolicy {
+                    max_attempts: 2,
+                    base_delay_ms: 200,
+                    max_delay_ms: 1000,
+                    backoff_multiplier: 1.5,
+                    jitter: false,
+                }),
+        );
 
-            // Timeout errors - no retry
-            strategies_guard.insert(
-                ErrorCategory::Timeout,
-                RecoveryStrategy::new(ErrorCategory::Timeout).with_auto_retry(false),
-            );
+        // Timeout errors - no retry
+        strategies_guard.insert(
+            ErrorCategory::Timeout,
+            RecoveryStrategy::new(ErrorCategory::Timeout).with_auto_retry(false),
+        );
 
-            // Resource errors - no retry, escalate
-            strategies_guard.insert(
-                ErrorCategory::Resource,
-                RecoveryStrategy::new(ErrorCategory::Resource).with_auto_retry(false),
-            );
+        // Resource errors - no retry, escalate
+        strategies_guard.insert(
+            ErrorCategory::Resource,
+            RecoveryStrategy::new(ErrorCategory::Resource).with_auto_retry(false),
+        );
     }
 
     /// Get or create circuit breaker for service
@@ -715,10 +718,7 @@ pub fn global_error_recovery() -> &'static ErrorRecoveryManager {
 
 /// Execute an async operation with circuit breaker protection.
 /// If the circuit is open, the operation is rejected immediately.
-pub async fn with_circuit_breaker<F, Fut, T>(
-    service_name: &str,
-    operation: F,
-) -> CoreResult<T>
+pub async fn with_circuit_breaker<F, Fut, T>(service_name: &str, operation: F) -> CoreResult<T>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = CoreResult<T>>,
@@ -792,7 +792,8 @@ mod tests {
             .execute_with_retry(|| {
                 let call_count = call_count.clone();
                 async move {
-                    let current_count = call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    let current_count =
+                        call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
 
                     if current_count < 3 {
                         Err("Simulated error")
@@ -821,7 +822,10 @@ mod tests {
             "test_service".to_string(),
         );
 
-        let action = manager.handle_error(error_info).await.expect("handle_error should succeed in test");
+        let action = manager
+            .handle_error(error_info)
+            .await
+            .expect("handle_error should succeed in test");
         assert_eq!(action, RecoveryAction::Retry);
 
         let stats = manager.get_error_stats().await;

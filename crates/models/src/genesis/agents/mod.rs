@@ -40,6 +40,9 @@ impl GenesisAgents {
     }
 
     pub async fn analyze_creation(&self, input: &str) -> NxrModelResult<String> {
-        Ok(format!("[GENESIS] Creation analysis of {} chars: domain complexity detected", input.len()))
+        Ok(format!(
+            "[GENESIS] Creation analysis of {} chars: domain complexity detected",
+            input.len()
+        ))
     }
 }

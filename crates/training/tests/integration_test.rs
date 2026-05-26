@@ -52,7 +52,10 @@ fn test_trainer_completes_training_step() {
     let (input, target) = trainer.prepare_batch(&pattern);
     let result = trainer.train_batch(&input, &target);
 
-    assert!(result.is_some(), "Training step should produce a loss value");
+    assert!(
+        result.is_some(),
+        "Training step should produce a loss value"
+    );
     let loss = result.unwrap();
     assert!(loss.is_finite(), "Loss should be finite, got {}", loss);
     assert!(trainer.step > 0 || trainer.accumulation_counter > 0);

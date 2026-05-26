@@ -25,7 +25,11 @@ struct MmapEntry {
 impl DatasetCache {
     pub fn new(cache_dir: PathBuf) -> Self {
         if let Err(e) = std::fs::create_dir_all(&cache_dir) {
-            warn!("Failed to create cache directory {}: {}", cache_dir.display(), e);
+            warn!(
+                "Failed to create cache directory {}: {}",
+                cache_dir.display(),
+                e
+            );
         }
         Self {
             token_cache: Arc::new(RwLock::new(TokenizerCache::new(cache_dir.join("tokens")))),
@@ -242,7 +246,7 @@ impl TokenizerCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
 
     fn sample(text: &str) -> DataSample {
         DataSample {

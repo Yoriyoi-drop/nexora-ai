@@ -870,7 +870,9 @@ impl ConsensusBuilderAgent {
         disagreement: &DisagreementResult,
         reasoning: &ReasoningEvaluation,
     ) -> AgentResult<ConsensusResult> {
-        let alternatives: Vec<String> = input.agent_outputs.iter()
+        let alternatives: Vec<String> = input
+            .agent_outputs
+            .iter()
             .map(|o| o.content.clone())
             .collect();
         if alternatives.is_empty() {
@@ -879,13 +881,17 @@ impl ConsensusBuilderAgent {
             ));
         }
 
-        let mut scores: Vec<f32> = alternatives.iter().map(|a| 1.0 / alternatives.len() as f32).collect();
+        let mut scores: Vec<f32> = alternatives
+            .iter()
+            .map(|a| 1.0 / alternatives.len() as f32)
+            .collect();
 
         // Round 1: initial scoring based on reasoning evaluation relevance
         for (i, alt) in alternatives.iter().enumerate() {
             let alt_lower = alt.to_lowercase();
             let reasoning_lower = reasoning.best_reasoning.to_lowercase();
-            let shared_words: usize = alt_lower.split_whitespace()
+            let shared_words: usize = alt_lower
+                .split_whitespace()
                 .filter(|w| reasoning_lower.contains(w))
                 .count();
             scores[i] = (0.5 + shared_words as f32 * 0.1).min(1.0);

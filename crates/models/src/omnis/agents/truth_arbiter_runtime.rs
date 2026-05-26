@@ -38,7 +38,11 @@ impl TruthArbiterRuntimeAgent {
              - Shared terms: {}/{}\n\
              - Verdict: {}\n\
              - Confidence: {:.1}/100",
-            overlap_pct, intersection, union, verdict, jaccard * 100.0
+            overlap_pct,
+            intersection,
+            union,
+            verdict,
+            jaccard * 100.0
         ))
     }
 }

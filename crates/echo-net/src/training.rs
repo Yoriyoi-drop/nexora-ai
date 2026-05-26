@@ -493,7 +493,9 @@ impl ResonanceEnergyClipping {
             let event = ClippingEvent {
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
+                    .map_err(|e| DeepLearningError::Computation {
+                        reason: format!("system time error: {}", e),
+                    })?
                     .as_secs(),
                 original_energy,
                 clipped_energy,
@@ -524,7 +526,9 @@ impl ResonanceEnergyClipping {
         Ok(ClippingEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
+                .map_err(|e| DeepLearningError::Computation {
+                    reason: format!("system time error: {}", e),
+                })?
                 .as_secs(),
             original_energy,
             clipped_energy,
@@ -789,16 +793,17 @@ impl TrainingStabilizer {
         let clipping_event = self.rec.apply_rec(resonance_data)?;
 
         // Record stabilization event
-        let gradient_stats = self
-            .pgn
-            .get_gradient_statistics()
-            .ok_or_else(|| crate::DeepLearningError::Computation {
+        let gradient_stats = self.pgn.get_gradient_statistics().ok_or_else(|| {
+            crate::DeepLearningError::Computation {
                 reason: "gradient statistics not available yet".to_string(),
-            })?;
+            }
+        })?;
         let event = StabilizationEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| DeepLearningError::Computation { reason: format!("system time error: {}", e) })?
+                .map_err(|e| DeepLearningError::Computation {
+                    reason: format!("system time error: {}", e),
+                })?
                 .as_secs(),
             training_step: self.training_steps,
             gradient_norm: gradient_stats.gradient_norm,

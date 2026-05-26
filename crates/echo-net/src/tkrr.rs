@@ -384,7 +384,9 @@ impl TopKResonanceRouting {
         for candidate in candidates.drain(..) {
             if heap.len() < effective_k {
                 heap.push(candidate);
-            } else if heap.peek().map_or(false, |top| candidate.resonance_score > top.resonance_score)
+            } else if heap
+                .peek()
+                .map_or(false, |top| candidate.resonance_score > top.resonance_score)
             {
                 heap.pop();
                 heap.push(candidate);
@@ -417,7 +419,11 @@ impl TopKResonanceRouting {
             // Scale between min and max based on candidate count
             let ratio = (total_candidates - self.min_k) as f32 / (self.max_k - self.min_k) as f32;
             let v = self.min_k as f32 + ratio * (self.top_k - self.min_k) as f32;
-            if v.is_nan() { self.min_k } else { v.max(0.0) as usize }
+            if v.is_nan() {
+                self.min_k
+            } else {
+                v.max(0.0) as usize
+            }
         };
 
         Ok(adaptive_k.clamp(self.min_k, self.max_k))
@@ -591,7 +597,11 @@ impl TopKResonanceRouting {
 
         for &value in &values {
             let bin_f = (value - min_val) / bin_size;
-            let bin_index = if bin_f.is_nan() { 0 } else { bin_f.max(0.0) as usize };
+            let bin_index = if bin_f.is_nan() {
+                0
+            } else {
+                bin_f.max(0.0) as usize
+            };
             if bin_index < 10 {
                 histogram[bin_index] += 1.0;
             }
@@ -651,7 +661,9 @@ impl TopKResonanceRouting {
         let event = RoutingEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| DeepLearningError::Configuration { reason: format!("system time: {}", e) })?
+                .map_err(|e| DeepLearningError::Configuration {
+                    reason: format!("system time: {}", e),
+                })?
                 .as_secs(),
             total_candidates: all_candidates.len(),
             selected_candidates: selected_candidates.len(),
@@ -723,9 +735,7 @@ impl TopKResonanceRouting {
     }
 
     pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
-        vec![
-            self.relevance_weights.clone().into_dyn(),
-        ]
+        vec![self.relevance_weights.clone().into_dyn()]
     }
 
     pub fn set_parameters_from_tensors(&mut self, tensors: &[Tensor]) {

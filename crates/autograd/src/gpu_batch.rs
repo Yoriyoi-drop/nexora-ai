@@ -11,7 +11,6 @@
 /// batch.dispatch(&pipeline_b, &bg_b, (wgx, 1, 1));
 /// batch.submit();   // single queue submit for both ops
 /// ```
-
 use crate::gpu::{GpuContext, GpuError, GpuTensor};
 
 // ─── Command Batch ─────────────────────────────────────────────────────────────
@@ -45,8 +44,7 @@ impl<'ctx> GpuCommandBatch<'ctx> {
         workgroups: (u32, u32, u32),
     ) {
         if let Some(enc) = self.encoder.as_mut() {
-            let mut cpass =
-                enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            let mut cpass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             cpass.set_pipeline(pipeline);
             cpass.set_bind_group(0, bind_group, &[]);
             cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
@@ -55,11 +53,7 @@ impl<'ctx> GpuCommandBatch<'ctx> {
     }
 
     /// Copy one GPU buffer to another inside the same encoder (zero extra submission).
-    pub fn copy_buffer(
-        &mut self,
-        src: &GpuTensor,
-        dst: &GpuTensor,
-    ) {
+    pub fn copy_buffer(&mut self, src: &GpuTensor, dst: &GpuTensor) {
         if src.numel() != dst.numel() {
             return;
         }
@@ -71,12 +65,7 @@ impl<'ctx> GpuCommandBatch<'ctx> {
     }
 
     /// Copy a raw `wgpu::Buffer` inside the batch.
-    pub fn copy_raw_buffer(
-        &mut self,
-        src: &wgpu::Buffer,
-        dst: &wgpu::Buffer,
-        byte_size: u64,
-    ) {
+    pub fn copy_raw_buffer(&mut self, src: &wgpu::Buffer, dst: &wgpu::Buffer, byte_size: u64) {
         if let Some(enc) = self.encoder.as_mut() {
             enc.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
             self.op_count += 1;
@@ -155,11 +144,7 @@ impl GpuContext {
                 resource: t.buffer().as_entire_binding(),
             }],
         });
-        batch.dispatch(
-            &pipeline.pipeline,
-            &bg,
-            ((numel + 255) / 256, 1, 1),
-        );
+        batch.dispatch(&pipeline.pipeline, &bg, ((numel + 255) / 256, 1, 1));
         Ok(())
     }
 

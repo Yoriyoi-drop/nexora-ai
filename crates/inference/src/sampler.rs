@@ -191,7 +191,13 @@ impl Sampler {
         };
         let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let out = ctx
-            .gpu_sample(&gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
+            .gpu_sample(
+                &gpu,
+                self.config.temperature,
+                top_k as u32,
+                self.config.top_p,
+                seed,
+            )
             .map_err(|e| InferenceError::DecodingError(format!("gpu_sample: {}", e)))?;
         let raw = out
             .to_cpu_raw_bytes()
@@ -258,7 +264,8 @@ impl Sampler {
             Ok(c) => c,
             Err(e) => {
                 self.fallback_attempts += 1;
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.gpu_fallback_count
+                    .fetch_add(batch as u64, Ordering::Relaxed);
                 log_fallback(self);
                 if self.allow_gpu_fallback {
                     warn!(
@@ -272,7 +279,10 @@ impl Sampler {
                         "GPU sampling batched failed: {}, fallback disabled - returning error",
                         e
                     );
-                    return Err(InferenceError::DecodingError(format!("GPU context error: {}", e)));
+                    return Err(InferenceError::DecodingError(format!(
+                        "GPU context error: {}",
+                        e
+                    )));
                 }
             }
         };
@@ -288,13 +298,24 @@ impl Sampler {
         let gpu_logits = GpuTensor::from_cpu(&cpu_arr)
             .map_err(|e| InferenceError::DecodingError(format!("GpuTensor::from_cpu: {}", e)))?;
 
-        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let top_k = if self.config.top_k > 0 {
+            self.config.top_k
+        } else {
+            0
+        };
         let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
-        let out = match ctx.gpu_sample(&gpu_logits, self.config.temperature, top_k as u32, self.config.top_p, seed) {
+        let out = match ctx.gpu_sample(
+            &gpu_logits,
+            self.config.temperature,
+            top_k as u32,
+            self.config.top_p,
+            seed,
+        ) {
             Ok(o) => o,
             Err(e) => {
                 self.fallback_attempts += 1;
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.gpu_fallback_count
+                    .fetch_add(batch as u64, Ordering::Relaxed);
                 log_fallback(self);
                 if self.allow_gpu_fallback {
                     warn!(
@@ -308,7 +329,10 @@ impl Sampler {
                         "GPU sampling batched call failed: {}, fallback disabled - returning error",
                         e
                     );
-                    return Err(InferenceError::DecodingError(format!("GPU sample error: {}", e)));
+                    return Err(InferenceError::DecodingError(format!(
+                        "GPU sample error: {}",
+                        e
+                    )));
                 }
             }
         };
@@ -328,7 +352,10 @@ impl Sampler {
     /// F16 tensors are converted to F32 on GPU before sampling.
     /// Only token IDs (4 bytes) are read back — avoids full logit CPU transfer.
     #[cfg(feature = "gpu")]
-    pub fn sample_gpu_tensor(&mut self, logits_gpu: &nexora_autograd::gpu::GpuTensor) -> Result<usize> {
+    pub fn sample_gpu_tensor(
+        &mut self,
+        logits_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<usize> {
         use nexora_autograd::gpu::{GpuContext, GpuDtype};
         self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
@@ -342,20 +369,40 @@ impl Sampler {
                     warn!("GPU unavailable: {}, falling back to CPU sampling", e);
                     self.sample_gpu_tensor_cpu_fallback(logits_gpu)
                 } else {
-                    Err(InferenceError::DecodingError(format!("GPU unavailable: {}", e)))
+                    Err(InferenceError::DecodingError(format!(
+                        "GPU unavailable: {}",
+                        e
+                    )))
                 };
             }
         };
-        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let top_k = if self.config.top_k > 0 {
+            self.config.top_k
+        } else {
+            0
+        };
         let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let out = if logits_gpu.dtype() == GpuDtype::F16 {
-            ctx.gpu_sample_f16(logits_gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
+            ctx.gpu_sample_f16(
+                logits_gpu,
+                self.config.temperature,
+                top_k as u32,
+                self.config.top_p,
+                seed,
+            )
         } else {
-            ctx.gpu_sample(logits_gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
+            ctx.gpu_sample(
+                logits_gpu,
+                self.config.temperature,
+                top_k as u32,
+                self.config.top_p,
+                seed,
+            )
         };
         match out {
             Ok(result) => {
-                let raw = result.to_cpu_raw_bytes()
+                let raw = result
+                    .to_cpu_raw_bytes()
                     .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
                 Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize)
             }
@@ -368,7 +415,10 @@ impl Sampler {
                     self.sample_gpu_tensor_cpu_fallback(logits_gpu)
                 } else {
                     error!("GPU tensor sampling failed: {}, fallback disabled", e);
-                    Err(InferenceError::DecodingError(format!("GPU sampling: {}", e)))
+                    Err(InferenceError::DecodingError(format!(
+                        "GPU sampling: {}",
+                        e
+                    )))
                 }
             }
         }
@@ -377,7 +427,10 @@ impl Sampler {
     /// CPU fallback for GPU tensor sampling.
     /// Reads raw bytes from GPU tensor and converts to f32 for CPU sampling.
     #[cfg(feature = "gpu")]
-    fn sample_gpu_tensor_cpu_fallback(&mut self, logits_gpu: &nexora_autograd::gpu::GpuTensor) -> Result<usize> {
+    fn sample_gpu_tensor_cpu_fallback(
+        &mut self,
+        logits_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<usize> {
         use nexora_autograd::gpu::GpuDtype;
         let raw = logits_gpu
             .to_cpu_raw_bytes()
@@ -405,7 +458,10 @@ impl Sampler {
     /// F16 tensors are converted to F32 on GPU then sampled in one batch call.
     /// Falls back to per-sequence CPU on GPU error.
     #[cfg(feature = "gpu")]
-    pub fn sample_gpu_tensor_batched(&mut self, batch_logits: &[&nexora_autograd::gpu::GpuTensor]) -> Result<Vec<usize>> {
+    pub fn sample_gpu_tensor_batched(
+        &mut self,
+        batch_logits: &[&nexora_autograd::gpu::GpuTensor],
+    ) -> Result<Vec<usize>> {
         use nexora_autograd::gpu::{GpuContext, GpuDtype};
         let batch = batch_logits.len();
         if batch == 0 {
@@ -418,28 +474,53 @@ impl Sampler {
             Ok(c) => c,
             Err(e) => {
                 self.fallback_attempts += 1;
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.gpu_fallback_count
+                    .fetch_add(batch as u64, Ordering::Relaxed);
                 self.check_gpu_health_and_alert();
                 return if self.allow_gpu_fallback {
                     warn!("GPU unavailable: {}, falling back to per-sequence CPU", e);
-                    batch_logits.iter().map(|t| self.sample_gpu_tensor_cpu_fallback(t)).collect()
+                    batch_logits
+                        .iter()
+                        .map(|t| self.sample_gpu_tensor_cpu_fallback(t))
+                        .collect()
                 } else {
-                    Err(InferenceError::DecodingError(format!("GPU unavailable: {}", e)))
+                    Err(InferenceError::DecodingError(format!(
+                        "GPU unavailable: {}",
+                        e
+                    )))
                 };
             }
         };
-        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let top_k = if self.config.top_k > 0 {
+            self.config.top_k
+        } else {
+            0
+        };
         let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
         let has_f16 = batch_logits.iter().any(|t| t.dtype() == GpuDtype::F16);
         let out = if has_f16 {
-            ctx.gpu_sample_batched_f16(batch_logits, self.config.temperature, top_k as u32, self.config.top_p, seed)
+            ctx.gpu_sample_batched_f16(
+                batch_logits,
+                self.config.temperature,
+                top_k as u32,
+                self.config.top_p,
+                seed,
+            )
         } else {
             // F32: sample individually
             let mut tokens = Vec::with_capacity(batch);
             for t in batch_logits {
-                let result = ctx.gpu_sample(t, self.config.temperature, top_k as u32, self.config.top_p, seed)
+                let result = ctx
+                    .gpu_sample(
+                        t,
+                        self.config.temperature,
+                        top_k as u32,
+                        self.config.top_p,
+                        seed,
+                    )
                     .map_err(|e| InferenceError::DecodingError(format!("GPU sample: {}", e)))?;
-                let raw = result.to_cpu_raw_bytes()
+                let raw = result
+                    .to_cpu_raw_bytes()
                     .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
                 tokens.push(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
             }
@@ -447,20 +528,37 @@ impl Sampler {
         };
         match out {
             Ok(result) => {
-                let raw = result.to_cpu_raw_bytes()
+                let raw = result
+                    .to_cpu_raw_bytes()
                     .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
-                Ok(raw.chunks_exact(4).map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as usize).collect())
+                Ok(raw
+                    .chunks_exact(4)
+                    .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as usize)
+                    .collect())
             }
             Err(e) => {
                 self.fallback_attempts += 1;
-                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.gpu_fallback_count
+                    .fetch_add(batch as u64, Ordering::Relaxed);
                 self.check_gpu_health_and_alert();
                 if self.allow_gpu_fallback {
-                    warn!("GPU batched sampling failed: {}, falling back to per-sequence CPU", e);
-                    batch_logits.iter().map(|t| self.sample_gpu_tensor_cpu_fallback(t)).collect()
+                    warn!(
+                        "GPU batched sampling failed: {}, falling back to per-sequence CPU",
+                        e
+                    );
+                    batch_logits
+                        .iter()
+                        .map(|t| self.sample_gpu_tensor_cpu_fallback(t))
+                        .collect()
                 } else {
-                    error!("GPU batched tensor sampling failed: {}, fallback disabled", e);
-                    Err(InferenceError::DecodingError(format!("GPU batched sampling: {}", e)))
+                    error!(
+                        "GPU batched tensor sampling failed: {}, fallback disabled",
+                        e
+                    );
+                    Err(InferenceError::DecodingError(format!(
+                        "GPU batched sampling: {}",
+                        e
+                    )))
                 }
             }
         }

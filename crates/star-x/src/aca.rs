@@ -7,7 +7,7 @@
 //! - Scaling yang lebih efisien
 
 use crate::core::AdaptiveCompute;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 use std::collections::HashMap;
@@ -153,8 +153,12 @@ impl AdaptiveComputeAllocation {
         hidden_state: &ArrayD<f32>,
     ) -> DLResult<ArrayD<f32>> {
         let input_flat = require_contiguous(input.as_slice())?;
-        let hidden_flat = hidden_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let hidden_flat =
+            hidden_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
 
         let mut concatenated = Vec::with_capacity(input_flat.len() + hidden_flat.len());
         concatenated.extend_from_slice(input_flat);
@@ -213,12 +217,18 @@ impl AdaptiveComputeAllocation {
         let input_flat = input.as_slice()?;
 
         let input_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, w_shape[0]], input_flat.to_vec()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![1, w_shape[0]], input_flat.to_vec()).ok()?,
+        )
+        .ok()?;
 
         let w_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![w_shape[0], w_shape[1]], weights.iter().copied().collect()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(
+                vec![w_shape[0], w_shape[1]],
+                weights.iter().copied().collect(),
+            )
+            .ok()?,
+        )
+        .ok()?;
 
         let out_gpu = self.matmul_gpu_keep_gpu(&w_gpu, &input_gpu, &ctx)?;
         let out_cpu = out_gpu.to_cpu().ok()?;
@@ -244,8 +254,12 @@ impl AdaptiveComputeAllocation {
 
         // Apply sigmoid
         let complexity_prob = self.sigmoid_array(complexity_output);
-        let complexity_flat = complexity_prob
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let complexity_flat =
+            complexity_prob
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
 
         Ok(complexity_flat[0])
     }
@@ -265,8 +279,12 @@ impl AdaptiveComputeAllocation {
 
         // Apply softmax
         let routing_probs = self.softmax_array(&routing_output)?;
-        let routing_flat = routing_probs
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let routing_flat =
+            routing_probs
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
 
         // Importance = weighted sum of compute levels
         let importance = routing_flat[0] * 0.0 + routing_flat[1] * 0.5 + routing_flat[2] * 1.0;
@@ -773,7 +791,10 @@ mod tests {
     fn test_batch_determine_levels() -> DLResult<()> {
         let aca = AdaptiveComputeAllocation::new(512, 1024, vec![0.3, 0.6, 0.9])?;
         let inputs = vec![Array1::zeros(512).into_dyn(), Array1::zeros(512).into_dyn()];
-        let hidden = vec![Array1::zeros(1024).into_dyn(), Array1::zeros(1024).into_dyn()];
+        let hidden = vec![
+            Array1::zeros(1024).into_dyn(),
+            Array1::zeros(1024).into_dyn(),
+        ];
         let levels = aca.batch_determine_levels(&inputs, &hidden)?;
         assert_eq!(levels.len(), 2);
         Ok(())

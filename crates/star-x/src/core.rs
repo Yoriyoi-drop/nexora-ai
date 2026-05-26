@@ -535,8 +535,7 @@ mod tests {
 
     #[test]
     fn test_top_k_sparse_all() {
-        let scores =
-            ndarray::ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
+        let scores = ndarray::ArrayD::from_shape_vec(vec![3], vec![1.0, 2.0, 3.0]).unwrap();
         let mask = core_utils::top_k_sparse(&scores, 5);
         let count: usize = mask.iter().map(|&x| if x > 0.0 { 1 } else { 0 }).sum();
         assert_eq!(count, 3);
@@ -558,8 +557,7 @@ mod tests {
 
     #[test]
     fn test_normalize() {
-        let mut tensor =
-            ndarray::ArrayD::from_shape_vec(vec![3], vec![3.0, 4.0, 0.0]).unwrap();
+        let mut tensor = ndarray::ArrayD::from_shape_vec(vec![3], vec![3.0, 4.0, 0.0]).unwrap();
         let norm = core_utils::normalize(&mut tensor);
         assert!((norm - 5.0).abs() < 1e-6);
         let sum_sq: f32 = tensor.iter().map(|x| x * x).sum();
@@ -568,7 +566,8 @@ mod tests {
 
     #[test]
     fn test_normalize_zero() {
-        let mut tensor = ndarray::ArrayD::from_shape_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
+        let mut tensor =
+            ndarray::ArrayD::from_shape_vec(vec![4], vec![0.0, 0.0, 0.0, 0.0]).unwrap();
         let norm = core_utils::normalize(&mut tensor);
         assert!((norm - 0.0).abs() < 1e-6);
         assert!(tensor.iter().all(|&x| (x - 0.0).abs() < 1e-6));

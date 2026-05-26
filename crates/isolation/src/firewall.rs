@@ -196,13 +196,11 @@ impl InterAgentFirewall {
         ];
         let compiled_patterns: Vec<Regex> = suspicious_patterns
             .iter()
-            .filter_map(|p| {
-                match Regex::new(&p.pattern) {
-                    Ok(re) => Some(re),
-                    Err(e) => {
-                        tracing::warn!("Failed to compile regex '{}': {}", p.pattern, e);
-                        None
-                    }
+            .filter_map(|p| match Regex::new(&p.pattern) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    tracing::warn!("Failed to compile regex '{}': {}", p.pattern, e);
+                    None
                 }
             })
             .collect();
@@ -264,7 +262,7 @@ impl InterAgentFirewall {
             }
         }
 
-        if (chrono::Utc::now() - self.rate_limiter.window_start)                .num_seconds()
+        if (chrono::Utc::now() - self.rate_limiter.window_start).num_seconds()
             >= i64::try_from(self.rate_limiter.window_seconds).unwrap_or(i64::MAX)
         {
             self.rate_limiter.per_agent_counts.clear();
@@ -281,7 +279,9 @@ impl InterAgentFirewall {
             self.rate_limiter.cooldown_expiry.insert(
                 source_id,
                 chrono::Utc::now()
-                    + chrono::Duration::seconds(i64::try_from(self.rate_limiter.window_seconds).unwrap_or(i64::MAX)),
+                    + chrono::Duration::seconds(
+                        i64::try_from(self.rate_limiter.window_seconds).unwrap_or(i64::MAX),
+                    ),
             );
         }
 

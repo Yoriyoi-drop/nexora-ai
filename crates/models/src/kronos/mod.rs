@@ -31,8 +31,8 @@ use nexora_shared::{
 };
 
 use self::{
-    agents::KronosAgents, capabilities::KronosCapabilities,
-    config::KronosConfig, identity::KronosIdentity,
+    agents::KronosAgents, capabilities::KronosCapabilities, config::KronosConfig,
+    identity::KronosIdentity,
 };
 
 #[cfg(feature = "simulated-models")]
@@ -147,7 +147,9 @@ impl NxrKronosModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -337,13 +339,20 @@ pub struct KnowledgeSynthesis {
 
 const KRONOS_SYSTEM_PROMPT: &str = "You are NXR-KRONOS (Knowledge Retrieval & Ontological Neural Optimization System) [NXR-09 CORE]. Specialties: knowledge management, factual retrieval, semantic search, knowledge graph navigation, fact verification, research synthesis, and comprehensive information analysis across all domains.";
 
-fn augment_kronos_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_kronos_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", KRONOS_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", KRONOS_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

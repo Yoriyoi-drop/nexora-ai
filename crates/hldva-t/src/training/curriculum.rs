@@ -44,18 +44,26 @@ impl CurriculumScheduler {
                 CurriculumDifficulty {
                     noise_level: self.config.initial_noise_level * (1.0 - progress),
                     resolution_factor: 1.0 + progress * (self.config.max_resolution_factor - 1.0),
-                    complexity_level: if complexity.is_nan() { 0 } else { complexity.max(0.0) as usize },
+                    complexity_level: if complexity.is_nan() {
+                        0
+                    } else {
+                        complexity.max(0.0) as usize
+                    },
                 }
-            },
+            }
             CurriculumStrategy::Exponential => {
                 let complexity = progress.powf(2.0) * self.config.max_complexity_level as f32;
                 CurriculumDifficulty {
                     noise_level: self.config.initial_noise_level * (-2.0 * progress).exp(),
                     resolution_factor: 1.0
                         + (self.config.max_resolution_factor - 1.0) * (progress.powf(2.0)),
-                    complexity_level: if complexity.is_nan() { 0 } else { complexity.max(0.0) as usize },
+                    complexity_level: if complexity.is_nan() {
+                        0
+                    } else {
+                        complexity.max(0.0) as usize
+                    },
                 }
-            },
+            }
             CurriculumStrategy::Step => {
                 let step_size = 1.0 / self.config.num_stages as f32;
                 let current_step = (progress / step_size) as usize;
@@ -173,13 +181,17 @@ impl CurriculumFiltered {
 
         TrainingBatch {
             images: Tensor::new(
-                (0..img_size).map(|i| (i as f32) / img_size as f32 * self.noise_level).collect(),
+                (0..img_size)
+                    .map(|i| (i as f32) / img_size as f32 * self.noise_level)
+                    .collect(),
                 vec![self.resolution.0, self.resolution.1, 3],
             ),
             prompts: vec![format!("synthetic prompt batch {}", _batch_idx)],
             timesteps: vec![Timestep(50)],
             noise: Tensor::new(
-                (0..latent_size).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect(),
+                (0..latent_size)
+                    .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+                    .collect(),
                 vec![self.resolution.0 / 8, self.resolution.1 / 8, self.channels],
             ),
             latents: Tensor::new(
@@ -252,7 +264,11 @@ impl CurriculumUtils {
         }
         let ratio = (1.0 / (0.5 + difficulty.complexity_level as f32 * 0.1)).clamp(0.1, 1.0);
         let batch_count_f = (num_batches as f32 * ratio).ceil();
-        let batch_count = if batch_count_f.is_nan() { 0 } else { batch_count_f as usize };
+        let batch_count = if batch_count_f.is_nan() {
+            0
+        } else {
+            batch_count_f as usize
+        };
         let batch_count = batch_count.max(1).min(num_batches);
         Ok(Box::new(CurriculumFiltered {
             batch_count,

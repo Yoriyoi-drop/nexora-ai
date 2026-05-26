@@ -19,7 +19,7 @@ impl SwiftIdentity {
             "Sub-millisecond Weighted Inference & Fast Thought - High-speed model optimized for rapid response, real-time processing, and workflow integration with minimal latency.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }
@@ -74,11 +74,7 @@ impl SwiftIdentity {
 
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
-        vec![
-            "NANO-INFER",
-            "FAST-CACHE",
-            "EDGE-OPT",
-        ]
+        vec!["NANO-INFER", "FAST-CACHE", "EDGE-OPT"]
     }
 
     /// Get architecture components

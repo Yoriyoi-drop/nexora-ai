@@ -13,9 +13,7 @@ pub struct SemanticDedupFilter {
 
 impl std::fmt::Debug for SemanticDedupFilter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let count = self.signatures.try_lock()
-            .map(|g| g.len())
-            .unwrap_or(0);
+        let count = self.signatures.try_lock().map(|g| g.len()).unwrap_or(0);
         f.debug_struct("SemanticDedupFilter")
             .field("similarity_threshold", &self.similarity_threshold)
             .field("signatures_count", &count)
@@ -27,7 +25,9 @@ impl std::fmt::Debug for SemanticDedupFilter {
 
 impl Clone for SemanticDedupFilter {
     fn clone(&self) -> Self {
-        let signatures = self.signatures.try_lock()
+        let signatures = self
+            .signatures
+            .try_lock()
             .map(|g| g.clone())
             .unwrap_or_default();
         Self {
@@ -152,7 +152,7 @@ impl Filter for SemanticDedupFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {

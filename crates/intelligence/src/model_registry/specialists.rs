@@ -89,7 +89,9 @@ impl SpecialistModel for DefaultSpecialistModel {
 
     fn process(&self, input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         if !input.is_empty() {
-            tracing::warn!("DefaultSpecialistModel.process() is a pass-through — no real transformation");
+            tracing::warn!(
+                "DefaultSpecialistModel.process() is a pass-through — no real transformation"
+            );
         }
         Ok(input.to_vec())
     }

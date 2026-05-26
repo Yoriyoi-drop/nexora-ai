@@ -88,7 +88,9 @@ impl KillSwitch {
         let one_minute_ago = now - chrono::Duration::minutes(1);
         self.kill_timestamps.retain(|t| *t > one_minute_ago);
         if self.kill_timestamps.len() >= self.protection.max_kills_per_minute as usize {
-            return Err(KillSwitchError::RateLimitExceeded(self.protection.max_kills_per_minute));
+            return Err(KillSwitchError::RateLimitExceeded(
+                self.protection.max_kills_per_minute,
+            ));
         }
         self.kill_timestamps.push(now);
         Ok(())

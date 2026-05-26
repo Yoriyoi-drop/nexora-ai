@@ -316,7 +316,10 @@ impl KtoTrainer {
             for label in labels {
                 let gradient = self.loss_calculator.calculate_gradient(label)?;
                 self.model.apply_gradient(
-                    &label.prompt, &label.response, gradient, self.learning_rate,
+                    &label.prompt,
+                    &label.response,
+                    gradient,
+                    self.learning_rate,
                 )?;
             }
 

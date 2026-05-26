@@ -290,9 +290,7 @@ mod tests {
     fn test_propagate_concat() {
         let mut p = propagator();
         let node = GraphNode::new(NodeType::Concat, "cat", 0.0, 0.0);
-        let shapes = p
-            .propagate(&node, &[vec![1, 64], vec![1, 128]])
-            .unwrap();
+        let shapes = p.propagate(&node, &[vec![1, 64], vec![1, 128]]).unwrap();
         assert_eq!(shapes[0], vec![1, 192]);
     }
 

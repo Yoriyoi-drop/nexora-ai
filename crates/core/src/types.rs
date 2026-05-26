@@ -730,7 +730,9 @@ impl ControllerCore {
                 task_type: None,
                 metadata: std::collections::HashMap::new(),
             };
-            model.process(original_input, &context).await
+            model
+                .process(original_input, &context)
+                .await
                 .map_err(|e| CoreError::TaskExecution(format!("Specialist model error: {}", e)))
         } else {
             Ok(format!(

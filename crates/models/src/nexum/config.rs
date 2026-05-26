@@ -515,18 +515,42 @@ impl Default for ResourceAllocationConfig {
 
 #[derive(Debug)]
 pub enum ConfigValidationError {
-    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
-    MustBePositive { field: String },
-    EmptyField { field: String },
-    InvalidRange { field: String, reason: String },
-    IncompatibleConfig { field: String, detail: String },
+    OutOfRange {
+        field: String,
+        min: f64,
+        max: f64,
+        actual: f64,
+    },
+    MustBePositive {
+        field: String,
+    },
+    EmptyField {
+        field: String,
+    },
+    InvalidRange {
+        field: String,
+        reason: String,
+    },
+    IncompatibleConfig {
+        field: String,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigValidationError::OutOfRange { field, min, max, actual } => {
-                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            ConfigValidationError::OutOfRange {
+                field,
+                min,
+                max,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{} must be between {} and {}, got {}",
+                    field, min, max, actual
+                )
             }
             ConfigValidationError::MustBePositive { field } => {
                 write!(f, "{} must be > 0", field)
@@ -550,10 +574,12 @@ impl NexumConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate().map_err(|e| ConfigValidationError::IncompatibleConfig {
-            field: "base".into(),
-            detail: e,
-        })?;
+        self.base
+            .validate()
+            .map_err(|e| ConfigValidationError::IncompatibleConfig {
+                field: "base".into(),
+                detail: e,
+            })?;
 
         // Validate orchestration configuration
         if let OrchestrationMode::Hybrid {
@@ -564,14 +590,16 @@ impl NexumConfig {
             if *centralized_weight < 0.0 || *centralized_weight > 1.0 {
                 return Err(ConfigValidationError::OutOfRange {
                     field: "centralized_weight".to_string(),
-                    min: 0.0, max: 1.0,
+                    min: 0.0,
+                    max: 1.0,
                     actual: *centralized_weight as f64,
                 });
             }
             if *distributed_weight < 0.0 || *distributed_weight > 1.0 {
                 return Err(ConfigValidationError::OutOfRange {
                     field: "distributed_weight".to_string(),
-                    min: 0.0, max: 1.0,
+                    min: 0.0,
+                    max: 1.0,
                     actual: *distributed_weight as f64,
                 });
             }
@@ -581,7 +609,8 @@ impl NexumConfig {
         if !(0.0..=1.0).contains(&self.consensus.consensus_threshold) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "consensus_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.consensus.consensus_threshold as f64,
             });
         }
@@ -596,7 +625,8 @@ impl NexumConfig {
         if !(0.0..=1.0).contains(&self.conflict_resolution.conflict_detection_sensitivity) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "conflict_detection_sensitivity".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.conflict_resolution.conflict_detection_sensitivity as f64,
             });
         }
@@ -610,7 +640,8 @@ impl NexumConfig {
         if !(0.0..=1.0).contains(&self.conflict_resolution.escalation_threshold) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "escalation_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.conflict_resolution.escalation_threshold as f64,
             });
         }
@@ -1032,7 +1063,10 @@ impl NexumConfig {
     }
 
     /// Validate configuration for agent count
-    pub fn validate_for_agent_count(&self, agent_count: usize) -> Result<(), ConfigValidationError> {
+    pub fn validate_for_agent_count(
+        &self,
+        agent_count: usize,
+    ) -> Result<(), ConfigValidationError> {
         match (&self.orchestration.scalability_level, agent_count) {
             (ScalabilityLevel::Small, count) if count > 10 => {
                 return Err(ConfigValidationError::IncompatibleConfig {
@@ -1065,7 +1099,10 @@ impl NexumConfig {
             (OrchestrationMode::Synchronous, _) if agent_count > 20 => {
                 return Err(ConfigValidationError::IncompatibleConfig {
                     field: "orchestration_mode".to_string(),
-                    detail: format!("Synchronous not recommended for {} agents (max 20)", agent_count),
+                    detail: format!(
+                        "Synchronous not recommended for {} agents (max 20)",
+                        agent_count
+                    ),
                 });
             }
             _ => {}

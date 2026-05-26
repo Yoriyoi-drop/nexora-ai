@@ -2,13 +2,13 @@
 //!
 //! Time-based orchestration and temporal coordination
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct TemporalOrchestratorAgent {
@@ -52,7 +52,7 @@ pub struct OrchestrationCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemporalCoordination {
-        pub scheduling_algorithms: Vec<String>,
+    pub scheduling_algorithms: Vec<String>,
     pub coordination_protocols: Vec<String>,
     pub synchronization_methods: Vec<String>,
 }
@@ -241,14 +241,40 @@ impl TemporalOrchestratorAgent {
             }
         } else {
             let keywords: [(&str, &[&str]); 8] = [
-                ("Initialize", &["init", "setup", "create", "start", "bootstrap", "launch"]),
-                ("Configure", &["config", "set", "register", "define", "parameter"]),
-                ("Validate", &["validate", "check", "certify", "test", "audit", "verify"]),
-                ("Process", &["process", "run", "execute", "proceed", "perform", "handle"]),
-                ("Integrate", &["integrate", "connect", "link", "sync", "bridge", "merge"]),
-                ("Optimize", &["optimize", "tune", "refine", "improve", "enhance", "prune"]),
-                ("Monitor", &["monitor", "observe", "track", "report", "log", "alert"]),
-                ("Finalize", &["finalize", "complete", "finish", "deploy", "release", "ship"]),
+                (
+                    "Initialize",
+                    &["init", "setup", "create", "start", "bootstrap", "launch"],
+                ),
+                (
+                    "Configure",
+                    &["config", "set", "register", "define", "parameter"],
+                ),
+                (
+                    "Validate",
+                    &["validate", "check", "certify", "test", "audit", "verify"],
+                ),
+                (
+                    "Process",
+                    &["process", "run", "execute", "proceed", "perform", "handle"],
+                ),
+                (
+                    "Integrate",
+                    &["integrate", "connect", "link", "sync", "bridge", "merge"],
+                ),
+                (
+                    "Optimize",
+                    &["optimize", "tune", "refine", "improve", "enhance", "prune"],
+                ),
+                (
+                    "Monitor",
+                    &["monitor", "observe", "track", "report", "log", "alert"],
+                ),
+                (
+                    "Finalize",
+                    &[
+                        "finalize", "complete", "finish", "deploy", "release", "ship",
+                    ],
+                ),
             ];
 
             let lower = workflow.to_lowercase();

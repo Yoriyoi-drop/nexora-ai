@@ -2,7 +2,9 @@ use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 // ─── Pipeline fns ──────────────────────────────────────────────────────────────
 
-pub fn compile_temperature_scale_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_temperature_scale_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "temperature_scale_sampler",
         &[
@@ -14,7 +16,9 @@ pub fn compile_temperature_scale_pipeline(ctx: &mut GpuContext) -> Result<wgpu::
     )
 }
 
-pub fn compile_top_k_mask_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_top_k_mask_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "top_k_mask_sampler",
         &[
@@ -26,7 +30,9 @@ pub fn compile_top_k_mask_pipeline(ctx: &mut GpuContext) -> Result<wgpu::Compute
     )
 }
 
-pub fn compile_multinomial_sample_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_multinomial_sample_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "multinomial_sample_sampler",
         &[
@@ -48,7 +54,9 @@ pub struct GpuSamplerPipelines {
     pub multinomial: wgpu::ComputePipeline,
 }
 
-pub fn compile_top_p_mask_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_top_p_mask_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "top_p_mask_sampler",
         &[
@@ -123,7 +131,9 @@ pub fn gpu_sample(
     let mut working_buf = {
         let pooled_buf = ctx.alloc_buffer(
             (numel * 4) as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         );
         let buf = pooled_buf.buffer;
         // Copy logits → working buffer (batched into reusable encoder)
@@ -133,10 +143,12 @@ pub fn gpu_sample(
 
     // Step 1: temperature scale (in-place on working_buf)
     if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
-        let temp_buf = ctx.alloc_buffer(
-            4,
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ).buffer;
+        let temp_buf = ctx
+            .alloc_buffer(
+                4,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            )
+            .buffer;
         ctx.queue
             .write_buffer(&temp_buf, 0, bytemuck::bytes_of(&temperature));
 
@@ -155,7 +167,13 @@ pub fn gpu_sample(
             ],
         });
 
-        dispatch_compute(ctx, &pipelines.temperature_scale, &scale_bg, ((numel as u32 + 255) / 256, 1, 1), "temperature_scale");
+        dispatch_compute(
+            ctx,
+            &pipelines.temperature_scale,
+            &scale_bg,
+            ((numel as u32 + 255) / 256, 1, 1),
+            "temperature_scale",
+        );
     }
 
     // Step 2: softmax (logits → probabilities)
@@ -168,19 +186,25 @@ pub fn gpu_sample(
         device_id: 0,
     };
     let probs = ctx.softmax(&logits_gpu)?;
-    working_buf = ctx.alloc_buffer(
-        (numel * 4) as u64,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-    ).buffer;
+    working_buf = ctx
+        .alloc_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        )
+        .buffer;
     // Copy softmax output → working buffer (batched into reusable encoder)
     copy_buf(ctx, probs.buffer(), &working_buf, (numel * 4) as u64);
 
     // Step 3: top-k mask (in-place on working_buf)
     if top_k > 0 && top_k < vocab {
-        let topk_cfg_buf = ctx.alloc_buffer(
-            8,
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ).buffer;
+        let topk_cfg_buf = ctx
+            .alloc_buffer(
+                8,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            )
+            .buffer;
         let cfg: [u32; 2] = [vocab, top_k];
         ctx.queue
             .write_buffer(&topk_cfg_buf, 0, bytemuck::cast_slice(&cfg));
@@ -200,15 +224,23 @@ pub fn gpu_sample(
             ],
         });
 
-        dispatch_compute(ctx, &pipelines.top_k_mask, &topk_bg, (batch as u32, 1, 1), "topk_mask");
+        dispatch_compute(
+            ctx,
+            &pipelines.top_k_mask,
+            &topk_bg,
+            (batch as u32, 1, 1),
+            "topk_mask",
+        );
     }
 
     // Step 3b: top-p mask (in-place on working_buf, after top-k)
     if top_p > 0.0 && top_p < 1.0 {
-        let topp_cfg_buf = ctx.alloc_buffer(
-            8,
-            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        ).buffer;
+        let topp_cfg_buf = ctx
+            .alloc_buffer(
+                8,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            )
+            .buffer;
         let cfg: [u32; 2] = [vocab, f32::to_bits(top_p)];
         ctx.queue
             .write_buffer(&topp_cfg_buf, 0, bytemuck::cast_slice(&cfg));
@@ -228,19 +260,29 @@ pub fn gpu_sample(
             ],
         });
 
-        dispatch_compute(ctx, &pipelines.top_p_mask, &topp_bg, (batch as u32, 1, 1), "topp_mask");
+        dispatch_compute(
+            ctx,
+            &pipelines.top_p_mask,
+            &topp_bg,
+            (batch as u32, 1, 1),
+            "topp_mask",
+        );
     }
 
     // Step 4: multinomial sample
-    let out_buf = ctx.alloc_buffer(
-        (batch as u64) * 4,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    ).buffer;
+    let out_buf = ctx
+        .alloc_buffer(
+            (batch as u64) * 4,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        )
+        .buffer;
 
-    let seed_cfg_buf = ctx.alloc_buffer(
-        12,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    ).buffer;
+    let seed_cfg_buf = ctx
+        .alloc_buffer(
+            12,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        )
+        .buffer;
     let seed_cfg: [u32; 3] = [
         vocab,
         (seed & 0xFFFFFFFF) as u32,
@@ -268,7 +310,13 @@ pub fn gpu_sample(
         ],
     });
 
-    dispatch_compute(ctx, &pipelines.multinomial, &sample_bg, (batch as u32, 1, 1), "multinomial_sample");
+    dispatch_compute(
+        ctx,
+        &pipelines.multinomial,
+        &sample_bg,
+        (batch as u32, 1, 1),
+        "multinomial_sample",
+    );
 
     // Flush all accumulated operations — single submit for the entire pipeline
     ctx.flush();

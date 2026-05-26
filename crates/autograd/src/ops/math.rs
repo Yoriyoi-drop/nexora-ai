@@ -72,8 +72,10 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                     Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
                                         let a_shape = a_shape.clone();
                                         let b_shape = b_shape.clone();
-                                        let (da, db) = crate::gpu_backward::add_backward(ctx, &a_shape, &b_shape, grad_gpu)
-                                            .map_err(|e| format!("add_backward: {e}"))?;
+                                        let (da, db) = crate::gpu_backward::add_backward(
+                                            ctx, &a_shape, &b_shape, grad_gpu,
+                                        )
+                                        .map_err(|e| format!("add_backward: {e}"))?;
                                         Ok(vec![da, db])
                                     })),
                                 );
@@ -81,20 +83,30 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU add failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
+                                    >= GPU_FALLBACK_THRESHOLD
+                                {
                                     GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                    tracing::warn!(
+                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                        GPU_FALLBACK_THRESHOLD
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 _ => {
-                    tracing::warn!("add: non-GPU storage despite on_gpu check — falling back to CPU");
+                    tracing::warn!(
+                        "add: non-GPU storage despite on_gpu check — falling back to CPU"
+                    );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
                         GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                        tracing::warn!(
+                            "GPU_MATH circuit breaker tripped after {} fallbacks",
+                            GPU_FALLBACK_THRESHOLD
+                        );
                     }
                 }
             }
@@ -195,8 +207,10 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                     Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
                                         let a_shape = a_shape.clone();
                                         let b_shape = b_shape.clone();
-                                        let (da, db) = crate::gpu_backward::sub_backward(ctx, &a_shape, &b_shape, grad_gpu)
-                                            .map_err(|e| format!("sub_backward: {e}"))?;
+                                        let (da, db) = crate::gpu_backward::sub_backward(
+                                            ctx, &a_shape, &b_shape, grad_gpu,
+                                        )
+                                        .map_err(|e| format!("sub_backward: {e}"))?;
                                         Ok(vec![da, db])
                                     })),
                                 );
@@ -204,20 +218,30 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU sub failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
+                                    >= GPU_FALLBACK_THRESHOLD
+                                {
                                     GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                    tracing::warn!(
+                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                        GPU_FALLBACK_THRESHOLD
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 _ => {
-                    tracing::warn!("sub: non-GPU storage despite on_gpu check — falling back to CPU");
+                    tracing::warn!(
+                        "sub: non-GPU storage despite on_gpu check — falling back to CPU"
+                    );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
                         GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                        tracing::warn!(
+                            "GPU_MATH circuit breaker tripped after {} fallbacks",
+                            GPU_FALLBACK_THRESHOLD
+                        );
                     }
                 }
             }
@@ -295,8 +319,13 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                         vec![ga, gb]
                                     }),
                                     Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                        let (da, db) = crate::gpu_backward::mul_backward(ctx, &saved_gpu[0], &saved_gpu[1], grad_gpu)
-                                            .map_err(|e| format!("mul_backward: {e}"))?;
+                                        let (da, db) = crate::gpu_backward::mul_backward(
+                                            ctx,
+                                            &saved_gpu[0],
+                                            &saved_gpu[1],
+                                            grad_gpu,
+                                        )
+                                        .map_err(|e| format!("mul_backward: {e}"))?;
                                         Ok(vec![da, db])
                                     })),
                                 );
@@ -304,20 +333,30 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU mul failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
+                                    >= GPU_FALLBACK_THRESHOLD
+                                {
                                     GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                    tracing::warn!(
+                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                        GPU_FALLBACK_THRESHOLD
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 _ => {
-                    tracing::warn!("mul: non-GPU storage despite on_gpu check — falling back to CPU");
+                    tracing::warn!(
+                        "mul: non-GPU storage despite on_gpu check — falling back to CPU"
+                    );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
                         GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                        tracing::warn!(
+                            "GPU_MATH circuit breaker tripped after {} fallbacks",
+                            GPU_FALLBACK_THRESHOLD
+                        );
                     }
                 }
             }
@@ -375,8 +414,13 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                         vec![ga, gb]
                                     }),
                                     Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                        let (da, db) = crate::gpu_backward::div_backward(ctx, &saved_gpu[1], &saved_gpu[2], grad_gpu)
-                                            .map_err(|e| format!("div_backward: {e}"))?;
+                                        let (da, db) = crate::gpu_backward::div_backward(
+                                            ctx,
+                                            &saved_gpu[1],
+                                            &saved_gpu[2],
+                                            grad_gpu,
+                                        )
+                                        .map_err(|e| format!("div_backward: {e}"))?;
                                         Ok(vec![da, db])
                                     })),
                                 );
@@ -384,20 +428,30 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                             Err(e) => {
                                 tracing::warn!(error = %e, "GPU div failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
+                                    >= GPU_FALLBACK_THRESHOLD
+                                {
                                     GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                    tracing::warn!(
+                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                        GPU_FALLBACK_THRESHOLD
+                                    );
                                 }
                             }
                         }
                     }
                 }
                 _ => {
-                    tracing::warn!("div: non-GPU storage despite on_gpu check — falling back to CPU");
+                    tracing::warn!(
+                        "div: non-GPU storage despite on_gpu check — falling back to CPU"
+                    );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
                         GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                        tracing::warn!(
+                            "GPU_MATH circuit breaker tripped after {} fallbacks",
+                            GPU_FALLBACK_THRESHOLD
+                        );
                     }
                 }
             }
@@ -414,11 +468,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
     Tensor::with_grad_fn(
         result.clone(),
         vec![a.clone(), b.clone()],
-        vec![
-            a_bc.clone(),
-            b_bc.clone(),
-            result.clone(),
-        ],
+        vec![a_bc.clone(), b_bc.clone(), result.clone()],
         Box::new(|grad, saved| {
             let a_bc = &saved[0];
             let b_bc = &saved[1];
@@ -457,8 +507,12 @@ pub fn exp(input: &Tensor) -> Tensor {
                                     vec![da]
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                    let da = crate::gpu_backward::exp_backward(ctx, &saved_gpu[0], grad_gpu)
-                                        .map_err(|e| format!("exp_backward: {e}"))?;
+                                    let da = crate::gpu_backward::exp_backward(
+                                        ctx,
+                                        &saved_gpu[0],
+                                        grad_gpu,
+                                    )
+                                    .map_err(|e| format!("exp_backward: {e}"))?;
                                     Ok(vec![da])
                                 })),
                             );
@@ -466,9 +520,13 @@ pub fn exp(input: &Tensor) -> Tensor {
                         Err(e) => {
                             tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
+                            {
                                 GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                tracing::warn!(
+                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                    GPU_FALLBACK_THRESHOLD
+                                );
                             }
                         }
                     }
@@ -522,8 +580,12 @@ pub fn ln(input: &Tensor) -> Tensor {
                                     vec![da]
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                    let da = crate::gpu_backward::ln_backward(ctx, &saved_gpu[0], grad_gpu)
-                                        .map_err(|e| format!("ln_backward: {e}"))?;
+                                    let da = crate::gpu_backward::ln_backward(
+                                        ctx,
+                                        &saved_gpu[0],
+                                        grad_gpu,
+                                    )
+                                    .map_err(|e| format!("ln_backward: {e}"))?;
                                     Ok(vec![da])
                                 })),
                             );
@@ -531,9 +593,13 @@ pub fn ln(input: &Tensor) -> Tensor {
                         Err(e) => {
                             tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
+                            {
                                 GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                tracing::warn!(
+                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                    GPU_FALLBACK_THRESHOLD
+                                );
                             }
                         }
                     }
@@ -588,13 +654,20 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                                 Box::new(|grad, saved| {
                                     let exp = saved[0][IxDyn(&[])];
                                     let result_val = &saved[1];
-                                    let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                    let da = grad.clone() * exp * result_val
+                                        / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
                                     vec![da]
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                     let exponent = exponent_val;
-                                    let da = crate::gpu_backward::powf_backward(ctx, &saved_gpu[0], &saved_gpu[1], exponent, grad_gpu)
-                                        .map_err(|e| format!("powf_backward: {e}"))?;
+                                    let da = crate::gpu_backward::powf_backward(
+                                        ctx,
+                                        &saved_gpu[0],
+                                        &saved_gpu[1],
+                                        exponent,
+                                        grad_gpu,
+                                    )
+                                    .map_err(|e| format!("powf_backward: {e}"))?;
                                     Ok(vec![da])
                                 })),
                             );
@@ -602,9 +675,13 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                         Err(e) => {
                             tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
+                            {
                                 GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                tracing::warn!(
+                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                    GPU_FALLBACK_THRESHOLD
+                                );
                             }
                         }
                     }
@@ -659,8 +736,12 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                                     vec![da]
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                    let da = crate::gpu_backward::sqrt_backward(ctx, &saved_gpu[0], grad_gpu)
-                                        .map_err(|e| format!("sqrt_backward: {e}"))?;
+                                    let da = crate::gpu_backward::sqrt_backward(
+                                        ctx,
+                                        &saved_gpu[0],
+                                        grad_gpu,
+                                    )
+                                    .map_err(|e| format!("sqrt_backward: {e}"))?;
                                     Ok(vec![da])
                                 })),
                             );
@@ -668,9 +749,13 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                         Err(e) => {
                             tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
+                            {
                                 GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                tracing::warn!(
+                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                    GPU_FALLBACK_THRESHOLD
+                                );
                             }
                         }
                     }
@@ -728,9 +813,13 @@ pub fn neg(a: &Tensor) -> Tensor {
                         Err(e) => {
                             tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
+                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
+                            {
                                 GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!("GPU_MATH circuit breaker tripped after {} fallbacks", GPU_FALLBACK_THRESHOLD);
+                                tracing::warn!(
+                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
+                                    GPU_FALLBACK_THRESHOLD
+                                );
                             }
                         }
                     }
@@ -750,5 +839,5 @@ pub fn neg(a: &Tensor) -> Tensor {
         vec![a.clone()],
         vec![],
         Box::new(|grad, _saved| vec![-grad.clone()]),
-        )
+    )
 }

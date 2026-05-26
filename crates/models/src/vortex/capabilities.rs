@@ -402,7 +402,8 @@ impl VortexCapabilities {
         // For now, just log the update
         tracing::info!(
             "Updating capability {:?} with score: {}",
-            domain, performance_score
+            domain,
+            performance_score
         );
     }
 

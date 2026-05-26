@@ -215,13 +215,11 @@ impl StreamingEngine {
             request_id: request
                 .request_id
                 .as_ref()
-                .and_then(|s| {
-                    match Uuid::parse_str(s) {
-                        Ok(uuid) => Some(uuid),
-                        Err(e) => {
-                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                            None
-                        }
+                .and_then(|s| match Uuid::parse_str(s) {
+                    Ok(uuid) => Some(uuid),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                        None
                     }
                 })
                 .unwrap_or_else(Uuid::new_v4),
@@ -254,13 +252,11 @@ impl StreamingEngine {
             request_id: request
                 .request_id
                 .as_ref()
-                .and_then(|s| {
-                    match Uuid::parse_str(s) {
-                        Ok(uuid) => Some(uuid),
-                        Err(e) => {
-                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                            None
-                        }
+                .and_then(|s| match Uuid::parse_str(s) {
+                    Ok(uuid) => Some(uuid),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                        None
                     }
                 })
                 .unwrap_or_else(Uuid::new_v4),
@@ -382,7 +378,9 @@ impl StreamingEngine {
         let streams = self.active_streams.read().await;
 
         if let Some(stream_info) = streams.get(&stream_id) {
-            let duration = (Utc::now() - stream_info.created_at).num_milliseconds().max(0) as u64;
+            let duration = (Utc::now() - stream_info.created_at)
+                .num_milliseconds()
+                .max(0) as u64;
 
             Ok(Some(StreamStatus {
                 stream_id,
@@ -411,17 +409,22 @@ impl StreamingEngine {
 
         if let Some(stream_info) = streams.remove(&stream_id) {
             // Send completion signal
-            if stream_info.token_tx.send(StreamToken {
-                token: GeneratedToken {
-                    token_id: 0,
-                    text: "[CANCELLED]".to_string(),
-                    logprob: 0.0,
-                    is_special: true,
-                },
-                is_last: true,
-                position: stream_info.token_count,
-                metadata: HashMap::new(),
-            }).await.is_err() {
+            if stream_info
+                .token_tx
+                .send(StreamToken {
+                    token: GeneratedToken {
+                        token_id: 0,
+                        text: "[CANCELLED]".to_string(),
+                        logprob: 0.0,
+                        is_special: true,
+                    },
+                    is_last: true,
+                    position: stream_info.token_count,
+                    metadata: HashMap::new(),
+                })
+                .await
+                .is_err()
+            {
                 debug!("client disconnected, cancellation token not delivered");
             }
 
@@ -490,7 +493,6 @@ impl StreamingEngine {
         for h in tasks.drain(..) {
             let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
         }
-
 
         // Update state
         {
@@ -647,7 +649,10 @@ pub struct ManagedReceiver<T> {
 
 impl<T> ManagedReceiver<T> {
     pub fn new(rx: mpsc::Receiver<T>, handle: JoinHandle<()>) -> Self {
-        Self { rx, handle: Some(handle) }
+        Self {
+            rx,
+            handle: Some(handle),
+        }
     }
 }
 
@@ -805,7 +810,11 @@ pub mod adapters {
 
                 if stream_token.is_last {
                     // Send final event
-                    if sse_tx.send("event: end\ndata: {}\n\n".to_string()).await.is_err() {
+                    if sse_tx
+                        .send("event: end\ndata: {}\n\n".to_string())
+                        .await
+                        .is_err()
+                    {
                         debug!("client disconnected, could not send SSE end event");
                     }
                     break;

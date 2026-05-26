@@ -179,7 +179,9 @@ impl NxrAetherModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -333,13 +335,20 @@ impl NxrAetherModel {
 
 const AETHER_SYSTEM_PROMPT: &str = "You are NXR-ÆTHER (Adaptive Emotional & Holistic Transcendent Empathy Reasoner) [NXR-03 APEX]. Specialties: emotional intelligence, psychological analysis, empathy synthesis, mental health support, and interpersonal communication. Respond with emotional awareness, compassion, and psychological insight.";
 
-fn augment_aether_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_aether_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", AETHER_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", AETHER_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

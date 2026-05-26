@@ -8,7 +8,7 @@
 //! - Fused Element-wise Operations
 
 use crate::tensor_pool::PooledTensor1D;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{s, Array1, Array2, ArrayD, ArrayView, ArrayViewMut, Zip};
 use std::arch::x86_64::*;
 
@@ -64,7 +64,9 @@ impl FusedLinearActivation {
         {
             match self.forward_gpu(input_view) {
                 Ok(result) => return Ok(result),
-                Err(e) => tracing::warn!("StarX fused GPU forward failed: {}, falling back to CPU", e),
+                Err(e) => {
+                    tracing::warn!("StarX fused GPU forward failed: {}, falling back to CPU", e)
+                }
             }
         }
 
@@ -81,32 +83,50 @@ impl FusedLinearActivation {
     /// GPU-accelerated forward pass: upload → matmul → activation → download
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: ndarray::ArrayView<f32, ndarray::Ix1>) -> DLResult<ArrayD<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
-            Err(_) => return Err(DeepLearningError::Computation { reason: "GPU unavailable".into() }),
+            Err(_) => {
+                return Err(DeepLearningError::Computation {
+                    reason: "GPU unavailable".into(),
+                })
+            }
         };
 
         let out_dim = self.weights.shape()[1];
         let in_dim = self.weights.shape()[0];
 
         // Upload input → GPU
-        let input_arr = ArrayD::from_shape_vec(vec![1, in_dim], input.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let input_gpu = GpuTensor::from_cpu(&input_arr)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let input_arr = ArrayD::from_shape_vec(vec![1, in_dim], input.to_vec()).map_err(|e| {
+            DeepLearningError::Computation {
+                reason: e.to_string(),
+            }
+        })?;
+        let input_gpu =
+            GpuTensor::from_cpu(&input_arr).map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
 
         let out_gpu = self.forward_gpu_keep_gpu(&input_gpu, &ctx)?;
 
         // download result
-        let result_cpu = out_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let result_slice = result_cpu.as_slice().ok_or_else(|| {
-            DeepLearningError::Computation { reason: "result not contiguous".into() }
+        let result_cpu = out_gpu
+            .to_cpu()
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
+        let result_slice = result_cpu
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation {
+                reason: "result not contiguous".into(),
+            })?;
+        let result_1d = Array1::from_shape_vec(out_dim, result_slice.to_vec()).map_err(|e| {
+            DeepLearningError::Computation {
+                reason: e.to_string(),
+            }
         })?;
-        let result_1d = Array1::from_shape_vec(out_dim, result_slice.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
         Ok(result_1d.into_dyn())
     }
@@ -125,34 +145,42 @@ impl FusedLinearActivation {
 
         // Upload weights W^T → GPU (weights are [in_dim, out_dim], matmul needs [out_dim, in_dim])
         let wt_transposed = self.weights.t();
-        let wt_slice = wt_transposed.as_slice().ok_or_else(|| {
-            DeepLearningError::Computation {
+        let wt_slice = wt_transposed
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation {
                 reason: "weights tensor is not contiguous".into(),
-            }
+            })?;
+        let wt_arr = ndarray::ArrayD::from_shape_vec(vec![out_dim, in_dim], wt_slice.to_vec())
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
+        let wt_gpu = GpuTensor::from_cpu(&wt_arr).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
         })?;
-        let wt_arr = ndarray::ArrayD::from_shape_vec(
-            vec![out_dim, in_dim],
-            wt_slice.to_vec(),
-        )
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let wt_gpu = GpuTensor::from_cpu(&wt_arr)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
         // Upload bias → GPU [1, out_dim]
         let bias_arr = ndarray::ArrayD::from_shape_vec(vec![1, out_dim], self.bias.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let bias_gpu = GpuTensor::from_cpu(&bias_arr)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
+        let bias_gpu =
+            GpuTensor::from_cpu(&bias_arr).map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
 
         // matmul: [1, in_dim] × [in_dim, out_dim] = [1, out_dim]
-        let mut out_gpu = ctx
-            .matmul(input_gpu, &wt_gpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let mut out_gpu =
+            ctx.matmul(input_gpu, &wt_gpu)
+                .map_err(|e| DeepLearningError::Computation {
+                    reason: e.to_string(),
+                })?;
 
         // add bias
         out_gpu = ctx
             .add(&out_gpu, &bias_gpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
 
         // activation
         let act_op = match self.activation_type {
@@ -163,12 +191,16 @@ impl FusedLinearActivation {
             ActivationType::Swish => ElemOp::Silu,
         };
         if act_op != ElemOp::Relu {
-            out_gpu = ctx
-                .elementwise_unary(&out_gpu, act_op)
-                .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            out_gpu = ctx.elementwise_unary(&out_gpu, act_op).map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: e.to_string(),
+                }
+            })?;
         } else {
             ctx.elementwise_unary_inplace(&mut out_gpu, act_op)
-                .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+                .map_err(|e| DeepLearningError::Computation {
+                    reason: e.to_string(),
+                })?;
         }
 
         Ok(out_gpu)

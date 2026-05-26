@@ -9,9 +9,9 @@ use tracing::{debug, warn};
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
-use nexora_transformer::{CpuKVCache, KVCacheProvider};
 #[cfg(feature = "gpu")]
-use nexora_transformer::GpuKVCache;
+use nexora_transformer::{GpuKVCache, GpuKVCacheEntry};
+use nexora_transformer::{CpuKVCache, KVCacheProvider};
 
 /// Configuration for continuous batching engine.
 #[derive(Debug, Clone)]
@@ -60,22 +60,46 @@ impl PrefixTrie {
         }
     }
 
-    /// Insert a sequence's prompt into the trie and return (prefix_len, shared_with_count).
-    fn insert(&mut self, seq_id: u64, prompt: &[u32], min_shared: usize) -> (usize, usize) {
+    /// Insert a sequence's prompt into the trie (full walk).
+    fn insert(&mut self, seq_id: u64, prompt: &[u32]) {
         let mut node = &mut self.root;
-        let mut prefix_len = 0usize;
         for &token in prompt {
             node = node.children.entry(token).or_default();
             node.seq_ids.push(seq_id);
-            prefix_len += 1;
-            if prefix_len >= min_shared && node.seq_ids.len() > 1 {
-                // Found a shared prefix — return it
-                let shared_count = node.seq_ids.len();
-                // Walk remaining tokens to build full subtree
-                return (prefix_len, shared_count);
+        }
+    }
+
+    /// Find the longest prefix of `prompt` shared with another sequence.
+    /// Returns `(prefix_len, other_seq_id)` where `other_seq_id` is another
+    /// sequence with a matching prefix at that depth. Excludes `exclude_seq_id`.
+    /// Returns `None` when no shared prefix of any length exists.
+    /// Handles partial matches: if prompt diverges at token P+1, the match
+    /// at depth P is still returned.
+    fn find_shared_prefix(
+        &self,
+        prompt: &[u32],
+        exclude_seq_id: u64,
+    ) -> Option<(usize, u64)> {
+        let mut node = &self.root;
+        let mut prefix_len = 0usize;
+        let mut result: Option<(usize, u64)> = None;
+        for &token in prompt {
+            match node.children.get(&token) {
+                Some(child) => {
+                    node = child;
+                    prefix_len += 1;
+                    if let Some(&other) = node
+                        .seq_ids
+                        .iter()
+                        .find(|&&id| id != exclude_seq_id)
+                    {
+                        result = Some((prefix_len, other));
+                    }
+                }
+                None => break,
             }
         }
-        (0, 0)
+        result
     }
 }
 
@@ -96,7 +120,9 @@ pub struct StepResult {
 /// Sequences dynamically enter (via `add_request`) and leave (via completion or error).
 ///
 /// Generation phase provides true batched matmul via [`ModelForward::forward_batched`].
-/// Prefill processes sequences individually (future work: padded batch prefill).
+/// Prefill uses position-by-position batched processing: at each position P,
+/// ALL sequences still in prefill have their P-th remaining token processed
+/// together via [`ModelForward::forward_prefill_batched`].
 ///
 /// To use, set `InferenceConfig::use_continuous_batching = true`.
 pub struct ContinuousBatchingEngine<M> {
@@ -129,16 +155,25 @@ where
     M: crate::inference_trait::ModelForward,
 {
     pub fn new(model: M, max_batch_size: usize) -> Self {
-        Self::with_config(model, ContinuousBatchingConfig {
-            max_batch_size,
-            ..Default::default()
-        })
+        Self::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size,
+                ..Default::default()
+            },
+        )
     }
 
     /// Set model architecture dimensions for GPU KV cache creation.
     /// Only needed when GPU is available; safe to skip for CPU-only usage.
     #[cfg(feature = "gpu")]
-    pub fn set_model_dims(&mut self, num_layers: usize, num_kv_heads: usize, head_dim: usize, max_seq_len: usize) {
+    pub fn set_model_dims(
+        &mut self,
+        num_layers: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        max_seq_len: usize,
+    ) {
         self.num_layers = num_layers;
         self.num_kv_heads = num_kv_heads;
         self.head_dim = head_dim;
@@ -187,9 +222,115 @@ where
         self.tokenizer = Some(tokenizer);
     }
 
+    /// Copy shared-prefix K/V from previously-prefilled sequences into prefill
+    /// sequences that share a prompt prefix. Updates `prompt_pos` to skip the
+    /// prefix, so the prefill forward pass only processes non-shared tokens.
+    /// Only operates when GPU is active and the prefix trie is available.
+    fn try_gpu_prefix_sharing(&mut self, prefill_ids: &[u64]) {
+        if !self.use_gpu || self.prefix_trie.is_none() {
+            return;
+        }
+        #[cfg(feature = "gpu")]
+        {
+            let trie = self.prefix_trie.as_ref().unwrap();
+            let ctx = match nexora_autograd::gpu::GpuContext::global() {
+                Ok(c) => c,
+                _ => return,
+            };
+
+            for &sid in prefill_ids {
+                // Skip if this sequence already has a partial prefix offset
+                let seq = match self.sequences.get(&sid) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if seq.prompt_pos > 0 {
+                    continue;
+                }
+
+                // Find longest shared prefix with another sequence
+                let (prefix_len, src_id) = match trie.find_shared_prefix(&seq.prompt, sid) {
+                    Some(m) => m,
+                    None => continue,
+                };
+
+                // Check if the source sequence has actually been prefilled
+                // (has K/V data for at least prefix_len tokens)
+                let src_has_data = self
+                    .kv_caches
+                    .get(&src_id)
+                    .map_or(false, |c| c.seq_len(0) >= prefix_len);
+                if !src_has_data {
+                    continue;
+                }
+
+                // Remove both caches from the HashMap to avoid borrow conflicts
+                let mut src_dyn = match self.kv_caches.remove(&src_id) {
+                    Some(c) => c,
+                    None => continue,
+                };
+                let mut dst_dyn = match self.kv_caches.remove(&sid) {
+                    Some(c) => c,
+                    None => {
+                        self.kv_caches.insert(src_id, src_dyn);
+                        continue;
+                    }
+                };
+
+                // Extract GPU entries from both sides
+                let src_entries: &mut Vec<GpuKVCacheEntry> = match src_dyn.as_gpu_entries() {
+                    Some(e) if !e.is_empty() => e,
+                    _ => {
+                        self.kv_caches.insert(src_id, src_dyn);
+                        self.kv_caches.insert(sid, dst_dyn);
+                        continue;
+                    }
+                };
+                let dst_entries: &mut Vec<
+                    nexora_transformer::GpuKVCacheEntry,
+                > = match dst_dyn.as_gpu_entries() {
+                    Some(e) if !e.is_empty() => e,
+                    _ => {
+                        self.kv_caches.insert(src_id, src_dyn);
+                        self.kv_caches.insert(sid, dst_dyn);
+                        continue;
+                    }
+                };
+
+                // Copy prefix K/V per layer
+                let mut ok = true;
+                for (e_dst, e_src) in dst_entries.iter_mut().zip(src_entries.iter()) {
+                    if e_dst.copy_prefix_from(&ctx, e_src, prefix_len).is_err() {
+                        ok = false;
+                        break;
+                    }
+                }
+
+                if ok {
+                    if let Some(seq) = self.sequences.get_mut(&sid) {
+                        seq.prompt_pos = prefix_len;
+                        debug!(
+                            "GPU prefix sharing: copied {} tokens from seq {} to seq {}",
+                            prefix_len, src_id, sid
+                        );
+                    }
+                }
+
+                self.kv_caches.insert(src_id, src_dyn);
+                self.kv_caches.insert(sid, dst_dyn);
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            let _ = prefill_ids;
+        }
+    }
+
     fn decode_token(&self, token_id: u32) -> String {
         if let Some(ref tok) = self.tokenizer {
-            tok.lock().unwrap_or_else(|e| e.into_inner()).decode(&[token_id])
+            tok.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .decode(&[token_id])
         } else {
             format!("[{}]", token_id)
         }
@@ -200,7 +341,9 @@ where
     /// Used to provide CPU caches to `forward_batched`.
     fn boxed_cache_to_cpu(cache: &mut Box<dyn KVCacheProvider>) -> CpuKVCache {
         if let Some(cpu_entries) = cache.as_cpu_entries() {
-            CpuKVCache { entries: std::mem::take(cpu_entries) }
+            CpuKVCache {
+                entries: std::mem::take(cpu_entries),
+            }
         } else {
             CpuKVCache::new(0)
         }
@@ -222,8 +365,12 @@ where
         if self.use_gpu {
             #[cfg(feature = "gpu")]
             if self.num_layers > 0 {
-                let gpu_cache =
-                    GpuKVCache::new(self.num_layers, self.num_kv_heads, self.head_dim, self.max_seq_len);
+                let gpu_cache = GpuKVCache::new(
+                    self.num_layers,
+                    self.num_kv_heads,
+                    self.head_dim,
+                    self.max_seq_len,
+                );
                 self.kv_caches.insert(seq_id, Box::new(gpu_cache));
             } else {
                 let cache = self.model.reset_cache();
@@ -241,13 +388,7 @@ where
 
         // Register in prefix trie for shared prefill
         if let Some(ref mut trie) = self.prefix_trie {
-            let (prefix_len, shared_count) = trie.insert(seq_id, &request.input_tokens, self.config.min_shared_prefix_len);
-            if prefix_len > 0 && shared_count > 1 {
-                debug!(
-                    "Seq {} shares {} token prefix with {} other sequence(s)",
-                    seq_id, prefix_len, shared_count - 1
-                );
-            }
+            trie.insert(seq_id, &request.input_tokens);
         }
 
         self.sequences.insert(seq_id, seq);
@@ -305,11 +446,19 @@ where
             }
         }
 
-        // --- PHASE 1: Batched prefill ---
-        // Process ALL remaining prompt tokens for each prefill sequence in a
-        // single forward call. The model processes all tokens sequentially
-        // internally but with a single function call overhead, and the returned
-        // logits predict the first generated token.
+        // --- PHASE 0: GPU prefix cache sharing ---
+        // Before executing prefill, copy K/V from previously-prefilled sequences
+        // that share a prompt prefix, so we can skip the common prefix computation.
+        if !prefill_ids.is_empty() {
+            self.try_gpu_prefix_sharing(&prefill_ids);
+        }
+
+        // --- PHASE 1: Position-by-position batched prefill ---
+        // All prefill sequences' remaining prompt tokens are processed via
+        // [`forward_prefill_batched`], which processes position-by-position:
+        // at each position P, ALL sequences still in prefill have their P-th
+        // remaining token processed together. This replaces the old per-sequence
+        // prefill loop and provides the foundation for true GPU batched prefill.
         if !prefill_ids.is_empty() {
             // Extract KV caches for prefill sequences
             let mut prefill_caches: Vec<(u64, Box<dyn KVCacheProvider>)> = prefill_ids
@@ -319,16 +468,30 @@ where
 
             let mut prefill_logits: Vec<(u64, Array1<f32>)> = Vec::with_capacity(prefill_ids.len());
 
-            for (sid, cache) in prefill_caches.iter_mut() {
-                let seq = match self.sequences.get(sid) {
-                    Some(s) => s,
-                    None => continue,
-                };
-                let prompt_tokens: Vec<u32> = seq.prompt[seq.prompt_pos..].to_vec();
-                drop(seq);
+            // Drain caches and prompts from prefill_caches
+            let mut caches_only: Vec<Box<dyn KVCacheProvider>> =
+                prefill_caches.drain(..).map(|(_, c)| c).collect();
+            let mut prompt_tokens: Vec<Vec<u32>> = Vec::with_capacity(caches_only.len());
+            for sid in &prefill_ids {
+                if let Some(seq) = self.sequences.get(sid) {
+                    prompt_tokens.push(seq.prompt[seq.prompt_pos..].to_vec());
+                }
+            }
 
-                let logits = self.model.forward(&prompt_tokens, &mut **cache);
-                prefill_logits.push((*sid, logits));
+            let logits_vec = self
+                .model
+                .forward_prefill_batched(&prompt_tokens, &mut caches_only);
+
+            // Re-pair caches with their IDs (positional, same order as prefill_ids)
+            for (i, &sid) in prefill_ids.iter().enumerate() {
+                if i < caches_only.len() {
+                    let cache =
+                        std::mem::replace(&mut caches_only[i], Box::new(CpuKVCache::new(0)));
+                    prefill_caches.push((sid, cache));
+                }
+                if i < logits_vec.len() {
+                    prefill_logits.push((sid, logits_vec[i].clone()));
+                }
             }
 
             // Restore all prefill KV caches and update states to Generating
@@ -374,10 +537,7 @@ where
                 let log_prob = logits_vec.get(token_id as usize).copied().unwrap_or(0.0);
                 let pos = seq.prompt.len() + seq.generated.len();
                 seq.push_token(Arc::new(GeneratedToken::new(
-                    token_id,
-                    token_text,
-                    log_prob,
-                    pos,
+                    token_id, token_text, log_prob, pos,
                 )));
 
                 let mut finish_reason: Option<FinishReason> = None;
@@ -389,11 +549,9 @@ where
 
                 if let Some(reason) = finish_reason {
                     seq.finish(reason.clone());
-                    if let Some(resp) = self.build_response(
-                        sid,
-                        reason,
-                        step_start.elapsed().as_millis() as u64,
-                    ) {
+                    if let Some(resp) =
+                        self.build_response(sid, reason, step_start.elapsed().as_millis() as u64)
+                    {
                         completed.push(resp);
                     }
                 }
@@ -402,7 +560,8 @@ where
 
         // --- PHASE 2: Batched generation for non-prefill sequences ---
         if !gen_ids.is_empty() {
-            let mut gen_boxed_caches: Vec<Box<dyn KVCacheProvider>> = Vec::with_capacity(gen_ids.len());
+            let mut gen_boxed_caches: Vec<Box<dyn KVCacheProvider>> =
+                Vec::with_capacity(gen_ids.len());
             let mut gen_inputs: Vec<u32> = Vec::with_capacity(gen_ids.len());
             let mut gen_samplers: Vec<(u64, f32, usize, f32)> = Vec::with_capacity(gen_ids.len());
 
@@ -428,9 +587,35 @@ where
             // Pre-sampled token IDs from GPU path (None = use CPU sampler)
             let mut gpu_tokens: Vec<Option<u32>> = vec![None; gen_ids.len()];
 
-            // For multi-seq: extract CPU entries, call forward_batched (GPU w/ logit readback)
-            // For single-seq with GPU: use forward_sample_gpu (zero logit readback)
-            let all_logits: Vec<Array1<f32>> = if gen_ids.len() > 1 {
+            // Try GPU-native batched sampling first (zero logit readback).
+            // Falls back to CPU readback + CPU sampling if GPU path fails or returns None.
+            let all_logits: Vec<Array1<f32>> = if gen_ids.len() > 1 && self.use_gpu {
+                let temperatures: Vec<f32> = gen_samplers.iter().map(|&(_, t, _, _)| t).collect();
+                let top_ks: Vec<usize> = gen_samplers.iter().map(|&(_, _, k, _)| k).collect();
+                let top_ps: Vec<f32> = gen_samplers.iter().map(|&(_, _, _, p)| p).collect();
+                let gpu_results = self.model.forward_batched_sample_gpu(
+                    &gen_inputs,
+                    &mut gen_boxed_caches,
+                    &temperatures,
+                    &top_ks,
+                    &top_ps,
+                    seed,
+                );
+                let all_some = gpu_results.iter().all(|r| r.is_some());
+                if all_some {
+                    for (i, tok) in gpu_results.into_iter().enumerate() {
+                        gpu_tokens[i] = tok;
+                    }
+                    vec![Array1::zeros(gen_ids.len())]
+                } else {
+                    // Fallback: extract CPU entries for full logit readback
+                    let mut caches: Vec<CpuKVCache> = gen_boxed_caches
+                        .iter_mut()
+                        .map(|c| Self::boxed_cache_to_cpu(c))
+                        .collect();
+                    self.model.forward_batched(&gen_inputs, &mut caches)
+                }
+            } else if gen_ids.len() > 1 {
                 let mut caches: Vec<CpuKVCache> = gen_boxed_caches
                     .iter_mut()
                     .map(|c| Self::boxed_cache_to_cpu(c))
@@ -472,13 +657,16 @@ where
             // Restore generation caches
             for (i, sid) in gen_ids.iter().enumerate() {
                 if i < gen_boxed_caches.len() {
-                    let cache = std::mem::replace(&mut gen_boxed_caches[i], Box::new(CpuKVCache::new(0)));
+                    let cache =
+                        std::mem::replace(&mut gen_boxed_caches[i], Box::new(CpuKVCache::new(0)));
                     self.kv_caches.insert(*sid, cache);
                 }
             }
 
             // Process each generation result
-            for (seq_idx, (&seq_id, logits_arr)) in gen_ids.iter().zip(all_logits.iter()).enumerate() {
+            for (seq_idx, (&seq_id, logits_arr)) in
+                gen_ids.iter().zip(all_logits.iter()).enumerate()
+            {
                 let logits_vec: Vec<f32> = logits_arr.clone().into_raw_vec();
 
                 let token_id = if let Some(gpu_tok) = gpu_tokens[seq_idx] {
@@ -521,21 +709,21 @@ where
                 let log_prob = if gpu_tokens[seq_idx].is_some() {
                     0.0
                 } else {
-                    logits_vec.get(token_id as usize).copied().unwrap_or_else(|| {
-                        warn!(
-                            "token_id {} out of range for logits of length {}",
-                            token_id,
-                            logits_vec.len()
-                        );
-                        0.0
-                    })
+                    logits_vec
+                        .get(token_id as usize)
+                        .copied()
+                        .unwrap_or_else(|| {
+                            warn!(
+                                "token_id {} out of range for logits of length {}",
+                                token_id,
+                                logits_vec.len()
+                            );
+                            0.0
+                        })
                 };
                 let pos = seq.prompt.len() + seq.generated.len();
                 seq.push_token(Arc::new(GeneratedToken::new(
-                    token_id,
-                    token_text,
-                    log_prob,
-                    pos,
+                    token_id, token_text, log_prob, pos,
                 )));
 
                 let mut finish_reason: Option<FinishReason> = None;
@@ -547,11 +735,9 @@ where
 
                 if let Some(reason) = finish_reason {
                     seq.finish(reason.clone());
-                    if let Some(resp) = self.build_response(
-                        seq_id,
-                        reason,
-                        step_start.elapsed().as_millis() as u64,
-                    ) {
+                    if let Some(resp) =
+                        self.build_response(seq_id, reason, step_start.elapsed().as_millis() as u64)
+                    {
                         completed.push(resp);
                     }
                 }
@@ -566,7 +752,12 @@ where
         }
     }
 
-    fn build_response(&self, seq_id: u64, reason: FinishReason, elapsed_ms: u64) -> Option<InferenceResponse> {
+    fn build_response(
+        &self,
+        seq_id: u64,
+        reason: FinishReason,
+        elapsed_ms: u64,
+    ) -> Option<InferenceResponse> {
         let seq = self.sequences.get(&seq_id)?;
         let text: String = seq
             .generated

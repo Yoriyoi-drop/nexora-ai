@@ -218,8 +218,8 @@ impl ChatEngine {
         &self,
         conversation_id: &str,
     ) -> NexoraResult<ConversationContext> {
-        let convs = self.conversations.lock().map_err(|e| {
-            NexoraError::System { message: format!("Mutex poisoned in get_conversation_context: {e}") }
+        let convs = self.conversations.lock().map_err(|e| NexoraError::System {
+            message: format!("Mutex poisoned in get_conversation_context: {e}"),
         })?;
         match convs.get(conversation_id) {
             Some(ctx) => Ok(ctx.clone()),
@@ -240,18 +240,18 @@ impl ChatEngine {
         user_message: &str,
         _ai_response: &str,
     ) -> NexoraResult<()> {
-        let mut convs = self.conversations.lock().map_err(|e| {
-            NexoraError::System { message: format!("Mutex poisoned in store_conversation_turn: {e}") }
+        let mut convs = self.conversations.lock().map_err(|e| NexoraError::System {
+            message: format!("Mutex poisoned in store_conversation_turn: {e}"),
         })?;
-        let ctx = convs.entry(conversation_id.to_string()).or_insert_with(|| {
-            ConversationContext {
+        let ctx = convs
+            .entry(conversation_id.to_string())
+            .or_insert_with(|| ConversationContext {
                 conversation_id: conversation_id.to_string(),
                 turn_count: 0,
                 last_activity: Utc::now(),
                 topics: vec!["general".to_string()],
                 user_preferences: UserPreferences::default(),
-            }
-        });
+            });
         ctx.turn_count += 1;
         ctx.last_activity = Utc::now();
         if user_message.contains('?') && !ctx.topics.contains(&"question".to_string()) {
@@ -306,7 +306,8 @@ impl ChatEngine {
         _conversation_id: &str,
         _context: &ConversationContext,
     ) -> NexoraResult<String> {
-        self.model_chat_generate("Hello! Please greet me warmly.").await
+        self.model_chat_generate("Hello! Please greet me warmly.")
+            .await
     }
 
     /// Generate question response via foundation model

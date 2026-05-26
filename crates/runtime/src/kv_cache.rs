@@ -282,24 +282,24 @@ impl KVCache {
         // Cache hit or miss path
         let was_hit: bool;
         let result = if let Some(mut entry) = shard.entries.remove(key) {
-                // Update access info
-                entry.update_access();
+            // Update access info
+            entry.update_access();
 
-                // Update LRU order — move key to front
-                let key_str = entry.key.clone();
-                shard.lru_order.retain(|k| k != &key_str);
-                shard.lru_order.insert(0, key_str);
+            // Update LRU order — move key to front
+            let key_str = entry.key.clone();
+            shard.lru_order.retain(|k| k != &key_str);
+            shard.lru_order.insert(0, key_str);
 
-                // Update shard stats
-                shard.stats.hits += 1;
-                was_hit = true;
+            // Update shard stats
+            shard.stats.hits += 1;
+            was_hit = true;
 
-                // Re-insert updated entry
-                let cloned = entry.clone();
-                let key_for_insert = cloned.key.clone();
-                shard.entries.insert(key_for_insert, entry);
+            // Re-insert updated entry
+            let cloned = entry.clone();
+            let key_for_insert = cloned.key.clone();
+            shard.entries.insert(key_for_insert, entry);
 
-                Some(cloned)
+            Some(cloned)
         } else {
             // Cache miss
             shard.stats.misses += 1;
@@ -379,7 +379,10 @@ impl KVCache {
 
         // Set expiration if TTL is configured
         if let Some(ttl_seconds) = self.config.ttl_seconds {
-            new_entry.expires_at = Some(Utc::now() + chrono::Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(i64::MAX)));
+            new_entry.expires_at = Some(
+                Utc::now()
+                    + chrono::Duration::seconds(i64::try_from(ttl_seconds).unwrap_or(i64::MAX)),
+            );
         }
 
         // Insert with move semantics to avoid unnecessary clone

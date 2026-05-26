@@ -250,7 +250,10 @@ impl AWQEngine {
     /// Legacy alias: quantizes then immediately dequantizes back to f32.
     /// Prefer [`quantization_error`] for measuring loss, or keep the
     /// [`AWQQuantizedTensor`] for actual compression.
-    #[deprecated(since = "0.2.0", note = "use quantization_error() or keep quantized tensor")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "use quantization_error() or keep quantized tensor"
+    )]
     pub fn pseudo_quantize(&self, weight: &Array2<f32>, saliency: &Array1<f32>) -> Array2<f32> {
         let (scales, zero_points) = self.find_optimal_scales(weight, saliency);
         let quantized = self.quantize(weight, &scales, &zero_points);
@@ -268,7 +271,9 @@ impl AWQEngine {
                 // Use weight column norms as activation proxy when real activations unavailable.
                 // AWQ needs activation magnitudes to identify salient channels; column norms
                 // capture which input dimensions have the largest weight magnitudes.
-                let act_proxy = w2.map_axis(ndarray::Axis(0), |col| col.iter().map(|v| v.abs()).sum::<f32>());
+                let act_proxy = w2.map_axis(ndarray::Axis(0), |col| {
+                    col.iter().map(|v| v.abs()).sum::<f32>()
+                });
                 let act_proxy = act_proxy.mapv(|v| v.max(1.0));
                 let (scales, zps) = self.find_optimal_scales(&w2, &act_proxy);
                 let q = self.quantize(&w2, &scales, &zps);

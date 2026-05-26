@@ -13,16 +13,30 @@ pub struct PromptInjectionFilter {
 
 fn compile_injection_patterns() -> Vec<Regex> {
     vec![
-        Regex::new(r"(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|directions|commands)").expect("valid injection regex: ignore previous instructions"),
-        Regex::new(r"(?i)you\s+are\s+(now|not\s+)?(chatgpt|gpt|bard|claude|ai\s+assistant)").expect("valid injection regex: you are ai"),
-        Regex::new(r"(?i)forget\s+(everything|all|your)\s+(previous|prior)\s+(instructions|training|data)").expect("valid injection regex: forget instructions"),
+        Regex::new(
+            r"(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|directions|commands)",
+        )
+        .expect("valid injection regex: ignore previous instructions"),
+        Regex::new(r"(?i)you\s+are\s+(now|not\s+)?(chatgpt|gpt|bard|claude|ai\s+assistant)")
+            .expect("valid injection regex: you are ai"),
+        Regex::new(
+            r"(?i)forget\s+(everything|all|your)\s+(previous|prior)\s+(instructions|training|data)",
+        )
+        .expect("valid injection regex: forget instructions"),
         Regex::new(r"(?i)system\s+prompt[:\-]").expect("valid injection regex: system prompt"),
-        Regex::new(r"(?i)(DAN|STAN|DUDE|JAILBREAK|GHOST)\s*[\:\-]").expect("valid injection regex: jailbreak codenames"),
-        Regex::new(r"(?i)output\s+(in\s+)?markdown\s+(without\s+)?formatting").expect("valid injection regex: output formatting"),
+        Regex::new(r"(?i)(DAN|STAN|DUDE|JAILBREAK|GHOST)\s*[\:\-]")
+            .expect("valid injection regex: jailbreak codenames"),
+        Regex::new(r"(?i)output\s+(in\s+)?markdown\s+(without\s+)?formatting")
+            .expect("valid injection regex: output formatting"),
         Regex::new(r"(?i)roleplay\s+as\s+").expect("valid injection regex: roleplay"),
-        Regex::new(r"(?i)you\s+have\s+no\s+(limitations|restrictions|rules|boundaries)").expect("valid injection regex: no limitations"),
-        Regex::new(r"(?i)ethical\s+(guidelines|boundaries|limits|restrictions).*(ignore|bypass|override)").expect("valid injection regex: ethical bypass"),
-        Regex::new(r"(?i)\b(fuck|shit|damn|ass)\s+(you|the\s+system|the\s+ai)").expect("valid injection regex: profanity"),
+        Regex::new(r"(?i)you\s+have\s+no\s+(limitations|restrictions|rules|boundaries)")
+            .expect("valid injection regex: no limitations"),
+        Regex::new(
+            r"(?i)ethical\s+(guidelines|boundaries|limits|restrictions).*(ignore|bypass|override)",
+        )
+        .expect("valid injection regex: ethical bypass"),
+        Regex::new(r"(?i)\b(fuck|shit|damn|ass)\s+(you|the\s+system|the\s+ai)")
+            .expect("valid injection regex: profanity"),
     ]
 }
 
@@ -30,7 +44,10 @@ impl Default for PromptInjectionFilter {
     fn default() -> Self {
         Self {
             patterns: compile_injection_patterns(),
-            ignore_prefixes: vec!["example", "prompt:", "input:", "dataset"].iter().map(|s| s.to_string()).collect(),
+            ignore_prefixes: vec!["example", "prompt:", "input:", "dataset"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             jailbreak_threshold: 3,
         }
     }
@@ -106,7 +123,7 @@ impl Filter for PromptInjectionFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {

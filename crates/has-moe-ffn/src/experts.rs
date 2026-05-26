@@ -103,8 +103,8 @@ impl Expert {
     /// GPU-accelerated forward pass
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: &[f32]) -> Option<Vec<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
         use tracing::warn;
         let ctx = match GpuContext::global() {
@@ -117,19 +117,26 @@ impl Expert {
         let dim = input.len();
 
         // Upload input as [1, hidden_size]
-        let input_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, dim], input.to_vec()).ok()?
-        ).ok()?;
+        let input_gpu =
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, dim], input.to_vec()).ok()?)
+                .ok()?;
 
         // fc1 weights: [intermediate_size, hidden_size] → transpose → [hidden_size, intermediate_size]
-        let fc1_w: Vec<f32> = self.fc1_weights.iter().flat_map(|r| r.iter()).copied().collect();
+        let fc1_w: Vec<f32> = self
+            .fc1_weights
+            .iter()
+            .flat_map(|r| r.iter())
+            .copied()
+            .collect();
         let w1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.fc1_weights.len(), dim], fc1_w).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![self.fc1_weights.len(), dim], fc1_w).ok()?,
+        )
+        .ok()?;
         let w1t_gpu = ctx.transpose(&w1_gpu).ok()?;
         let b1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?,
+        )
+        .ok()?;
 
         let hidden_gpu = ctx.matmul(&input_gpu, &w1t_gpu).ok()?;
         let hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
@@ -147,17 +154,24 @@ impl Expert {
         };
 
         // fc2 weights: [hidden_size, intermediate_size] → transpose → [intermediate_size, hidden_size]
-        let fc2_w: Vec<f32> = self.fc2_weights.iter().flat_map(|r| r.iter()).copied().collect();
+        let fc2_w: Vec<f32> = self
+            .fc2_weights
+            .iter()
+            .flat_map(|r| r.iter())
+            .copied()
+            .collect();
         let w2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.fc2_weights.len(), dropped.len()], fc2_w).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![self.fc2_weights.len(), dropped.len()], fc2_w).ok()?,
+        )
+        .ok()?;
         let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
         let b2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?
-        ).ok()?;
-        let dropped_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?,
+        )
+        .ok()?;
+        let dropped_gpu =
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?)
+                .ok()?;
 
         let out_gpu = ctx.matmul(&dropped_gpu, &w2t_gpu).ok()?;
         let out_gpu = ctx.add(&out_gpu, &b2_gpu).ok()?;

@@ -46,9 +46,7 @@ pub fn reduce_to_shape(
     }
 
     // Common pattern: bias backward — target is [D], tensor is [..., D]
-    if target_shape.len() == 1
-        && t_shape.len() > 1
-        && target_shape[0] == t_shape[t_shape.len() - 1]
+    if target_shape.len() == 1 && t_shape.len() > 1 && target_shape[0] == t_shape[t_shape.len() - 1]
     {
         return reduce_all_but_last(ctx, tensor);
     }
@@ -191,10 +189,7 @@ pub fn sqrt_backward(
 
 // ── Neg backward ───────────────────────────────────────────────────
 // da = -grad
-pub fn neg_backward(
-    ctx: &GpuContext,
-    grad: &GpuTensor,
-) -> Result<GpuTensor, GpuError> {
+pub fn neg_backward(ctx: &GpuContext, grad: &GpuTensor) -> Result<GpuTensor, GpuError> {
     neg(ctx, grad)
 }
 
@@ -232,7 +227,8 @@ pub fn gelu_backward(
         .map_err(|e| GpuError::Conversion(format!("gelu_backward sqrt2pi: {e}")))?;
     let tanh_arg = ctx.mul(&sqrt2pi_t, &tanh_inner)?;
 
-    let t = ctx.elementwise_unary(&tanh_arg, ElemOp::Tanh)
+    let t = ctx
+        .elementwise_unary(&tanh_arg, ElemOp::Tanh)
         .map_err(|e| GpuError::Device(format!("gelu_backward tanh: {e}")))?;
 
     let t_sq = ctx.mul(&t, &t)?;
@@ -302,7 +298,8 @@ pub fn silu_backward(
     _result: &GpuTensor,
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let sig = ctx.elementwise_unary(input, ElemOp::Sigmoid)
+    let sig = ctx
+        .elementwise_unary(input, ElemOp::Sigmoid)
         .map_err(|e| GpuError::Device(format!("silu_backward sigmoid: {e}")))?;
     let one = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), 1.0f32))
         .map_err(|e| GpuError::Conversion(format!("silu_backward one: {e}")))?;
@@ -321,11 +318,10 @@ pub fn sum_backward(
     orig_shape: &[usize],
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let grad_val = grad.to_cpu_first_element()
+    let grad_val = grad
+        .to_cpu_first_element()
         .map_err(|e| GpuError::Device(format!("sum_backward grad readback: {e}")))?;
-    let result = GpuTensor::from_cpu(
-        &ArrayD::from_elem(IxDyn(orig_shape), grad_val),
-    )?;
+    let result = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(orig_shape), grad_val))?;
     Ok(result)
 }
 
@@ -337,7 +333,8 @@ pub fn mean_backward(
     numel: f32,
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let grad_val = grad.to_cpu_first_element()
+    let grad_val = grad
+        .to_cpu_first_element()
         .map_err(|e| GpuError::Device(format!("mean_backward grad readback: {e}")))?;
     let fill_val = grad_val / numel;
     let result = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(orig_shape), fill_val))?;
@@ -435,14 +432,14 @@ pub fn swiglu_backward_gpu(
     grad: &GpuTensor,
 ) -> Result<(GpuTensor, GpuTensor), GpuError> {
     // silu(gate) = gate * sigmoid(gate)
-    let sig = ctx.elementwise_unary(gate, ElemOp::Sigmoid)
+    let sig = ctx
+        .elementwise_unary(gate, ElemOp::Sigmoid)
         .map_err(|e| GpuError::Device(format!("swiglu_backward sigmoid: {e}")))?;
 
     // dsilu = sig + gate * sig * (1 - sig)  (silu derivative)
     let shape = gate.shape().to_vec();
-    let one = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-        ndarray::IxDyn(&shape), 1.0f32,
-    )).map_err(|e| GpuError::Conversion(format!("swiglu_backward one: {e}")))?;
+    let one = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(ndarray::IxDyn(&shape), 1.0f32))
+        .map_err(|e| GpuError::Conversion(format!("swiglu_backward one: {e}")))?;
     let one_minus_sig = ctx.sub(&one, &sig)?;
     let gate_sig = ctx.mul(gate, &sig)?;
     let term = ctx.mul(&gate_sig, &one_minus_sig)?;

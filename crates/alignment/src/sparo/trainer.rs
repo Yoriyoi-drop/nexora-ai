@@ -201,7 +201,8 @@ impl SparoTrainer {
 
     /// Sync student model back from the trainable tensor.
     fn sync_model_from_tensor(&mut self) {
-        self.student_model.update_from_tensor_all(&self.student_tensor);
+        self.student_model
+            .update_from_tensor_all(&self.student_tensor);
     }
 
     /// Compute gradient norm from the student tensor.

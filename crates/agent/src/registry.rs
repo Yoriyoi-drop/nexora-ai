@@ -80,7 +80,9 @@ impl AgentRegistry {
         {
             let agents = self.agents.read().await;
             if agents.contains_key(&agent_id) {
-                return Err(AgentError::AgentAlreadyExists { agent_id: agent_id.to_string() });
+                return Err(AgentError::AgentAlreadyExists {
+                    agent_id: agent_id.to_string(),
+                });
             }
         }
 
@@ -158,15 +160,23 @@ impl AgentRegistry {
 
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+            Err(AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            })
         }
     }
 
     /// Get agent instance with write access
-    pub async fn get_agent(&self, agent_id: Uuid) -> Result<RwLockMappedWriteGuard<'_, Box<dyn Agent>>> {
+    pub async fn get_agent(
+        &self,
+        agent_id: Uuid,
+    ) -> Result<RwLockMappedWriteGuard<'_, Box<dyn Agent>>> {
         let guard = self.agents.write().await;
-        RwLockWriteGuard::try_map(guard, |map| map.get_mut(&agent_id))
-            .map_err(|_| AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+        RwLockWriteGuard::try_map(guard, |map| map.get_mut(&agent_id)).map_err(|_| {
+            AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            }
+        })
     }
 
     /// Get agent info
@@ -183,7 +193,9 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+            Err(AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            })
         }
     }
 
@@ -225,7 +237,10 @@ impl AgentRegistry {
             mappings.remove(index);
             Ok(())
         } else {
-            Err(AgentError::ProcessingError { operation: "remove_intent_mapping".to_string(), reason: "Invalid mapping index".to_string() })
+            Err(AgentError::ProcessingError {
+                operation: "remove_intent_mapping".to_string(),
+                reason: "Invalid mapping index".to_string(),
+            })
         }
     }
 
@@ -310,7 +325,9 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(info.restart_attempts)
         } else {
-            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+            Err(AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            })
         }
     }
 
@@ -322,7 +339,9 @@ impl AgentRegistry {
             info.last_updated = Utc::now();
             Ok(())
         } else {
-            Err(AgentError::AgentNotFound { agent_id: agent_id.to_string() })
+            Err(AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            })
         }
     }
 
@@ -486,7 +505,8 @@ mod tests {
     #[test]
     fn test_agent_registry_get_agents_by_type_empty() {
         let registry = AgentRegistry::new();
-        let agents = futures::executor::block_on(registry.get_agents_by_type("nonexistent")).unwrap();
+        let agents =
+            futures::executor::block_on(registry.get_agents_by_type("nonexistent")).unwrap();
         assert!(agents.is_empty());
     }
 

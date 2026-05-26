@@ -287,7 +287,10 @@ mod tests {
 
     #[test]
     fn test_noise_pattern_variants() {
-        assert!(matches!(NoisePattern::Checkerboard, NoisePattern::Checkerboard));
+        assert!(matches!(
+            NoisePattern::Checkerboard,
+            NoisePattern::Checkerboard
+        ));
         assert!(matches!(NoisePattern::Stripes, NoisePattern::Stripes));
         assert!(matches!(NoisePattern::Radial, NoisePattern::Radial));
     }

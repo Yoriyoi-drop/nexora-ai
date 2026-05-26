@@ -871,10 +871,8 @@ impl OracleBackbone {
             h = ops::nn::layer_norm_2d(&h, Some(norm_w), Some(norm_b), 1e-6);
 
             // --- MoE with soft gating (differentiable) ---
-            let gate_scores = ops::nn::softmax(
-                &h.matmul(&params[lo.gate_w]).add(&params[lo.gate_b]),
-                1,
-            );
+            let gate_scores =
+                ops::nn::softmax(&h.matmul(&params[lo.gate_w]).add(&params[lo.gate_b]), 1);
             // gate_scores: [n, n_experts]
 
             // Soft MoE: weighted sum of all experts
@@ -900,12 +898,9 @@ impl OracleBackbone {
                 }
                 let selector = Tensor::from_slice(&sel, &[n, n_experts]);
                 let score = gate_scores.mul(&selector); // [n, n_experts], only column e
-                // Reshape score to [n, 1] by multiplying with ones vector
-                // score [n, n_experts] * ones [n_experts, 1] → [n, 1]
-                let ones = Tensor::from_slice(
-                    &vec![1.0f32; n_experts],
-                    &[n_experts, 1],
-                );
+                                                        // Reshape score to [n, 1] by multiplying with ones vector
+                                                        // score [n, n_experts] * ones [n_experts, 1] → [n, 1]
+                let ones = Tensor::from_slice(&vec![1.0f32; n_experts], &[n_experts, 1]);
                 // But the ones tensor has requires_grad=false, which is fine
                 let score_2d = score.matmul(&ones); // [n, 1]
 
@@ -1014,7 +1009,7 @@ impl TensorParamIndexer {
                 + 2              // gate (w+b)
                 + n_experts * 4  // experts (w1+b1+w2+b2)
                 + 2              // norm2 (w+b)
-                + 4,             // q,k,v,out projections
+                + 4, // q,k,v,out projections
             n_experts,
         }
     }
@@ -1077,11 +1072,7 @@ impl LayerTensorOffset {
 
 /// Compute a differentiable cross-entropy loss from logits and labels.
 /// Labels with value -100 are ignored (they contribute zero gradient).
-pub fn compute_tensor_loss(
-    logits: &Tensor,
-    labels: &[i32],
-    vocab_size: usize,
-) -> (Tensor, f32) {
+pub fn compute_tensor_loss(logits: &Tensor, labels: &[i32], vocab_size: usize) -> (Tensor, f32) {
     let logits_data = logits.data();
     let shape = logits_data.shape();
     let n = shape[0]; // batch * seq_len flattened
@@ -1109,11 +1100,7 @@ pub fn compute_tensor_loss(
 
     // weighted.sum() gives scalar, divide by valid count
     let total = weighted.sum();
-    let scale = if valid > 0 {
-        1.0 / valid as f32
-    } else {
-        1.0
-    };
+    let scale = if valid > 0 { 1.0 / valid as f32 } else { 1.0 };
     let scale_t = Tensor::from_slice(&[scale], &[1]);
 
     let loss_t = total.mul(&scale_t);

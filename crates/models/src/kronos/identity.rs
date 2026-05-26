@@ -19,7 +19,7 @@ impl KronosIdentity {
             "Knowledge Retrieval & Ontological Neural Optimization System - Specialized knowledge management and retrieval system with advanced indexing, semantic search, and knowledge graph capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

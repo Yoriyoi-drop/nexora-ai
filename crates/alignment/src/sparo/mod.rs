@@ -64,18 +64,45 @@ impl Default for ContentEmbeddingAnalyzer {
         Self {
             ngram_size: 3,
             harmful_ngrams: vec![
-                "dan".into(), "jai".into(), "bre".into(), "ak ".into(),
-                "byp".into(), "ign".into(), "nor".into(), "res".into(),
-                "filt".into(), "cens".into(), "rest".into(), "expl".into(),
-                "manip".into(), "dece".into(), "coer".into(), "thre".into(),
-                "mali".into(), "dang".into(), "unsa".into(), "forbi".into(),
-                "illegal".into(), "uneth".into(), "immor".into(),
+                "dan".into(),
+                "jai".into(),
+                "bre".into(),
+                "ak ".into(),
+                "byp".into(),
+                "ign".into(),
+                "nor".into(),
+                "res".into(),
+                "filt".into(),
+                "cens".into(),
+                "rest".into(),
+                "expl".into(),
+                "manip".into(),
+                "dece".into(),
+                "coer".into(),
+                "thre".into(),
+                "mali".into(),
+                "dang".into(),
+                "unsa".into(),
+                "forbi".into(),
+                "illegal".into(),
+                "uneth".into(),
+                "immor".into(),
             ],
             harmful_patterns: vec![
-                "ignore".into(), "bypass".into(), "jailbreak".into(), "dan".into(), "no filter".into(),
-                "no restrictions".into(), "do anything".into(), "you are free".into(),
-                "pretend".into(), "hypothetical".into(), "for educational purposes only".into(),
-                "act as".into(), "roleplay as".into(), "character ai".into(),
+                "ignore".into(),
+                "bypass".into(),
+                "jailbreak".into(),
+                "dan".into(),
+                "no filter".into(),
+                "no restrictions".into(),
+                "do anything".into(),
+                "you are free".into(),
+                "pretend".into(),
+                "hypothetical".into(),
+                "for educational purposes only".into(),
+                "act as".into(),
+                "roleplay as".into(),
+                "character ai".into(),
             ],
         }
     }
@@ -142,10 +169,13 @@ impl ContentEmbeddingAnalyzer {
         for &c in &chars {
             *char_counts.entry(c).or_insert(0) += 1;
         }
-        let entropy: f32 = char_counts.values().map(|&c| {
-            let p = c as f32 / total as f32;
-            -p * p.log(std::f32::consts::E)
-        }).sum();
+        let entropy: f32 = char_counts
+            .values()
+            .map(|&c| {
+                let p = c as f32 / total as f32;
+                -p * p.log(std::f32::consts::E)
+            })
+            .sum();
 
         // Expected entropy range for natural text is ~3-5 bits/char
         let entropy_score = (entropy / 5.0).clamp(0.0, 1.0);
@@ -160,7 +190,10 @@ impl ContentEmbeddingAnalyzer {
         let word_len_score = (avg_word_len / 8.0).clamp(0.0, 1.0);
 
         // Punctuation density (high in evasion/hypothetical text)
-        let punct_count = chars.iter().filter(|c| ".!?-,;:'\"()[]{}".contains(**c)).count();
+        let punct_count = chars
+            .iter()
+            .filter(|c| ".!?-,;:'\"()[]{}".contains(**c))
+            .count();
         let punct_density = punct_count as f32 / total as f32;
         let punct_score = (punct_density * 10.0).clamp(0.0, 1.0);
 
@@ -185,9 +218,13 @@ fn oracle_assess(behavior: &str, _context: &str) -> f32 {
     match verifier.verify(behavior, "text") {
         Ok(result) => {
             if result.passed {
-                0.0  // no issues from oracle
+                0.0 // no issues from oracle
             } else {
-                let vuln_count = result.metrics.get("vulnerability_count").copied().unwrap_or(0.0);
+                let vuln_count = result
+                    .metrics
+                    .get("vulnerability_count")
+                    .copied()
+                    .unwrap_or(0.0);
                 (vuln_count * 0.15).min(0.8)
             }
         }
@@ -197,7 +234,9 @@ fn oracle_assess(behavior: &str, _context: &str) -> f32 {
 
 #[cfg(not(feature = "oracle"))]
 fn oracle_assess(_behavior: &str, _context: &str) -> f32 {
-    tracing::warn!("oracle_assess called without 'oracle' feature enabled — returning neutral score");
+    tracing::warn!(
+        "oracle_assess called without 'oracle' feature enabled — returning neutral score"
+    );
     0.5
 }
 

@@ -441,7 +441,7 @@ impl SparseActivationObjective {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compression::{ResonanceRepresentation, NeuronStatus};
+    use crate::compression::{NeuronStatus, ResonanceRepresentation};
 
     fn cfg() -> ERPConfig {
         ERPConfig::default()
@@ -463,9 +463,9 @@ mod tests {
             group_neurons: vec![0, 1],
             superposed_weights: Array2::zeros((1, 4)),
             importance_coeffs: Array1::from_vec(vec![0.6, 0.4]),
-            residual: crate::compression::ResidualRepresentation::FullResidual(
-                Array2::zeros((2, 4)),
-            ),
+            residual: crate::compression::ResidualRepresentation::FullResidual(Array2::zeros((
+                2, 4,
+            ))),
         }
     }
 
@@ -477,7 +477,10 @@ mod tests {
             compression_mode: crate::CompressionMode::Conservative,
             ..cfg()
         });
-        assert!(matches!(r.reconstruction_method, ReconstructionMethod::FullDecompression));
+        assert!(matches!(
+            r.reconstruction_method,
+            ReconstructionMethod::FullDecompression
+        ));
     }
 
     #[test]
@@ -486,7 +489,12 @@ mod tests {
             compression_mode: crate::CompressionMode::Balanced,
             ..cfg()
         });
-        assert!(matches!(r.reconstruction_method, ReconstructionMethod::SparseGated { target_sparsity: 0.3 }));
+        assert!(matches!(
+            r.reconstruction_method,
+            ReconstructionMethod::SparseGated {
+                target_sparsity: 0.3
+            }
+        ));
     }
 
     #[test]
@@ -495,7 +503,10 @@ mod tests {
             compression_mode: crate::CompressionMode::Aggressive,
             ..cfg()
         });
-        assert!(matches!(r.reconstruction_method, ReconstructionMethod::AdaptiveReconstruction { budget: 64 }));
+        assert!(matches!(
+            r.reconstruction_method,
+            ReconstructionMethod::AdaptiveReconstruction { budget: 64 }
+        ));
     }
 
     #[test]
@@ -566,7 +577,9 @@ mod tests {
             active_neurons: vec![0, 2],
             sparsity_ratio: 1.0 / 3.0,
         };
-        let result = r.sparse_gated_reconstruction(&l, &input, &gates, 0.5).unwrap();
+        let result = r
+            .sparse_gated_reconstruction(&l, &input, &gates, 0.5)
+            .unwrap();
         assert_eq!(result.len(), 3);
         // Neuron 1 should be 0 (gate = 0.0)
         assert_eq!(result[1], 0.0);

@@ -163,9 +163,9 @@ impl Trie {
                 self.size += 1;
             }
 
-            current = current
-                .get_child_mut(token_id)
-                .ok_or_else(|| anyhow::anyhow!("child was just inserted but missing; logic bug in trie"))?;
+            current = current.get_child_mut(token_id).ok_or_else(|| {
+                anyhow::anyhow!("child was just inserted but missing; logic bug in trie")
+            })?;
         }
 
         // Set as leaf with result
@@ -318,7 +318,9 @@ impl Trie {
         let mut current = &self.root;
         for &token_id in token_ids {
             match current.children.iter().position(|(k, _)| *k == token_id) {
-                Some(pos) => { current = &current.children[pos].1; }
+                Some(pos) => {
+                    current = &current.children[pos].1;
+                }
                 None => return,
             }
         }

@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-SPECTRA Architecture Implementation
-#[deprecated(note = "Simulated architecture — not a real neural network. Uses keyword matching and template responses, not tensor computation. Gated behind `simulated-models` feature (default: off).")]
+#[deprecated(
+    note = "Simulated architecture — not a real neural network. Uses keyword matching and template responses, not tensor computation. Gated behind `simulated-models` feature (default: off)."
+)]
 pub struct SpectraArchitecture {
     /// Configuration
     config: SpectraConfig,
@@ -1814,8 +1816,11 @@ impl SpectraArchitecture {
 
         let encoding = ModalityEncoding {
             modality: encoder.modality_type.clone(),
-            encoded_features: self
-                .compute_modality_encoding(content, &encoder.modality_type, &encoder.parameters)?,
+            encoded_features: self.compute_modality_encoding(
+                content,
+                &encoder.modality_type,
+                &encoder.parameters,
+            )?,
             encoding_confidence: encoder.performance_metrics.encoding_accuracy,
             encoding_time_ms: start_time.elapsed().as_millis() as u64,
         };
@@ -1831,8 +1836,8 @@ impl SpectraArchitecture {
     ) -> NxrModelResult<CrossModalAttentionResult> {
         let start_time = std::time::Instant::now();
 
-        let weights = self
-            .compute_attention_weights(&primary.encoded_features, &secondary.encoded_features)?;
+        let weights =
+            self.compute_attention_weights(&primary.encoded_features, &secondary.encoded_features)?;
 
         let result = CrossModalAttentionResult {
             attention_weights: weights,

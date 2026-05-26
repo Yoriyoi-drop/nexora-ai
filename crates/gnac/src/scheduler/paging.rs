@@ -27,7 +27,11 @@ impl TensorPager {
         let max_vram_bytes = (max_vram_mb * 1_000_000.0) as usize;
         TensorPager {
             page_size: page_size_kb * 1024,
-            max_vram_pages: if page_size_kb > 0 { max_vram_bytes / (page_size_kb * 1024) } else { 0 },
+            max_vram_pages: if page_size_kb > 0 {
+                max_vram_bytes / (page_size_kb * 1024)
+            } else {
+                0
+            },
             access_history: VecDeque::new(),
             page_table: HashMap::new(),
             host_storage: HashMap::new(),

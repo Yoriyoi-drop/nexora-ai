@@ -642,12 +642,9 @@ impl ErrorRecoveryManager {
                         state.failure_count = attempt;
                         state.last_failure = Instant::now();
                         if attempt < *max_attempts {
-                            let backoff = base_delay.as_millis() as u64
-                                * (2u64.pow(attempt as u32 - 1));
-                            tokio::time::sleep(Duration::from_millis(
-                                backoff.min(30_000),
-                            ))
-                            .await;
+                            let backoff =
+                                base_delay.as_millis() as u64 * (2u64.pow(attempt as u32 - 1));
+                            tokio::time::sleep(Duration::from_millis(backoff.min(30_000))).await;
                         }
                     }
                 }
@@ -740,7 +737,8 @@ impl ErrorRecoveryManager {
                             circuit_breaker.state = CircuitBreakerStateType::Open;
                         }
                         CircuitBreakerStateType::Closed
-                            if circuit_breaker.failure_count >= circuit_breaker.failure_threshold =>
+                            if circuit_breaker.failure_count
+                                >= circuit_breaker.failure_threshold =>
                         {
                             circuit_breaker.state = CircuitBreakerStateType::Open;
                         }
@@ -748,10 +746,7 @@ impl ErrorRecoveryManager {
                     }
                 }
                 RecoveryAction::NoAction => {
-                    tracing::debug!(
-                        "No recovery action needed for component '{}'",
-                        component
-                    );
+                    tracing::debug!("No recovery action needed for component '{}'", component);
                 }
                 RecoveryAction::CircuitBreakerOpen => {
                     tracing::warn!(
@@ -762,18 +757,12 @@ impl ErrorRecoveryManager {
                     circuit_breaker.last_failure = Instant::now();
                 }
                 RecoveryAction::Degraded(_) => {
-                    tracing::warn!(
-                        "Recovery in degraded mode for component '{}'",
-                        component
-                    );
+                    tracing::warn!("Recovery in degraded mode for component '{}'", component);
                     circuit_breaker.failure_count += 1;
                     circuit_breaker.last_failure = Instant::now();
                 }
                 RecoveryAction::EmergencyShutdown => {
-                    tracing::error!(
-                        "Emergency shutdown recovery for component '{}'",
-                        component
-                    );
+                    tracing::error!("Emergency shutdown recovery for component '{}'", component);
                     circuit_breaker.failure_count += 1;
                     circuit_breaker.last_failure = Instant::now();
                 }

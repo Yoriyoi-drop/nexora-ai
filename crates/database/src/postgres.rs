@@ -434,7 +434,9 @@ impl Database for PostgreSQLDatabase {
             };
 
             let size_bytes = {
-                let result = client.query_one("SELECT pg_database_size(current_database())", &[]).await;
+                let result = client
+                    .query_one("SELECT pg_database_size(current_database())", &[])
+                    .await;
                 match result {
                     Ok(row) => match row.try_get::<_, i64>(0) {
                         Ok(v) => v,
@@ -452,10 +454,7 @@ impl Database for PostgreSQLDatabase {
 
             (ver, size_bytes as f64 / 1048576.0)
         } else {
-            (
-                "PostgreSQL (not connected)".to_string(),
-                1024.0,
-            )
+            ("PostgreSQL (not connected)".to_string(), 1024.0)
         };
 
         Ok(DatabaseInfo {
@@ -785,9 +784,9 @@ impl ConnectionPool for PostgreSQLConnectionPool {
         // Return to pool if the connection was active
         if was_active {
             let any_box = connection.into_any();
-            let mut pg_conn: Box<PostgreSQLConnection> = any_box
-                .downcast()
-                .map_err(|_| anyhow::anyhow!("Failed to downcast connection to PostgreSQLConnection"))?;
+            let mut pg_conn: Box<PostgreSQLConnection> = any_box.downcast().map_err(|_| {
+                anyhow::anyhow!("Failed to downcast connection to PostgreSQLConnection")
+            })?;
             pg_conn.is_active = false;
             self.return_connection(*pg_conn).await?;
         } else {
@@ -886,9 +885,7 @@ impl PostgreSQLConnection {
         if let Some(client) = &self.client {
             // Try to execute a simple query
             match client.query_one("SELECT 1", &[]).await {
-                Ok(_) => {
-                    true
-                }
+                Ok(_) => true,
                 Err(e) => {
                     warn!("Database health check failed: {:?}", e);
                     false

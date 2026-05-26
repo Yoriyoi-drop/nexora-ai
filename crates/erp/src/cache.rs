@@ -362,8 +362,6 @@ impl PatternCache {
         }
     }
 
-
-
     /// Find pattern cluster untuk context
     pub fn find_cluster(
         &mut self,

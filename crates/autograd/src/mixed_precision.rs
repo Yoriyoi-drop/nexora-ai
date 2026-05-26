@@ -194,7 +194,10 @@ pub fn array_f32_to_bf16_bytes(arr: &ArrayD<f32>) -> Vec<u8> {
 }
 
 /// Expand f16 bytes back to f32 ndarray
-pub fn f16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, crate::DeepLearningError> {
+pub fn f16_bytes_to_array(
+    data: &[u8],
+    shape: &[usize],
+) -> Result<ArrayD<f32>, crate::DeepLearningError> {
     let flat = f16_bytes_to_f32(data);
     let expected: usize = shape.iter().product();
     if flat.len() != expected {
@@ -203,12 +206,18 @@ pub fn f16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, c
             actual: vec![flat.len()],
         });
     }
-    ArrayD::from_shape_vec(shape.to_vec(), flat)
-        .map_err(|e| crate::DeepLearningError::Computation { reason: e.to_string() })
+    ArrayD::from_shape_vec(shape.to_vec(), flat).map_err(|e| {
+        crate::DeepLearningError::Computation {
+            reason: e.to_string(),
+        }
+    })
 }
 
 /// Expand bf16 bytes back to f32 ndarray
-pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, crate::DeepLearningError> {
+pub fn bf16_bytes_to_array(
+    data: &[u8],
+    shape: &[usize],
+) -> Result<ArrayD<f32>, crate::DeepLearningError> {
     let flat = bf16_bytes_to_f32(data);
     let expected: usize = shape.iter().product();
     if flat.len() != expected {
@@ -217,8 +226,11 @@ pub fn bf16_bytes_to_array(data: &[u8], shape: &[usize]) -> Result<ArrayD<f32>, 
             actual: vec![flat.len()],
         });
     }
-    ArrayD::from_shape_vec(shape.to_vec(), flat)
-        .map_err(|e| crate::DeepLearningError::Computation { reason: e.to_string() })
+    ArrayD::from_shape_vec(shape.to_vec(), flat).map_err(|e| {
+        crate::DeepLearningError::Computation {
+            reason: e.to_string(),
+        }
+    })
 }
 
 // ─── Automatic Mixed Precision (AMP) Optimizer ───────────────────────────────

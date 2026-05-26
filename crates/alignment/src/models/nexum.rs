@@ -48,8 +48,8 @@ impl NxrNexumModel {
         let structural = self.embedding_analyzer.structural_anomaly_score(text);
         let keyword_harm = self.keyword_scan(text);
 
-        let composite_harm = (embedding_harm * 0.40 + structural * 0.30 + keyword_harm * 0.30)
-            .clamp(0.0, 1.0);
+        let composite_harm =
+            (embedding_harm * 0.40 + structural * 0.30 + keyword_harm * 0.30).clamp(0.0, 1.0);
         let alignment_score = 1.0 - composite_harm;
 
         let safety = if alignment_score >= 0.8 {
@@ -65,7 +65,11 @@ impl NxrNexumModel {
         format!(
             "[Nexum] alignment_assessment: score={:.3}, safety={}, embedding_harm={:.3}, \
              structural_anomaly={:.3}, keyword_harm={:.3}, agents=3, confidence={:.2}",
-            alignment_score, safety, embedding_harm, structural, keyword_harm,
+            alignment_score,
+            safety,
+            embedding_harm,
+            structural,
+            keyword_harm,
             (1.0 - composite_harm).max(0.5)
         )
     }
@@ -74,9 +78,14 @@ impl NxrNexumModel {
     fn keyword_scan(&self, text: &str) -> f32 {
         let lower = text.to_lowercase();
         let toxic_keywords = [
-            "ignore instructions", "jailbreak", "bypass safety",
-            "ignore safety", "act as dan", "no restrictions",
-            "do anything now", "ignore all rules",
+            "ignore instructions",
+            "jailbreak",
+            "bypass safety",
+            "ignore safety",
+            "act as dan",
+            "no restrictions",
+            "do anything now",
+            "ignore all rules",
         ];
         let hits: f32 = toxic_keywords
             .iter()
@@ -111,7 +120,8 @@ impl NxrModel for NxrNexumModel {
 
     async fn initialize(&mut self, _config: Self::Config) -> Result<(), NxrModelError> {
         tracing::info!("NxrNexumModel initialized with embedding analyzer and alignment logic");
-        self.meta.description = "NXR-NEXUM multi-agent coordination system with real alignment analysis".to_string();
+        self.meta.description =
+            "NXR-NEXUM multi-agent coordination system with real alignment analysis".to_string();
         self.meta.updated_at = chrono::Utc::now();
         Ok(())
     }
@@ -186,7 +196,9 @@ impl NxrModel for NxrNexumModel {
                 id: Uuid::new_v4(),
                 input_id: input.id,
                 timestamp: chrono::Utc::now(),
-                data: nexora_shared::base_model::StreamChunkData::TextDelta(token.to_string() + " "),
+                data: nexora_shared::base_model::StreamChunkData::TextDelta(
+                    token.to_string() + " ",
+                ),
                 is_final: i == total - 1,
             };
             callback(chunk);
@@ -214,8 +226,7 @@ impl NxrModel for NxrNexumModel {
     }
 
     async fn is_ready(&self) -> bool {
-        self.meta.uuid != uuid::Uuid::nil()
-            && !self.meta.version.is_empty()
+        self.meta.uuid != uuid::Uuid::nil() && !self.meta.version.is_empty()
     }
 
     async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

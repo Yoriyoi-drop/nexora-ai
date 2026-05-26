@@ -449,7 +449,9 @@ impl MessageBus {
             .map(|id| {
                 let load = queue
                     .iter()
-                    .filter(|m| m.destination_agent_id == Some(id) || m.destination_agent_id.is_none())
+                    .filter(|m| {
+                        m.destination_agent_id == Some(id) || m.destination_agent_id.is_none()
+                    })
                     .count();
                 (id, load)
             })
@@ -642,16 +644,31 @@ mod tests {
     fn test_message_bus_event_variants() {
         let agent_id = Uuid::new_v4();
         let msg_id = Uuid::new_v4();
-        let received = MessageBusEvent::MessageReceived(
-            InterAgentMessage::new(agent_id, "t".into(), serde_json::json!({}))
-        );
-        let delivered = MessageBusEvent::MessageDelivered { message_id: msg_id, agent_id };
-        let failed = MessageBusEvent::MessageFailed { message_id: msg_id, agent_id, error: "err".into() };
+        let received = MessageBusEvent::MessageReceived(InterAgentMessage::new(
+            agent_id,
+            "t".into(),
+            serde_json::json!({}),
+        ));
+        let delivered = MessageBusEvent::MessageDelivered {
+            message_id: msg_id,
+            agent_id,
+        };
+        let failed = MessageBusEvent::MessageFailed {
+            message_id: msg_id,
+            agent_id,
+            error: "err".into(),
+        };
         let subscribed = MessageBusEvent::AgentSubscribed { agent_id };
         assert!(matches!(received, MessageBusEvent::MessageReceived(_)));
-        assert!(matches!(delivered, MessageBusEvent::MessageDelivered { .. }));
+        assert!(matches!(
+            delivered,
+            MessageBusEvent::MessageDelivered { .. }
+        ));
         assert!(matches!(failed, MessageBusEvent::MessageFailed { .. }));
-        assert!(matches!(subscribed, MessageBusEvent::AgentSubscribed { .. }));
+        assert!(matches!(
+            subscribed,
+            MessageBusEvent::AgentSubscribed { .. }
+        ));
     }
 
     #[tokio::test]

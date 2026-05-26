@@ -33,14 +33,14 @@ impl WorldModelRuntimeAgent {
              - Lexical diversity: {:.2}\n\
              - Coherence score: {:.2}\n\
              - World model version: omnis-x-v1",
-            word_count, unique_terms.len(), lexical_diversity, coherence
+            word_count,
+            unique_terms.len(),
+            lexical_diversity,
+            coherence
         ))
     }
 
-    pub fn process_input(
-        &self,
-        input: &str,
-    ) -> NxrModelResult<HashMap<String, serde_json::Value>> {
+    pub fn process_input(&self, input: &str) -> NxrModelResult<HashMap<String, serde_json::Value>> {
         let mut update = HashMap::new();
         let word_count = input.split_whitespace().count();
         let unique_terms: HashSet<&str> = input

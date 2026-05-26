@@ -855,25 +855,56 @@ mod tests {
 
     #[test]
     fn test_new_conservative() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 3 });
-        assert!(matches!(t.training_strategy, TrainingStrategy::Conservative { .. }));
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 3,
+            },
+        );
+        assert!(matches!(
+            t.training_strategy,
+            TrainingStrategy::Conservative { .. }
+        ));
     }
 
     #[test]
     fn test_new_balanced() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Balanced { lora_rank: 8, calibration_epochs: 5 });
-        assert!(matches!(t.training_strategy, TrainingStrategy::Balanced { .. }));
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Balanced {
+                lora_rank: 8,
+                calibration_epochs: 5,
+            },
+        );
+        assert!(matches!(
+            t.training_strategy,
+            TrainingStrategy::Balanced { .. }
+        ));
     }
 
     #[test]
     fn test_new_aggressive() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Aggressive { lora_rank: 16, fine_tuning_epochs: 10 });
-        assert!(matches!(t.training_strategy, TrainingStrategy::Aggressive { .. }));
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Aggressive {
+                lora_rank: 16,
+                fine_tuning_epochs: 10,
+            },
+        );
+        assert!(matches!(
+            t.training_strategy,
+            TrainingStrategy::Aggressive { .. }
+        ));
     }
 
     #[test]
     fn test_compute_mapping_statistics() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let weights = vec![Array2::from_shape_vec((4, 3), vec![1.0; 12]).unwrap()];
         let groups = vec![group()];
         let stats = t.compute_mapping_statistics(&groups, &weights);
@@ -884,7 +915,12 @@ mod tests {
 
     #[test]
     fn test_compute_mapping_statistics_empty() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let stats = t.compute_mapping_statistics(&[], &[]);
         assert_eq!(stats.total_neurons, 0);
         assert_eq!(stats.avg_group_size, 0.0);
@@ -892,7 +928,12 @@ mod tests {
 
     #[test]
     fn test_estimate_compression_potential() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let weights = vec![Array2::from_shape_vec((3, 4), vec![0.5; 12]).unwrap()];
         let groups = vec![group()];
         let potential = t.estimate_compression_potential(&groups, &weights);
@@ -902,7 +943,12 @@ mod tests {
 
     #[test]
     fn test_compute_compression_metrics() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let orig = vec![Array2::from_shape_vec((4, 4), vec![1.0; 16]).unwrap()];
         let comp = vec![layer(4, 4)];
         let metrics = t.compute_compression_metrics(&orig, &comp);
@@ -912,21 +958,37 @@ mod tests {
 
     #[test]
     fn test_compute_adaptive_learning_rate() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let lr = t.compute_adaptive_learning_rate();
         assert!(lr > 0.0 && lr < 1.0);
     }
 
     #[test]
     fn test_compute_adaptive_learning_rate_aggressive() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Aggressive { lora_rank: 8, fine_tuning_epochs: 5 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Aggressive {
+                lora_rank: 8,
+                fine_tuning_epochs: 5,
+            },
+        );
         let lr = t.compute_adaptive_learning_rate();
         assert!(lr > 0.0);
     }
 
     #[test]
     fn test_evaluate_calibration_loss() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let layers = vec![layer(2, 2)];
         let batch = CalibrationBatch {
             samples: vec![(input(&[1.0, 2.0]), input(&[0.5, 0.5]))],
@@ -937,7 +999,12 @@ mod tests {
 
     #[test]
     fn test_evaluate_calibration_loss_empty_batch() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let layers = vec![layer(2, 2)];
         let batch = CalibrationBatch { samples: vec![] };
         let loss = t.evaluate_calibration_loss(&layers, &batch).unwrap();
@@ -946,7 +1013,12 @@ mod tests {
 
     #[test]
     fn test_compute_gate_gradients() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let l = layer(2, 2);
         let gates = vec![crate::reconstruction::GatePattern {
             layer_idx: 0,
@@ -954,7 +1026,9 @@ mod tests {
             active_neurons: vec![0, 1],
             sparsity_ratio: 0.0,
         }];
-        let grad = t.compute_gate_gradients(&l, &input(&[1.0, 2.0]), &input(&[0.0, 0.0]), &gates).unwrap();
+        let grad = t
+            .compute_gate_gradients(&l, &input(&[1.0, 2.0]), &input(&[0.0, 0.0]), &gates)
+            .unwrap();
         assert_eq!(grad.shape(), &[64, 1]);
     }
 
@@ -1004,7 +1078,13 @@ mod tests {
 
     #[test]
     fn test_train_layer_lora() {
-        let mut t = ERPTrainer::new(cfg(), TrainingStrategy::Balanced { lora_rank: 4, calibration_epochs: 1 });
+        let mut t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Balanced {
+                lora_rank: 4,
+                calibration_epochs: 1,
+            },
+        );
         let mut d = TrainingDataset::new();
         for _ in 0..10 {
             d.add_sample(input(&[1.0, 2.0]), input(&[0.5, 0.3]));
@@ -1017,18 +1097,30 @@ mod tests {
 
     #[test]
     fn test_compute_training_stats_conservative() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 3 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 3,
+            },
+        );
         let model = CalibratedModel {
             compressed_model: CompressedModel {
                 original_weights: vec![],
                 compressed_layers: vec![],
                 resonance_groups: vec![],
                 compression_metrics: CompressionMetrics {
-                    original_params: 0, compressed_params: 0, compression_ratio: 0.0, memory_reduction: 0,
+                    original_params: 0,
+                    compressed_params: 0,
+                    compression_ratio: 0.0,
+                    memory_reduction: 0,
                 },
             },
             calibrated_layers: vec![],
-            calibration_stats: CalibrationStats { total_gates: 0, avg_sparsity: 0.5, calibration_quality: 0.8 },
+            calibration_stats: CalibrationStats {
+                total_gates: 0,
+                avg_sparsity: 0.5,
+                calibration_quality: 0.8,
+            },
         };
         let stats = t.compute_training_stats(&model, &[]);
         assert!(stats.final_loss > 0.0);
@@ -1046,14 +1138,24 @@ mod tests {
 
     #[test]
     fn test_compression_potential_zero_params() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let potential = t.estimate_compression_potential(&[], &[]);
         assert_eq!(potential.compression_ratio, 0.0);
     }
 
     #[test]
     fn test_compute_calibration_stats_no_resonance() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         let layers = vec![layer(4, 4)];
         let stats = t.compute_calibration_stats(&layers);
         // 0.4 * 0.8 + 0.3 * 0.0 + 0.3 * 0.0 = 0.32
@@ -1062,13 +1164,23 @@ mod tests {
 
     #[test]
     fn test_compute_gate_balance_quality_empty() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         assert_eq!(t.compute_gate_balance_quality(&[]), 0.0);
     }
 
     #[test]
     fn test_compute_compression_efficiency_empty() {
-        let t = ERPTrainer::new(cfg(), TrainingStrategy::Conservative { calibration_epochs: 1 });
+        let t = ERPTrainer::new(
+            cfg(),
+            TrainingStrategy::Conservative {
+                calibration_epochs: 1,
+            },
+        );
         assert_eq!(t.compute_compression_efficiency(&[]), 0.0);
     }
 }

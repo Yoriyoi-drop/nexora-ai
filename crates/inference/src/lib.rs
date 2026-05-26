@@ -29,12 +29,15 @@ pub mod token_loop;
 // Re-export main types
 pub use beam_search::{BeamHypothesis, BeamSearchConfig};
 pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
-pub use continuous_batching::{ContinuousBatchingEngine, ContinuousBatchingConfig, SequentialBatchingEngine, StepResult};
+pub use continuous_batching::{
+    ContinuousBatchingConfig, ContinuousBatchingEngine, SequentialBatchingEngine, StepResult,
+};
 pub use decoding::{DecodingConfig, DecodingStrategy};
 pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
 pub use inference_trait::InferenceEngine;
 pub use latency::{LatencyStats, LatencyTracker};
 pub use metrics::{InferenceMetrics, MetricsCollector};
+pub use nexora_runtime::Scheduler;
 pub use paged_cache::{
     init_global_paged_cache, BlockTable, PagedCacheConfig, PagedCacheStats, PagedKVCache,
     GLOBAL_PAGED_CACHE,
@@ -43,10 +46,9 @@ pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
 pub use runtime::{read_gpu_memory, InferenceRuntime, RuntimeState};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
 pub use sequence_state::{SeqState, Sequence};
-pub use session::{InferenceSession, SessionConfig, SessionState};
+pub use session::{InferenceSession, SessionConfig, SessionEntry, SessionState};
 pub use stop_conditions::{StopCondition, StopConditions};
 pub use token_loop::{TokenLoop, TokenLoopConfig};
-pub use nexora_runtime::Scheduler;
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

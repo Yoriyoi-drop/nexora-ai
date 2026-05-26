@@ -150,16 +150,12 @@ impl<T: Clone> GenericConnectionPool<T> {
         *self.waiting_requests.write().await += 1;
 
         // Acquire semaphore permit (with timeout)
-        let permit = tokio::time::timeout(
-            self.config.connection_timeout,
-            self.semaphore.acquire(),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!(
-            "Connection pool timeout after {:?}",
-            start_time.elapsed()
-        ))?
-        .map_err(|_| anyhow::anyhow!("Semaphore closed"))?;
+        let permit = tokio::time::timeout(self.config.connection_timeout, self.semaphore.acquire())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("Connection pool timeout after {:?}", start_time.elapsed())
+            })?
+            .map_err(|_| anyhow::anyhow!("Semaphore closed"))?;
 
         // Try to get existing connection
         {

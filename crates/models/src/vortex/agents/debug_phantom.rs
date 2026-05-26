@@ -1,14 +1,14 @@
 //! Debug Phantom Agent
-//! 
+//!
 //! Multi-layer debugging and root cause analysis
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Debug Phantom Agent - Multi-layer debugging and root cause analysis
 #[derive(Debug, Clone)]
@@ -2621,25 +2621,38 @@ impl BaseAgent for DebugPhantomAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Perform root cause analysis
         let root_cause_analysis_results = self.perform_root_cause_analysis(&input).await?;
-        
+
         // Perform bug localization
         let bug_localization_results = self.perform_bug_localization(&input).await?;
-        
+
         // Generate fix recommendations
-        let fix_recommendations = self.generate_fix_recommendations(&input, &root_cause_analysis_results, &bug_localization_results).await?;
-        
+        let fix_recommendations = self
+            .generate_fix_recommendations(
+                &input,
+                &root_cause_analysis_results,
+                &bug_localization_results,
+            )
+            .await?;
+
         // Generate analysis report
-        let analysis_report = self.generate_analysis_report(&input, &root_cause_analysis_results, &bug_localization_results, &fix_recommendations).await?;
-        
+        let analysis_report = self
+            .generate_analysis_report(
+                &input,
+                &root_cause_analysis_results,
+                &bug_localization_results,
+                &fix_recommendations,
+            )
+            .await?;
+
         // Generate debug artifacts
         let debug_artifacts = self.generate_debug_artifacts(&input).await?;
-        
+
         // Build output
         let output = DebugPhantomTaskOutput {
             root_cause_analysis_results,
@@ -2648,9 +2661,9 @@ impl BaseAgent for DebugPhantomAgent {
             analysis_report,
             debug_artifacts,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -2663,21 +2676,22 @@ impl BaseAgent for DebugPhantomAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "debug_phantom".to_string(),
-                description: "Multi-layer debugging and root cause analysis".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["bug_report".to_string(), "system_context".to_string()],
-                output_types: vec!["root_cause_analysis".to_string(), "fix_recommendations".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 1500.0,
-                    resource_usage: 0.7,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "debug_phantom".to_string(),
+            description: "Multi-layer debugging and root cause analysis".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["bug_report".to_string(), "system_context".to_string()],
+            output_types: vec![
+                "root_cause_analysis".to_string(),
+                "fix_recommendations".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.88,
+                avg_latency: 1500.0,
+                resource_usage: 0.7,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -2719,65 +2733,60 @@ impl DebugPhantomAgent {
     fn validate_input(&self, input: &DebugPhantomTaskInput) -> AgentResult<()> {
         if input.bug_report.bug_description.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Bug description cannot be empty".to_string()
+                "Bug description cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Perform root cause analysis
-    async fn perform_root_cause_analysis(&self, input: &DebugPhantomTaskInput) -> AgentResult<RootCauseAnalysisResults> {
-        let identified_root_causes = vec![
-            RootCause {
-                root_cause_id: "rc_001".to_string(),
-                root_cause_description: "Null pointer dereference in function X".to_string(),
-                root_cause_category: RootCauseCategory::CodeIssue,
+    async fn perform_root_cause_analysis(
+        &self,
+        input: &DebugPhantomTaskInput,
+    ) -> AgentResult<RootCauseAnalysisResults> {
+        let identified_root_causes = vec![RootCause {
+            root_cause_id: "rc_001".to_string(),
+            root_cause_description: "Null pointer dereference in function X".to_string(),
+            root_cause_category: RootCauseCategory::CodeIssue,
+            severity_level: SeverityLevel::High,
+            likelihood: 0.85,
+            impact_assessment: ImpactAssessment {
                 severity_level: SeverityLevel::High,
-                likelihood: 0.85,
-                impact_assessment: ImpactAssessment {
-                    severity_level: SeverityLevel::High,
-                    affected_components: vec!["function_X".to_string()],
-                    business_impact: BusinessImpact {
-                        financial_impact: 10000.0,
-                        customer_impact: 0.7,
-                        operational_impact: 0.8,
-                        reputational_impact: 0.3,
-                    },
+                affected_components: vec!["function_X".to_string()],
+                business_impact: BusinessImpact {
+                    financial_impact: 10000.0,
+                    customer_impact: 0.7,
+                    operational_impact: 0.8,
+                    reputational_impact: 0.3,
                 },
             },
-        ];
-        
-        let causal_chains = vec![
-            CausalChain {
-                chain_id: "chain_001".to_string(),
-                chain_events: vec![
-                    CausalEvent {
-                        event_id: "event_001".to_string(),
-                        event_description: "Input validation failed".to_string(),
-                        event_timestamp: chrono::Utc::now(),
-                        event_location: "input_validation.rs:42".to_string(),
-                        event_severity: SeverityLevel::Medium,
-                    },
-                ],
-                chain_strength: 0.8,
-                chain_confidence: 0.75,
-            },
-        ];
-        
-        let contributing_factors = vec![
-            ContributingFactor {
-                factor_id: "factor_001".to_string(),
-                factor_description: "Insufficient input validation".to_string(),
-                factor_category: FactorCategory::TechnicalFactor,
-                factor_weight: 0.7,
-                factor_evidence: vec!["Missing null checks".to_string()],
-            },
-        ];
-        
+        }];
+
+        let causal_chains = vec![CausalChain {
+            chain_id: "chain_001".to_string(),
+            chain_events: vec![CausalEvent {
+                event_id: "event_001".to_string(),
+                event_description: "Input validation failed".to_string(),
+                event_timestamp: chrono::Utc::now(),
+                event_location: "input_validation.rs:42".to_string(),
+                event_severity: SeverityLevel::Medium,
+            }],
+            chain_strength: 0.8,
+            chain_confidence: 0.75,
+        }];
+
+        let contributing_factors = vec![ContributingFactor {
+            factor_id: "factor_001".to_string(),
+            factor_description: "Insufficient input validation".to_string(),
+            factor_category: FactorCategory::TechnicalFactor,
+            factor_weight: 0.7,
+            factor_evidence: vec!["Missing null checks".to_string()],
+        }];
+
         let mut confidence_scores = HashMap::new();
         confidence_scores.insert("rc_001".to_string(), 0.85);
-        
+
         Ok(RootCauseAnalysisResults {
             identified_root_causes,
             causal_chains,
@@ -2787,28 +2796,29 @@ impl DebugPhantomAgent {
     }
 
     /// Perform bug localization
-    async fn perform_bug_localization(&self, input: &DebugPhantomTaskInput) -> AgentResult<BugLocalizationResults> {
-        let localized_bugs = vec![
-            LocalizedBug {
-                bug_id: "bug_001".to_string(),
-                file_path: "src/main.rs".to_string(),
-                line_number: 123,
-                column_number: 15,
-                function_name: Some("process_data".to_string()),
-                bug_type: BugType::NullPointer,
-                bug_description: "Potential null pointer dereference".to_string(),
-                severity_level: SeverityLevel::High,
-                confidence_score: 0.9,
-            },
-        ];
-        
+    async fn perform_bug_localization(
+        &self,
+        input: &DebugPhantomTaskInput,
+    ) -> AgentResult<BugLocalizationResults> {
+        let localized_bugs = vec![LocalizedBug {
+            bug_id: "bug_001".to_string(),
+            file_path: "src/main.rs".to_string(),
+            line_number: 123,
+            column_number: 15,
+            function_name: Some("process_data".to_string()),
+            bug_type: BugType::NullPointer,
+            bug_description: "Potential null pointer dereference".to_string(),
+            severity_level: SeverityLevel::High,
+            confidence_score: 0.9,
+        }];
+
         let mut confidence_scores = HashMap::new();
         confidence_scores.insert("bug_001".to_string(), 0.9);
-        
+
         let localization_accuracy = 0.88;
-        
+
         let false_positives = vec![];
-        
+
         Ok(BugLocalizationResults {
             localized_bugs,
             confidence_scores,
@@ -2818,11 +2828,14 @@ impl DebugPhantomAgent {
     }
 
     /// Generate fix recommendations
-    async fn generate_fix_recommendations(&self, _input: &DebugPhantomTaskInput,
-                                        root_cause_analysis: &RootCauseAnalysisResults,
-                                        bug_localization: &BugLocalizationResults) -> AgentResult<Vec<FixRecommendation>> {
+    async fn generate_fix_recommendations(
+        &self,
+        _input: &DebugPhantomTaskInput,
+        root_cause_analysis: &RootCauseAnalysisResults,
+        bug_localization: &BugLocalizationResults,
+    ) -> AgentResult<Vec<FixRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         for bug in &bug_localization.localized_bugs {
             recommendations.push(FixRecommendation {
                 recommendation_id: format!("fix_{}", bug.bug_id),
@@ -2848,15 +2861,18 @@ impl DebugPhantomAgent {
                 },
             });
         }
-        
+
         Ok(recommendations)
     }
 
     /// Generate analysis report
-    async fn generate_analysis_report(&self, input: &DebugPhantomTaskInput,
-                                   root_cause_analysis: &RootCauseAnalysisResults,
-                                   bug_localization: &BugLocalizationResults,
-                                   fix_recommendations: &[FixRecommendation]) -> AgentResult<AnalysisReport> {
+    async fn generate_analysis_report(
+        &self,
+        input: &DebugPhantomTaskInput,
+        root_cause_analysis: &RootCauseAnalysisResults,
+        bug_localization: &BugLocalizationResults,
+        fix_recommendations: &[FixRecommendation],
+    ) -> AgentResult<AnalysisReport> {
         let executive_summary = format!(
             "Analysis of bug {} identified {} root causes and {} localized bugs with {} fix recommendations.",
             input.bug_report.bug_id,
@@ -2864,50 +2880,52 @@ impl DebugPhantomAgent {
             bug_localization.localized_bugs.len(),
             fix_recommendations.len()
         );
-        
-        let detailed_findings = vec![
-            DetailedFinding {
-                finding_id: "finding_001".to_string(),
-                finding_category: FindingCategory::RootCause,
-                finding_description: "Primary root cause identified as null pointer dereference".to_string(),
-                evidence: vec![
-                    Evidence {
-                        evidence_id: "evidence_001".to_string(),
-                        evidence_type: EvidenceType::StackTrace,
-                        evidence_description: "Stack trace shows null pointer access".to_string(),
-                        evidence_source: "runtime".to_string(),
-                        evidence_timestamp: chrono::Utc::now(),
-                    },
-                ],
-                impact_assessment: ImpactAssessment {
-                    severity_level: SeverityLevel::High,
-                    affected_components: vec!["main.rs".to_string()],
-                    business_impact: BusinessImpact {
-                        financial_impact: 5000.0,
-                        customer_impact: 0.5,
-                        operational_impact: 0.6,
-                        reputational_impact: 0.2,
-                    },
+
+        let detailed_findings = vec![DetailedFinding {
+            finding_id: "finding_001".to_string(),
+            finding_category: FindingCategory::RootCause,
+            finding_description: "Primary root cause identified as null pointer dereference"
+                .to_string(),
+            evidence: vec![Evidence {
+                evidence_id: "evidence_001".to_string(),
+                evidence_type: EvidenceType::StackTrace,
+                evidence_description: "Stack trace shows null pointer access".to_string(),
+                evidence_source: "runtime".to_string(),
+                evidence_timestamp: chrono::Utc::now(),
+            }],
+            impact_assessment: ImpactAssessment {
+                severity_level: SeverityLevel::High,
+                affected_components: vec!["main.rs".to_string()],
+                business_impact: BusinessImpact {
+                    financial_impact: 5000.0,
+                    customer_impact: 0.5,
+                    operational_impact: 0.6,
+                    reputational_impact: 0.2,
                 },
-                recommendations: vec!["Add null checks".to_string(), "Use Option handling".to_string()],
             },
-        ];
-        
+            recommendations: vec![
+                "Add null checks".to_string(),
+                "Use Option handling".to_string(),
+            ],
+        }];
+
         let recommendations_summary = format!(
             "Generated {} fix recommendations with priority levels from 1 to {}",
             fix_recommendations.len(),
-            fix_recommendations.iter().map(|r| r.priority_level).max().unwrap_or(0)
+            fix_recommendations
+                .iter()
+                .map(|r| r.priority_level)
+                .max()
+                .unwrap_or(0)
         );
-        
-        let appendices = vec![
-            Appendix {
-                appendix_id: "appendix_001".to_string(),
-                appendix_title: "Technical Details".to_string(),
-                appendix_content: "Detailed technical analysis...".to_string(),
-                appendix_type: AppendixType::TechnicalDetails,
-            },
-        ];
-        
+
+        let appendices = vec![Appendix {
+            appendix_id: "appendix_001".to_string(),
+            appendix_title: "Technical Details".to_string(),
+            appendix_content: "Detailed technical analysis...".to_string(),
+            appendix_type: AppendixType::TechnicalDetails,
+        }];
+
         Ok(AnalysisReport {
             report_id: format!("report_{}", chrono::Utc::now().timestamp()),
             report_title: format!("Bug Analysis Report for {}", input.bug_report.bug_id),
@@ -2919,7 +2937,10 @@ impl DebugPhantomAgent {
     }
 
     /// Generate debug artifacts
-    async fn generate_debug_artifacts(&self, input: &DebugPhantomTaskInput) -> AgentResult<Vec<DebugArtifact>> {
+    async fn generate_debug_artifacts(
+        &self,
+        input: &DebugPhantomTaskInput,
+    ) -> AgentResult<Vec<DebugArtifact>> {
         let artifacts = vec![
             DebugArtifact {
                 artifact_id: "artifact_001".to_string(),
@@ -2938,7 +2959,7 @@ impl DebugPhantomAgent {
                 artifact_format: "json".to_string(),
             },
         ];
-        
+
         Ok(artifacts)
     }
 }
@@ -2963,7 +2984,10 @@ mod tests {
                 bug_description: "Application crashes when processing null data".to_string(),
                 error_message: Some("NullPointerException".to_string()),
                 stack_trace: Some("at main.rs:123".to_string()),
-                reproduction_steps: vec!["1. Start application".to_string(), "2. Process null data".to_string()],
+                reproduction_steps: vec![
+                    "1. Start application".to_string(),
+                    "2. Process null data".to_string(),
+                ],
                 environment_information: EnvironmentInformation {
                     operating_system: "Linux".to_string(),
                     architecture: "x86_64".to_string(),
@@ -3061,9 +3085,12 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
-        assert!(!output.root_cause_analysis_results.identified_root_causes.is_empty());
+        assert!(!output
+            .root_cause_analysis_results
+            .identified_root_causes
+            .is_empty());
         assert!(!output.bug_localization_results.localized_bugs.is_empty());
         assert!(!output.fix_recommendations.is_empty());
         assert!(!output.analysis_report.detailed_findings.is_empty());
@@ -3077,8 +3104,11 @@ mod tests {
             ..Default::default()
         };
         let agent = DebugPhantomAgent::new(config);
-        
-        assert!(matches!(agent.config.debugging_strategy, DebuggingStrategy::HypothesisDrivenDebugging));
+
+        assert!(matches!(
+            agent.config.debugging_strategy,
+            DebuggingStrategy::HypothesisDrivenDebugging
+        ));
     }
 
     #[test]
@@ -3088,7 +3118,10 @@ mod tests {
             ..Default::default()
         };
         let agent = DebugPhantomAgent::new(config);
-        
-        assert!(matches!(agent.config.analysis_depth, AnalysisDepth::Comprehensive));
+
+        assert!(matches!(
+            agent.config.analysis_depth,
+            AnalysisDepth::Comprehensive
+        ));
     }
 }

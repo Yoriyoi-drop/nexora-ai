@@ -28,7 +28,10 @@ fn test_engine_rejects_uninitialized() {
     let engine = InferenceEngine::new(InferenceConfig::default());
     let request = nexora_inference::InferenceRequest::new("hello".to_string());
     let result = rt.block_on(engine.submit_request(request));
-    assert!(result.is_err(), "Uninitialized engine should reject requests");
+    assert!(
+        result.is_err(),
+        "Uninitialized engine should reject requests"
+    );
     let err = result.unwrap_err();
     let msg = err.to_string();
     assert!(

@@ -328,7 +328,8 @@ impl CipherCapabilities {
     pub fn update_capability(&mut self, domain: CapabilityDomain, performance_score: f32) {
         tracing::info!(
             "Updating capability {:?} with score: {}",
-            domain, performance_score
+            domain,
+            performance_score
         );
     }
 

@@ -42,7 +42,8 @@ fn test_tokenizer() -> BpeTokenizer {
         min_frequency: 1,
         ..Default::default()
     });
-    tok.train("hello world test inference data model tokenizer golden path e2e").unwrap();
+    tok.train("hello world test inference data model tokenizer golden path e2e")
+        .unwrap();
     tok
 }
 
@@ -78,11 +79,23 @@ async fn test_golden_path_non_streaming() {
         .expect("timeout waiting for inference response")
         .expect("response channel closed without message");
 
-    assert!(response.total_tokens <= 10, "response should have at most 10 tokens");
-    assert!(response.total_tokens > 0, "response should have at least 1 token");
-    assert!(response.finish_reason == nexora_inference::FinishReason::MaxTokens, "should finish cleanly");
     assert!(
-        response.tokens.iter().all(|t| (t.token_id as usize) < test_model().config.vocab_size),
+        response.total_tokens <= 10,
+        "response should have at most 10 tokens"
+    );
+    assert!(
+        response.total_tokens > 0,
+        "response should have at least 1 token"
+    );
+    assert!(
+        response.finish_reason == nexora_inference::FinishReason::MaxTokens,
+        "should finish cleanly"
+    );
+    assert!(
+        response
+            .tokens
+            .iter()
+            .all(|t| (t.token_id as usize) < test_model().config.vocab_size),
         "all token IDs should be within vocab_size"
     );
 
@@ -111,8 +124,14 @@ async fn test_golden_path_streaming() {
         tokens.push(token);
     }
 
-    assert!(!tokens.is_empty(), "streaming should produce at least 1 token");
-    assert!(tokens.len() <= 5, "streaming should produce at most 5 tokens");
+    assert!(
+        !tokens.is_empty(),
+        "streaming should produce at least 1 token"
+    );
+    assert!(
+        tokens.len() <= 5,
+        "streaming should produce at most 5 tokens"
+    );
 
     let _all_text: String = tokens.iter().map(|t| t.token_text.as_ref()).collect();
     let vocab_size = test_model().config.vocab_size;
@@ -150,8 +169,14 @@ async fn test_forward_then_sample_manual() {
         }
     }
 
-    assert!(!generated.is_empty(), "manual loop should generate at least 1 token");
-    assert!(generated.len() <= 10, "manual loop should generate at most 10 tokens");
+    assert!(
+        !generated.is_empty(),
+        "manual loop should generate at least 1 token"
+    );
+    assert!(
+        generated.len() <= 10,
+        "manual loop should generate at most 10 tokens"
+    );
     assert!(
         generated.iter().all(|&t| (t as usize) < 64),
         "all generated token IDs should be within vocab_size (64)"

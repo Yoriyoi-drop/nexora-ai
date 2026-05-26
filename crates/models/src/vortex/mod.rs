@@ -333,7 +333,10 @@ pub struct VortexArchitecture {
 
 impl VortexArchitecture {
     pub fn new() -> Self {
-        Self { initialized: false, config: None }
+        Self {
+            initialized: false,
+            config: None,
+        }
     }
 
     pub async fn initialize(&mut self) -> NxrModelResult<()> {
@@ -508,7 +511,9 @@ impl NxrVortexModel {
                 ..Default::default()
             }),
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -571,13 +576,20 @@ impl NxrVortexModel {
 
 const VORTEX_SYSTEM_PROMPT: &str = "You are NXR-VORTEX (Variable Optimization Recursive Text & Expert eXchange) [NXR-02 APEX], a code generation and software engineering specialist. Capabilities: code synthesis, debugging, architecture analysis, code review, test generation, and optimization across all programming languages. Provide detailed technical responses with code examples.";
 
-fn augment_vortex_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_vortex_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", VORTEX_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", VORTEX_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

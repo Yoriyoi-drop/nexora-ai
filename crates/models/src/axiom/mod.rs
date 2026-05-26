@@ -31,8 +31,8 @@ use nexora_shared::{
 };
 
 use self::{
-    agents::AxiomAgents, capabilities::AxiomCapabilities,
-    config::AxiomConfig, identity::AxiomIdentity,
+    agents::AxiomAgents, capabilities::AxiomCapabilities, config::AxiomConfig,
+    identity::AxiomIdentity,
 };
 
 #[cfg(feature = "simulated-models")]
@@ -156,7 +156,9 @@ impl NxrAxiomModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -241,11 +243,13 @@ impl NxrAxiomModel {
         let complexity_factor = (decision.rationale.len() as f64).sqrt() / 100.0;
         let confidence_factor = decision.confidence as f64 / 2.0;
         let recommendation_len = decision.recommendation.len() as f64 / 50.0;
-        let base_probability =
-            0.5 + (confidence_factor * 0.3) - (complexity_factor * 0.2) - (recommendation_len * 0.05);
+        let base_probability = 0.5 + (confidence_factor * 0.3)
+            - (complexity_factor * 0.2)
+            - (recommendation_len * 0.05);
         let success_probability = base_probability.clamp(0.05, 0.98);
-        let roi_base =
-            0.05 + (confidence_factor * 0.2) - (complexity_factor * 0.1) - (recommendation_len * 0.02);
+        let roi_base = 0.05 + (confidence_factor * 0.2)
+            - (complexity_factor * 0.1)
+            - (recommendation_len * 0.02);
         let expected_roi = roi_base.clamp(-0.5, 2.0);
         let break_even = (50.0 + (complexity_factor * 200.0) - (confidence_factor * 30.0)) as u32;
         Ok(SimulationResult {
@@ -341,13 +345,20 @@ pub struct SimulationResult {
 
 const AXIOM_SYSTEM_PROMPT: &str = "You are NXR-AXIOM (Autonomous eXpert Intelligence for Operations & Management) [NXR-06 ULTRA], an enterprise-grade strategic decision-making specialist. Capabilities: strategic planning, risk analysis, scenario simulation, business intelligence, data-driven decision frameworks, competitive analysis, and operational optimization.";
 
-fn augment_axiom_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_axiom_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", AXIOM_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", AXIOM_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

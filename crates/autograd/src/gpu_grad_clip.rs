@@ -72,7 +72,8 @@ impl GpuContext {
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let cfg: [u32; 4] = [0, f32::to_bits(max_norm), 0, 0];
-        self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
         for (i, g) in grad_tensors.iter().enumerate() {
             let numel = g.numel() as u32;
@@ -148,7 +149,9 @@ impl GpuContext {
     /// GPU-native — tidak ada CPU readback intermediate.
     pub fn reduce_sum_batch(&self, tensors: &[GpuTensor]) -> Result<GpuTensor, GpuError> {
         if tensors.is_empty() {
-            return Err(GpuError::Unsupported("reduce_sum_batch: empty batch".into()));
+            return Err(GpuError::Unsupported(
+                "reduce_sum_batch: empty batch".into(),
+            ));
         }
         if tensors.len() == 1 {
             return Ok(tensors[0].clone());

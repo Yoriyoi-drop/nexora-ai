@@ -146,9 +146,9 @@ impl CheckpointManager {
         self.last_save_step = meta.step;
         self.last_save_time = std::time::Instant::now();
 
-        trainer.sync_weights().map_err(|e| {
-            anyhow::anyhow!("Failed to sync weights before save: {}", e)
-        })?;
+        trainer
+            .sync_weights()
+            .map_err(|e| anyhow::anyhow!("Failed to sync weights before save: {}", e))?;
 
         let step_path = self
             .output_base
@@ -172,9 +172,9 @@ impl CheckpointManager {
     fn save_best(&mut self, trainer: &mut Trainer, meta: &CkptMeta, val_loss: f64) -> Result<()> {
         self.best_val_loss = Some(val_loss);
 
-        trainer.sync_weights().map_err(|e| {
-            anyhow::anyhow!("Failed to sync weights before best save: {}", e)
-        })?;
+        trainer
+            .sync_weights()
+            .map_err(|e| anyhow::anyhow!("Failed to sync weights before best save: {}", e))?;
 
         let best_path = self.output_base.with_extension("best.safetensors");
         let best_meta = serde_json::json!({
@@ -192,9 +192,9 @@ impl CheckpointManager {
     }
 
     fn save_final(&mut self, trainer: &mut Trainer, meta: &CkptMeta) -> Result<()> {
-        trainer.sync_weights().map_err(|e| {
-            anyhow::anyhow!("Failed to sync weights before final save: {}", e)
-        })?;
+        trainer
+            .sync_weights()
+            .map_err(|e| anyhow::anyhow!("Failed to sync weights before final save: {}", e))?;
 
         let final_path = self.output_base.with_extension("safetensors");
         let final_meta = serde_json::json!({
@@ -490,7 +490,13 @@ impl crate::cli::commands::Cli {
                     nexora_datastream::arrow_reader::read_arrow_file(&path, source.clone())?;
                 let file_elapsed = file_start.elapsed();
                 let file_mb = file_size as f64 / 1_048_576.0;
-                info!("  📄 {}: {} records, {:.2} MB, loaded in {:?}", path.display(), samples.len(), file_mb, file_elapsed);
+                info!(
+                    "  📄 {}: {} records, {:.2} MB, loaded in {:?}",
+                    path.display(),
+                    samples.len(),
+                    file_mb,
+                    file_elapsed
+                );
                 for s in &samples {
                     total_chars += s.text.len();
                     corpus.push_str(&s.text);
@@ -512,7 +518,11 @@ impl crate::cli::commands::Cli {
             );
             info!(
                 "  📏 Avg chars/record: {:.0}, est. tokens: ~{}k (seq_len={})",
-                if count > 0 { total_chars as f64 / count as f64 } else { 0.0 },
+                if count > 0 {
+                    total_chars as f64 / count as f64
+                } else {
+                    0.0
+                },
                 (total_chars / 4) / 1000,
                 seq_length
             );
@@ -541,7 +551,18 @@ impl crate::cli::commands::Cli {
             let load_elapsed = load_start.elapsed();
             let count = arrow_samples.len();
             let mut total_chars: usize = 0;
-            info!("  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)", data.display(), count, file_mb, load_elapsed, if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 });
+            info!(
+                "  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)",
+                data.display(),
+                count,
+                file_mb,
+                load_elapsed,
+                if load_elapsed.as_secs_f64() > 0.0 {
+                    file_mb / load_elapsed.as_secs_f64()
+                } else {
+                    0.0
+                }
+            );
             let corpus: String = arrow_samples
                 .iter()
                 .map(|s| {
@@ -583,15 +604,24 @@ impl crate::cli::commands::Cli {
             let load_elapsed = load_start.elapsed();
             let total_chars = raw_text.len();
 
-            info!("  📄 File: {:.2} MB, {} baris non-kosong", file_mb, line_count);
-            info!("  📊 {:.1}M chars, est. tokens: ~{}k (seq_len={})",
+            info!(
+                "  📄 File: {:.2} MB, {} baris non-kosong",
+                file_mb, line_count
+            );
+            info!(
+                "  📊 {:.1}M chars, est. tokens: ~{}k (seq_len={})",
                 total_chars as f64 / 1_000_000.0,
                 (total_chars / 4) / 1000,
                 seq_length
             );
-            info!("  ⏱ Load time: {:?} ({:.0} MB/s)",
+            info!(
+                "  ⏱ Load time: {:?} ({:.0} MB/s)",
                 load_elapsed,
-                if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 }
+                if load_elapsed.as_secs_f64() > 0.0 {
+                    file_mb / load_elapsed.as_secs_f64()
+                } else {
+                    0.0
+                }
             );
             info!(
                 "  🧠 RAM: sebelum load ~{:.1} GB",
@@ -624,15 +654,11 @@ impl crate::cli::commands::Cli {
             "{}",
             bold!("    └──────────────────────────────────────────────────────────────────┘")
         );
-        info!(
-            "  🏗️  Filter config:"
-        );
+        info!("  🏗️  Filter config:");
         info!(
             "     ├─ LengthFilter:   min_chars=10, min_words=3, min_avg_word_len=0, max_avg_word_len=0"
         );
-        info!(
-            "     ├─ QualityFilter:  min_quality_score=0.1, min_unique_word_ratio=0.1"
-        );
+        info!("     ├─ QualityFilter:  min_quality_score=0.1, min_unique_word_ratio=0.1");
         info!(
             "     └─ DedupFilter:    ngram=13, hash_count=13, similarity_threshold=0.5, max_seen=50M"
         );
@@ -682,7 +708,10 @@ impl crate::cli::commands::Cli {
             let result = graph.execute(s, cancel_rx).await;
             let filter_item_elapsed = filter_item_start.elapsed();
             drop(cancel_tx);
-            if let ExecutionResult::Rejected { ref filter_name, .. } = &result {
+            if let ExecutionResult::Rejected {
+                ref filter_name, ..
+            } = &result
+            {
                 *filter_rejected.entry(filter_name.clone()).or_insert(0) += 1;
                 *filter_timing.entry(filter_name.clone()).or_default() += filter_item_elapsed;
             }
@@ -721,7 +750,11 @@ impl crate::cli::commands::Cli {
         info!(
             "  📏 Total chars after filter: {:.1}M (avg {:.0} chars/sample)",
             accepted_chars as f64 / 1_000_000.0,
-            if samples.len() > 0 { accepted_chars as f64 / samples.len() as f64 } else { 0.0 }
+            if samples.len() > 0 {
+                accepted_chars as f64 / samples.len() as f64
+            } else {
+                0.0
+            }
         );
 
         if samples.is_empty() {
@@ -820,12 +853,11 @@ impl crate::cli::commands::Cli {
             warmup_steps: (max_steps / 20).max(1),
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
-                        use_gpu: gpu,
+            use_gpu: gpu,
             num_replicas: 1,
         };
 
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-
 
         let stop_flag_c = stop_flag.clone();
         let ctrlc_handle = tokio::spawn(async move {
@@ -1074,22 +1106,29 @@ impl crate::cli::commands::Cli {
         let manifest = DatasetManifest::from_path(&data.join("manifest.json"))
             .map_err(|e| anyhow::anyhow!("Gagal load manifest: {}", e))?;
         info!("  📋 Dataset:  {} v{}", manifest.name, manifest.version);
-        info!("  📁 Format:    {}, Compression: {:?}", manifest.format, manifest.compression);
+        info!(
+            "  📁 Format:    {}, Compression: {:?}",
+            manifest.format, manifest.compression
+        );
         info!("  📦 Samples:   {} total", manifest.total_samples);
         info!("  🗂️  Shards:    {} total", manifest.total_shards);
         // Compute total shard sizes
         let total_shard_bytes: u64 = manifest.shards.iter().map(|s| s.size_bytes).sum();
-        info!("  💾 Size:      {:.2} GB ({} shards)",
+        info!(
+            "  💾 Size:      {:.2} GB ({} shards)",
             total_shard_bytes as f64 / 1_073_741_824.0,
             manifest.shards.len()
         );
         // Show per-split breakdown
         {
-            let mut split_names: Vec<String> = manifest.shards.iter().map(|s| s.split.clone()).collect();
+            let mut split_names: Vec<String> =
+                manifest.shards.iter().map(|s| s.split.clone()).collect();
             split_names.sort();
             split_names.dedup();
             for split_name in &split_names {
-                let split_samples: u64 = manifest.shards.iter()
+                let split_samples: u64 = manifest
+                    .shards
+                    .iter()
                     .filter(|s| s.split == *split_name)
                     .map(|s| s.samples)
                     .sum();
@@ -1146,26 +1185,42 @@ impl crate::cli::commands::Cli {
                 let load_tok_start = std::time::Instant::now();
                 let loaded = BpeTokenizer::load(tok_path)
                     .map_err(|e| anyhow::anyhow!("Gagal load tokenizer: {}", e))?;
-                info!("  ✅ Tokenizer loaded: vocab={}, time={:?}", loaded.vocab_size(), load_tok_start.elapsed());
+                info!(
+                    "  ✅ Tokenizer loaded: vocab={}, time={:?}",
+                    loaded.vocab_size(),
+                    load_tok_start.elapsed()
+                );
                 Arc::new(RwLock::new(loaded))
             } else {
                 info!("  🔧 Train new tokenizer ke {:?}", tok_path);
-                info!("     Sampling corpus: {} chars (from first 5 shards)", raw_corpus.len());
+                info!(
+                    "     Sampling corpus: {} chars (from first 5 shards)",
+                    raw_corpus.len()
+                );
                 let train_tok_start = std::time::Instant::now();
                 let mut tok = BpeTokenizer::default();
                 // Train on a sample of data
                 tok.train(&raw_corpus)
                     .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
                 let tok_elapsed = train_tok_start.elapsed();
-                info!("  ✅ Tokenizer trained: vocab={}, time={:?} ({:.0} chars/s)",
+                info!(
+                    "  ✅ Tokenizer trained: vocab={}, time={:?} ({:.0} chars/s)",
                     tok.vocab_size(),
                     tok_elapsed,
-                    if tok_elapsed.as_secs_f64() > 0.0 { raw_corpus.len() as f64 / tok_elapsed.as_secs_f64() } else { 0.0 }
+                    if tok_elapsed.as_secs_f64() > 0.0 {
+                        raw_corpus.len() as f64 / tok_elapsed.as_secs_f64()
+                    } else {
+                        0.0
+                    }
                 );
                 let save_tok_start = std::time::Instant::now();
                 tok.save(tok_path)
                     .map_err(|e| anyhow::anyhow!("Gagal save tokenizer: {}", e))?;
-                info!("  💾 Tokenizer saved to {:?} in {:?}", tok_path, save_tok_start.elapsed());
+                info!(
+                    "  💾 Tokenizer saved to {:?} in {:?}",
+                    tok_path,
+                    save_tok_start.elapsed()
+                );
                 Arc::new(RwLock::new(tok))
             }
         } else {
@@ -1179,8 +1234,12 @@ impl crate::cli::commands::Cli {
             .read()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?
             .vocab_size();
-        info!("  📐 Vocab size final: {} (embeddings: {} x {} = {} params)",
-            vocab_size, vocab_size, seq_length, vocab_size * seq_length
+        info!(
+            "  📐 Vocab size final: {} (embeddings: {} x {} = {} params)",
+            vocab_size,
+            vocab_size,
+            seq_length,
+            vocab_size * seq_length
         );
         info!("  ⏱  Total tokenizer phase: {:?}", tok_start.elapsed());
 
@@ -1740,52 +1799,21 @@ fn train_nxr_model_pre_tokenized(
         bold!("    └──────────────────────────────────────────────────────────────────┘")
     );
 
-    info!(
-        "    🏗️  {} — Transformer Architecture:",
-        model_name
-    );
-    info!(
-        "     ├─ Layers:        {}",
-        tf_config.num_layers
-    );
-    info!(
-        "     ├─ Hidden dim:    {}",
-        tf_config.hidden_size
-    );
+    info!("    🏗️  {} — Transformer Architecture:", model_name);
+    info!("     ├─ Layers:        {}", tf_config.num_layers);
+    info!("     ├─ Hidden dim:    {}", tf_config.hidden_size);
     info!(
         "     ├─ Attention heads: {}  (Q {})  (KV {})",
-        tf_config.num_heads,
-        tf_config.num_heads,
-        tf_config.num_kv_heads
+        tf_config.num_heads, tf_config.num_heads, tf_config.num_kv_heads
     );
-    info!(
-        "     ├─ Intermediate:  {}",
-        tf_config.intermediate_size
-    );
-    info!(
-        "     ├─ Max seq len:   {}",
-        tf_config.max_seq_len
-    );
-    info!(
-        "     ├─ Vocab size:    {}",
-        tf_config.vocab_size
-    );
-    info!(
-        "     ├─ RoPE theta:    {:.1}",
-        tf_config.rope_theta
-    );
-    info!(
-        "     ├─ Norm eps:      {:.0e}",
-        tf_config.norm_eps
-    );
-    info!(
-        "     └─ Use cache:     {}",
-        tf_config.use_cache
-    );
+    info!("     ├─ Intermediate:  {}", tf_config.intermediate_size);
+    info!("     ├─ Max seq len:   {}", tf_config.max_seq_len);
+    info!("     ├─ Vocab size:    {}", tf_config.vocab_size);
+    info!("     ├─ RoPE theta:    {:.1}", tf_config.rope_theta);
+    info!("     ├─ Norm eps:      {:.0e}", tf_config.norm_eps);
+    info!("     └─ Use cache:     {}", tf_config.use_cache);
 
-    info!(
-        "    🎯 Training Config:"
-    );
+    info!("    🎯 Training Config:");
     info!(
         "     ├─ Optimizer:       AdamW (lr={:.2e}, wd={})",
         trainer_config.learning_rate, trainer_config.weight_decay
@@ -1794,7 +1822,9 @@ fn train_nxr_model_pre_tokenized(
         "     ├─ LR schedule:     linear warmup ({}) → cosine decay to 0 ({:?} total)",
         trainer_config.warmup_steps,
         if trainer_config.max_steps > 0 {
-            let remain = trainer_config.max_steps.saturating_sub(trainer_config.warmup_steps);
+            let remain = trainer_config
+                .max_steps
+                .saturating_sub(trainer_config.warmup_steps);
             format!("{} steps cos", remain)
         } else {
             "N/A".into()
@@ -1806,24 +1836,25 @@ fn train_nxr_model_pre_tokenized(
     );
     info!(
         "     ├─ Max grad norm:   {}",
-        trainer_config.max_grad_norm.map(|g| format!("{:.1}", g)).unwrap_or_else(|| "disabled".into())
+        trainer_config
+            .max_grad_norm
+            .map(|g| format!("{:.1}", g))
+            .unwrap_or_else(|| "disabled".into())
     );
     info!(
         "     ├─ Max steps:       {}  (~{} epochs on {} train seqs)",
         trainer_config.max_steps,
         if total_train > 0 {
             trainer_config.max_steps * trainer_config.batch_size / total_train
-        } else { 0 },
+        } else {
+            0
+        },
         total_train
     );
-    info!(
-        "     ├─ Seq length:      {}",
-        trainer_config.seq_length
-    );
+    info!("     ├─ Seq length:      {}", trainer_config.seq_length);
     info!(
         "     ├─ Validation:      every {} steps ({} val sequences)",
-        trainer_config.val_every_steps,
-        total_val
+        trainer_config.val_every_steps, total_val
     );
     info!(
         "     ├─ Early stop:      patience={}",
@@ -1835,7 +1866,11 @@ fn train_nxr_model_pre_tokenized(
     );
     info!(
         "     └─ Backend:         {}",
-        if trainer_config.use_gpu { "GPU (wgpu)" } else { "CPU" }
+        if trainer_config.use_gpu {
+            "GPU (wgpu)"
+        } else {
+            "CPU"
+        }
     );
 
     let mut trainer = {
@@ -1855,10 +1890,7 @@ fn train_nxr_model_pre_tokenized(
         let mut trainer = Trainer::with_model(model, trainer_config);
         let prepare_start = std::time::Instant::now();
         trainer.prepare();
-        info!(
-            "    ⏱  Optimizer init: {:?}",
-            prepare_start.elapsed()
-        );
+        info!("    ⏱  Optimizer init: {:?}", prepare_start.elapsed());
         trainer.try_restore_optimizer();
         trainer
     };

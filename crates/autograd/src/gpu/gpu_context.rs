@@ -5,9 +5,8 @@ use std::time::Instant;
 
 use crate::gpu_caps::GpuCapabilities;
 
+use super::gpu_tensor::{readback_with_timeout, GpuDtype, GpuTensor};
 use super::gpu_types::*;
-use super::gpu_tensor::{GpuDtype, GpuTensor, readback_with_timeout};
-
 
 impl GpuContext {
     // ── Memory pool helpers ─────────────────────────────────────────────────────
@@ -20,7 +19,10 @@ impl GpuContext {
     ) -> crate::gpu_memory::PooledBuffer {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
+            .unwrap_or_else(|e| {
+                tracing::warn!("Lock poisoned: {}", e);
+                e.into_inner()
+            })
             .alloc(size, usage)
     }
 
@@ -34,7 +36,10 @@ impl GpuContext {
     pub fn dealloc_buffer(&self, buf: crate::gpu_memory::PooledBuffer) {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
+            .unwrap_or_else(|e| {
+                tracing::warn!("Lock poisoned: {}", e);
+                e.into_inner()
+            })
             .dealloc(buf);
     }
 
@@ -42,7 +47,10 @@ impl GpuContext {
     pub fn memory_stats(&self) -> crate::gpu_memory::PoolStats {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
+            .unwrap_or_else(|e| {
+                tracing::warn!("Lock poisoned: {}", e);
+                e.into_inner()
+            })
             .stats()
             .clone()
     }
@@ -51,7 +59,10 @@ impl GpuContext {
     pub fn clear_memory_pool(&self) {
         self.memory_pool
             .lock()
-            .unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() })
+            .unwrap_or_else(|e| {
+                tracing::warn!("Lock poisoned: {}", e);
+                e.into_inner()
+            })
             .clear();
     }
 
@@ -97,18 +108,21 @@ impl GpuContext {
 
             let buffer_slice = readback_buffer.slice(..);
             buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-            self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(Duration::from_secs(5)),
-            })
-            .map_err(|_| GpuError::Timeout("GPU poll timed out after 5s".into()))?;
+            self.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(5)),
+                })
+                .map_err(|_| GpuError::Timeout("GPU poll timed out after 5s".into()))?;
 
             let result = self.read_timestamps_from_buffer(&buffer_slice, &readback_buffer);
             readback_buffer.destroy();
 
             let gpu_duration = result.map(|(start, end)| {
                 let timestamp_period = self.queue.get_timestamp_period();
-                std::time::Duration::from_secs_f64((end - start) / 1_000_000_000.0 * timestamp_period as f64)
+                std::time::Duration::from_secs_f64(
+                    (end - start) / 1_000_000_000.0 * timestamp_period as f64,
+                )
             });
 
             Ok(gpu_duration)
@@ -167,7 +181,12 @@ impl GpuContext {
         for entry in entries {
             entry.binding.hash(&mut hasher);
             entry.visibility.hash(&mut hasher);
-            if let wgpu::BindingType::Buffer { ty, has_dynamic_offset, min_binding_size } = entry.ty {
+            if let wgpu::BindingType::Buffer {
+                ty,
+                has_dynamic_offset,
+                min_binding_size,
+            } = entry.ty
+            {
                 match ty {
                     wgpu::BufferBindingType::Uniform => {}
                     wgpu::BufferBindingType::Storage { read_only } => {
@@ -375,17 +394,21 @@ impl GpuContext {
         let cached_data = disk_cache.load(cache_key);
         let wgpu_cache = if device.features().contains(wgpu::Features::PIPELINE_CACHE) {
             if let Some(ref data) = cached_data {
-                Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                    label: Some("nexora_persistent_cache"),
-                    data: Some(data),
-                    fallback: false,
-                }) })
+                Some(unsafe {
+                    device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                        label: Some("nexora_persistent_cache"),
+                        data: Some(data),
+                        fallback: false,
+                    })
+                })
             } else {
-                Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                    label: Some("nexora_persistent_cache"),
-                    data: None,
-                    fallback: false,
-                }) })
+                Some(unsafe {
+                    device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                        label: Some("nexora_persistent_cache"),
+                        data: None,
+                        fallback: false,
+                    })
+                })
             }
         } else {
             None
@@ -394,21 +417,19 @@ impl GpuContext {
         // Create larger query set for ring buffer (e.g., 1000 timestamp pairs = 2000 queries)
         let query_pool_size: usize = 1000;
         let profiling_query_set = if device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            Some(
-                device.create_query_set(&wgpu::QuerySetDescriptor {
-                    label: Some("profiling_query_set_ring_buffer"),
-                    count: (query_pool_size * 2) as u32, // 2 queries per operation (start, end)
-                    ty: wgpu::QueryType::Timestamp,
-                }),
-            )
+            Some(device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("profiling_query_set_ring_buffer"),
+                count: (query_pool_size * 2) as u32, // 2 queries per operation (start, end)
+                ty: wgpu::QueryType::Timestamp,
+            }))
         } else {
             None
         };
 
         let auto_flush_ops = if caps.device_type == wgpu::DeviceType::DiscreteGpu {
-            64  // NVIDIA/AMD: batch more before flush
+            64 // NVIDIA/AMD: batch more before flush
         } else {
-            16  // Integrated: avoid TDR
+            16 // Integrated: avoid TDR
         };
 
         let enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -489,8 +510,7 @@ impl GpuContext {
         self.compile_multinomial_sample()?;
         // Mixed precision converters
         use crate::gpu_mixed::{
-            compile_f32_to_f16_packed_pipeline,
-            compile_f16_packed_to_f32_pipeline,
+            compile_f16_packed_to_f32_pipeline, compile_f32_to_f16_packed_pipeline,
         };
         compile_f32_to_f16_packed_pipeline(self)?;
         compile_f16_packed_to_f32_pipeline(self)?;
@@ -571,15 +591,25 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [numel, num_replicas, 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("gradient_allreduce_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: grad_buffers.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: grad_buffers.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -858,10 +888,18 @@ impl GpuContext {
         let mut work_buf = {
             let pooled = self.alloc_buffer(
                 (numel * 4) as u64,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
             );
             self.with_encoder(|enc| {
-                enc.copy_buffer_to_buffer(logits.buffer(), 0, &pooled.buffer, 0, (numel * 4) as u64);
+                enc.copy_buffer_to_buffer(
+                    logits.buffer(),
+                    0,
+                    &pooled.buffer,
+                    0,
+                    (numel * 4) as u64,
+                );
             });
             pooled.buffer
         };
@@ -872,15 +910,30 @@ impl GpuContext {
                 .pipelines
                 .get("temperature_scale")
                 .ok_or_else(|| GpuError::Pipeline("temperature_scale not compiled".into()))?;
-            let temp_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-            let temp_cfg: [u32; 4] = [f32::to_bits(temperature), u32::try_from(numel).unwrap_or(u32::MAX), 0, 0];
-            self.queue.write_buffer(&temp_buf.buffer, 0, bytemuck::cast_slice(&temp_cfg));
+            let temp_buf = self.alloc_buffer(
+                16,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
+            let temp_cfg: [u32; 4] = [
+                f32::to_bits(temperature),
+                u32::try_from(numel).unwrap_or(u32::MAX),
+                0,
+                0,
+            ];
+            self.queue
+                .write_buffer(&temp_buf.buffer, 0, bytemuck::cast_slice(&temp_cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("temp_scale_bg"),
                 layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: work_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: temp_buf.buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: work_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: temp_buf.buffer.as_entire_binding(),
+                    },
                 ],
             });
             let workgroups = u32::try_from(numel).unwrap_or(u32::MAX);
@@ -888,15 +941,21 @@ impl GpuContext {
         }
 
         // Step 2: softmax (via ctx.softmax — uses reusable encoder internally)
-        let logits_gpu = GpuTensor { shape: shape.clone(), buffer: work_buf, dtype: GpuDtype::F32, device_id: 0 }
-        ;
+        let logits_gpu = GpuTensor {
+            shape: shape.clone(),
+            buffer: work_buf,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
         let probs = self.softmax(&logits_gpu)?;
 
         // Copy probs → fresh work buffer for top-k mask (avoids mutating softmax output)
         let mut masked_buf = {
             let pooled = self.alloc_buffer(
                 (numel * 4) as u64,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
             );
             self.with_encoder(|enc| {
                 enc.copy_buffer_to_buffer(probs.buffer(), 0, &pooled.buffer, 0, (numel * 4) as u64);
@@ -910,23 +969,41 @@ impl GpuContext {
                 .pipelines
                 .get("top_k_mask")
                 .ok_or_else(|| GpuError::Pipeline("top_k_mask not compiled".into()))?;
-            let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+            let cfg_buf = self.alloc_buffer(
+                16,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
             let cfg: [u32; 4] = [vocab, top_k, 0, 0];
-            self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
+            self.queue
+                .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("topk_bg"),
                 layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: masked_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: masked_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: cfg_buf.buffer.as_entire_binding(),
+                    },
                 ],
             });
             self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
-            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32, device_id: 0 }
-        
+            GpuTensor {
+                shape: shape.clone(),
+                buffer: masked_buf,
+                dtype: GpuDtype::F32,
+                device_id: 0,
+            }
         } else {
-            GpuTensor { shape: shape.clone(), buffer: masked_buf, dtype: GpuDtype::F32, device_id: 0 }
-        
+            GpuTensor {
+                shape: shape.clone(),
+                buffer: masked_buf,
+                dtype: GpuDtype::F32,
+                device_id: 0,
+            }
         };
 
         // Step 3b: top-p mask (in-place on masked buffer, after top-k)
@@ -935,15 +1012,25 @@ impl GpuContext {
                 .pipelines
                 .get("top_p_mask")
                 .ok_or_else(|| GpuError::Pipeline("top_p_mask not compiled".into()))?;
-            let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+            let cfg_buf = self.alloc_buffer(
+                16,
+                wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            );
             let cfg: [u32; 4] = [vocab, f32::to_bits(top_p), 0, 0];
-            self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
+            self.queue
+                .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("topp_bg"),
                 layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: masked.buffer().as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: masked.buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: cfg_buf.buffer.as_entire_binding(),
+                    },
                 ],
             });
             self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
@@ -958,22 +1045,39 @@ impl GpuContext {
             (batch * 4) as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         );
-        let cfg_buf = self.alloc_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let cfg_buf = self.alloc_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let cfg: [u32; 4] = [vocab, seed as u32, (seed >> 32) as u32, 0];
-        self.queue.write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sample_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: masked.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: out.buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: masked.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.buffer.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
 
-        Ok(GpuTensor { shape: vec![batch], buffer: out.buffer, dtype: GpuDtype::F32, device_id: 0 }
-        )
+        Ok(GpuTensor {
+            shape: vec![batch],
+            buffer: out.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
     }
 
     /// GPU sampling from F16 input: converts F16→F32 on GPU, then runs standard
@@ -1002,7 +1106,12 @@ impl GpuContext {
         seed: u64,
     ) -> Result<GpuTensor, GpuError> {
         if batch_logits.is_empty() {
-            return Ok(GpuTensor { shape: vec![0], buffer: self.alloc_buffer(0, wgpu::BufferUsages::COPY_SRC).buffer, dtype: GpuDtype::F32, device_id: 0 });
+            return Ok(GpuTensor {
+                shape: vec![0],
+                buffer: self.alloc_buffer(0, wgpu::BufferUsages::COPY_SRC).buffer,
+                dtype: GpuDtype::F32,
+                device_id: 0,
+            });
         }
         // Convert each F16 tensor to F32 on GPU
         let f32_tensors: Vec<GpuTensor> = batch_logits
@@ -1017,12 +1126,20 @@ impl GpuContext {
         // Allocate contiguous [B, vocab] F32 buffer
         let flat_buf = self.alloc_buffer(
             (total_elems * 4) as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         );
         self.with_encoder(|enc| {
             let mut offset: u64 = 0;
             for t in &f32_tensors {
-                enc.copy_buffer_to_buffer(t.buffer(), 0, &flat_buf.buffer, offset, (vocab * 4) as u64);
+                enc.copy_buffer_to_buffer(
+                    t.buffer(),
+                    0,
+                    &flat_buf.buffer,
+                    offset,
+                    (vocab * 4) as u64,
+                );
                 offset += (vocab * 4) as u64;
             }
         });
@@ -1060,16 +1177,21 @@ impl GpuContext {
     /// Flush the reusable encoder: submit all accumulated dispatches at once.
     /// Call this before any readback to ensure GPU has finished.
     pub fn flush(&self) {
-        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| {
+            tracing::warn!("Lock poisoned: {}", e);
+            e.into_inner()
+        });
         if let Some(enc) = guard.take() {
             self.queue.submit(Some(enc.finish()));
             *guard = Some(
-                self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("nexora_reusable_encoder"),
-                }),
+                self.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("nexora_reusable_encoder"),
+                    }),
             );
         }
-        self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+        self.ops_since_flush
+            .store(0, std::sync::atomic::Ordering::Release);
     }
 
     /// Sync GPU and CPU (blocking wait with 30s timeout).
@@ -1111,23 +1233,33 @@ impl GpuContext {
     where
         F: FnOnce(&mut wgpu::CommandEncoder) -> R,
     {
-        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
+        let mut guard = self.current_encoder.lock().unwrap_or_else(|e| {
+            tracing::warn!("Lock poisoned: {}", e);
+            e.into_inner()
+        });
         let enc = guard.get_or_insert_with(|| {
-            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("nexora_reusable_encoder"),
-            })
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("nexora_reusable_encoder"),
+                })
         });
         let result = f(enc);
 
         if self.batch_depth.load(std::sync::atomic::Ordering::Acquire) == 0 {
-            let ops = self.ops_since_flush.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+            let ops = self
+                .ops_since_flush
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+                + 1;
             if ops >= self.auto_flush_ops {
                 if let Some(enc_to_submit) = guard.take() {
                     self.queue.submit(Some(enc_to_submit.finish()));
-                    self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
-                    *guard = Some(self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("nexora_reusable_encoder"),
-                    }));
+                    self.ops_since_flush
+                        .store(0, std::sync::atomic::Ordering::Release);
+                    *guard = Some(self.device.create_command_encoder(
+                        &wgpu::CommandEncoderDescriptor {
+                            label: Some("nexora_reusable_encoder"),
+                        },
+                    ));
                 }
             }
         }
@@ -1137,13 +1269,16 @@ impl GpuContext {
     /// Begin batch mode: suppress auto-flush so all subsequent dispatches
     /// accumulate into the current encoder. Call end_batch_mode() to submit.
     pub fn begin_batch_mode(&self) {
-        self.batch_depth.fetch_add(1, std::sync::atomic::Ordering::Release);
+        self.batch_depth
+            .fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 
     /// End batch mode and flush accumulated dispatches.
     /// Safe to call nested — only the outermost decrement triggers flush.
     pub fn end_batch_mode(&self) {
-        let prev = self.batch_depth.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        let prev = self
+            .batch_depth
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         if prev == 1 {
             self.flush();
         }
@@ -1168,7 +1303,12 @@ impl GpuContext {
 
     /// Slice tensor GPU — mengambil sub-view [pos..pos+len] dari dimension 0
     /// GPU-side copy via buffer-to-buffer (no CPU round-trip).
-    pub fn slice_tensor(&self, tensor: &GpuTensor, pos: u32, len: u32) -> Result<GpuTensor, GpuError> {
+    pub fn slice_tensor(
+        &self,
+        tensor: &GpuTensor,
+        pos: u32,
+        len: u32,
+    ) -> Result<GpuTensor, GpuError> {
         let shape = tensor.shape();
         let dim0 = shape[0];
         let rest: usize = shape[1..].iter().product();
@@ -1186,7 +1326,9 @@ impl GpuContext {
 
         let pooled = self.alloc_buffer(
             byte_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         );
 
         self.with_encoder(|enc| {
@@ -1206,7 +1348,10 @@ impl GpuContext {
 
     /// Get next query index from ring buffer (wraps around at query_pool_size)
     fn next_query_index(&self) -> (u32, u32) {
-        let idx = self.query_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % self.query_pool_size;
+        let idx = self
+            .query_index
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            % self.query_pool_size;
         let start_idx = (idx * 2) as u32;
         let end_idx = (idx * 2 + 1) as u32;
         (start_idx, end_idx)
@@ -1241,7 +1386,10 @@ impl GpuContext {
             hash = hash.wrapping_mul(31).wrapping_add(h.finish());
         }
 
-        let mut cache = self.bind_group_cache_mutex.lock().unwrap_or_else(|e| { tracing::warn!("Lock poisoned: {}", e); e.into_inner() });
+        let mut cache = self.bind_group_cache_mutex.lock().unwrap_or_else(|e| {
+            tracing::warn!("Lock poisoned: {}", e);
+            e.into_inner()
+        });
         if let Some(cached) = cache.get(&hash) {
             return cached.clone();
         }
@@ -1335,7 +1483,9 @@ impl GpuContext {
             // Safe readback: on failure, fall through to CPU timing
             if readback_with_timeout(&self.device, &rx).is_ok() {
                 let period_ns = self.queue.get_timestamp_period() as f64;
-                if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
+                if let Some((start_ts, end_ts)) =
+                    self.read_timestamps_from_buffer(&slice, &readback_buffer)
+                {
                     let elapsed_ns = if end_ts >= start_ts {
                         (end_ts - start_ts) * period_ns
                     } else {
@@ -1382,10 +1532,14 @@ impl GpuContext {
 
         // Stage 3: GPU execute (using poll to wait for completion)
         let gpu_start = Instant::now();
-        if self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(Duration::from_secs(5)),
-        }).is_err() {
+        if self
+            .device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(5)),
+            })
+            .is_err()
+        {
             tracing::warn!("GPU poll timed out after 5s in dispatch_profiled_detailed");
         }
         timing.gpu_execute = gpu_start.elapsed();
@@ -1450,7 +1604,9 @@ impl GpuContext {
 
             // Safe readback with error fallback: fall through to CPU timing on failure
             if readback_with_timeout(&self.device, &rx).is_ok() {
-                if let Some((start_ts, end_ts)) = self.read_timestamps_from_buffer(&slice, &readback_buffer) {
+                if let Some((start_ts, end_ts)) =
+                    self.read_timestamps_from_buffer(&slice, &readback_buffer)
+                {
                     let period_ns = self.queue.get_timestamp_period() as f64;
                     let elapsed_ns = if end_ts >= start_ts {
                         (end_ts - start_ts) * period_ns
@@ -1523,10 +1679,14 @@ impl GpuContext {
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            if self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(Duration::from_secs(5)),
-            }).is_err() {
+            if self
+                .device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(5)),
+                })
+                .is_err()
+            {
                 tracing::warn!("GPU poll timed out after 5s in dispatch_multi_ops, falling through to polling loop");
             }
 
@@ -1594,9 +1754,7 @@ impl GpuContext {
         let b_shape = b.shape();
 
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch(
-                "Matmul requires 2D tensors".into(),
-            ));
+            return Err(GpuError::ShapeMismatch("Matmul requires 2D tensors".into()));
         }
 
         let m = a_shape[0];
@@ -1605,7 +1763,11 @@ impl GpuContext {
 
         if k != b_shape[0] {
             return Err(GpuError::ShapeMismatch(
-                format!("Matmul dimension mismatch: {}x{} @ {}x{}", m, k, b_shape[0], n).into(),
+                format!(
+                    "Matmul dimension mismatch: {}x{} @ {}x{}",
+                    m, k, b_shape[0], n
+                )
+                .into(),
             ));
         }
 
@@ -1686,9 +1848,7 @@ impl GpuContext {
         let b_shape = b.shape();
 
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch(
-                "Matmul requires 2D tensors".into(),
-            ));
+            return Err(GpuError::ShapeMismatch("Matmul requires 2D tensors".into()));
         }
 
         let m = a_shape[0];
@@ -1697,16 +1857,24 @@ impl GpuContext {
 
         if k != b_shape[0] {
             return Err(GpuError::ShapeMismatch(
-                format!("Matmul dimension mismatch: {}x{} @ {}x{}", m, k, b_shape[0], n_dim).into(),
+                format!(
+                    "Matmul dimension mismatch: {}x{} @ {}x{}",
+                    m, k, b_shape[0], n_dim
+                )
+                .into(),
             ));
         }
 
         // Use memory pool for output buffer instead of creating new buffer each time
-        let mut pool = self.memory_pool.lock()
+        let mut pool = self
+            .memory_pool
+            .lock()
             .map_err(|e| GpuError::LockError(e.to_string()))?;
         let out_buffer = pool.alloc(
             (m * n_dim * 4) as u64,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
         );
         drop(pool);
 
@@ -1778,16 +1946,15 @@ impl GpuContext {
         let b_shape = b.shape();
 
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch(
-                "Matmul requires 2D tensors".into(),
-            ));
+            return Err(GpuError::ShapeMismatch("Matmul requires 2D tensors".into()));
         }
 
         let max_dim = a_shape[0].max(a_shape[1]).max(b_shape[0]).max(b_shape[1]);
 
         // Use simple matmul for small matrices (fusion overhead dominates)
         if max_dim < 512 {
-            self.matmul(a, b).map(|tensor| (tensor, std::time::Duration::from_secs(0)))
+            self.matmul(a, b)
+                .map(|tensor| (tensor, std::time::Duration::from_secs(0)))
         } else {
             // Use matmul_with_timestamp for large matrices (fusion beneficial)
             self.matmul_with_timestamp(a, b)
@@ -1858,7 +2025,6 @@ impl GpuContext {
         )
     }
 
-
     pub fn matmul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let a_shape = a.shape();
         let b_shape = b.shape();
@@ -1872,11 +2038,15 @@ impl GpuContext {
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
-        let m_u32 = u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let k_u32 = u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let n_u32 = u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
         let tile = self.caps.adaptive_tile_size(m, n, k);
-        let tile_u32 = u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
         let c_buffer = self.alloc_or_create_buffer(
@@ -1886,7 +2056,10 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
         );
 
-        let dims_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let dims_buf = self.alloc_or_create_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
         self.queue
             .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
@@ -1984,16 +2157,16 @@ impl GpuContext {
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
-        let m_u32 =
-            u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let k_u32 =
-            u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let n_u32 =
-            u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let tile = self.caps.adaptive_tile_size(m, n, k);
-        let tile_u32 =
-            u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
         let c_buffer = self.alloc_or_create_buffer(
@@ -2003,8 +2176,10 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
         );
 
-        let dims_buf =
-            self.alloc_or_create_buffer(20, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let dims_buf = self.alloc_or_create_buffer(
+            20,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
         let mut uniform_bytes = Vec::with_capacity(20);
         uniform_bytes.extend_from_slice(bytemuck::cast_slice(&dims_data));
@@ -2109,16 +2284,16 @@ impl GpuContext {
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[0];
-        let m_u32 =
-            u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let k_u32 =
-            u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
-        let n_u32 =
-            u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let tile = self.caps.adaptive_tile_size(m, n, k);
-        let tile_u32 =
-            u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
         let c_buffer = self.alloc_or_create_buffer(
@@ -2128,8 +2303,10 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
         );
 
-        let dims_buf =
-            self.alloc_or_create_buffer(20, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let dims_buf = self.alloc_or_create_buffer(
+            20,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
         let mut uniform_bytes = Vec::with_capacity(20);
         uniform_bytes.extend_from_slice(bytemuck::cast_slice(&dims_data));
@@ -2241,7 +2418,10 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
         );
 
-        let cfg_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let cfg_buf = self.alloc_or_create_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let cfg_data: [u32; 4] = [numel as u32, op as u32, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
@@ -2352,7 +2532,10 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
         );
 
-        let cfg_buf = self.alloc_or_create_buffer(16, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let cfg_buf = self.alloc_or_create_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let cfg_data: [u32; 4] = [numel as u32, op as u32, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
@@ -2508,7 +2691,11 @@ impl GpuContext {
     }
 
     /// LeakyReLU on GPU: returns new tensor
-    pub fn leaky_relu(&self, input: &GpuTensor, negative_slope: f32) -> Result<GpuTensor, GpuError> {
+    pub fn leaky_relu(
+        &self,
+        input: &GpuTensor,
+        negative_slope: f32,
+    ) -> Result<GpuTensor, GpuError> {
         let mut result = input.clone();
         self.leaky_relu_inplace(&mut result, negative_slope)?;
         Ok(result)
@@ -2525,7 +2712,9 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let shape = x.shape();
         if shape.len() != 2 {
-            return Err(GpuError::ShapeMismatch("RoPE GPU: x must be 2D [total_rows, dim]".into()));
+            return Err(GpuError::ShapeMismatch(
+                "RoPE GPU: x must be 2D [total_rows, dim]".into(),
+            ));
         }
         let total_rows = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -2535,7 +2724,7 @@ impl GpuContext {
             ));
         }
         let half = head_dim / 2;
-        
+
         // Create output buffer
         let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rotary_output"),
@@ -2545,12 +2734,18 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        
+
         // Copy input to output first (in-place kernel writes to output)
         self.with_encoder(|enc| {
-            enc.copy_buffer_to_buffer(x.buffer(), 0, &out_buffer, 0, (shape[0] * shape[1] * 4) as u64);
+            enc.copy_buffer_to_buffer(
+                x.buffer(),
+                0,
+                &out_buffer,
+                0,
+                (shape[0] * shape[1] * 4) as u64,
+            );
         });
-        
+
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rotary_cfg"),
             size: 16,
@@ -2558,13 +2753,14 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [total_rows, dim, half, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
-        
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
         let pipeline = self
             .pipelines
             .get("rotary_embedding")
             .ok_or_else(|| GpuError::Pipeline("rotary_embedding not compiled".into()))?;
-        
+
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rotary_bg"),
             layout: &pipeline.bind_group_layout,
@@ -2587,10 +2783,10 @@ impl GpuContext {
                 },
             ],
         });
-        
+
         let num_pairs = total_rows * half;
         self.dispatch(pipeline, &bind_group, ((num_pairs + 255) / 256, 1, 1));
-        
+
         Ok(GpuTensor {
             shape: shape.clone(),
             buffer: out_buffer,
@@ -2612,10 +2808,12 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let shape = src.shape();
         if shape.len() != 3 {
-            return Err(GpuError::ShapeMismatch("repeat_heads: src must be 3D [seq, kv_heads, dim]".into()));
+            return Err(GpuError::ShapeMismatch(
+                "repeat_heads: src must be 3D [seq, kv_heads, dim]".into(),
+            ));
         }
         let seq = shape[0] as u32;
-        
+
         let numel_dst = (seq * q_heads * dim) as usize;
         let dst_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("repeat_heads_output"),
@@ -2625,7 +2823,7 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        
+
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("repeat_heads_cfg"),
             size: 16,
@@ -2633,13 +2831,14 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg_data: [u32; 4] = [seq, kv_heads, q_heads, dim];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
-        
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
         let pipeline = self
             .pipelines
             .get("repeat_heads")
             .ok_or_else(|| GpuError::Pipeline("repeat_heads not compiled".into()))?;
-        
+
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("repeat_heads_bg"),
             layout: &pipeline.bind_group_layout,
@@ -2658,9 +2857,13 @@ impl GpuContext {
                 },
             ],
         });
-        
-        self.dispatch(pipeline, &bind_group, ((numel_dst as u32 + 255) / 256, 1, 1));
-        
+
+        self.dispatch(
+            pipeline,
+            &bind_group,
+            ((numel_dst as u32 + 255) / 256, 1, 1),
+        );
+
         Ok(GpuTensor {
             shape: vec![q_heads as usize, seq as usize, dim as usize],
             buffer: dst_buffer,
@@ -2668,7 +2871,6 @@ impl GpuContext {
             device_id: 0,
         })
     }
-
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  PHASE 1.2: REDUCE KERNELS
@@ -3009,13 +3211,17 @@ impl GpuContext {
         let dx_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rms_norm_dx"),
             size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let dw_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rms_norm_dw_atomic"),
             size: (dim as u64) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         // Zero-init dw
@@ -3034,7 +3240,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
         let pipeline = self
             .pipelines
@@ -3045,12 +3252,30 @@ impl GpuContext {
             label: Some("rms_norm_bwd_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: weight.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: dx_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: dw_tmp.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 5, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grad.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: weight.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dx_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: dw_tmp.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -3107,23 +3332,39 @@ impl GpuContext {
         let dx_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("layer_norm_dx"),
             size: (numel * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let dw_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("layer_norm_dw_atomic"),
             size: (dim as u64) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let db_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("layer_norm_db_atomic"),
             size: (dim as u64) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        let dw_tmp = GpuTensor { shape: vec![dim as usize], buffer: dw_buffer, dtype: GpuDtype::F32, device_id: 0 };
-        let db_tmp = GpuTensor { shape: vec![dim as usize], buffer: db_buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dw_tmp = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: dw_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let db_tmp = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: db_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
         self.fill_zero_u32(&dw_tmp)?;
         self.fill_zero_u32(&db_tmp)?;
 
@@ -3134,7 +3375,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
         let pipeline = self
             .pipelines
@@ -3145,22 +3387,61 @@ impl GpuContext {
             label: Some("layer_norm_bwd_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: weight.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: bias.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: dx_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 5, resource: dw_tmp.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 6, resource: db_tmp.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 7, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: input.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grad.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: weight.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: bias.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: dx_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: dw_tmp.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: db_tmp.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
-        let dx = GpuTensor { shape: shape.to_vec(), buffer: dx_buffer, dtype: GpuDtype::F32, device_id: 0 };
-        let dw = GpuTensor { shape: vec![dim as usize], buffer: dw_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
-        let db = GpuTensor { shape: vec![dim as usize], buffer: db_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dx = GpuTensor {
+            shape: shape.to_vec(),
+            buffer: dx_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let dw = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: dw_tmp.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let db = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: db_tmp.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
         Ok((dx, dw, db))
     }
 
@@ -3297,7 +3578,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [shape[0] as u32, shape[1] as u32, 0, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
         let pipeline = self
             .pipelines
@@ -3308,17 +3590,37 @@ impl GpuContext {
             label: Some("cross_entropy_bwd_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: softmax.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: targets.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: softmax.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grad.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: targets.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
         self.dispatch(pipeline, &bind_group, ((total + 255) / 256, 1, 1));
 
-        Ok(GpuTensor { shape: shape.clone(), buffer: out_buffer, dtype: GpuDtype::F32, device_id: 0 })
+        Ok(GpuTensor {
+            shape: shape.clone(),
+            buffer: out_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3389,7 +3691,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg: [u32; 4] = [vocab_size as u32, dim as u32, num_ids as u32, 0];
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
         let pipeline = self
             .pipelines
@@ -3400,10 +3703,22 @@ impl GpuContext {
             label: Some("embedding_backward_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: ids.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: d_weight_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ids.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grad.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: d_weight_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -3814,15 +4129,15 @@ impl GpuContext {
         self.compile_pipeline(
             "fused_attention_backward",
             &[
-                storage_binding(0, true),   // q
-                storage_binding(1, true),   // k
-                storage_binding(2, true),   // v
-                storage_binding(3, true),   // dO
-                storage_binding(4, false),  // dq
-                storage_binding(5, false),  // dk (atomic<u32>)
-                storage_binding(6, false),  // dv (atomic<u32>)
-                uniform_binding(7),         // cfg1
-                uniform_binding(8),         // cfg2
+                storage_binding(0, true),  // q
+                storage_binding(1, true),  // k
+                storage_binding(2, true),  // v
+                storage_binding(3, true),  // dO
+                storage_binding(4, false), // dq
+                storage_binding(5, false), // dk (atomic<u32>)
+                storage_binding(6, false), // dv (atomic<u32>)
+                uniform_binding(7),        // cfg1
+                uniform_binding(8),        // cfg2
             ],
             std::borrow::Cow::Borrowed(FUSED_ATTENTION_BACKWARD_WGSL),
             "fused_attn_backward_main",
@@ -3858,19 +4173,25 @@ impl GpuContext {
         let dq_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("fused_attention_dq"),
             size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let dk_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("fused_attention_dk_atomic"),
             size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         let dv_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("fused_attention_dv_atomic"),
             size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
 
@@ -3898,7 +4219,8 @@ impl GpuContext {
         });
         // batch_heads = batch * heads (heads treated as flat batch dim in shader)
         let cfg1: [u32; 4] = [batch * heads, seq_len, dim, f32::to_bits(scale)];
-        self.queue.write_buffer(&cfg1_buf, 0, bytemuck::cast_slice(&cfg1));
+        self.queue
+            .write_buffer(&cfg1_buf, 0, bytemuck::cast_slice(&cfg1));
 
         let causal_flag: u32 = if causal { 1 } else { 0 };
         let cfg2_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -3908,7 +4230,8 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         let cfg2: [u32; 4] = [causal_flag, 0, 0, 0];
-        self.queue.write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
+        self.queue
+            .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
 
         let pipeline = self
             .pipelines
@@ -3919,24 +4242,66 @@ impl GpuContext {
             label: Some("fused_attention_backward_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: q.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: k.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: v.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: grad.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: dq_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 5, resource: dk_tmp.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 6, resource: dv_tmp.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 7, resource: cfg1_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 8, resource: cfg2_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: q.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: k.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: v.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: grad.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: dq_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: dk_tmp.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: dv_tmp.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: cfg1_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: cfg2_buf.as_entire_binding(),
+                },
             ],
         });
 
         let num_wg = batch * heads * seq_len;
         self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
 
-        let dq = GpuTensor { shape: shape.clone(), buffer: dq_buffer, dtype: GpuDtype::F32, device_id: 0 };
-        let dk = GpuTensor { shape: shape.clone(), buffer: dk_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
-        let dv = GpuTensor { shape: shape.clone(), buffer: dv_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dq = GpuTensor {
+            shape: shape.clone(),
+            buffer: dq_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let dk = GpuTensor {
+            shape: shape.clone(),
+            buffer: dk_tmp.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let dv = GpuTensor {
+            shape: shape.clone(),
+            buffer: dv_tmp.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
 
         Ok((dq, dk, dv))
     }

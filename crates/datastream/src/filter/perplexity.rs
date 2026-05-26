@@ -103,7 +103,7 @@ impl Filter for PerplexityFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -161,7 +161,8 @@ mod tests {
     #[tokio::test]
     async fn test_extreme_perplexity_fails() {
         let f = PerplexityFilter::new(1000.0, 2000.0);
-        let text = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp";
+        let text =
+            "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp";
         let s = sample(text);
         let result = f.evaluate(&s).await;
         assert!(!result.passed);

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use nexora_shared::base_model::NxrModelResult;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct ChainExecutorRuntimeAgent;
@@ -35,7 +35,11 @@ impl ChainState {
         let overlap: usize = self
             .context
             .keys()
-            .filter(|k| step_tokens.iter().any(|t| k.contains(t.as_str()) || t.contains(k.as_str())))
+            .filter(|k| {
+                step_tokens
+                    .iter()
+                    .any(|t| k.contains(t.as_str()) || t.contains(k.as_str()))
+            })
             .count();
         (overlap as f32) / (self.context.len().max(1) as f32).min(1.0)
     }
@@ -81,8 +85,7 @@ impl ChainExecutorRuntimeAgent {
             let reasoning = self.apply_step_reasoning(step_text, &meta_tokens, &step_tokens);
 
             // Verify the step
-            let (verification, coherence) =
-                self.verify_step(step_text, i, &state, &step_tokens);
+            let (verification, coherence) = self.verify_step(step_text, i, &state, &step_tokens);
 
             state.steps.push(ChainStep {
                 description: step_text.to_string(),
@@ -93,7 +96,9 @@ impl ChainExecutorRuntimeAgent {
             state.coherence_trace.push(coherence);
 
             // Track key concepts as context for subsequent steps
-            let Some(last_step) = state.steps.last() else { continue; };
+            let Some(last_step) = state.steps.last() else {
+                continue;
+            };
             for concept in last_step.reasoning.split_whitespace() {
                 if concept.len() > 3 {
                     state
@@ -132,7 +137,11 @@ impl ChainExecutorRuntimeAgent {
              Steps:\n",
             state.steps.len(),
             verified_count,
-            state.steps.iter().filter(|s| s.verification_status == VerificationStatus::NeedsReview).count(),
+            state
+                .steps
+                .iter()
+                .filter(|s| s.verification_status == VerificationStatus::NeedsReview)
+                .count(),
             failed_count,
             avg_coherence,
         );
@@ -140,10 +149,7 @@ impl ChainExecutorRuntimeAgent {
         for step in &state.steps {
             result.push_str(&format!(
                 "  [{:?}] coherence={:.2}: {}\n    -> {}\n",
-                step.verification_status,
-                step.coherence_score,
-                step.description,
-                step.reasoning,
+                step.verification_status, step.coherence_score, step.description, step.reasoning,
             ));
         }
 
@@ -179,7 +185,10 @@ impl ChainExecutorRuntimeAgent {
         // Analyze step type and apply reasoning
         if step_text.contains("==>") || step_text.contains("→") || step_text.contains("->") {
             reasoning.push_str("Transition step: propagating state across boundary. ");
-        } else if step_tokens.iter().any(|t| *t == "if" || *t == "when" || *t == "unless") {
+        } else if step_tokens
+            .iter()
+            .any(|t| *t == "if" || *t == "when" || *t == "unless")
+        {
             reasoning.push_str("Conditional step: evaluating branching logic. ");
         }
 

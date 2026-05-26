@@ -72,8 +72,9 @@ impl GpuTensor {
     pub fn from_cpu(data: &ArrayD<f32>) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
         let shape = data.shape().to_vec();
-        let data_slice = data.as_slice()
-            .ok_or_else(|| GpuError::Buffer("non-contiguous array in from_cpu — copy to contiguous first".into()))?;
+        let data_slice = data.as_slice().ok_or_else(|| {
+            GpuError::Buffer("non-contiguous array in from_cpu — copy to contiguous first".into())
+        })?;
         let flat: &[u8] = bytemuck::cast_slice(data_slice);
 
         let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -84,9 +85,14 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
-        Ok(Self { shape, buffer, dtype: GpuDtype::F32, device_id: 0 }
-        )
+        ctx.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
+        Ok(Self {
+            shape,
+            buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
     }
 
     /// Create an int8 GpuTensor from pre-packed u32 data.
@@ -114,8 +120,11 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        ctx.queue
-            .write_buffer(&buffer, 0, bytemuck::cast_slice(&packed_data[..expected_packed]));
+        ctx.queue.write_buffer(
+            &buffer,
+            0,
+            bytemuck::cast_slice(&packed_data[..expected_packed]),
+        );
         Ok(Self {
             shape,
             buffer,
@@ -127,7 +136,12 @@ impl GpuTensor {
     /// Create a GpuTensor from raw components (buffer + shape).
     /// Useful for wrapping GPU buffers allocated externally.
     pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
-        Self { shape, buffer, dtype, device_id: 0 }
+        Self {
+            shape,
+            buffer,
+            dtype,
+            device_id: 0,
+        }
     }
 
     /// Non-blocking GPU→CPU readback via channel. Hasil siap ketika GPU selesai.
@@ -144,9 +158,10 @@ impl GpuTensor {
     pub fn reshape(&self, new_shape: Vec<usize>) -> Result<GpuTensor, GpuError> {
         let expected: usize = new_shape.iter().product();
         if expected != self.shape.iter().product::<usize>() {
-            return Err(GpuError::ShapeMismatch(
-                format!("reshape: {:?} -> {:?} element count mismatch", self.shape, new_shape)
-            ));
+            return Err(GpuError::ShapeMismatch(format!(
+                "reshape: {:?} -> {:?} element count mismatch",
+                self.shape, new_shape
+            )));
         }
         Ok(GpuTensor {
             shape: new_shape,
@@ -184,14 +199,21 @@ impl GpuTensor {
         let numel: usize = shape.iter().product();
         let byte_size = (numel * 4) as u64;
 
-        let buffer = ctx.alloc_buffer(
-            byte_size,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-        ).buffer;
+        let buffer = ctx
+            .alloc_buffer(
+                byte_size,
+                wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+            )
+            .buffer;
 
-        let tmp = Self { shape: shape.to_vec(), buffer: buffer.clone(), dtype: GpuDtype::F32, device_id: 0 };
+        let tmp = Self {
+            shape: shape.to_vec(),
+            buffer: buffer.clone(),
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
         ctx.fill_zero_u32(&tmp)?;
 
         Ok(Self {
@@ -221,9 +243,12 @@ impl GpuTensor {
 
         let slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(GPU_READBACK_TIMEOUT_SECS);
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(GPU_READBACK_TIMEOUT_SECS);
         let map_result = loop {
             device.poll(wgpu::PollType::Wait {
                 submission_index: None,

@@ -9,7 +9,7 @@
 use crate::core::TemporalProcessor;
 use crate::fused_ops::{FusedElementWise, FusedLinearActivation};
 use crate::tensor_pool::PooledTensor1D;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, ArrayD};
 use once_cell;
 use rand;
@@ -250,7 +250,10 @@ impl HarmonicTemporalEncoding {
         // Base harmonic encoding
         let base_encoding = self.compute_harmonic_encoding(position)?;
         let base_flat = base_encoding
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation {
+                reason: "tensor not contiguous".to_string(),
+            })?;
 
         // Blend with modality-specific frequencies
         for i in 0..self.embedding_dim.min(base_flat.len()) {
@@ -344,8 +347,12 @@ impl TemporalProcessor for HarmonicTemporalEncoding {
 
         // Combine input dengan temporal encoding
         let input_flat = require_contiguous(input.as_slice())?;
-        let temp_flat = temporal_encoding
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let temp_flat =
+            temporal_encoding
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
 
         let mut combined = Vec::with_capacity(input_flat.len());
         for (i, &input_val) in input_flat.iter().enumerate() {

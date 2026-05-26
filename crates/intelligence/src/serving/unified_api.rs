@@ -7,12 +7,12 @@
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN) — real top-k gating
 
 // Import from foundation modules
-use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACASolution};
 use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 use nexora_foundation::multimodal::caffeine::{
     types::{MultiModalInputs, TextInput},
     Caffeine, CaffeineConfig,
 };
+use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACASolution};
 
 use parking_lot::Mutex as ParkingMutex;
 use std::sync::Arc;
@@ -83,9 +83,7 @@ impl ExpertRouter {
         );
 
         Ok(Self {
-            load_counters: std::sync::Arc::new(ParkingMutex::new(
-                vec![0usize; config.num_experts],
-            )),
+            load_counters: std::sync::Arc::new(ParkingMutex::new(vec![0usize; config.num_experts])),
             gate_weights,
             config,
         })
@@ -242,7 +240,11 @@ impl HasMoeFfn {
         let decision = self.router.route(h)?;
         let mut output = vec![0.0f32; self.hidden_size];
 
-        for (&expert_idx, &weight) in decision.expert_indices.iter().zip(decision.expert_weights.iter()) {
+        for (&expert_idx, &weight) in decision
+            .expert_indices
+            .iter()
+            .zip(decision.expert_weights.iter())
+        {
             let w1 = &self.expert_w1[expert_idx];
             let w2 = &self.expert_w2[expert_idx];
 
@@ -376,8 +378,7 @@ impl UnifiedModel {
                     saca_integration = saca_integration.with_has_moe_routing(router);
                     info!(
                         "HAS-MoE-FFN enabled: {} experts, top-{}",
-                        moe_config.router_config.num_experts,
-                        moe_config.router_config.top_k
+                        moe_config.router_config.num_experts, moe_config.router_config.top_k
                     );
                     Some(ffn_arc)
                 }
@@ -399,7 +400,10 @@ impl UnifiedModel {
         info!("Starting unified coding task solution");
         let start_time = std::time::Instant::now();
 
-        let enhanced_solution = self.saca_integration.solve_with_models(task.clone()).await?;
+        let enhanced_solution = self
+            .saca_integration
+            .solve_with_models(task.clone())
+            .await?;
 
         let mut solution = UnifiedSolution {
             base_solution: enhanced_solution.base_solution,
@@ -416,7 +420,8 @@ impl UnifiedModel {
 
         match self.config.integration_mode {
             IntegrationMode::FullIntegration => {
-                self.apply_full_integration_processing(&mut solution, task).await?;
+                self.apply_full_integration_processing(&mut solution, task)
+                    .await?;
             }
             IntegrationMode::SACAWithCaffeine => {
                 let task_text = format!(
@@ -447,14 +452,18 @@ impl UnifiedModel {
             }
             IntegrationMode::SACAWithATQS => {
                 if solution.atqs_compression_applied {
-                    solution.quality_score =
-                        (solution.quality_score + solution.compression_ratio as f32 * 0.05).min(1.0);
+                    solution.quality_score = (solution.quality_score
+                        + solution.compression_ratio as f32 * 0.05)
+                        .min(1.0);
                 }
             }
             IntegrationMode::SACAOnly => {}
         }
 
-        info!("Unified solution completed in {:?}", solution.execution_time);
+        info!(
+            "Unified solution completed in {:?}",
+            solution.execution_time
+        );
         Ok(solution)
     }
 
@@ -464,9 +473,10 @@ impl UnifiedModel {
     ) -> ApiResult<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
         if let Some(caffeine) = &self.caffeine_model {
             let mut guard = caffeine.lock().await;
-            guard.forward(inputs).await.map_err(|e| {
-                format!("Caffeine forward failed: {}", e).into()
-            })
+            guard
+                .forward(inputs)
+                .await
+                .map_err(|e| format!("Caffeine forward failed: {}", e).into())
         } else {
             Err("CAFFEINE model not enabled in this configuration".into())
         }
@@ -633,7 +643,11 @@ mod tests {
 
     #[test]
     fn test_expert_router_forward() {
-        let cfg = RouterConfig { hidden_size: 16, num_experts: 4, top_k: 2 };
+        let cfg = RouterConfig {
+            hidden_size: 16,
+            num_experts: 4,
+            top_k: 2,
+        };
         let router = ExpertRouter::new(cfg).unwrap();
         let h = vec![0.1f32; 16];
         let decision = router.route(&h).unwrap();
@@ -644,7 +658,11 @@ mod tests {
 
     #[test]
     fn test_expert_router_load_tracking() {
-        let cfg = RouterConfig { hidden_size: 8, num_experts: 4, top_k: 1 };
+        let cfg = RouterConfig {
+            hidden_size: 8,
+            num_experts: 4,
+            top_k: 1,
+        };
         let router = ExpertRouter::new(cfg).unwrap();
         let h = vec![1.0f32; 8];
         router.route(&h).unwrap();
@@ -657,7 +675,11 @@ mod tests {
     #[test]
     fn test_has_moe_ffn_forward_shape() {
         let cfg = HasMoeFfnConfig {
-            router_config: RouterConfig { hidden_size: 16, num_experts: 4, top_k: 2 },
+            router_config: RouterConfig {
+                hidden_size: 16,
+                num_experts: 4,
+                top_k: 2,
+            },
         };
         let ffn = HasMoeFfn::new(cfg).unwrap();
         let h = vec![0.5f32; 16];
@@ -668,7 +690,11 @@ mod tests {
     #[test]
     fn test_has_moe_ffn_routing_efficiency() {
         let cfg = HasMoeFfnConfig {
-            router_config: RouterConfig { hidden_size: 8, num_experts: 4, top_k: 2 },
+            router_config: RouterConfig {
+                hidden_size: 8,
+                num_experts: 4,
+                top_k: 2,
+            },
         };
         let ffn = HasMoeFfn::new(cfg).unwrap();
         // Before any calls: no load → should return 1.0
@@ -683,7 +709,11 @@ mod tests {
 
     #[test]
     fn test_router_wrong_input_size_errors() {
-        let cfg = RouterConfig { hidden_size: 16, num_experts: 4, top_k: 2 };
+        let cfg = RouterConfig {
+            hidden_size: 16,
+            num_experts: 4,
+            top_k: 2,
+        };
         let router = ExpertRouter::new(cfg).unwrap();
         let h = vec![0.0f32; 8]; // wrong size
         assert!(router.route(&h).is_err());

@@ -21,7 +21,12 @@ impl DetailedTiming {
     pub fn display(&self) -> String {
         format!(
             "encode={:?} submit={:?} gpu={:?} map_async={:?} readback={:?} total={:?}",
-            self.encode, self.submit, self.gpu_execute, self.map_async, self.readback, self.end_to_end
+            self.encode,
+            self.submit,
+            self.gpu_execute,
+            self.map_async,
+            self.readback,
+            self.end_to_end
         )
     }
 }

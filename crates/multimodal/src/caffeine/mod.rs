@@ -140,7 +140,9 @@ impl Caffeine {
         // Stage 4: Apply ATQS compression if enabled
         let compressed_tokens = if self.atqs_compression.is_some() {
             let tensor = self.tokens_to_tensor_for_atqs(&tokens)?;
-            let compressor = self.atqs_compression.as_mut()
+            let compressor = self
+                .atqs_compression
+                .as_mut()
                 .unwrap_or_else(|| unreachable!("atqs_compression checked Some above"));
             let compressed = compressor.compress_tensor_data(&tensor)?;
             self.tensor_to_tokens(&compressed, &tokens)?

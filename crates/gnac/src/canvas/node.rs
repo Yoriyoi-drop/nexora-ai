@@ -240,7 +240,9 @@ mod tests {
     #[test]
     fn test_graph_node_set_health() {
         let mut node = GraphNode::new(NodeType::Linear, "fc", 0.0, 0.0);
-        node.set_health(HealthStatus::Critical { reason: "test".into() });
+        node.set_health(HealthStatus::Critical {
+            reason: "test".into(),
+        });
         assert!(matches!(node.health, HealthStatus::Critical { .. }));
     }
 
@@ -277,9 +279,6 @@ mod tests {
     #[test]
     fn test_node_params_with_param() {
         let p = NodeParams::new().with_param("activation", "relu");
-        assert_eq!(
-            p.string_params.get("activation"),
-            Some(&"relu".to_string())
-        );
+        assert_eq!(p.string_params.get("activation"), Some(&"relu".to_string()));
     }
 }

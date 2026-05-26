@@ -76,8 +76,8 @@ pub fn shuffle_shards(shards: &mut [crate::dataset::scanner::ShardPath]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dataset::scanner::{ShardPath, ShardScanner};
     use crate::dataset::compression::Compression;
+    use crate::dataset::scanner::{ShardPath, ShardScanner};
     use std::path::PathBuf;
 
     fn sample(text: &str) -> DataSample {
@@ -155,9 +155,24 @@ mod tests {
     #[test]
     fn test_shuffle_shards() {
         let mut shards = vec![
-            ShardPath { path: PathBuf::from("a.arrow"), compression: Compression::None, size_bytes: 10, split: "train".into() },
-            ShardPath { path: PathBuf::from("b.arrow"), compression: Compression::None, size_bytes: 20, split: "train".into() },
-            ShardPath { path: PathBuf::from("c.arrow"), compression: Compression::None, size_bytes: 30, split: "val".into() },
+            ShardPath {
+                path: PathBuf::from("a.arrow"),
+                compression: Compression::None,
+                size_bytes: 10,
+                split: "train".into(),
+            },
+            ShardPath {
+                path: PathBuf::from("b.arrow"),
+                compression: Compression::None,
+                size_bytes: 20,
+                split: "train".into(),
+            },
+            ShardPath {
+                path: PathBuf::from("c.arrow"),
+                compression: Compression::None,
+                size_bytes: 30,
+                split: "val".into(),
+            },
         ];
         let original = shards.clone();
         shuffle_shards(&mut shards);

@@ -1,14 +1,14 @@
 //! Test Forge Agent
-//! 
+//!
 //! Automated test generation and test strategy optimization
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Test Forge Agent - Automated test generation and test strategy optimization
 #[derive(Debug, Clone)]
@@ -56,7 +56,9 @@ pub enum TestGenerationStrategy {
     /// Model based testing
     ModelBasedTesting,
     /// Hybrid approach
-    HybridApproach { strategies: Vec<TestGenerationStrategy> },
+    HybridApproach {
+        strategies: Vec<TestGenerationStrategy>,
+    },
 }
 
 /// Test Type
@@ -1813,10 +1815,7 @@ impl Default for TestForgeConfig {
                     TestGenerationStrategy::PropertyBasedTesting,
                 ],
             },
-            test_types_to_generate: vec![
-                TestType::UnitTests,
-                TestType::IntegrationTests,
-            ],
+            test_types_to_generate: vec![TestType::UnitTests, TestType::IntegrationTests],
             coverage_requirements: CoverageRequirements {
                 statement_coverage: 0.8,
                 branch_coverage: 0.7,
@@ -1825,19 +1824,17 @@ impl Default for TestForgeConfig {
                 condition_coverage: 0.6,
                 path_coverage: 0.5,
             },
-            test_frameworks: vec![
-                TestFramework {
-                    framework_name: "JUnit".to_string(),
-                    framework_version: "5.0".to_string(),
-                    supported_test_types: vec![TestType::UnitTests, TestType::IntegrationTests],
-                    framework_features: vec![
-                        FrameworkFeature::ParameterizedTests,
-                        FrameworkFeature::TestFixtures,
-                        FrameworkFeature::MockingSupport,
-                    ],
-                    configuration_options: HashMap::new(),
-                },
-            ],
+            test_frameworks: vec![TestFramework {
+                framework_name: "JUnit".to_string(),
+                framework_version: "5.0".to_string(),
+                supported_test_types: vec![TestType::UnitTests, TestType::IntegrationTests],
+                framework_features: vec![
+                    FrameworkFeature::ParameterizedTests,
+                    FrameworkFeature::TestFixtures,
+                    FrameworkFeature::MockingSupport,
+                ],
+                configuration_options: HashMap::new(),
+            }],
         }
     }
 }
@@ -1974,28 +1971,30 @@ impl BaseAgent for TestForgeAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Analyze source code
         let code_analysis = self.analyze_source_code(&input).await?;
-        
+
         // Generate tests
         let generated_tests = self.generate_tests(&input, &code_analysis).await?;
-        
+
         // Create test strategy
         let test_strategy = self.create_test_strategy(&input, &generated_tests).await?;
-        
+
         // Create execution plan
         let test_execution_plan = self.create_execution_plan(&input, &test_strategy).await?;
-        
+
         // Assess quality
         let quality_assessment_results = self.assess_quality(&input, &generated_tests).await?;
-        
+
         // Generate recommendations
-        let recommendations = self.generate_recommendations(&input, &generated_tests, &quality_assessment_results).await?;
-        
+        let recommendations = self
+            .generate_recommendations(&input, &generated_tests, &quality_assessment_results)
+            .await?;
+
         // Build output
         let output = TestForgeTaskOutput {
             generated_tests,
@@ -2004,9 +2003,9 @@ impl BaseAgent for TestForgeAgent {
             quality_assessment_results,
             recommendations,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -2019,21 +2018,19 @@ impl BaseAgent for TestForgeAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "test_generation".to_string(),
-                description: "Automated test generation and test strategy optimization".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["source_code".to_string(), "test_requirements".to_string()],
-                output_types: vec!["generated_tests".to_string(), "test_strategy".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.87,
-                    avg_latency: 1200.0,
-                    resource_usage: 0.6,
-                    reliability: 0.92,
-                },
+        vec![AgentCapability {
+            name: "test_generation".to_string(),
+            description: "Automated test generation and test strategy optimization".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["source_code".to_string(), "test_requirements".to_string()],
+            output_types: vec!["generated_tests".to_string(), "test_strategy".to_string()],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.87,
+                avg_latency: 1200.0,
+                resource_usage: 0.6,
+                reliability: 0.92,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -2075,16 +2072,16 @@ impl TestForgeAgent {
     fn validate_input(&self, input: &TestForgeTaskInput) -> AgentResult<()> {
         if input.source_code.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source code cannot be empty".to_string()
+                "Source code cannot be empty".to_string(),
             ));
         }
-        
+
         if input.file_paths.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "File paths cannot be empty".to_string()
+                "File paths cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
@@ -2094,7 +2091,7 @@ impl TestForgeAgent {
         let functions = self.extract_functions(&input.source_code)?;
         let classes = self.extract_classes(&input.source_code)?;
         let complexity = self.calculate_complexity(&input.source_code)?;
-        
+
         Ok(CodeAnalysis {
             functions,
             classes,
@@ -2107,11 +2104,14 @@ impl TestForgeAgent {
     fn extract_functions(&self, source_code: &str) -> AgentResult<Vec<FunctionInfo>> {
         // Simplified function extraction
         let mut functions = Vec::new();
-        
+
         // Basic regex-based function extraction (simplified)
         let lines: Vec<&str> = source_code.lines().collect();
         for (line_num, line) in lines.iter().enumerate() {
-            if line.trim().starts_with("fn ") || line.trim().starts_with("def ") || line.trim().starts_with("function ") {
+            if line.trim().starts_with("fn ")
+                || line.trim().starts_with("def ")
+                || line.trim().starts_with("function ")
+            {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let function_name = parts[1].split('(').next().unwrap_or("unknown");
@@ -2125,7 +2125,7 @@ impl TestForgeAgent {
                 }
             }
         }
-        
+
         Ok(functions)
     }
 
@@ -2133,7 +2133,7 @@ impl TestForgeAgent {
     fn extract_classes(&self, source_code: &str) -> AgentResult<Vec<ClassInfo>> {
         // Simplified class extraction
         let mut classes = Vec::new();
-        
+
         let lines: Vec<&str> = source_code.lines().collect();
         for (line_num, line) in lines.iter().enumerate() {
             if line.trim().starts_with("class ") || line.trim().starts_with("struct ") {
@@ -2149,7 +2149,7 @@ impl TestForgeAgent {
                 }
             }
         }
-        
+
         Ok(classes)
     }
 
@@ -2158,75 +2158,97 @@ impl TestForgeAgent {
         // Simplified complexity calculation
         let lines: Vec<&str> = source_code.lines().collect();
         let mut complexity = 0.0;
-        
+
         for line in lines {
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("#") {
                 continue;
             }
-            
+
             // Count control flow statements
             if trimmed.contains("if ") || trimmed.contains("for ") || trimmed.contains("while ") {
                 complexity += 1.0;
             }
-            
+
             // Count logical operators
             let and_count = trimmed.matches("&&").count();
             let or_count = trimmed.matches("||").count();
             complexity += (and_count + or_count) as f32;
         }
-        
+
         Ok(complexity)
     }
 
     /// Generate tests
-    async fn generate_tests(&self, input: &TestForgeTaskInput, code_analysis: &CodeAnalysis) -> AgentResult<Vec<GeneratedTest>> {
+    async fn generate_tests(
+        &self,
+        input: &TestForgeTaskInput,
+        code_analysis: &CodeAnalysis,
+    ) -> AgentResult<Vec<GeneratedTest>> {
         let mut generated_tests = Vec::new();
-        
+
         // Generate unit tests for functions
         for function in &code_analysis.functions {
-            if input.test_requirements.required_test_types.contains(&TestType::UnitTests) {
+            if input
+                .test_requirements
+                .required_test_types
+                .contains(&TestType::UnitTests)
+            {
                 let test = self.generate_unit_test(function, input).await?;
                 generated_tests.push(test);
             }
         }
-        
+
         // Generate integration tests
-        if input.test_requirements.required_test_types.contains(&TestType::IntegrationTests) {
+        if input
+            .test_requirements
+            .required_test_types
+            .contains(&TestType::IntegrationTests)
+        {
             let integration_test = self.generate_integration_test(code_analysis, input).await?;
             generated_tests.push(integration_test);
         }
-        
+
         Ok(generated_tests)
     }
 
     /// Generate unit test
-    async fn generate_unit_test(&self, function: &FunctionInfo, input: &TestForgeTaskInput) -> AgentResult<GeneratedTest> {
+    async fn generate_unit_test(
+        &self,
+        function: &FunctionInfo,
+        input: &TestForgeTaskInput,
+    ) -> AgentResult<GeneratedTest> {
         let test_name = format!("test_{}", function.name);
         let test_description = format!("Unit test for function {}", function.name);
-        
+
         let test_code = match input.programming_language.as_str() {
             "rust" => format!(
                 r#"#[test]
 fn {}() {{
     let result = {}_setup();
     assert!(result.is_ok(), "{} should succeed");
-}}"#, test_name, function.name, function.name),
+}}"#,
+                test_name, function.name, function.name
+            ),
             "python" => format!(
                 r#"def {}():
     result = {}_setup()
     assert result is not None, "{} should return a value"
     assert True
-"#, test_name, function.name, function.name),
+"#,
+                test_name, function.name, function.name
+            ),
             _ => format!(
                 r#"// Unit test for {}
 function {}() {{
     const result = {}_setup();
     assert(result !== undefined, "{} should return a value");
     assert(true);
-}}"#, function.name, test_name, function.name, function.name),
+}}"#,
+                function.name, test_name, function.name, function.name
+            ),
         };
-        
+
         Ok(GeneratedTest {
             test_id: format!("test_{}", uuid::Uuid::new_v4()),
             test_name,
@@ -2266,16 +2288,24 @@ function {}() {{
                 test_priority: 1,
                 test_tags: vec!["unit".to_string(), "generated".to_string()],
                 test_dependencies: vec![],
-                test_complexity: if function.complexity > 5.0 { TestComplexity::Complex } else { TestComplexity::Medium },
+                test_complexity: if function.complexity > 5.0 {
+                    TestComplexity::Complex
+                } else {
+                    TestComplexity::Medium
+                },
             },
         })
     }
 
     /// Generate integration test
-    async fn generate_integration_test(&self, code_analysis: &CodeAnalysis, input: &TestForgeTaskInput) -> AgentResult<GeneratedTest> {
+    async fn generate_integration_test(
+        &self,
+        code_analysis: &CodeAnalysis,
+        input: &TestForgeTaskInput,
+    ) -> AgentResult<GeneratedTest> {
         let test_name = "test_integration";
         let test_description = "Integration test for system components";
-        
+
         let test_code = match input.programming_language.as_str() {
             "rust" => format!(
                 r#"#[test]
@@ -2284,7 +2314,9 @@ fn {}() {{
     let component_b = ComponentB::new();
     let result = component_a.process().and_then(|_| component_b.process());
     assert!(result.is_ok(), "Integration flow should complete successfully");
-}}"#, test_name),
+}}"#,
+                test_name
+            ),
             "python" => format!(
                 r#"def {}():
     component_a = ComponentA()
@@ -2292,7 +2324,9 @@ fn {}() {{
     result = component_a.process() and component_b.process()
     assert result, "Integration flow should complete successfully"
     assert True
-"#, test_name),
+"#,
+                test_name
+            ),
             _ => format!(
                 r#"// Integration test for system components
 function {}() {{
@@ -2301,9 +2335,11 @@ function {}() {{
     const result = componentA.process() && componentB.process();
     assert(result === true, "Integration flow should complete successfully");
     assert(true);
-}}"#, test_name),
+}}"#,
+                test_name
+            ),
         };
-        
+
         Ok(GeneratedTest {
             test_id: format!("test_{}", uuid::Uuid::new_v4()),
             test_name: test_name.to_string(),
@@ -2342,18 +2378,27 @@ function {}() {{
                 test_creation_date: chrono::Utc::now(),
                 test_priority: 2,
                 test_tags: vec!["integration".to_string(), "generated".to_string()],
-                test_dependencies: code_analysis.classes.iter().map(|c| c.name.clone()).collect(),
+                test_dependencies: code_analysis
+                    .classes
+                    .iter()
+                    .map(|c| c.name.clone())
+                    .collect(),
                 test_complexity: TestComplexity::Complex,
             },
         })
     }
 
     /// Create test strategy
-    async fn create_test_strategy(&self, input: &TestForgeTaskInput, generated_tests: &[GeneratedTest]) -> AgentResult<TestStrategy> {
+    async fn create_test_strategy(
+        &self,
+        input: &TestForgeTaskInput,
+        generated_tests: &[GeneratedTest],
+    ) -> AgentResult<TestStrategy> {
         let strategy_id = format!("strategy_{}", uuid::Uuid::new_v4());
         let strategy_name = "Automated Test Strategy".to_string();
-        let strategy_description = "Generated test strategy based on code analysis and requirements".to_string();
-        
+        let strategy_description =
+            "Generated test strategy based on code analysis and requirements".to_string();
+
         let test_phases = vec![
             TestPhase {
                 phase_id: "phase_1".to_string(),
@@ -2366,13 +2411,14 @@ function {}() {{
             TestPhase {
                 phase_id: "phase_2".to_string(),
                 phase_name: "Integration Testing".to_string(),
-                phase_description: "Execute integration tests for component interactions".to_string(),
+                phase_description: "Execute integration tests for component interactions"
+                    .to_string(),
                 phase_duration: chrono::Duration::minutes(60),
                 phase_objectives: vec!["Verify component interactions".to_string()],
                 phase_deliverables: vec!["Integration test results".to_string()],
             },
         ];
-        
+
         let resource_allocation = ResourceAllocation {
             human_resources: vec![],
             technical_resources: vec![],
@@ -2388,13 +2434,13 @@ function {}() {{
                 buffer_time: chrono::Duration::minutes(15),
             },
         };
-        
+
         let risk_mitigation = RiskMitigation {
             identified_risks: vec![],
             mitigation_strategies: vec![],
             contingency_plans: vec![],
         };
-        
+
         Ok(TestStrategy {
             strategy_id,
             strategy_name,
@@ -2406,10 +2452,14 @@ function {}() {{
     }
 
     /// Create execution plan
-    async fn create_execution_plan(&self, input: &TestForgeTaskInput, test_strategy: &TestStrategy) -> AgentResult<TestExecutionPlan> {
+    async fn create_execution_plan(
+        &self,
+        input: &TestForgeTaskInput,
+        test_strategy: &TestStrategy,
+    ) -> AgentResult<TestExecutionPlan> {
         let plan_id = format!("plan_{}", uuid::Uuid::new_v4());
         let plan_name = "Test Execution Plan".to_string();
-        
+
         let execution_schedule = ExecutionSchedule {
             schedule_type: ScheduleType::ParallelExecution,
             execution_windows: vec![],
@@ -2426,18 +2476,16 @@ function {}() {{
             },
             retry_policies: vec![],
         };
-        
-        let test_suites = vec![
-            TestSuite {
-                suite_id: "unit_suite".to_string(),
-                suite_name: "Unit Test Suite".to_string(),
-                suite_description: "Suite containing all unit tests".to_string(),
-                test_cases: vec![],
-                suite_configuration: HashMap::new(),
-                suite_dependencies: vec![],
-            },
-        ];
-        
+
+        let test_suites = vec![TestSuite {
+            suite_id: "unit_suite".to_string(),
+            suite_name: "Unit Test Suite".to_string(),
+            suite_description: "Suite containing all unit tests".to_string(),
+            test_cases: vec![],
+            suite_configuration: HashMap::new(),
+            suite_dependencies: vec![],
+        }];
+
         let execution_environment = ExecutionEnvironment {
             environment_id: "test_env".to_string(),
             environment_name: "Test Environment".to_string(),
@@ -2467,7 +2515,7 @@ function {}() {{
                 },
             },
         };
-        
+
         Ok(TestExecutionPlan {
             plan_id,
             plan_name,
@@ -2478,36 +2526,46 @@ function {}() {{
     }
 
     /// Assess quality
-    async fn assess_quality(&self, input: &TestForgeTaskInput, generated_tests: &[GeneratedTest]) -> AgentResult<QualityAssessmentResults> {
+    async fn assess_quality(
+        &self,
+        input: &TestForgeTaskInput,
+        generated_tests: &[GeneratedTest],
+    ) -> AgentResult<QualityAssessmentResults> {
         let coverage_targets = &input.test_requirements.coverage_targets;
         let n_tests = generated_tests.len();
 
         let test_effectiveness = if n_tests == 0 {
             0.0
         } else {
-            let has_output_checks = generated_tests.iter()
+            let has_output_checks = generated_tests
+                .iter()
                 .filter(|t| !t.expected_results.expected_output.is_empty())
                 .count() as f32;
-            let has_behavior = generated_tests.iter()
+            let has_behavior = generated_tests
+                .iter()
                 .filter(|t| !t.expected_results.expected_behavior.is_empty())
                 .count() as f32;
             let coverage_factor = (coverage_targets.line_coverage
                 + coverage_targets.branch_coverage
-                + coverage_targets.function_coverage) / 3.0;
+                + coverage_targets.function_coverage)
+                / 3.0;
             let n_factor = (n_tests as f32).min(20.0) / 20.0;
             (has_output_checks / n_tests as f32 * 0.3
                 + has_behavior / n_tests as f32 * 0.2
                 + coverage_factor * 0.3
-                + n_factor * 0.2).clamp(0.0, 1.0)
+                + n_factor * 0.2)
+                .clamp(0.0, 1.0)
         };
 
         let test_efficiency = if n_tests == 0 {
             0.0
         } else {
-            let has_deps = generated_tests.iter()
+            let has_deps = generated_tests
+                .iter()
                 .filter(|t| !t.test_metadata.test_dependencies.is_empty())
                 .count() as f32;
-            let complexity_distribution = generated_tests.iter()
+            let complexity_distribution = generated_tests
+                .iter()
                 .filter(|t| matches!(t.test_metadata.test_complexity, TestComplexity::Medium))
                 .count() as f32;
             let complexity_ratio = complexity_distribution / n_tests as f32;
@@ -2517,28 +2575,41 @@ function {}() {{
         let test_maintainability = if n_tests == 0 {
             0.0
         } else {
-            let has_setup = generated_tests.iter()
-                .filter(|t| !t.test_setup.setup_code.is_empty() || !t.test_setup.setup_requirements.is_empty())
+            let has_setup = generated_tests
+                .iter()
+                .filter(|t| {
+                    !t.test_setup.setup_code.is_empty()
+                        || !t.test_setup.setup_requirements.is_empty()
+                })
                 .count() as f32;
-            let has_tags = generated_tests.iter()
+            let has_tags = generated_tests
+                .iter()
                 .filter(|t| !t.test_metadata.test_tags.is_empty())
                 .count() as f32;
-            let avg_naming = generated_tests.iter()
+            let avg_naming = generated_tests
+                .iter()
                 .map(|t| if t.test_name.len() > 10 { 1.0 } else { 0.5 })
-                .sum::<f32>() / n_tests as f32;
-            (has_setup / n_tests as f32 * 0.3 + has_tags / n_tests as f32 * 0.2 + avg_naming * 0.5).clamp(0.0, 1.0)
+                .sum::<f32>()
+                / n_tests as f32;
+            (has_setup / n_tests as f32 * 0.3 + has_tags / n_tests as f32 * 0.2 + avg_naming * 0.5)
+                .clamp(0.0, 1.0)
         };
 
         let test_reliability = if n_tests == 0 {
             0.0
         } else {
-            let has_deps = generated_tests.iter()
-                .filter(|t| !t.test_data.input_data.is_empty() || !t.test_data.expected_outputs.is_empty())
+            let has_deps = generated_tests
+                .iter()
+                .filter(|t| {
+                    !t.test_data.input_data.is_empty() || !t.test_data.expected_outputs.is_empty()
+                })
                 .count() as f32;
-            let has_side_effects = generated_tests.iter()
+            let has_side_effects = generated_tests
+                .iter()
                 .filter(|t| t.expected_results.expected_side_effects.is_empty())
                 .count() as f32;
-            (has_deps / n_tests as f32 * 0.5 + has_side_effects / n_tests as f32 * 0.5).clamp(0.0, 1.0)
+            (has_deps / n_tests as f32 * 0.5 + has_side_effects / n_tests as f32 * 0.5)
+                .clamp(0.0, 1.0)
         };
 
         let test_coverage = TestCoverageMetrics {
@@ -2552,7 +2623,8 @@ function {}() {{
                 let avg_coverage = (coverage_targets.line_coverage
                     + coverage_targets.branch_coverage
                     + coverage_targets.function_coverage
-                    + coverage_targets.statement_coverage) / 4.0;
+                    + coverage_targets.statement_coverage)
+                    / 4.0;
                 (avg_coverage * 0.85).min(0.95)
             },
         };
@@ -2608,16 +2680,20 @@ function {}() {{
     }
 
     /// Generate recommendations
-    async fn generate_recommendations(&self, input: &TestForgeTaskInput, 
-                                      generated_tests: &[GeneratedTest],
-                                      quality_assessment: &QualityAssessmentResults) -> AgentResult<Vec<TestRecommendation>> {
+    async fn generate_recommendations(
+        &self,
+        input: &TestForgeTaskInput,
+        generated_tests: &[GeneratedTest],
+        quality_assessment: &QualityAssessmentResults,
+    ) -> AgentResult<Vec<TestRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         if quality_assessment.overall_quality_score < 0.8 {
             recommendations.push(TestRecommendation {
                 recommendation_id: "rec_001".to_string(),
                 recommendation_type: RecommendationType::TestDesignImprovement,
-                recommendation_description: "Improve test design to increase quality score".to_string(),
+                recommendation_description: "Improve test design to increase quality score"
+                    .to_string(),
                 priority_level: 1,
                 implementation_effort: ImplementationEffort::Medium,
                 expected_benefit: ExpectedBenefit {
@@ -2629,12 +2705,18 @@ function {}() {{
                 },
             });
         }
-        
-        if quality_assessment.quality_metrics.test_coverage.line_coverage < input.test_requirements.coverage_targets.line_coverage {
+
+        if quality_assessment
+            .quality_metrics
+            .test_coverage
+            .line_coverage
+            < input.test_requirements.coverage_targets.line_coverage
+        {
             recommendations.push(TestRecommendation {
                 recommendation_id: "rec_002".to_string(),
                 recommendation_type: RecommendationType::CoverageImprovement,
-                recommendation_description: "Increase line coverage to meet requirements".to_string(),
+                recommendation_description: "Increase line coverage to meet requirements"
+                    .to_string(),
                 priority_level: 2,
                 implementation_effort: ImplementationEffort::High,
                 expected_benefit: ExpectedBenefit {
@@ -2646,7 +2728,7 @@ function {}() {{
                 },
             });
         }
-        
+
         Ok(recommendations)
     }
 }
@@ -2834,7 +2916,7 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
         assert!(!output.generated_tests.is_empty());
         assert!(!output.test_strategy.test_phases.is_empty());
@@ -2849,8 +2931,11 @@ mod tests {
             ..Default::default()
         };
         let agent = TestForgeAgent::new(config);
-        
-        assert!(matches!(agent.config.test_generation_strategy, TestGenerationStrategy::PropertyBasedTesting));
+
+        assert!(matches!(
+            agent.config.test_generation_strategy,
+            TestGenerationStrategy::PropertyBasedTesting
+        ));
     }
 
     #[test]
@@ -2867,7 +2952,7 @@ mod tests {
             ..Default::default()
         };
         let agent = TestForgeAgent::new(config);
-        
+
         assert_eq!(agent.config.coverage_requirements.statement_coverage, 0.9);
     }
 }

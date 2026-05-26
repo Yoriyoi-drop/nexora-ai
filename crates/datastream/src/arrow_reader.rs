@@ -62,8 +62,8 @@ pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SampleStats, SourceInfo, SourceCategory};
     use crate::arrow_writer;
+    use crate::types::{SampleStats, SourceCategory, SourceInfo};
     use std::path::Path;
 
     fn source_info() -> SourceInfo {

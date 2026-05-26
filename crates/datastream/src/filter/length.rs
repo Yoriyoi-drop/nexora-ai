@@ -88,7 +88,7 @@ impl Filter for LengthFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -150,7 +150,10 @@ mod tests {
     #[tokio::test]
     async fn test_exact_boundary_passes() {
         let f = LengthFilter::default();
-        let words = (0..10).map(|i| format!("word{}", i)).collect::<Vec<_>>().join(" ");
+        let words = (0..10)
+            .map(|i| format!("word{}", i))
+            .collect::<Vec<_>>()
+            .join(" ");
         let text = words + &" ".repeat(50);
         let s = sample(&text);
         let result = f.evaluate(&s).await;

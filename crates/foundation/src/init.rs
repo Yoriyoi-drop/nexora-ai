@@ -97,10 +97,16 @@ async fn register_causal_lm(
     let pcount = transformer_config.parameter_count();
 
     // Echo-Net APSS injection enabled by default for all models
-    info!("EchoNet APSS injection enabled after layer 2 for {}", model_id);
+    info!(
+        "EchoNet APSS injection enabled after layer 2 for {}",
+        model_id
+    );
 
     // SEDC weight compression is opt-in — must be explicitly enabled
-    info!("SEDC weight compression — must be explicitly enabled for {}", model_id);
+    info!(
+        "SEDC weight compression — must be explicitly enabled for {}",
+        model_id
+    );
 
     let mut model = CausalLmModel::new(model_id, transformer_config.clone());
     model = model.with_echo_net(crate::causal_lm_model::EchoNetInjectionConfig::default());
@@ -203,8 +209,14 @@ mod tests {
 
     #[test]
     fn test_tier_config_low_tier() {
-        for id in &[NxrModelId::Cipher, NxrModelId::Vortex, NxrModelId::Aether,
-                     NxrModelId::Spectra, NxrModelId::Swift, NxrModelId::Kronos] {
+        for id in &[
+            NxrModelId::Cipher,
+            NxrModelId::Vortex,
+            NxrModelId::Aether,
+            NxrModelId::Spectra,
+            NxrModelId::Swift,
+            NxrModelId::Kronos,
+        ] {
             let config = tier_config(*id, 100);
             assert_eq!(config.hidden_size, 128, "failed for {:?}", id);
             assert_eq!(config.num_layers, 3);

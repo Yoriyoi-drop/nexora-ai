@@ -582,7 +582,10 @@ pub struct SyntheticDataset {
 
 impl SyntheticDataset {
     pub fn new(batch_size: usize, num_batches: usize) -> Self {
-        Self { batch_size, num_batches }
+        Self {
+            batch_size,
+            num_batches,
+        }
     }
 
     fn make_batch(&self, batch_idx: usize) -> TrainingBatch {
@@ -592,13 +595,17 @@ impl SyntheticDataset {
 
         TrainingBatch {
             images: Tensor::new(
-                (0..img_size).map(|i| (i as f32) / img_size.max(1) as f32).collect(),
+                (0..img_size)
+                    .map(|i| (i as f32) / img_size.max(1) as f32)
+                    .collect(),
                 vec![self.batch_size, 64, 64, 3],
             ),
             prompts: vec![format!("synthetic prompt {}", batch_idx)],
             timesteps: vec![Timestep(50 + batch_idx % 1000)],
             noise: Tensor::new(
-                (0..latent_size).map(|_| rand::random::<f32>() * 2.0 - 1.0).collect(),
+                (0..latent_size)
+                    .map(|_| rand::random::<f32>() * 2.0 - 1.0)
+                    .collect(),
                 vec![self.batch_size, 8, 8, 4],
             ),
             latents: Tensor::new(
@@ -630,11 +637,17 @@ impl Dataset for SyntheticDataset {
         Ok(self.make_batch(batch_idx))
     }
 
-    fn get_upsampler_batch(&self, batch_idx: usize, _stage_idx: usize) -> HLDVAResult<TrainingBatch> {
+    fn get_upsampler_batch(
+        &self,
+        batch_idx: usize,
+        _stage_idx: usize,
+    ) -> HLDVAResult<TrainingBatch> {
         let mut batch = self.make_batch(batch_idx);
         let low_shape = batch.latents.shape().to_vec();
         batch.latents = Tensor::new(
-            (0..low_shape.iter().product::<usize>()).map(|i| (i as f32) / 1000.0).collect(),
+            (0..low_shape.iter().product::<usize>())
+                .map(|i| (i as f32) / 1000.0)
+                .collect(),
             low_shape,
         );
         Ok(batch)

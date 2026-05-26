@@ -10,9 +10,9 @@ pub mod coordination;
 pub mod error;
 pub mod error_recovery;
 pub use error_recovery::{
-    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState, ErrorCategory,
-    ErrorInfo, ErrorRecoveryManager, ErrorSeverity, ErrorStats, RecoveryAction, RecoveryStrategy,
-    RetryHandler, RetryPolicy, global_error_recovery, with_circuit_breaker,
+    global_error_recovery, with_circuit_breaker, CircuitBreaker, CircuitBreakerConfig,
+    CircuitBreakerStats, CircuitState, ErrorCategory, ErrorInfo, ErrorRecoveryManager,
+    ErrorSeverity, ErrorStats, RecoveryAction, RecoveryStrategy, RetryHandler, RetryPolicy,
 };
 pub mod execution;
 pub mod fusion;

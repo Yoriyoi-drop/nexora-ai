@@ -61,7 +61,8 @@ impl FIDMetric {
 
         if all_features.is_empty() {
             return Err(HLDVAError::Evaluation(
-                "No features could be extracted from images (FID requires non-empty input)".to_string(),
+                "No features could be extracted from images (FID requires non-empty input)"
+                    .to_string(),
             ));
         }
 
@@ -94,14 +95,20 @@ impl FIDMetric {
 
             for c in 0..channels {
                 let start = c * pixels_per_channel;
-                let end = if c == channels - 1 { n } else { (c + 1) * pixels_per_channel };
+                let end = if c == channels - 1 {
+                    n
+                } else {
+                    (c + 1) * pixels_per_channel
+                };
                 let channel_data = &image_data[start..end];
 
                 // Block-average to get reduced resolution
                 let reduced: Vec<f32> = (0..reduced_len)
                     .map(|i| {
                         let base = i * block;
-                        let sum: f32 = (0..block).map(|j| channel_data.get(base + j).copied().unwrap_or(0.0)).sum();
+                        let sum: f32 = (0..block)
+                            .map(|j| channel_data.get(base + j).copied().unwrap_or(0.0))
+                            .sum();
                         sum / block as f32
                     })
                     .collect();
@@ -114,14 +121,17 @@ impl FIDMetric {
                 features.push(std);
 
                 let skewness = if variance > 0.0 {
-                    reduced.iter().map(|&x| (x - mean).powi(3)).sum::<f32>() / (len * variance * std)
+                    reduced.iter().map(|&x| (x - mean).powi(3)).sum::<f32>()
+                        / (len * variance * std)
                 } else {
                     0.0
                 };
                 features.push(skewness);
 
                 let kurtosis = if variance > 0.0 {
-                    reduced.iter().map(|&x| (x - mean).powi(4)).sum::<f32>() / (len * variance * variance) - 3.0
+                    reduced.iter().map(|&x| (x - mean).powi(4)).sum::<f32>()
+                        / (len * variance * variance)
+                        - 3.0
                 } else {
                     0.0
                 };
@@ -138,23 +148,38 @@ impl FIDMetric {
         // Channel cross-correlations (at full resolution)
         for c1 in 0..channels {
             let start1 = c1 * pixels_per_channel;
-            let end1 = if c1 == channels - 1 { n } else { (c1 + 1) * pixels_per_channel };
+            let end1 = if c1 == channels - 1 {
+                n
+            } else {
+                (c1 + 1) * pixels_per_channel
+            };
             let ch1 = &image_data[start1..end1];
             let len1 = ch1.len();
             let mean1: f32 = ch1.iter().sum::<f32>() / len1 as f32;
 
             for c2 in (c1 + 1)..channels {
                 let start2 = c2 * pixels_per_channel;
-                let end2 = if c2 == channels - 1 { n } else { (c2 + 1) * pixels_per_channel };
+                let end2 = if c2 == channels - 1 {
+                    n
+                } else {
+                    (c2 + 1) * pixels_per_channel
+                };
                 let ch2 = &image_data[start2..end2];
                 let len2 = ch2.len();
                 let mean2: f32 = ch2.iter().sum::<f32>() / len2 as f32;
 
                 let min_len = len1.min(len2);
-                let cov: f32 = (0..min_len).map(|i| (ch1[i] - mean1) * (ch2[i] - mean2)).sum::<f32>() / min_len as f32;
+                let cov: f32 = (0..min_len)
+                    .map(|i| (ch1[i] - mean1) * (ch2[i] - mean2))
+                    .sum::<f32>()
+                    / min_len as f32;
                 let var1: f32 = ch1.iter().map(|&x| (x - mean1).powi(2)).sum::<f32>() / len1 as f32;
                 let var2: f32 = ch2.iter().map(|&x| (x - mean2).powi(2)).sum::<f32>() / len2 as f32;
-                let corr = if var1 > 0.0 && var2 > 0.0 { cov / (var1.sqrt() * var2.sqrt()) } else { 0.0 };
+                let corr = if var1 > 0.0 && var2 > 0.0 {
+                    cov / (var1.sqrt() * var2.sqrt())
+                } else {
+                    0.0
+                };
                 features.push(corr);
             }
         }
@@ -167,8 +192,16 @@ impl FIDMetric {
             let luminance: Vec<f32> = (0..pixels_per_channel)
                 .map(|i| {
                     let r = image_data[i].max(0.0);
-                    let g = image_data.get(i + pixels_per_channel).copied().unwrap_or(0.0).max(0.0);
-                    let b = image_data.get(i + 2 * pixels_per_channel).copied().unwrap_or(0.0).max(0.0);
+                    let g = image_data
+                        .get(i + pixels_per_channel)
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(0.0);
+                    let b = image_data
+                        .get(i + 2 * pixels_per_channel)
+                        .copied()
+                        .unwrap_or(0.0)
+                        .max(0.0);
                     0.299 * r + 0.587 * g + 0.114 * b
                 })
                 .collect();
@@ -181,7 +214,9 @@ impl FIDMetric {
                     let mag = (gx * gx + gy * gy).sqrt();
                     if mag > 0.02 {
                         let angle = gy.atan2(gx);
-                        let bin = (((angle / std::f32::consts::PI) + 1.0) / 2.0 * gh_bins as f32) as usize % gh_bins;
+                        let bin = (((angle / std::f32::consts::PI) + 1.0) / 2.0 * gh_bins as f32)
+                            as usize
+                            % gh_bins;
                         gradient_hist[bin] += mag;
                         edge_count += 1.0;
                     }

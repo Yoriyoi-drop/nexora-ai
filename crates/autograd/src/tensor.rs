@@ -1,10 +1,10 @@
 use ndarray::ArrayD;
 use parking_lot::RwLock;
 use rand::Rng;
-use tracing::warn;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tracing::warn;
 
 use super::device::{Device, Storage};
 use super::mixed_precision::DType;
@@ -166,9 +166,14 @@ impl Tensor {
         let ptr: *const ArrayD<f32> = match &guard.storage {
             Storage::Cpu(arr) => arr.as_ref(),
             #[cfg(feature = "gpu")]
-            Storage::Gpu(_) => return Err("data_ref() on GPU tensor — use data() for GPU readback"),
+            Storage::Gpu(_) => {
+                return Err("data_ref() on GPU tensor — use data() for GPU readback")
+            }
         };
-        Ok(DataRef { _guard: guard, data: ptr })
+        Ok(DataRef {
+            _guard: guard,
+            data: ptr,
+        })
     }
 
     /// Returns an `Arc<ArrayD<f32>>` — O(1) for CPU (refcount increment), O(N) GPU readback.
@@ -226,26 +231,24 @@ impl Tensor {
                 t
             }
             #[cfg(feature = "gpu")]
-            Device::Gpu(_device_id) => {
-                match crate::gpu::GpuTensor::from_cpu(&cpu_data) {
-                    Ok(gpu_tensor) => {
-                        let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                        let t = Tensor(Arc::new(RwLock::new(TensorInner {
-                            id,
-                            storage: Storage::Gpu(gpu_tensor),
-                            device: Device::Gpu(0),
-                            dtype: DType::F32,
-                            grad,
-                            requires_grad,
-                            grad_fn_idx,
-                        })));
-                        t
-                    }
-                    Err(e) => {
-                        panic!("GPU transfer failed: {e}");
-                    }
+            Device::Gpu(_device_id) => match crate::gpu::GpuTensor::from_cpu(&cpu_data) {
+                Ok(gpu_tensor) => {
+                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    let t = Tensor(Arc::new(RwLock::new(TensorInner {
+                        id,
+                        storage: Storage::Gpu(gpu_tensor),
+                        device: Device::Gpu(0),
+                        dtype: DType::F32,
+                        grad,
+                        requires_grad,
+                        grad_fn_idx,
+                    })));
+                    t
                 }
-            }
+                Err(e) => {
+                    panic!("GPU transfer failed: {e}");
+                }
+            },
         }
     }
 
@@ -258,10 +261,7 @@ impl Tensor {
     pub fn is_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]
         {
-            matches!(
-                self.0.read().device,
-                Device::Gpu(_)
-            )
+            matches!(self.0.read().device, Device::Gpu(_))
         }
         #[cfg(not(feature = "gpu"))]
         {
@@ -355,8 +355,14 @@ impl Tensor {
     }
 
     pub fn from_slice(data: &[f32], shape: &[usize]) -> Self {
-        let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
-            .unwrap_or_else(|e| panic!("from_slice: data.len()={} product(shape)={:?} did not match: {}", data.len(), shape, e));
+        let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec()).unwrap_or_else(|e| {
+            panic!(
+                "from_slice: data.len()={} product(shape)={:?} did not match: {}",
+                data.len(),
+                shape,
+                e
+            )
+        });
         #[cfg(feature = "gpu")]
         if is_gpu_auto_create() {
             if crate::gpu::GpuContext::global().is_ok() {
@@ -450,7 +456,9 @@ impl Tensor {
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
         let mut inner = self.0.write();
         match (&mut inner.grad, grad) {
-            (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => *Arc::make_mut(existing) += g.as_ref(),
+            (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => {
+                *Arc::make_mut(existing) += g.as_ref()
+            }
             (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
                 let g_cpu = g.to_cpu().unwrap_or_else(|e| {
                     panic!("accumulate_grad_storage GPU readback failed: {e}");
@@ -562,7 +570,11 @@ impl Tensor {
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.
 #[cfg(feature = "gpu")]
 pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
-    grad.as_ref().and_then(|s| s.to_cpu().map_err(|e| tracing::warn!("grad_as_cpu readback failed: {e}")).ok())
+    grad.as_ref().and_then(|s| {
+        s.to_cpu()
+            .map_err(|e| tracing::warn!("grad_as_cpu readback failed: {e}"))
+            .ok()
+    })
 }
 
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.

@@ -19,7 +19,7 @@ impl AetherIdentity {
             "Adaptive Emotional & Holistic Transcendent Empathy Reasoner - Emotional intelligence and psychological analysis specialist with deep empathy synthesis capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }
@@ -76,12 +76,7 @@ impl AetherIdentity {
 
     /// Get agent list
     pub fn agents(&self) -> Vec<&'static str> {
-        vec![
-            "EMPATH-CORE",
-            "TONE-MAPPER",
-            "CONTEXT-WEAVE",
-            "SOUL-MIRROR",
-        ]
+        vec!["EMPATH-CORE", "TONE-MAPPER", "CONTEXT-WEAVE", "SOUL-MIRROR"]
     }
 
     /// Get architecture components

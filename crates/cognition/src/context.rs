@@ -54,7 +54,12 @@ pub struct ContextMetadata {
 /// Tokenise text into lowercase alpha tokens longer than 3 chars.
 fn tokenize(text: &str) -> Vec<String> {
     text.split_whitespace()
-        .map(|t| t.chars().filter(|c| c.is_alphabetic()).collect::<String>().to_lowercase())
+        .map(|t| {
+            t.chars()
+                .filter(|c| c.is_alphabetic())
+                .collect::<String>()
+                .to_lowercase()
+        })
         .filter(|t| t.len() > 3)
         .collect()
 }
@@ -66,12 +71,18 @@ fn tf(tokens: &[String]) -> HashMap<String, f32> {
         *counts.entry(t.clone()).or_insert(0) += 1;
     }
     let total = tokens.len().max(1) as f32;
-    counts.into_iter().map(|(k, v)| (k, v as f32 / total)).collect()
+    counts
+        .into_iter()
+        .map(|(k, v)| (k, v as f32 / total))
+        .collect()
 }
 
 /// Cosine similarity between two TF maps.
 fn cosine_similarity(a: &HashMap<String, f32>, b: &HashMap<String, f32>) -> f32 {
-    let dot: f32 = a.iter().filter_map(|(k, va)| b.get(k).map(|vb| va * vb)).sum();
+    let dot: f32 = a
+        .iter()
+        .filter_map(|(k, va)| b.get(k).map(|vb| va * vb))
+        .sum();
     let norm_a: f32 = a.values().map(|v| v * v).sum::<f32>().sqrt();
     let norm_b: f32 = b.values().map(|v| v * v).sum::<f32>().sqrt();
     if norm_a == 0.0 || norm_b == 0.0 {
@@ -88,7 +99,8 @@ fn score_importance(content: &str, corpus_idf: &HashMap<String, f32>) -> f32 {
         return 0.5; // neutral default
     }
     let tf_map = tf(&tokens);
-    let weighted: f32 = tf_map.iter()
+    let weighted: f32 = tf_map
+        .iter()
         .filter_map(|(t, tf_val)| corpus_idf.get(t).map(|idf| tf_val * idf))
         .sum();
     (weighted / tf_map.len().max(1) as f32).min(1.0).max(0.0)
@@ -102,7 +114,8 @@ fn build_corpus_idf(entries: &[ContextEntry]) -> HashMap<String, f32> {
     }
     let mut df: HashMap<String, usize> = HashMap::new();
     for entry in entries {
-        let unique_terms: std::collections::HashSet<String> = tokenize(&entry.content).into_iter().collect();
+        let unique_terms: std::collections::HashSet<String> =
+            tokenize(&entry.content).into_iter().collect();
         for t in unique_terms {
             *df.entry(t).or_insert(0) += 1;
         }
@@ -126,7 +139,11 @@ pub trait ContextManager: Send + Sync {
     async fn create_context(&self, max_size: usize) -> FoundationResult<Uuid>;
     async fn add_entry(&self, context_id: Uuid, entry: ContextEntry) -> FoundationResult<()>;
     async fn get_context(&self, context_id: Uuid) -> FoundationResult<Option<ContextWindow>>;
-    async fn evolve_context(&self, context_id: Uuid, new_info: &str) -> FoundationResult<ContextWindow>;
+    async fn evolve_context(
+        &self,
+        context_id: Uuid,
+        new_info: &str,
+    ) -> FoundationResult<ContextWindow>;
     async fn prune_context(&self, context_id: Uuid, threshold: f32) -> FoundationResult<usize>;
     async fn retrieve_relevant(
         &self,
@@ -240,8 +257,15 @@ impl ContextManager for DefaultContextManager {
         };
         if window.entries.len() >= window.max_size {
             // Evict least important
-            if let Some(min_pos) = window.entries.iter().enumerate()
-                .min_by(|a, b| a.1.importance.partial_cmp(&b.1.importance).unwrap_or(std::cmp::Ordering::Equal))
+            if let Some(min_pos) = window
+                .entries
+                .iter()
+                .enumerate()
+                .min_by(|a, b| {
+                    a.1.importance
+                        .partial_cmp(&b.1.importance)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .map(|(i, _)| i)
             {
                 window.entries.remove(min_pos);
@@ -365,10 +389,16 @@ mod tests {
     #[tokio::test]
     async fn test_add_entry_evicts_on_full() {
         let (mgr, id) = make_ctx(2).await;
-        mgr.add_entry(id, entry("first important message", 0.9)).await.unwrap();
-        mgr.add_entry(id, entry("second less important", 0.2)).await.unwrap();
+        mgr.add_entry(id, entry("first important message", 0.9))
+            .await
+            .unwrap();
+        mgr.add_entry(id, entry("second less important", 0.2))
+            .await
+            .unwrap();
         // Third entry should evict the lowest-importance one (0.2)
-        mgr.add_entry(id, entry("third new entry", 0.7)).await.unwrap();
+        mgr.add_entry(id, entry("third new entry", 0.7))
+            .await
+            .unwrap();
         let ctx = mgr.get_context(id).await.unwrap().unwrap();
         assert_eq!(ctx.entries.len(), 2);
         assert!(ctx.entries.iter().any(|e| e.content.contains("first")));
@@ -377,8 +407,13 @@ mod tests {
     #[tokio::test]
     async fn test_evolve_context() {
         let (mgr, id) = make_ctx(10).await;
-        mgr.add_entry(id, entry("Rust is a systems programming language", 0.5)).await.unwrap();
-        let evolved = mgr.evolve_context(id, "Rust has excellent memory safety guarantees").await.unwrap();
+        mgr.add_entry(id, entry("Rust is a systems programming language", 0.5))
+            .await
+            .unwrap();
+        let evolved = mgr
+            .evolve_context(id, "Rust has excellent memory safety guarantees")
+            .await
+            .unwrap();
         assert_eq!(evolved.entries.len(), 2);
         // All importances should be updated (non-zero)
         assert!(evolved.entries.iter().all(|e| e.importance > 0.0));
@@ -387,8 +422,12 @@ mod tests {
     #[tokio::test]
     async fn test_prune_context() {
         let (mgr, id) = make_ctx(10).await;
-        mgr.add_entry(id, entry("high importance entry", 0.9)).await.unwrap();
-        mgr.add_entry(id, entry("low importance entry", 0.1)).await.unwrap();
+        mgr.add_entry(id, entry("high importance entry", 0.9))
+            .await
+            .unwrap();
+        mgr.add_entry(id, entry("low importance entry", 0.1))
+            .await
+            .unwrap();
         let removed = mgr.prune_context(id, 0.5).await.unwrap();
         assert_eq!(removed, 1);
         let ctx = mgr.get_context(id).await.unwrap().unwrap();
@@ -398,11 +437,20 @@ mod tests {
     #[tokio::test]
     async fn test_retrieve_relevant() {
         let (mgr, id) = make_ctx(10).await;
-        mgr.add_entry(id, entry("Rust memory safety borrow checker", 0.8)).await.unwrap();
-        mgr.add_entry(id, entry("Python machine learning neural networks", 0.7)).await.unwrap();
-        mgr.add_entry(id, entry("Rust async tokio runtime performance", 0.6)).await.unwrap();
+        mgr.add_entry(id, entry("Rust memory safety borrow checker", 0.8))
+            .await
+            .unwrap();
+        mgr.add_entry(id, entry("Python machine learning neural networks", 0.7))
+            .await
+            .unwrap();
+        mgr.add_entry(id, entry("Rust async tokio runtime performance", 0.6))
+            .await
+            .unwrap();
 
-        let results = mgr.retrieve_relevant(id, "Rust async performance", 2).await.unwrap();
+        let results = mgr
+            .retrieve_relevant(id, "Rust async performance", 2)
+            .await
+            .unwrap();
         assert!(!results.is_empty());
         assert!(results.len() <= 2);
         // The Rust-related entries should rank above Python

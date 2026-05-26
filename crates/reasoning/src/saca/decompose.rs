@@ -174,12 +174,8 @@ impl DecomposeEngine {
         });
 
         // Input validation module — incorporate edge cases from CoT
-        let edge_case_descriptions: Vec<String> = cot_result
-            .edge_cases
-            .iter()
-            .take(3)
-            .cloned()
-            .collect();
+        let edge_case_descriptions: Vec<String> =
+            cot_result.edge_cases.iter().take(3).cloned().collect();
         let validation_desc = if edge_case_descriptions.is_empty() {
             "Validates input data and parameters".to_string()
         } else {
@@ -509,7 +505,10 @@ impl DecomposeEngine {
                 description: "Processed data".to_string(),
                 optional: false,
             }],
-            dependencies: vec![format!("{}_DataModel", cot_result.approach.replace(' ', "_"))],
+            dependencies: vec![format!(
+                "{}_DataModel",
+                cot_result.approach.replace(' ', "_")
+            )],
             complexity: ModuleComplexity::High,
             estimated_lines: 180u32.saturating_add((cot_result.reasoning_steps.len() as u32) * 20),
         });
@@ -535,7 +534,10 @@ impl DecomposeEngine {
                 description: "Validation results".to_string(),
                 optional: false,
             }],
-            dependencies: vec![format!("{}_DataModel", cot_result.approach.replace(' ', "_"))],
+            dependencies: vec![format!(
+                "{}_DataModel",
+                cot_result.approach.replace(' ', "_")
+            )],
             complexity: ModuleComplexity::Medium,
             estimated_lines: 90u32.saturating_add((cot_result.edge_cases.len() as u32) * 10),
         });
@@ -616,11 +618,7 @@ impl DecomposeEngine {
             modules.push(Module {
                 id: Uuid::new_v4().to_string(),
                 name: stage_name.clone(),
-                description: format!(
-                    "Pipeline stage {}: {}",
-                    i + 1,
-                    step
-                ),
+                description: format!("Pipeline stage {}: {}", i + 1, step),
                 inputs: vec![ModuleIO {
                     name: format!("{}_input", stage_name),
                     data_type: format!("{}Input", stage_name),
@@ -648,10 +646,7 @@ impl DecomposeEngine {
             modules.push(Module {
                 id: Uuid::new_v4().to_string(),
                 name: "RiskHandlingStage".to_string(),
-                description: format!(
-                    "Handles pipeline risks: {}",
-                    cot_result.risks.join(", ")
-                ),
+                description: format!("Handles pipeline risks: {}", cot_result.risks.join(", ")),
                 inputs: vec![ModuleIO {
                     name: "error_signal".to_string(),
                     data_type: "ErrorSignal".to_string(),
@@ -707,7 +702,9 @@ impl DecomposeEngine {
     /// Split a large module into smaller ones
     async fn split_large_module(&self, module: Module) -> SACAResult<Vec<Module>> {
         let mut split_modules = Vec::new();
-        let num_splits = ((module.estimated_lines as f32 / self.config.max_module_size as f32).ceil() as u32).max(1);
+        let num_splits = ((module.estimated_lines as f32 / self.config.max_module_size as f32)
+            .ceil() as u32)
+            .max(1);
 
         for i in 0..num_splits {
             split_modules.push(Module {

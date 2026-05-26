@@ -483,10 +483,7 @@ mod tests {
         ERPConfig::default()
     }
 
-    fn group(
-        neurons: Vec<usize>,
-        sigs: &[NeuronSignature],
-    ) -> ResonanceGroup {
+    fn group(neurons: Vec<usize>, sigs: &[NeuronSignature]) -> ResonanceGroup {
         let importance_scores: Vec<f32> = neurons
             .iter()
             .map(|&i| sigs[i].fisher_info + sigs[i].gradient_norm)
@@ -518,7 +515,10 @@ mod tests {
             compression_mode: crate::CompressionMode::Conservative,
             ..cfg()
         });
-        assert!(matches!(c.compression_method, CompressionMethod::WeightedSuperposition));
+        assert!(matches!(
+            c.compression_method,
+            CompressionMethod::WeightedSuperposition
+        ));
     }
 
     #[test]
@@ -527,7 +527,10 @@ mod tests {
             compression_mode: crate::CompressionMode::Balanced,
             ..cfg()
         });
-        assert!(matches!(c.compression_method, CompressionMethod::LowRankApproximation { rank: 16 }));
+        assert!(matches!(
+            c.compression_method,
+            CompressionMethod::LowRankApproximation { rank: 16 }
+        ));
     }
 
     #[test]
@@ -536,7 +539,10 @@ mod tests {
             compression_mode: crate::CompressionMode::Aggressive,
             ..cfg()
         });
-        assert!(matches!(c.compression_method, CompressionMethod::SparseResidual { sparsity: 0.1 }));
+        assert!(matches!(
+            c.compression_method,
+            CompressionMethod::SparseResidual { sparsity: 0.1 }
+        ));
     }
 
     #[test]
@@ -634,7 +640,8 @@ mod tests {
         let c = SuperpositionCompressor::new(cfg());
         let mut compressed = Array2::from_shape_vec((2, 2), vec![0.5; 4]).unwrap();
         let original = Array2::from_shape_vec((2, 2), vec![1.0; 4]).unwrap();
-        c.apply_energy_stability(&mut compressed, &original).unwrap();
+        c.apply_energy_stability(&mut compressed, &original)
+            .unwrap();
         let original_energy: f32 = original.iter().map(|x| x * x).sum();
         let compressed_energy: f32 = compressed.iter().map(|x| x * x).sum();
         assert!((original_energy - compressed_energy).abs() < 1e-5);

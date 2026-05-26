@@ -12,15 +12,18 @@ pub fn gpu_pairwise_distances(data: &[Vec<f32>]) -> Result<Vec<Vec<f32>>, String
 
     #[cfg(feature = "gpu")]
     {
-        let ctx = nexora_deeplearning::gpu::GpuContext::global()
-            .map_err(|e| { tracing::warn!("GPU context unavailable: {}", e); e.to_string() })?;
+        let ctx = nexora_deeplearning::gpu::GpuContext::global().map_err(|e| {
+            tracing::warn!("GPU context unavailable: {}", e);
+            e.to_string()
+        })?;
 
         let flat: Vec<f32> = data.iter().flat_map(|v| v.iter()).cloned().collect();
-        let arr = ArrayD::from_shape_vec(vec![n, d], flat)
-            .map_err(|e| e.to_string())?;
+        let arr = ArrayD::from_shape_vec(vec![n, d], flat).map_err(|e| e.to_string())?;
 
-        let gpu = nexora_deeplearning::gpu::GpuTensor::from_cpu(&arr)
-            .map_err(|e| { tracing::warn!("GPU upload failed: {}", e); e.to_string() })?;
+        let gpu = nexora_deeplearning::gpu::GpuTensor::from_cpu(&arr).map_err(|e| {
+            tracing::warn!("GPU upload failed: {}", e);
+            e.to_string()
+        })?;
 
         let gpu_t = ctx.transpose(&gpu).map_err(|e| e.to_string())?;
         let dots = ctx.matmul(&gpu, &gpu_t).map_err(|e| e.to_string())?;
@@ -46,7 +49,9 @@ pub fn gpu_pairwise_distances(data: &[Vec<f32>]) -> Result<Vec<Vec<f32>>, String
         let mut result = vec![vec![0.0_f32; n]; n];
         for i in 0..n {
             for j in (i + 1)..n {
-                let d = data[i].iter().zip(data[j].iter())
+                let d = data[i]
+                    .iter()
+                    .zip(data[j].iter())
                     .map(|(a, b)| (a - b).powi(2))
                     .sum::<f32>()
                     .sqrt();

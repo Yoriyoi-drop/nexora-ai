@@ -19,7 +19,8 @@ static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
 
 pub fn init_metrics() -> anyhow::Result<Arc<MetricsCollector>> {
     let collector = Arc::new(
-        MetricsCollector::new().map_err(|e| anyhow::anyhow!("Failed to initialize metrics collector: {}", e))?,
+        MetricsCollector::new()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize metrics collector: {}", e))?,
     );
     METRICS.set(collector.clone()).ok();
     Ok(collector)
@@ -237,10 +238,7 @@ pub async fn generate_text(
 pub async fn generate_text_stream(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
-) -> Result<
-    Sse<impl Stream<Item = Result<Event, anyhow::Error>>>,
-    (StatusCode, Json<Value>),
-> {
+) -> Result<Sse<impl Stream<Item = Result<Event, anyhow::Error>>>, (StatusCode, Json<Value>)> {
     let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
     if prompt.is_empty() {
         return Err((

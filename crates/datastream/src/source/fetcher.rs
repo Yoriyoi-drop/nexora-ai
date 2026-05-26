@@ -21,7 +21,10 @@ fn client() -> Option<reqwest::Client> {
     }
 }
 
-async fn fetch_with_retry(client: &reqwest::Client, url: &str) -> Result<reqwest::Response, String> {
+async fn fetch_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<reqwest::Response, String> {
     let config = RetryConfig::new(3, 200);
     let url = url.to_string();
     config
@@ -31,12 +34,18 @@ async fn fetch_with_retry(client: &reqwest::Client, url: &str) -> Result<reqwest
                 .send()
                 .await
                 .map_err(|e| format!("Request failed: {}", e))
-                .and_then(|r| r.error_for_status().map_err(|e| format!("HTTP error: {}", e)))
+                .and_then(|r| {
+                    r.error_for_status()
+                        .map_err(|e| format!("HTTP error: {}", e))
+                })
         })
         .await
 }
 
-async fn fetch_json_with_retry(client: &reqwest::Client, url: &str) -> Result<serde_json::Value, String> {
+async fn fetch_json_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<serde_json::Value, String> {
     let resp = fetch_with_retry(client, url).await?;
     resp.json::<serde_json::Value>()
         .await
@@ -74,7 +83,12 @@ impl SourceProvider for HackerNewsProvider {
         };
         let source = self.source_info();
 
-        let ids: Vec<u64> = match fetch_json_with_retry(&client, "https://hacker-news.firebaseio.com/v0/topstories.json").await {
+        let ids: Vec<u64> = match fetch_json_with_retry(
+            &client,
+            "https://hacker-news.firebaseio.com/v0/topstories.json",
+        )
+        .await
+        {
             Ok(serde_json::Value::Array(arr)) => arr.iter().filter_map(|v| v.as_u64()).collect(),
             Ok(_) => return vec![],
             Err(e) => {
@@ -216,15 +230,17 @@ async fn fetch_wikipedia_extract(client: &reqwest::Client, title: &str) -> Optio
 }
 
 fn urlencoding(s: &str) -> String {
-    s.chars().map(|c| match c {
-        ' ' => "%20".to_string(),
-        '&' => "%26".to_string(),
-        '?' => "%3F".to_string(),
-        '=' => "%3D".to_string(),
-        '#' => "%23".to_string(),
-        '%' => "%25".to_string(),
-        _ => c.to_string(),
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            ' ' => "%20".to_string(),
+            '&' => "%26".to_string(),
+            '?' => "%3F".to_string(),
+            '=' => "%3D".to_string(),
+            '#' => "%23".to_string(),
+            '%' => "%25".to_string(),
+            _ => c.to_string(),
+        })
+        .collect()
 }
 
 /// Fetch recent Reddit posts from technology subreddits (no auth required).
@@ -309,7 +325,11 @@ impl SourceProvider for RedditProvider {
                     let excerpt = if selftext.is_empty() || selftext.len() < 20 {
                         String::new()
                     } else if selftext.len() > 500 {
-                        let end = selftext.char_indices().map(|(i, _)| i).nth(500).unwrap_or(selftext.len());
+                        let end = selftext
+                            .char_indices()
+                            .map(|(i, _)| i)
+                            .nth(500)
+                            .unwrap_or(selftext.len());
                         format!(" - {}", &selftext[..end])
                     } else {
                         format!(" - {}", selftext)

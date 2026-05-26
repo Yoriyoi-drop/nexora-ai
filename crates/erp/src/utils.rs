@@ -193,10 +193,18 @@ impl ERPValidator {
     ) {
         for (i, layer) in compressed.iter().enumerate() {
             if let Err(e) = self.validate_numerical_stability(&[layer.clone()], report) {
-                tracing::warn!("Numerical stability validation failed for layer {}: {}", i, e);
+                tracing::warn!(
+                    "Numerical stability validation failed for layer {}: {}",
+                    i,
+                    e
+                );
             }
             if let Err(e) = self.validate_reconstruction_accuracy(original, compressed, report) {
-                tracing::warn!("Reconstruction accuracy validation failed for layer {}: {}", i, e);
+                tracing::warn!(
+                    "Reconstruction accuracy validation failed for layer {}: {}",
+                    i,
+                    e
+                );
             }
             if let Err(e) = self.validate_memory_efficiency(original, compressed, report) {
                 tracing::warn!("Memory efficiency validation failed for layer {}: {}", i, e);

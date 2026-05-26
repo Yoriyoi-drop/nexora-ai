@@ -83,7 +83,6 @@ pub mod traits {
         type Output;
         fn forward(&self, input: &Self::Input) -> DLResult<Self::Output>;
     }
-
 }
 
 #[cfg(test)]
@@ -166,7 +165,9 @@ mod tests {
 
     #[test]
     fn test_from_shape_error() {
-        let shape_err = ndarray::Array2::<f32>::zeros((2, 3)).into_shape((2, 4)).unwrap_err();
+        let shape_err = ndarray::Array2::<f32>::zeros((2, 3))
+            .into_shape((2, 4))
+            .unwrap_err();
         let dl_err: DeepLearningError = shape_err.into();
         let msg = format!("{}", dl_err);
         assert!(msg.contains("Shape mismatch"));

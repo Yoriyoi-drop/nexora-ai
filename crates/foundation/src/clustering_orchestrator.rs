@@ -265,13 +265,21 @@ impl ClusteringOrchestrator {
             changed = false;
 
             // Assignment step (parallel)
-            let new_labels: Vec<usize> = request.data.iter().map(|point| {
-                centroids.iter().enumerate().map(|(j, c)| {
-                    (j, self.euclidean(point, c))
-                }).min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                 .map(|(idx, _)| idx)
-                 .unwrap_or(0)
-            }).collect();
+            let new_labels: Vec<usize> = request
+                .data
+                .iter()
+                .map(|point| {
+                    centroids
+                        .iter()
+                        .enumerate()
+                        .map(|(j, c)| (j, self.euclidean(point, c)))
+                        .min_by(|(_, a), (_, b)| {
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(0)
+                })
+                .collect();
             for (i, &nl) in new_labels.iter().enumerate() {
                 if labels[i] != nl {
                     labels[i] = nl;
@@ -280,19 +288,22 @@ impl ClusteringOrchestrator {
             }
 
             // Update step (parallel)
-            let sums_and_counts: Vec<(Vec<f32>, usize)> = (0..k).into_par_iter().map(|c| {
-                let mut sum = vec![0.0f32; dim];
-                let mut count = 0usize;
-                for (i, &l) in labels.iter().enumerate() {
-                    if l == c {
-                        for (d, &v) in request.data[i].iter().enumerate() {
-                            sum[d] += v;
+            let sums_and_counts: Vec<(Vec<f32>, usize)> = (0..k)
+                .into_par_iter()
+                .map(|c| {
+                    let mut sum = vec![0.0f32; dim];
+                    let mut count = 0usize;
+                    for (i, &l) in labels.iter().enumerate() {
+                        if l == c {
+                            for (d, &v) in request.data[i].iter().enumerate() {
+                                sum[d] += v;
+                            }
+                            count += 1;
                         }
-                        count += 1;
                     }
-                }
-                (sum, count)
-            }).collect();
+                    (sum, count)
+                })
+                .collect();
             for (j, nc) in centroids.iter_mut().enumerate() {
                 let (sum, count) = &sums_and_counts[j];
                 if *count > 0 {
@@ -372,7 +383,11 @@ impl ClusteringOrchestrator {
         let prev = self.prev_labels.borrow();
         match prev.as_ref() {
             Some(prev_labels) if prev_labels.len() == labels.len() && !labels.is_empty() => {
-                let same = prev_labels.iter().zip(labels.iter()).filter(|(a, b)| a == b).count();
+                let same = prev_labels
+                    .iter()
+                    .zip(labels.iter())
+                    .filter(|(a, b)| a == b)
+                    .count();
                 same as f32 / labels.len() as f32
             }
             _ => 1.0,
@@ -574,7 +589,10 @@ impl ClusteringOrchestrator {
                     return;
                 }
                 Err(e) => {
-                    tracing::warn!("GPU distance computation failed, falling back to CPU: {}", e);
+                    tracing::warn!(
+                        "GPU distance computation failed, falling back to CPU: {}",
+                        e
+                    );
                 }
             }
         }

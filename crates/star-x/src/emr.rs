@@ -7,7 +7,7 @@
 //! - Long-term memory retention
 
 use crate::core::EpisodicMemory;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use std::collections::HashMap;
 

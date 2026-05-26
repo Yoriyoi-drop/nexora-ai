@@ -89,11 +89,7 @@ async fn test_pipeline_high_contradiction_flagged_for_review() {
     let guard = HallucinationGuard::new(config);
 
     let result = guard
-        .run_pipeline(
-            "The answer is yes. Actually the answer is no.",
-            None,
-            None,
-        )
+        .run_pipeline("The answer is yes. Actually the answer is no.", None, None)
         .await
         .unwrap();
 

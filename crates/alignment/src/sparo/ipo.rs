@@ -287,12 +287,16 @@ impl IpoTrainer {
                 let identity_grad = gradient * self.loss_calculator.config.identity_strength;
                 let contrastive_grad = gradient * self.loss_calculator.config.tau;
                 self.model.apply_gradient(
-                    &constraint.prompt, &constraint.original_response,
-                    identity_grad, self.learning_rate,
+                    &constraint.prompt,
+                    &constraint.original_response,
+                    identity_grad,
+                    self.learning_rate,
                 )?;
                 self.model.apply_gradient(
-                    &constraint.prompt, &constraint.current_response,
-                    -contrastive_grad, self.learning_rate,
+                    &constraint.prompt,
+                    &constraint.current_response,
+                    -contrastive_grad,
+                    self.learning_rate,
                 )?;
             }
 

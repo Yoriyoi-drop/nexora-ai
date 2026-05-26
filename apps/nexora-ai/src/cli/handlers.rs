@@ -336,7 +336,8 @@ impl Cli {
                     other => {
                         warn!("Unexpected command variant in inner handler: {:?}", other);
                         return Err(NexoraError::processing(format!(
-                            "Unhandled command: {:?}", other
+                            "Unhandled command: {:?}",
+                            other
                         )));
                     }
                 }
@@ -975,10 +976,9 @@ impl Cli {
                 system_info.memory_stats.available_memory / (1024 * 1024)
             ));
             match system_info.memory_stats.cache_size {
-                Some(cache) => info_text.push_str(&format!(
-                    "  Cache Size: {} MB\n\n",
-                    cache / (1024 * 1024)
-                )),
+                Some(cache) => {
+                    info_text.push_str(&format!("  Cache Size: {} MB\n\n", cache / (1024 * 1024)))
+                }
                 None => info_text.push_str("  Cache Size: N/A\n\n"),
             }
         }
@@ -1141,7 +1141,12 @@ impl Cli {
     /// Run tokenizer command
     async fn run_tokenizer(&self, action: &TokenizerAction) -> NexoraResult<()> {
         match action {
-            TokenizerAction::Train { data: _data, output: _output, vocab_size: _vocab_size, min_frequency: _min_frequency } => {
+            TokenizerAction::Train {
+                data: _data,
+                output: _output,
+                vocab_size: _vocab_size,
+                min_frequency: _min_frequency,
+            } => {
                 #[cfg(feature = "tokenizer-train")]
                 {
                     return self.run_tokenizer_train(action).await.map_err(|e| {
@@ -1152,11 +1157,15 @@ impl Cli {
                 Err(NexoraError::config(
                     "Tokenizer training requires the `tokenizer-train` feature. \
                      Enable it in Cargo.toml: `nexora-tokenizer = { features = [\"train\"] }` \
-                     or run: `cargo build --features tokenizer-train`".to_string()
+                     or run: `cargo build --features tokenizer-train`"
+                        .to_string(),
                 ))
             }
             TokenizerAction::Test { text, detailed } => {
-                info!("Tokenizer test requested: text='{}', detailed={}", text, detailed);
+                info!(
+                    "Tokenizer test requested: text='{}', detailed={}",
+                    text, detailed
+                );
                 if text.is_empty() {
                     return Err(NexoraError::validation("text", "Test text cannot be empty"));
                 }
@@ -1177,15 +1186,26 @@ impl Cli {
 
     async fn run_tokenizer_train(&self, action: &TokenizerAction) -> NexoraResult<()> {
         let (data_path, output_path, vocab_size, min_frequency) = match action {
-            TokenizerAction::Train { data, output, vocab_size, min_frequency } => {
-                (data.clone(), output.clone(), *vocab_size, *min_frequency)
+            TokenizerAction::Train {
+                data,
+                output,
+                vocab_size,
+                min_frequency,
+            } => (data.clone(), output.clone(), *vocab_size, *min_frequency),
+            _ => {
+                return Err(NexoraError::config(
+                    "Invalid tokenizer action: expected Train".to_string(),
+                ))
             }
-            _ => return Err(NexoraError::config("Invalid tokenizer action: expected Train".to_string())),
         };
 
-        info!("Training tokenizer from {:?} with vocab_size={}", data_path, vocab_size);
+        info!(
+            "Training tokenizer from {:?} with vocab_size={}",
+            data_path, vocab_size
+        );
 
-        let text = tokio::fs::read_to_string(&data_path).await
+        let text = tokio::fs::read_to_string(&data_path)
+            .await
             .map_err(|e| NexoraError::io(e))?;
 
         let word_count = text.split_whitespace().count();
@@ -1227,15 +1247,21 @@ impl Cli {
         });
 
         let parent = output_path.parent().unwrap_or(std::path::Path::new("."));
-        tokio::fs::create_dir_all(parent).await
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| NexoraError::io(e))?;
 
-        let json_str = serde_json::to_string_pretty(&vocab_json)
-            .map_err(|e| NexoraError::serialization(e))?;
-        tokio::fs::write(&output_path, json_str).await
+        let json_str =
+            serde_json::to_string_pretty(&vocab_json).map_err(|e| NexoraError::serialization(e))?;
+        tokio::fs::write(&output_path, json_str)
+            .await
             .map_err(|e| NexoraError::io(e))?;
 
-        info!("Tokenizer saved to {:?} ({} tokens)", output_path, vocab.len());
+        info!(
+            "Tokenizer saved to {:?} ({} tokens)",
+            output_path,
+            vocab.len()
+        );
         Ok(())
     }
 

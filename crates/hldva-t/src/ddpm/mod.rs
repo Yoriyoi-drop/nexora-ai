@@ -544,7 +544,10 @@ mod tests {
     struct TestNoisePredictor;
     impl NoisePredictor for TestNoisePredictor {
         fn predict_noise(&self, noisy_latent: &Tensor, _timestep: Timestep) -> HLDVAResult<Tensor> {
-            Ok(Tensor::new(vec![0.0; noisy_latent.data().len()], noisy_latent.shape().to_vec()))
+            Ok(Tensor::new(
+                vec![0.0; noisy_latent.data().len()],
+                noisy_latent.shape().to_vec(),
+            ))
         }
     }
 
@@ -628,7 +631,13 @@ mod tests {
     fn test_ddpm_loss_calculate() {
         let cfg = DDPMConfig::default();
         let loss = DDPMLoss::new(&cfg).unwrap();
-        let loss_val = loss.calculate_loss(&TestNoisePredictor, &Tensor::new(vec![0.5; 16], vec![4, 4]), Timestep(50)).unwrap();
+        let loss_val = loss
+            .calculate_loss(
+                &TestNoisePredictor,
+                &Tensor::new(vec![0.5; 16], vec![4, 4]),
+                Timestep(50),
+            )
+            .unwrap();
         assert!(loss_val > 0.0);
     }
 

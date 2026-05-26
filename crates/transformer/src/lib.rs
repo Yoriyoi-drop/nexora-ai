@@ -3,12 +3,12 @@ pub mod config;
 pub mod gqa;
 pub mod model;
 pub mod mtp;
+pub mod quantized;
 pub mod rms_norm;
 pub mod rope;
 pub mod safetensors;
 pub mod swiglu;
 pub mod trainable;
-pub mod quantized;
 
 pub use config::TransformerConfig;
 pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};

@@ -30,7 +30,10 @@ pub trait CodeVerifier: Send + Sync {
             let ln = i + 1;
             let lower = line.to_lowercase();
 
-            if line.to_uppercase().contains("SELECT") && line.contains('+') && line.to_uppercase().contains("FROM") {
+            if line.to_uppercase().contains("SELECT")
+                && line.contains('+')
+                && line.to_uppercase().contains("FROM")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
                     category: "sql_injection".into(),
@@ -41,7 +44,12 @@ pub trait CodeVerifier: Send + Sync {
                 });
             }
 
-            if lower.contains("<script") || lower.contains("onerror=") || lower.contains("onclick=") || lower.contains("onload=") || lower.contains("onmouseover=") {
+            if lower.contains("<script")
+                || lower.contains("onerror=")
+                || lower.contains("onclick=")
+                || lower.contains("onload=")
+                || lower.contains("onmouseover=")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::High,
                     category: "xss".into(),
@@ -52,7 +60,14 @@ pub trait CodeVerifier: Send + Sync {
                 });
             }
 
-            if lower.contains("system(") || lower.contains("exec(") || lower.contains("shell_exec(") || lower.contains("os.system") || lower.contains("subprocess.call") || lower.contains("popen(") || lower.contains("process::new") {
+            if lower.contains("system(")
+                || lower.contains("exec(")
+                || lower.contains("shell_exec(")
+                || lower.contains("os.system")
+                || lower.contains("subprocess.call")
+                || lower.contains("popen(")
+                || lower.contains("process::new")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
                     category: "command_injection".into(),
@@ -65,8 +80,19 @@ pub trait CodeVerifier: Send + Sync {
 
             if line.contains('=') || line.contains(':') {
                 let trimmed = line.trim();
-                if !trimmed.starts_with("//") && !trimmed.starts_with('#') && !trimmed.starts_with("/*") {
-                    if (lower.contains("password") || lower.contains("secret_key") || lower.contains("api_key") || lower.contains("apikey") || lower.contains("auth_token")) && !lower.contains("env(") && !lower.contains("getenv") && !lower.contains("config") {
+                if !trimmed.starts_with("//")
+                    && !trimmed.starts_with('#')
+                    && !trimmed.starts_with("/*")
+                {
+                    if (lower.contains("password")
+                        || lower.contains("secret_key")
+                        || lower.contains("api_key")
+                        || lower.contains("apikey")
+                        || lower.contains("auth_token"))
+                        && !lower.contains("env(")
+                        && !lower.contains("getenv")
+                        && !lower.contains("config")
+                    {
                         issues.push(CodeIssue {
                             severity: IssueSeverity::High,
                             category: "hardcoded_secret".into(),
@@ -90,7 +116,12 @@ pub trait CodeVerifier: Send + Sync {
                 });
             }
 
-            if lower.contains("strcpy(") || lower.contains("strcat(") || lower.contains("sprintf(") || lower.contains("gets(") || lower.contains("scanf(") {
+            if lower.contains("strcpy(")
+                || lower.contains("strcat(")
+                || lower.contains("sprintf(")
+                || lower.contains("gets(")
+                || lower.contains("scanf(")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::High,
                     category: "buffer_overflow".into(),
@@ -136,7 +167,10 @@ pub trait CodeVerifier: Send + Sync {
         }
 
         if suggestions.is_empty() {
-            suggestions.push("Run a dependency vulnerability scanner (e.g., cargo audit, npm audit, pip audit).".to_string());
+            suggestions.push(
+                "Run a dependency vulnerability scanner (e.g., cargo audit, npm audit, pip audit)."
+                    .to_string(),
+            );
         }
 
         suggestions
@@ -154,7 +188,11 @@ pub trait CodeVerifier: Send + Sync {
         for (i, line) in lines.iter().enumerate() {
             let ln = i + 1;
 
-            if line.contains("for ") && line.contains("for ") && i + 1 < lines.len() && lines[i + 1].contains("for ") {
+            if line.contains("for ")
+                && line.contains("for ")
+                && i + 1 < lines.len()
+                && lines[i + 1].contains("for ")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Warning,
                     category: "nested_loop".into(),
@@ -193,7 +231,10 @@ pub trait CodeVerifier: Send + Sync {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Info,
                 category: "excessive_to_string".into(),
-                message: format!("{} calls to .to_string() detected. Reuse owned strings or use Cow<str>.", count),
+                message: format!(
+                    "{} calls to .to_string() detected. Reuse owned strings or use Cow<str>.",
+                    count
+                ),
                 line_number: None,
                 column_number: None,
                 rule_id: "PERF-TOSTR-001".into(),
@@ -209,8 +250,8 @@ pub trait CodeVerifier: Send + Sync {
             return 1.0;
         }
         let branching_keywords = [
-            " if ", "else if", "for ", "while ", "case ", "catch ", " && ", " || ",
-            "match ", "when ",
+            " if ", "else if", "for ", "while ", "case ", "catch ", " && ", " || ", "match ",
+            "when ",
         ];
         let branch_count: usize = branching_keywords
             .iter()
@@ -222,7 +263,10 @@ pub trait CodeVerifier: Send + Sync {
             + code.matches("=>").count()
             + code.matches("-> {").count();
         let nesting = code.matches('{').count().max(code.matches('}').count());
-        let raw = 1.0 + branch_count as f32 * 0.5 + functions as f32 * 0.3 + (nesting as f32 / lines.max(1.0));
+        let raw = 1.0
+            + branch_count as f32 * 0.5
+            + functions as f32 * 0.3
+            + (nesting as f32 / lines.max(1.0));
         raw.min(50.0).max(1.0)
     }
 
@@ -268,7 +312,10 @@ pub trait CodeVerifier: Send + Sync {
         for (i, line) in lines.iter().enumerate() {
             let ln = i + 1;
 
-            if line.contains(".unwrap()") && !line.trim_start().starts_with("//") && !line.trim_start().starts_with('#') {
+            if line.contains(".unwrap()")
+                && !line.trim_start().starts_with("//")
+                && !line.trim_start().starts_with('#')
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Error,
                     category: "null_pointer_risk".into(),
@@ -279,7 +326,11 @@ pub trait CodeVerifier: Send + Sync {
                 });
             }
 
-            if line.contains(" as ") && (line.contains(" as u") || line.contains(" as i") || line.contains(" as f")) && !line.contains("as usize") && !line.contains("as isize") {
+            if line.contains(" as ")
+                && (line.contains(" as u") || line.contains(" as i") || line.contains(" as f"))
+                && !line.contains("as usize")
+                && !line.contains("as isize")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Warning,
                     category: "type_confusion".into(),
@@ -304,11 +355,15 @@ pub trait CodeVerifier: Send + Sync {
                 }
             }
 
-            if (line.contains("let ") && line.contains(": ") && !line.contains("= ")) && !line.contains("fn ") {
+            if (line.contains("let ") && line.contains(": ") && !line.contains("= "))
+                && !line.contains("fn ")
+            {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Warning,
                     category: "uninitialized_variable".into(),
-                    message: "Variable declared without initialization — may be used uninitialized.".into(),
+                    message:
+                        "Variable declared without initialization — may be used uninitialized."
+                            .into(),
                     line_number: Some(ln),
                     column_number: None,
                     rule_id: "CORR-UNINIT-001".into(),
@@ -344,17 +399,16 @@ pub trait CodeVerifier: Send + Sync {
         }
 
         if suggestions.is_empty() {
-            suggestions.push("Add property-based tests (e.g., proptest, quickcheck) to catch edge cases.".to_string());
+            suggestions.push(
+                "Add property-based tests (e.g., proptest, quickcheck) to catch edge cases."
+                    .to_string(),
+            );
         }
 
         suggestions
     }
 
-    fn check_language_specific_style(
-        &self,
-        code: &str,
-        _language: &str,
-    ) -> Result<Vec<CodeIssue>> {
+    fn check_language_specific_style(&self, code: &str, _language: &str) -> Result<Vec<CodeIssue>> {
         let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
         let mut indent_size: Option<usize> = None;
@@ -366,7 +420,10 @@ pub trait CodeVerifier: Send + Sync {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Style,
                     category: "long_line".into(),
-                    message: format!("Line exceeds 100 characters ({} chars). Break into multiple lines.", line.len()),
+                    message: format!(
+                        "Line exceeds 100 characters ({} chars). Break into multiple lines.",
+                        line.len()
+                    ),
                     line_number: Some(ln),
                     column_number: None,
                     rule_id: "STYLE-LINE-001".into(),
@@ -397,7 +454,10 @@ pub trait CodeVerifier: Send + Sync {
                         issues.push(CodeIssue {
                             severity: IssueSeverity::Style,
                             category: "inconsistent_indentation".into(),
-                            message: format!("Inconsistent indentation: {} spaces, expected multiple of {}.", leading_spaces, expected),
+                            message: format!(
+                                "Inconsistent indentation: {} spaces, expected multiple of {}.",
+                                leading_spaces, expected
+                            ),
                             line_number: Some(ln),
                             column_number: None,
                             rule_id: "STYLE-INDENT-001".into(),
@@ -420,16 +480,20 @@ pub trait CodeVerifier: Send + Sync {
             }
         }
 
-        let has_snake = lines.iter().any(|l| l.contains('_') && l.chars().any(|c| c.is_ascii_lowercase()));
-        let has_camel = lines.iter().any(|l| {
-            l.chars().any(|c| c.is_ascii_uppercase()) && !l.contains('_')
-        });
+        let has_snake = lines
+            .iter()
+            .any(|l| l.contains('_') && l.chars().any(|c| c.is_ascii_lowercase()));
+        let has_camel = lines
+            .iter()
+            .any(|l| l.chars().any(|c| c.is_ascii_uppercase()) && !l.contains('_'));
 
         if has_snake && has_camel {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Style,
                 category: "naming_inconsistency".into(),
-                message: "Mixed snake_case and camelCase naming detected. Adopt a single convention.".into(),
+                message:
+                    "Mixed snake_case and camelCase naming detected. Adopt a single convention."
+                        .into(),
                 line_number: None,
                 column_number: None,
                 rule_id: "STYLE-NAMING-001".into(),

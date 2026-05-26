@@ -705,16 +705,32 @@ impl Default for TruthArbitrationConfig {
 
 #[derive(Debug)]
 pub enum ConfigValidationError {
-    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
-    MustBePositive { field: String },
+    OutOfRange {
+        field: String,
+        min: f64,
+        max: f64,
+        actual: f64,
+    },
+    MustBePositive {
+        field: String,
+    },
     MissingField(String),
 }
 
 impl std::fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigValidationError::OutOfRange { field, min, max, actual } => {
-                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            ConfigValidationError::OutOfRange {
+                field,
+                min,
+                max,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{} must be between {} and {}, got {}",
+                    field, min, max, actual
+                )
             }
             ConfigValidationError::MustBePositive { field } => {
                 write!(f, "{} must be > 0", field)
@@ -732,7 +748,9 @@ impl OmnisConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate().map_err(|e| ConfigValidationError::MissingField(e))?;
+        self.base
+            .validate()
+            .map_err(|e| ConfigValidationError::MissingField(e))?;
 
         // Validate reasoning configuration
         if self.reasoning.max_reasoning_depth == 0 {
@@ -760,7 +778,8 @@ impl OmnisConfig {
         {
             return Err(ConfigValidationError::OutOfRange {
                 field: "oracle_7.confidence_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.agents.oracle_7.confidence_threshold as f64,
             });
         }
@@ -770,7 +789,8 @@ impl OmnisConfig {
         {
             return Err(ConfigValidationError::OutOfRange {
                 field: "synth_prime.quality_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.agents.synth_prime.quality_threshold as f64,
             });
         }
@@ -794,7 +814,8 @@ impl OmnisConfig {
         {
             return Err(ConfigValidationError::OutOfRange {
                 field: "truth_arbitration.confidence_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.truth_arbitration.confidence_threshold as f64,
             });
         }

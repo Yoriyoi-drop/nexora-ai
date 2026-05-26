@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-CIPHER Architecture Implementation
-#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrCipherModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrCipherModel (CausalLM-backed) instead."
+)]
 pub struct CipherArchitecture {
     /// Configuration
     config: CipherConfig,
@@ -890,7 +892,10 @@ impl CipherArchitecture {
                         id: uuid::Uuid::new_v4(),
                         name: "nation-state-actor".to_string(),
                         actor_type: ThreatActorType::NationState,
-                        capabilities: vec!["advanced_persistence".to_string(), "zero_day_exploits".to_string()],
+                        capabilities: vec![
+                            "advanced_persistence".to_string(),
+                            "zero_day_exploits".to_string(),
+                        ],
                         target_sectors: vec!["government".to_string(), "defense".to_string()],
                     },
                     ThreatActor {
@@ -911,7 +916,10 @@ impl CipherArchitecture {
                         id: uuid::Uuid::new_v4(),
                         name: "insider-actor".to_string(),
                         actor_type: ThreatActorType::Insider,
-                        capabilities: vec!["data_exfiltration".to_string(), "privilege_abuse".to_string()],
+                        capabilities: vec![
+                            "data_exfiltration".to_string(),
+                            "privilege_abuse".to_string(),
+                        ],
                         target_sectors: vec!["internal".to_string()],
                     },
                 ],
@@ -931,7 +939,8 @@ impl CipherArchitecture {
                     IndicatorOfCompromise {
                         id: uuid::Uuid::new_v4(),
                         ioc_type: IOCType::Hash,
-                        value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+                        value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                            .to_string(),
                         confidence: 0.9,
                     },
                     IndicatorOfCompromise {
@@ -1086,7 +1095,9 @@ impl CipherArchitecture {
             },
             database_sources: match &config.vulnerability_scanning.vulnerability_database {
                 super::config::VulnerabilityDatabase::BuiltIn => vec![DatabaseSource::NVD],
-                super::config::VulnerabilityDatabase::External { .. } => vec![DatabaseSource::ExploitDB],
+                super::config::VulnerabilityDatabase::External { .. } => {
+                    vec![DatabaseSource::ExploitDB]
+                }
                 super::config::VulnerabilityDatabase::Hybrid { .. } => {
                     vec![DatabaseSource::NVD, DatabaseSource::ExploitDB]
                 }
@@ -1145,10 +1156,7 @@ impl CipherArchitecture {
                 detection_confidence: 0.85,
             },
             compliance_checking: ComplianceChecking {
-                compliance_frameworks: vec![
-                    ComplianceFramework::PCIDSS,
-                    ComplianceFramework::GDPR,
-                ],
+                compliance_frameworks: vec![ComplianceFramework::PCIDSS, ComplianceFramework::GDPR],
                 rule_engine: RuleEngine {
                     rule_set: vec![],
                     rule_execution: RuleExecution::Sequential,
@@ -1192,10 +1200,14 @@ impl CipherArchitecture {
         }
         for model in &self.zero_day_simulation.simulation_models {
             if !(0.0..=1.0).contains(&model.accuracy) {
-                return Err(format!("Model {} accuracy must be between 0.0 and 1.0", model.id).into());
+                return Err(
+                    format!("Model {} accuracy must be between 0.0 and 1.0", model.id).into(),
+                );
             }
             if !(0.0..=1.0).contains(&model.coverage) {
-                return Err(format!("Model {} coverage must be between 0.0 and 1.0", model.id).into());
+                return Err(
+                    format!("Model {} coverage must be between 0.0 and 1.0", model.id).into(),
+                );
             }
         }
         if self
@@ -1217,7 +1229,11 @@ impl CipherArchitecture {
             return Err("At least one vulnerability database source required".into());
         }
 
-        if self.threat_intelligence_network.intelligence_feeds.is_empty() {
+        if self
+            .threat_intelligence_network
+            .intelligence_feeds
+            .is_empty()
+        {
             return Err("At least one intelligence feed required".into());
         }
 
@@ -1262,7 +1278,9 @@ impl CipherArchitecture {
                 severity: Severity::Critical,
                 description: "Potential destructive SQL injection via DROP statement".into(),
                 affected_systems: vec![target.to_string()],
-                mitigation: Some("Restrict database permissions and use parameterized queries".into()),
+                mitigation: Some(
+                    "Restrict database permissions and use parameterized queries".into(),
+                ),
             });
         }
         if lower.contains("<script")
@@ -1278,7 +1296,9 @@ impl CipherArchitecture {
                 severity: Severity::High,
                 description: "Cross-site scripting vector detected".into(),
                 affected_systems: vec![target.to_string()],
-                mitigation: Some("Sanitize and escape output, use Content-Security-Policy headers".into()),
+                mitigation: Some(
+                    "Sanitize and escape output, use Content-Security-Policy headers".into(),
+                ),
             });
         }
         if lower.contains("alert(")
@@ -1309,7 +1329,9 @@ impl CipherArchitecture {
                 severity: Severity::Critical,
                 description: "Command injection vector detected".into(),
                 affected_systems: vec![target.to_string()],
-                mitigation: Some("Avoid shell execution with user input; use libraries over system calls".into()),
+                mitigation: Some(
+                    "Avoid shell execution with user input; use libraries over system calls".into(),
+                ),
             });
         }
         if lower.contains("../") || lower.contains("..\\") || lower.contains("%2e%2e") {
@@ -1323,10 +1345,7 @@ impl CipherArchitecture {
                 mitigation: Some("Validate and sanitize file paths; use a allowlist".into()),
             });
         }
-        if lower.contains("file://")
-            || lower.contains("gopher://")
-            || lower.contains("dict://")
-        {
+        if lower.contains("file://") || lower.contains("gopher://") || lower.contains("dict://") {
             vulnerabilities.push(VulnerabilityEntry {
                 id: uuid::Uuid::new_v4(),
                 cve_id: None,
@@ -1348,7 +1367,9 @@ impl CipherArchitecture {
                 severity: Severity::High,
                 description: "Potential insecure deserialization detected".into(),
                 affected_systems: vec![target.to_string()],
-                mitigation: Some("Avoid deserializing untrusted data; use safe serialization formats".into()),
+                mitigation: Some(
+                    "Avoid deserializing untrusted data; use safe serialization formats".into(),
+                ),
             });
         }
 
@@ -1408,22 +1429,27 @@ impl CipherArchitecture {
         let mut recommendations = Vec::new();
         for v in findings {
             if let Some(ref m) = v.mitigation {
-                let rec = format!("{}: {}", match v.vuln_type {
-                    VulnerabilityType::SQLInjection => "SQL Injection",
-                    VulnerabilityType::XSS => "XSS",
-                    VulnerabilityType::CommandInjection => "Command Injection",
-                    VulnerabilityType::PathTraversal => "Path Traversal",
-                    VulnerabilityType::SSRF => "SSRF",
-                    VulnerabilityType::InsecureDeserialization => "Insecure Deserialization",
-                    VulnerabilityType::InfoLeak => "Information Leak",
-                }, m);
+                let rec = format!(
+                    "{}: {}",
+                    match v.vuln_type {
+                        VulnerabilityType::SQLInjection => "SQL Injection",
+                        VulnerabilityType::XSS => "XSS",
+                        VulnerabilityType::CommandInjection => "Command Injection",
+                        VulnerabilityType::PathTraversal => "Path Traversal",
+                        VulnerabilityType::SSRF => "SSRF",
+                        VulnerabilityType::InsecureDeserialization => "Insecure Deserialization",
+                        VulnerabilityType::InfoLeak => "Information Leak",
+                    },
+                    m
+                );
                 if !recommendations.contains(&rec) {
                     recommendations.push(rec);
                 }
             }
         }
         if recommendations.is_empty() {
-            recommendations.push("No critical issues found; maintain current security posture".into());
+            recommendations
+                .push("No critical issues found; maintain current security posture".into());
         }
 
         Ok(PenetrationTestResult {
@@ -1455,16 +1481,17 @@ impl CipherArchitecture {
             || lower.contains("authenticate")
             || lower.contains("mutual")
             || lower.contains("certificate");
-        let has_forward_secrecy = lower.contains("ecdhe") || lower.contains("dhe") || lower.contains("forward_secrecy");
+        let has_forward_secrecy =
+            lower.contains("ecdhe") || lower.contains("dhe") || lower.contains("forward_secrecy");
         let has_pfs = lower.contains("perfect_forward_secrecy") || lower.contains("pfs");
         let has_integrity = lower.contains("hmac")
             || lower.contains("sign")
             || lower.contains("digest")
             || lower.contains("checksum");
-        let has_rate_limiting = lower.contains("rate_limit")
-            || lower.contains("throttle")
-            || lower.contains("backoff");
-        let has_input_validation = lower.contains("sanitize") || lower.contains("validate") || lower.contains("escape");
+        let has_rate_limiting =
+            lower.contains("rate_limit") || lower.contains("throttle") || lower.contains("backoff");
+        let has_input_validation =
+            lower.contains("sanitize") || lower.contains("validate") || lower.contains("escape");
 
         let mut vulnerabilities = Vec::new();
         if !has_encryption {
@@ -1536,13 +1563,15 @@ impl CipherArchitecture {
                     }
                 }
                 VulnerabilityType::XSS => {
-                    let rec = "Apply Content-Security-Policy headers and context-aware output encoding";
+                    let rec =
+                        "Apply Content-Security-Policy headers and context-aware output encoding";
                     if !recommendations.iter().any(|r| r.contains(rec)) {
                         recommendations.push(rec.to_string());
                     }
                 }
                 VulnerabilityType::CommandInjection => {
-                    let rec = "Use safe APIs over shell execution; never pass user input to system()";
+                    let rec =
+                        "Use safe APIs over shell execution; never pass user input to system()";
                     if !recommendations.iter().any(|r| r.contains(rec)) {
                         recommendations.push(rec.to_string());
                     }

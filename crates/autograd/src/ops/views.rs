@@ -52,10 +52,7 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
 
 /// Stack tensors along a new axis.
 pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
-    assert!(
-        !tensors.is_empty(),
-        "stack: at least one tensor required"
-    );
+    assert!(!tensors.is_empty(), "stack: at least one tensor required");
 
     let mut expanded: Vec<ArrayD<f32>> = Vec::with_capacity(tensors.len());
     for t in tensors {
@@ -69,13 +66,11 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
         expanded.push(arr);
     }
 
-    let views: Vec<ndarray::ArrayViewD<f32>> =
-        expanded.iter().map(|a| a.view()).collect();
-    let result =
-        ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e| {
-            debug!("stack concatenate failed: {e}");
-            ArrayD::zeros(vec![0])
-        });
+    let views: Vec<ndarray::ArrayViewD<f32>> = expanded.iter().map(|a| a.view()).collect();
+    let result = ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e| {
+        debug!("stack concatenate failed: {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     let requires_grad = tensors.iter().any(|t| t.requires_grad());
     if !requires_grad {
@@ -85,11 +80,10 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
     let input_tensors: Vec<Tensor> = tensors.iter().map(|t| (*t).clone()).collect();
     let n = tensors.len();
     // safe: shape [1] with exactly 1 element
-    let saved_n = ArrayD::from_shape_vec(vec![1], vec![n as f32])
-        .unwrap_or_else(|e| {
-            debug!("shape encoding failed (infallible): {e}");
-            ArrayD::zeros(vec![1])
-        });
+    let saved_n = ArrayD::from_shape_vec(vec![1], vec![n as f32]).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![1])
+    });
 
     Tensor::with_grad_fn(
         result,
@@ -99,10 +93,7 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
             let count = saved[0][0] as usize;
             let mut grads = Vec::with_capacity(count);
             for i in 0..count {
-                let g = grad
-                    .index_axis(Axis(axis), i)
-                    .to_owned()
-                    .into_dyn();
+                let g = grad.index_axis(Axis(axis), i).to_owned().into_dyn();
                 grads.push(g);
             }
             grads

@@ -100,8 +100,14 @@ mod tests {
     fn test_dataset_split_from_str() {
         assert_eq!(DatasetSplit::from_str("train"), Some(DatasetSplit::Train));
         assert_eq!(DatasetSplit::from_str("val"), Some(DatasetSplit::Val));
-        assert_eq!(DatasetSplit::from_str("validation"), Some(DatasetSplit::Val));
-        assert_eq!(DatasetSplit::from_str("rl"), Some(DatasetSplit::Reinforcement));
+        assert_eq!(
+            DatasetSplit::from_str("validation"),
+            Some(DatasetSplit::Val)
+        );
+        assert_eq!(
+            DatasetSplit::from_str("rl"),
+            Some(DatasetSplit::Reinforcement)
+        );
         assert_eq!(DatasetSplit::from_str("unknown"), None);
     }
 

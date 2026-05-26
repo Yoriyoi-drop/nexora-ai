@@ -53,7 +53,9 @@ mod tests {
 
     #[test]
     fn test_deep_learning_error_display() {
-        let err = DeepLearningError::Configuration { reason: "test".to_string() };
+        let err = DeepLearningError::Configuration {
+            reason: "test".to_string(),
+        };
         assert_eq!(format!("{}", err), "Configuration error: test");
     }
 

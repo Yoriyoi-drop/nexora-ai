@@ -261,7 +261,8 @@ impl CredentialManager {
             format!("{}/nexora/database.yaml", config_dir),
             format!("{}/nexora/database.toml", config_dir),
             format!("{}/.nexora/database.json", home_dir),
-            env::var("NEXORA_SYSTEM_CONFIG_PATH").unwrap_or_else(|_| "/etc/nexora/database.json".to_string()),
+            env::var("NEXORA_SYSTEM_CONFIG_PATH")
+                .unwrap_or_else(|_| "/etc/nexora/database.json".to_string()),
             env::var("NEXORA_LOCAL_CONFIG_PATH").unwrap_or_else(|_| "./database.json".to_string()),
         ]
     }
@@ -271,7 +272,10 @@ impl CredentialManager {
         let example_config = DatabaseConfigFile {
             database: DatabaseCredentials {
                 host: env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
-                port: env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432),
+                port: env::var("DB_PORT")
+                    .ok()
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or(5432),
                 database: "nexora".to_string(),
                 username: "nexora_user".to_string(),
                 password: Secret::new("your_password_here".to_string()),

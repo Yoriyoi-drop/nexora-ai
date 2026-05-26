@@ -67,10 +67,10 @@ impl NeuralLens for AttentionFlowLens {
 mod tests {
     use super::*;
     use crate::canvas::GraphNode;
+    use crate::DType;
+    use crate::GraphEdge;
     use crate::NodeType;
     use crate::TensorDesc;
-    use crate::GraphEdge;
-    use crate::DType;
     use uuid::Uuid;
 
     fn graph_with_attention() -> NeuralGraph {

@@ -4,12 +4,12 @@
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use sqlx::{postgres::PgPoolOptions, Column, PgPool, Row};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
-use serde_json;
 
 mod serde_timestamp {
     use serde::{Deserializer, Serializer};
@@ -75,15 +75,44 @@ pub struct PoolConfig {
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
-            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgresql://localhost/nexora".to_string()),
-            max_connections: std::env::var("DB_MAX_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(20),
-            min_connections: std::env::var("DB_MIN_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(5),
-            connect_timeout: Duration::from_secs(std::env::var("DB_CONNECT_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30)),
-            idle_timeout: Duration::from_secs(std::env::var("DB_IDLE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(600)),
-            max_lifetime: std::env::var("DB_MAX_LIFETIME").ok().and_then(|v| v.parse().ok()).map(Duration::from_secs).or(Some(Duration::from_secs(1800))),
+            database_url: std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "postgresql://localhost/nexora".to_string()),
+            max_connections: std::env::var("DB_MAX_CONNECTIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20),
+            min_connections: std::env::var("DB_MIN_CONNECTIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
+            connect_timeout: Duration::from_secs(
+                std::env::var("DB_CONNECT_TIMEOUT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(30),
+            ),
+            idle_timeout: Duration::from_secs(
+                std::env::var("DB_IDLE_TIMEOUT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(600),
+            ),
+            max_lifetime: std::env::var("DB_MAX_LIFETIME")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .map(Duration::from_secs)
+                .or(Some(Duration::from_secs(1800))),
             test_query: std::env::var("DB_TEST_QUERY").unwrap_or_else(|_| "SELECT 1".to_string()),
-            enable_query_logging: std::env::var("DB_ENABLE_QUERY_LOGGING").ok().map(|v| v == "true" || v == "1").unwrap_or(true),
-            slow_query_threshold: Duration::from_millis(std::env::var("DB_SLOW_QUERY_THRESHOLD_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(500)),
+            enable_query_logging: std::env::var("DB_ENABLE_QUERY_LOGGING")
+                .ok()
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(true),
+            slow_query_threshold: Duration::from_millis(
+                std::env::var("DB_SLOW_QUERY_THRESHOLD_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(500),
+            ),
         }
     }
 }
@@ -253,15 +282,20 @@ impl DatabasePool {
                 }
 
                 // Convert PgRow to JSON for return value
-                let json_rows: Vec<serde_json::Value> = rows.iter().map(|row| {
-                    let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
-                    let mut map = serde_json::Map::new();
-                    for col in cols {
-                        let val: serde_json::Value = row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
-                        map.insert(col, val);
-                    }
-                    serde_json::Value::Object(map)
-                }).collect();
+                let json_rows: Vec<serde_json::Value> = rows
+                    .iter()
+                    .map(|row| {
+                        let cols: Vec<String> =
+                            row.columns().iter().map(|c| c.name().to_string()).collect();
+                        let mut map = serde_json::Map::new();
+                        for col in cols {
+                            let val: serde_json::Value =
+                                row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
+                            map.insert(col, val);
+                        }
+                        serde_json::Value::Object(map)
+                    })
+                    .collect();
 
                 // Cache SELECT queries
                 if self.is_select_query(query) {
@@ -403,7 +437,8 @@ impl DatabasePool {
 
         // LRU eviction if cache exceeds limit
         if cache.len() >= 1000 {
-            let oldest_key = cache.iter()
+            let oldest_key = cache
+                .iter()
                 .min_by_key(|(_, v)| v.timestamp)
                 .map(|(k, _)| k.clone());
             if let Some(key) = oldest_key {
@@ -419,15 +454,20 @@ impl DatabasePool {
         let query_hash = hasher.finish();
 
         // Serialize rows to JSON for cache storage
-        let rows_json: Vec<serde_json::Value> = rows.iter().map(|row| {
-            let cols: Vec<String> = row.columns().iter().map(|c| c.name().to_string()).collect();
-            let mut map = serde_json::Map::new();
-            for col in cols {
-                let val: serde_json::Value = row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
-                map.insert(col, val);
-            }
-            serde_json::Value::Object(map)
-        }).collect();
+        let rows_json: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|row| {
+                let cols: Vec<String> =
+                    row.columns().iter().map(|c| c.name().to_string()).collect();
+                let mut map = serde_json::Map::new();
+                for col in cols {
+                    let val: serde_json::Value =
+                        row.try_get(col.as_str()).unwrap_or(serde_json::Value::Null);
+                    map.insert(col, val);
+                }
+                serde_json::Value::Object(map)
+            })
+            .collect();
 
         cache.insert(
             query.to_string(),
@@ -786,10 +826,18 @@ async fn retry_connect(config: &PoolConfig, max_retries: u32) -> Result<PgPool> 
         {
             Ok(pool) => return Ok(pool),
             Err(e) => {
-                tracing::warn!("DB connection attempt {}/{} failed: {}", attempt, max_retries, e);
+                tracing::warn!(
+                    "DB connection attempt {}/{} failed: {}",
+                    attempt,
+                    max_retries,
+                    e
+                );
                 last_err = e.into();
                 if attempt < max_retries {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100 * 2u64.pow(attempt - 1))).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        100 * 2u64.pow(attempt - 1),
+                    ))
+                    .await;
                 }
             }
         }

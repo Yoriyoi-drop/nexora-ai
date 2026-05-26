@@ -91,13 +91,17 @@ impl CacheEngine {
         while self.cache_size_bytes + new_size > self.max_cache_size_bytes
             && !self.cache_storage.is_empty()
         {
-            let lru_key = self.cache_storage.iter()
+            let lru_key = self
+                .cache_storage
+                .iter()
                 .min_by_key(|(_, e)| e.last_accessed)
                 .map(|(k, _)| k.clone());
             match lru_key {
                 Some(k) => {
                     if let Some(removed) = self.cache_storage.remove(&k) {
-                        self.cache_size_bytes = self.cache_size_bytes.saturating_sub(Self::entry_size(&removed));
+                        self.cache_size_bytes = self
+                            .cache_size_bytes
+                            .saturating_sub(Self::entry_size(&removed));
                         self.eviction_count += 1;
                     }
                 }

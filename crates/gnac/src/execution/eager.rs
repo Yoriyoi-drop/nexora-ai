@@ -59,7 +59,10 @@ impl GraphValidator {
             let node = match graph.get_node(&node_id) {
                 Some(n) => n,
                 None => {
-                    tracing::warn!("node {:?} not found in graph during execution — skipping", node_id);
+                    tracing::warn!(
+                        "node {:?} not found in graph during execution — skipping",
+                        node_id
+                    );
                     continue;
                 }
             };
@@ -120,10 +123,12 @@ mod tests {
         let out_id = g.add_node(out);
         let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
         let _ = g.add_edge(crate::GraphEdge::new(
-            inp_id, uuid::Uuid::new_v4(), out_id, uuid::Uuid::new_v4(), tensor,
+            inp_id,
+            uuid::Uuid::new_v4(),
+            out_id,
+            uuid::Uuid::new_v4(),
+            tensor,
         ));
         assert!(GraphValidator.validate(&g).is_ok());
     }
-
-
 }

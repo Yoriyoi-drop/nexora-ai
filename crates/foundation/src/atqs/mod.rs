@@ -104,20 +104,31 @@ impl EdgeOptimizedCompression {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
                     if let Some(is_edge) = json.get("edge_optimized").and_then(|v| v.as_bool()) {
                         if is_edge {
-                            self.edge_recommendations.push("Deploy with 4-bit quantization for maximum efficiency".to_string());
+                            self.edge_recommendations.push(
+                                "Deploy with 4-bit quantization for maximum efficiency".to_string(),
+                            );
                         }
                     }
                     if let Some(latency) = json.get("latency_ms").and_then(|v| v.as_f64()) {
                         if latency <= 1.0 {
-                            self.edge_recommendations.push("Sub-millisecond latency achieved for real-time processing".to_string());
+                            self.edge_recommendations.push(
+                                "Sub-millisecond latency achieved for real-time processing"
+                                    .to_string(),
+                            );
                         }
                     }
                 } else {
-                    if text.to_lowercase().contains("edge") && text.to_lowercase().contains("optimized") {
-                        self.edge_recommendations.push("Deploy with 4-bit quantization for maximum efficiency".to_string());
+                    if text.to_lowercase().contains("edge")
+                        && text.to_lowercase().contains("optimized")
+                    {
+                        self.edge_recommendations.push(
+                            "Deploy with 4-bit quantization for maximum efficiency".to_string(),
+                        );
                     }
                     if text.to_lowercase().contains("latency") {
-                        self.edge_recommendations.push("Latency optimization recommended for edge deployment".to_string());
+                        self.edge_recommendations.push(
+                            "Latency optimization recommended for edge deployment".to_string(),
+                        );
                     }
                 }
             }

@@ -2,18 +2,18 @@ use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 const SIZE_BUCKETS: &[u64] = &[
-    1 << 10,  // 1KB
-    1 << 12,  // 4KB
-    1 << 14,  // 16KB
-    1 << 16,  // 64KB
-    1 << 18,  // 256KB
-    1 << 20,  // 1MB
-    1 << 22,  // 4MB
-    1 << 24,  // 16MB
-    1 << 26,  // 64MB
-    1 << 28,  // 256MB
-    1 << 30,  // 1GB
-    1 << 31,  // 2GB
+    1 << 10,               // 1KB
+    1 << 12,               // 4KB
+    1 << 14,               // 16KB
+    1 << 16,               // 64KB
+    1 << 18,               // 256KB
+    1 << 20,               // 1MB
+    1 << 22,               // 4MB
+    1 << 24,               // 16MB
+    1 << 26,               // 64MB
+    1 << 28,               // 256MB
+    1 << 30,               // 1GB
+    1 << 31,               // 2GB
     (1 << 30) + (1 << 30), // 4GB
 ];
 
@@ -105,7 +105,9 @@ impl GpuMemoryPool {
         self.stats.allocs += 1;
         self.stats.bytes_allocated += b_size;
 
-        let extra = if usage.contains(wgpu::BufferUsages::MAP_READ) || usage.contains(wgpu::BufferUsages::MAP_WRITE) {
+        let extra = if usage.contains(wgpu::BufferUsages::MAP_READ)
+            || usage.contains(wgpu::BufferUsages::MAP_WRITE)
+        {
             wgpu::BufferUsages::empty()
         } else {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC

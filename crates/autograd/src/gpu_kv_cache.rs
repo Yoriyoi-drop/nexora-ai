@@ -97,7 +97,9 @@ impl GpuPageTable {
 
 // ─── Compile pipelines ─────────────────────────────────────────────────────────
 
-pub fn compile_gather_pages_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+pub fn compile_gather_pages_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
     ctx.compile_pipeline_cached(
         "gather_pages",
         &[
@@ -111,7 +113,9 @@ pub fn compile_gather_pages_pipeline(ctx: &mut GpuContext) -> Result<wgpu::Compu
     )
 }
 
-pub fn compile_scatter_pages_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+pub fn compile_scatter_pages_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
     ctx.compile_pipeline_cached(
         "scatter_pages",
         &[
@@ -129,7 +133,9 @@ pub struct GpuKvCachePipelines {
     pub scatter: wgpu::ComputePipeline,
 }
 
-pub fn compile_kv_cache_pipelines(ctx: &mut GpuContext) -> Result<GpuKvCachePipelines, crate::gpu::GpuError> {
+pub fn compile_kv_cache_pipelines(
+    ctx: &mut GpuContext,
+) -> Result<GpuKvCachePipelines, crate::gpu::GpuError> {
     Ok(GpuKvCachePipelines {
         gather: compile_gather_pages_pipeline(ctx)?,
         scatter: compile_scatter_pages_pipeline(ctx)?,

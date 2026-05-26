@@ -195,7 +195,7 @@ impl Filter for DedupFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -237,11 +237,13 @@ mod tests {
     #[test]
     fn test_fingerprint_long_text() {
         let f = DedupFilter::default();
-        let words: Vec<&str> = (0..100).map(|i| match i % 3 {
-            0 => "foo",
-            1 => "bar",
-            _ => "baz",
-        }).collect();
+        let words: Vec<&str> = (0..100)
+            .map(|i| match i % 3 {
+                0 => "foo",
+                1 => "bar",
+                _ => "baz",
+            })
+            .collect();
         let text = words.join(" ");
         let fp = f.fingerprint(&text);
         assert_eq!(fp.len(), f.hash_count);
@@ -264,7 +266,9 @@ mod tests {
     async fn test_unique_text_passes() {
         let f = DedupFilter::default();
         let r1 = f.evaluate(&sample("first document here")).await;
-        let r2 = f.evaluate(&sample("second document entirely different")).await;
+        let r2 = f
+            .evaluate(&sample("second document entirely different"))
+            .await;
         assert!(r1.passed);
         assert!(r2.passed);
     }

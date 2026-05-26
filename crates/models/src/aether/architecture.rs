@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// NXR-ÆTHER Architecture Implementation
-#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrAetherModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrAetherModel (CausalLM-backed) instead."
+)]
 pub struct AetherArchitecture {
     /// Configuration
     _config: AetherConfig,
@@ -248,7 +250,9 @@ impl AnalysisCache {
         if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
             match self.policy {
                 CachePolicy::LRU => {
-                    let lru_key = self.entries.iter()
+                    let lru_key = self
+                        .entries
+                        .iter()
                         .min_by_key(|(_, e)| e.last_access)
                         .map(|(k, _)| k.clone());
                     if let Some(k) = lru_key {
@@ -257,11 +261,12 @@ impl AnalysisCache {
                 }
                 CachePolicy::TimeBased { ttl_seconds } => {
                     let now = chrono::Utc::now();
-                    self.entries.retain(|_, e| {
-                        (now - e.timestamp).num_seconds() < ttl_seconds as i64
-                    });
+                    self.entries
+                        .retain(|_, e| (now - e.timestamp).num_seconds() < ttl_seconds as i64);
                     if self.entries.len() >= self.size_limit {
-                        let lru_key = self.entries.iter()
+                        let lru_key = self
+                            .entries
+                            .iter()
                             .min_by_key(|(_, e)| e.last_access)
                             .map(|(k, _)| k.clone());
                         if let Some(k) = lru_key {
@@ -665,7 +670,9 @@ impl ContextCache {
         if self.entries.len() >= self.size_limit && !self.entries.contains_key(&key) {
             match self.policy {
                 CachePolicy::LRU => {
-                    let lru_key = self.entries.iter()
+                    let lru_key = self
+                        .entries
+                        .iter()
                         .min_by_key(|(_, e)| e.last_access)
                         .map(|(k, _)| k.clone());
                     if let Some(k) = lru_key {
@@ -674,11 +681,12 @@ impl ContextCache {
                 }
                 CachePolicy::TimeBased { ttl_seconds } => {
                     let now = chrono::Utc::now();
-                    self.entries.retain(|_, e| {
-                        (now - e.timestamp).num_seconds() < ttl_seconds as i64
-                    });
+                    self.entries
+                        .retain(|_, e| (now - e.timestamp).num_seconds() < ttl_seconds as i64);
                     if self.entries.len() >= self.size_limit {
-                        let lru_key = self.entries.iter()
+                        let lru_key = self
+                            .entries
+                            .iter()
                             .min_by_key(|(_, e)| e.last_access)
                             .map(|(k, _)| k.clone());
                         if let Some(k) = lru_key {
@@ -1652,21 +1660,33 @@ impl AetherArchitecture {
                     id: uuid::Uuid::new_v4().to_string(),
                     pattern_type: BehavioralPatternType::Communication,
                     description: "Direct and assertive communication style".to_string(),
-                    triggers: vec!["Stressful situations".to_string(), "Conflict resolution".to_string()],
-                    outcomes: vec!["Clear expression of needs".to_string(), "Effective dialogue".to_string()],
+                    triggers: vec![
+                        "Stressful situations".to_string(),
+                        "Conflict resolution".to_string(),
+                    ],
+                    outcomes: vec![
+                        "Clear expression of needs".to_string(),
+                        "Effective dialogue".to_string(),
+                    ],
                 },
                 BehavioralPattern {
                     id: uuid::Uuid::new_v4().to_string(),
                     pattern_type: BehavioralPatternType::SocialInteraction,
                     description: "Engages actively in group settings".to_string(),
                     triggers: vec!["Social gatherings".to_string(), "Team meetings".to_string()],
-                    outcomes: vec!["Strong social bonds".to_string(), "Collaborative outcomes".to_string()],
+                    outcomes: vec![
+                        "Strong social bonds".to_string(),
+                        "Collaborative outcomes".to_string(),
+                    ],
                 },
                 BehavioralPattern {
                     id: uuid::Uuid::new_v4().to_string(),
                     pattern_type: BehavioralPatternType::CopingMechanism,
                     description: "Uses reframing as a coping strategy".to_string(),
-                    triggers: vec!["Adverse events".to_string(), "Emotional distress".to_string()],
+                    triggers: vec![
+                        "Adverse events".to_string(),
+                        "Emotional distress".to_string(),
+                    ],
                     outcomes: vec!["Reduced stress".to_string(), "Positive outlook".to_string()],
                 },
                 BehavioralPattern {
@@ -1674,14 +1694,23 @@ impl AetherArchitecture {
                     pattern_type: BehavioralPatternType::Habit,
                     description: "Consistent daily routine with structured planning".to_string(),
                     triggers: vec!["Morning routine".to_string(), "Work start".to_string()],
-                    outcomes: vec!["Increased productivity".to_string(), "Effective time management".to_string()],
+                    outcomes: vec![
+                        "Increased productivity".to_string(),
+                        "Effective time management".to_string(),
+                    ],
                 },
                 BehavioralPattern {
                     id: uuid::Uuid::new_v4().to_string(),
                     pattern_type: BehavioralPatternType::Reaction,
                     description: "Pauses before responding under pressure".to_string(),
-                    triggers: vec!["Unexpected challenges".to_string(), "Constructive criticism".to_string()],
-                    outcomes: vec!["Measured responses".to_string(), "Conflict de-escalation".to_string()],
+                    triggers: vec![
+                        "Unexpected challenges".to_string(),
+                        "Constructive criticism".to_string(),
+                    ],
+                    outcomes: vec![
+                        "Measured responses".to_string(),
+                        "Conflict de-escalation".to_string(),
+                    ],
                 },
             ],
             developmental_stage: Some(DevelopmentalStage::EarlyAdulthood),
@@ -1692,20 +1721,19 @@ impl AetherArchitecture {
         let _analysis_result = PsychologicalAnalysisResult {
             id: uuid::Uuid::new_v4().to_string(),
             profile: psychological_profile.clone(),
-            assessments: vec![
-                AssessmentResult {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    assessment_type: AssessmentMethod::Sentiment,
-                    score: emotional_result.valence.abs(),
-                    description: "Emotional valence assessment".to_string(),
-                    details: HashMap::new(),
-                },
-            ],
+            assessments: vec![AssessmentResult {
+                id: uuid::Uuid::new_v4().to_string(),
+                assessment_type: AssessmentMethod::Sentiment,
+                score: emotional_result.valence.abs(),
+                description: "Emotional valence assessment".to_string(),
+                details: HashMap::new(),
+            }],
             recommendations: vec![
                 Recommendation {
                     id: uuid::Uuid::new_v4().to_string(),
                     recommendation_type: RecommendationType::EmotionalSupport,
-                    content: "Provide a safe space for emotional expression and validation".to_string(),
+                    content: "Provide a safe space for emotional expression and validation"
+                        .to_string(),
                     priority: RecommendationPriority::High,
                     evidence: vec!["Positive response to empathetic listening".to_string()],
                 },

@@ -3,8 +3,8 @@
 
 use ndarray::ArrayD;
 
-use crate::DeepLearningError;
 use crate::DLResult;
+use crate::DeepLearningError;
 use nexora_autograd::Tensor;
 
 use crate::{

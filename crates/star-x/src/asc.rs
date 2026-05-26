@@ -6,7 +6,7 @@
 //! - GPU utilization optimization
 //! - Recurrent bottleneck elimination
 
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -83,10 +83,18 @@ impl AssociativeOperator {
         // Associative composition
         let mut composed = Array1::zeros(self.hidden_size);
         let comp_flat = require_contiguous_mut(composed.as_slice_mut())?;
-        let a_trans_flat = transformed_a
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
-        let b_trans_flat = transformed_b
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let a_trans_flat =
+            transformed_a
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
+        let b_trans_flat =
+            transformed_b
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
         let bias_flat = require_contiguous(self.bias.as_slice())?;
 
         for i in 0..self.hidden_size {

@@ -141,11 +141,7 @@ pub fn spectral_entropy(singular_values: &[f32]) -> f32 {
 ///
 /// β = γ · ∥W∥_F² / r
 /// H_k = entropy of top-k normalized singular values
-pub fn vet_optimal_rank(
-    singular_values: &[f32],
-    gamma: f32,
-    frob_norm_sq: f32,
-) -> usize {
+pub fn vet_optimal_rank(singular_values: &[f32], gamma: f32, frob_norm_sq: f32) -> usize {
     let r = singular_values.len();
     if r == 0 {
         return 0;
@@ -186,12 +182,7 @@ pub fn vet_optimal_rank(
 }
 
 /// EGSS: adaptive threshold θ = μ + κ·σ·(1 − H_s / H_max)
-pub fn egss_threshold(
-    values: &[f32],
-    kappa: f32,
-    entropy: f32,
-    max_entropy: f32,
-) -> f32 {
+pub fn egss_threshold(values: &[f32], kappa: f32, entropy: f32, max_entropy: f32) -> f32 {
     let n = values.len() as f32;
     if n == 0.0 {
         return 0.0;
@@ -489,25 +480,41 @@ impl GpuContext {
         )?;
         self.compile_pipeline(
             "sedc_jacobi_sweep",
-            &[storage_binding(0, false), storage_binding(1, false), uniform_binding(2)],
+            &[
+                storage_binding(0, false),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
             std::borrow::Cow::Borrowed(JACOBI_SWEEP_WGSL),
             "jacobi_main",
         )?;
         self.compile_pipeline(
             "sedc_sparsity_mask",
-            &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)],
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
             std::borrow::Cow::Borrowed(SPARSITY_MASK_WGSL),
             "sparsity_main",
         )?;
         self.compile_pipeline(
             "sedc_arq_sign",
-            &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)],
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
             std::borrow::Cow::Borrowed(ARQ_SIGN_WGSL),
             "arq_sign_main",
         )?;
         self.compile_pipeline(
             "sedc_arq_axpy",
-            &[storage_binding(0, false), storage_binding(1, true), uniform_binding(2)],
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                uniform_binding(2),
+            ],
             std::borrow::Cow::Borrowed(ARQ_AXPY_WGSL),
             "arq_axpy_main",
         )?;
@@ -538,7 +545,11 @@ impl GpuContext {
         // Copy buffer (reuse from existing)
         self.compile_pipeline(
             "sedc_copy",
-            &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)],
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
             std::borrow::Cow::Borrowed(COPY_BUFFER_WGSL),
             "copy_buffer_main",
         )?;
@@ -548,24 +559,34 @@ impl GpuContext {
     // ── GPU: randn ──────────────────────────────────────────────────────────
 
     pub fn randn_gpu(&self, shape: &[usize]) -> Result<GpuTensor, GpuError> {
-        let pipeline = self.pipelines.get("sedc_randn")
+        let pipeline = self
+            .pipelines
+            .get("sedc_randn")
             .ok_or_else(|| GpuError::Pipeline("sedc_randn not compiled".into()))?;
         let out = GpuTensor::zeros(shape)?;
-        let n = u32::try_from(out.numel())
-            .map_err(|_| GpuError::Conversion(format!("numel {} exceeds u32 range", out.numel())))?;
+        let n = u32::try_from(out.numel()).map_err(|_| {
+            GpuError::Conversion(format!("numel {} exceeds u32 range", out.numel()))
+        })?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("randn_cfg"),
             size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[n, 0u32, 0u32, 0u32]));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[n, 0u32, 0u32, 0u32]));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("randn_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: out.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: out.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (n.div_ceil(256), 1, 1));
@@ -575,11 +596,7 @@ impl GpuContext {
     // ── GPU: Random Projection ──────────────────────────────────────────────
 
     /// Y = W · Ω where Ω ~ N(0,1) ∈ ℝ^{n×rank}
-    pub fn random_projection(
-        &self,
-        w: &GpuTensor,
-        rank: usize,
-    ) -> Result<GpuTensor, GpuError> {
+    pub fn random_projection(&self, w: &GpuTensor, rank: usize) -> Result<GpuTensor, GpuError> {
         let n = w.shape()[1];
         let omega = self.randn_gpu(&[n, rank])?;
         self.matmul(w, &omega)
@@ -590,11 +607,15 @@ impl GpuContext {
     /// QR: Y ∈ ℝ^{m×n} → Q ∈ ℝ^{m×n} (Gram-Schmidt on GPU)
     pub fn qr_decomposition_gpu(&self, y: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = y.shape();
-        let m = u32::try_from(shape[0])
-            .map_err(|_| GpuError::Conversion(format!("shape[0] {} exceeds u32 range", shape[0])))?;
-        let n = u32::try_from(shape[1])
-            .map_err(|_| GpuError::Conversion(format!("shape[1] {} exceeds u32 range", shape[1])))?;
-        let pipeline = self.pipelines.get("sedc_qr")
+        let m = u32::try_from(shape[0]).map_err(|_| {
+            GpuError::Conversion(format!("shape[0] {} exceeds u32 range", shape[0]))
+        })?;
+        let n = u32::try_from(shape[1]).map_err(|_| {
+            GpuError::Conversion(format!("shape[1] {} exceeds u32 range", shape[1]))
+        })?;
+        let pipeline = self
+            .pipelines
+            .get("sedc_qr")
             .ok_or_else(|| GpuError::Pipeline("sedc_qr not compiled".into()))?;
         let q = self.copy_buffer_gpu(y)?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -603,13 +624,20 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, n, 0u32, 0u32]));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, n, 0u32, 0u32]));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("qr_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: q.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: q.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (m.div_ceil(256), n, 1));
@@ -635,15 +663,18 @@ impl GpuContext {
             return Ok((slice.to_vec(), ndarray::Array2::eye(n)));
         }
 
-        let pipeline = self.pipelines.get("sedc_jacobi_sweep")
-            .ok_or_else(|| SedcError::Gpu(GpuError::Pipeline("sedc_jacobi_sweep not compiled".into())))?;
+        let pipeline = self.pipelines.get("sedc_jacobi_sweep").ok_or_else(|| {
+            SedcError::Gpu(GpuError::Pipeline("sedc_jacobi_sweep not compiled".into()))
+        })?;
 
-        let a_gpu = self.copy_buffer_gpu(a)
-            .map_err(SedcError::Gpu)?;
+        let a_gpu = self.copy_buffer_gpu(a).map_err(SedcError::Gpu)?;
         let ident_arr = ndarray::ArrayD::from_shape_vec(
             vec![n, n],
-            (0..n * n).map(|i| if i / n == i % n { 1.0 } else { 0.0 }).collect(),
-        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+            (0..n * n)
+                .map(|i| if i / n == i % n { 1.0 } else { 0.0 })
+                .collect(),
+        )
+        .map_err(|e| SedcError::Svd(e.to_string()))?;
         let v = GpuTensor::from_cpu(&ident_arr).map_err(SedcError::Gpu)?;
 
         for sweep in 0..max_sweeps {
@@ -653,14 +684,27 @@ impl GpuContext {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[n as u32, sweep as u32, 0u32, 0u32]));
+            self.queue.write_buffer(
+                &cfg_buf,
+                0,
+                bytemuck::cast_slice(&[n as u32, sweep as u32, 0u32, 0u32]),
+            );
             let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("jacobi_bg"),
                 layout: &pipeline.bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: a_gpu.buffer().as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: v.buffer().as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: a_gpu.buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: v.buffer().as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: cfg_buf.as_entire_binding(),
+                    },
                 ],
             });
             self.dispatch(pipeline, &bg, ((n_pairs as u32).div_ceil(64), 1, 1));
@@ -698,7 +742,11 @@ impl GpuContext {
 
         // Sort descending
         let mut indices: Vec<usize> = (0..r).collect();
-        indices.sort_by(|&i, &j| evals[j].partial_cmp(&evals[i]).unwrap_or(std::cmp::Ordering::Equal));
+        indices.sort_by(|&i, &j| {
+            evals[j]
+                .partial_cmp(&evals[i])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut s: Vec<f32> = Vec::with_capacity(r);
         let mut s_inv: Vec<f32> = Vec::with_capacity(r);
@@ -717,11 +765,13 @@ impl GpuContext {
             .map_err(|e| SedcError::Svd(e.to_string()))?;
         let u_gpu = GpuTensor::from_cpu(&u_arr).map_err(SedcError::Gpu)?;
 
-        let u_sigma_data: Vec<f32> = (0..r * r).map(|i| {
-            let row = i / r;
-            let col = i % r;
-            u_data_clone[row * r + col] * s_inv[col]
-        }).collect();
+        let u_sigma_data: Vec<f32> = (0..r * r)
+            .map(|i| {
+                let row = i / r;
+                let col = i % r;
+                u_data_clone[row * r + col] * s_inv[col]
+            })
+            .collect();
         let u_sigma_arr = ndarray::ArrayD::from_shape_vec(vec![r, r], u_sigma_data)
             .map_err(|e| SedcError::Svd(e.to_string()))?;
         let u_sigma_gpu = GpuTensor::from_cpu(&u_sigma_arr).map_err(SedcError::Gpu)?;
@@ -788,12 +838,10 @@ impl GpuContext {
     // ── GPU: Sparsity Mask (EGSS) ──────────────────────────────────────────
 
     /// Apply EGSS sparsity mask: M = 1(|W| > θ)
-    pub fn sparsity_mask_gpu(
-        &self,
-        w: &GpuTensor,
-        threshold: f32,
-    ) -> Result<GpuTensor, GpuError> {
-        let pipeline = self.pipelines.get("sedc_sparsity_mask")
+    pub fn sparsity_mask_gpu(&self, w: &GpuTensor, threshold: f32) -> Result<GpuTensor, GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("sedc_sparsity_mask")
             .ok_or_else(|| GpuError::Pipeline("sedc_sparsity_mask not compiled".into()))?;
         let numel = w.numel() as u32;
         let mask = GpuTensor::zeros(&w.shape())?;
@@ -803,14 +851,27 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[numel, f32::to_bits(threshold), 0u32, 0u32]));
+        self.queue.write_buffer(
+            &cfg_buf,
+            0,
+            bytemuck::cast_slice(&[numel, f32::to_bits(threshold), 0u32, 0u32]),
+        );
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sparsity_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: w.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: mask.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: w.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: mask.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (numel.div_ceil(256), 1, 1));
@@ -833,9 +894,13 @@ impl GpuContext {
             return Ok((vec![], vec![], r));
         }
 
-        let sign_pipeline = self.pipelines.get("sedc_arq_sign")
+        let sign_pipeline = self
+            .pipelines
+            .get("sedc_arq_sign")
             .ok_or_else(|| GpuError::Pipeline("sedc_arq_sign not compiled".into()))?;
-        let axpy_pipeline = self.pipelines.get("sedc_arq_axpy")
+        let axpy_pipeline = self
+            .pipelines
+            .get("sedc_arq_axpy")
             .ok_or_else(|| GpuError::Pipeline("sedc_arq_axpy not compiled".into()))?;
 
         let r_gpu = self.copy_buffer_gpu(h)?;
@@ -862,15 +927,28 @@ impl GpuContext {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
-                self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[numel, f32::to_bits(tau), 0u32, 0u32]));
+                self.queue.write_buffer(
+                    &cfg_buf,
+                    0,
+                    bytemuck::cast_slice(&[numel, f32::to_bits(tau), 0u32, 0u32]),
+                );
                 let q_out = GpuTensor::zeros(&h.shape())?;
                 let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("arq_sign_bg"),
                     layout: &sign_pipeline.bind_group_layout,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: r_gpu.buffer().as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: q_out.buffer().as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: r_gpu.buffer().as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: q_out.buffer().as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: cfg_buf.as_entire_binding(),
+                        },
                     ],
                 });
                 self.dispatch(sign_pipeline, &bg, (numel.div_ceil(256), 1, 1));
@@ -880,11 +958,18 @@ impl GpuContext {
             // Download q for orthogonalization against previous bits
             let q_cpu = q_gpu.to_cpu()?;
             let q_slice: &[f32] = q_cpu.as_slice().unwrap_or(&[]);
-            let mut q_i8: Vec<i8> = q_slice.iter().map(|x| if *x >= 0.0 { 1 } else { -1 }).collect();
+            let mut q_i8: Vec<i8> = q_slice
+                .iter()
+                .map(|x| if *x >= 0.0 { 1 } else { -1 })
+                .collect();
 
             // Gram-Schmidt orthogonalize
             for prev_q in &bit_vectors {
-                let dot: f32 = q_i8.iter().zip(prev_q.iter()).map(|(a, b)| *a as f32 * *b as f32).sum();
+                let dot: f32 = q_i8
+                    .iter()
+                    .zip(prev_q.iter())
+                    .map(|(a, b)| *a as f32 * *b as f32)
+                    .sum();
                 let norm_sq: f32 = prev_q.iter().map(|x| (*x as f32) * (*x as f32)).sum();
                 if norm_sq > 1e-10 {
                     let coeff = dot / norm_sq;
@@ -896,7 +981,11 @@ impl GpuContext {
             }
 
             // s_b = ⟨r, q⟩ / ||q||²
-            let dot: f32 = r_slice.iter().zip(q_i8.iter()).map(|(rv, qv)| rv * *qv as f32).sum();
+            let dot: f32 = r_slice
+                .iter()
+                .zip(q_i8.iter())
+                .map(|(rv, qv)| rv * *qv as f32)
+                .sum();
             let norm_sq = d as f32;
             let s = dot / norm_sq;
 
@@ -913,14 +1002,27 @@ impl GpuContext {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
-                self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[numel, f32::to_bits(s), 0u32, 0u32]));
+                self.queue.write_buffer(
+                    &cfg_buf,
+                    0,
+                    bytemuck::cast_slice(&[numel, f32::to_bits(s), 0u32, 0u32]),
+                );
                 let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("arq_axpy_bg"),
                     layout: &axpy_pipeline.bind_group_layout,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: r_gpu.buffer().as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: q_ortho_gpu.buffer().as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: r_gpu.buffer().as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: q_ortho_gpu.buffer().as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: cfg_buf.as_entire_binding(),
+                        },
                     ],
                 });
                 self.dispatch(axpy_pipeline, &bg, (numel.div_ceil(256), 1, 1));
@@ -936,10 +1038,13 @@ impl GpuContext {
     // ── GPU: Copy buffer ───────────────────────────────────────────────────
 
     pub fn copy_buffer_gpu(&self, src: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        let pipeline = self.pipelines.get("sedc_copy")
+        let pipeline = self
+            .pipelines
+            .get("sedc_copy")
             .ok_or_else(|| GpuError::Pipeline("sedc_copy not compiled".into()))?;
-        let numel = u32::try_from(src.numel())
-            .map_err(|_| GpuError::Conversion(format!("numel {} exceeds u32 range", src.numel())))?;
+        let numel = u32::try_from(src.numel()).map_err(|_| {
+            GpuError::Conversion(format!("numel {} exceeds u32 range", src.numel()))
+        })?;
         let dst = GpuTensor::zeros(&src.shape())?;
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("copy_cfg"),
@@ -947,14 +1052,27 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[numel, 0u32, 0u32, 0u32]));
+        self.queue.write_buffer(
+            &cfg_buf,
+            0,
+            bytemuck::cast_slice(&[numel, 0u32, 0u32, 0u32]),
+        );
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("copy_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: src.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: dst.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: src.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: dst.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (numel.div_ceil(256), 1, 1));
@@ -985,14 +1103,26 @@ impl GpuContext {
         let s_arr = ndarray::Array1::from_vec(s.iter().take(k_actual).copied().collect());
         let u_cpu = u.to_cpu().map_err(SedcError::Gpu)?;
         let u_trunc = GpuTensor::from_cpu(
-            &u_cpu.slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
-        ).map_err(SedcError::Gpu)?;
+            &u_cpu
+                .slice(ndarray::s![.., 0..k_actual])
+                .to_owned()
+                .into_dyn(),
+        )
+        .map_err(SedcError::Gpu)?;
         let v_cpu = v.to_cpu().map_err(SedcError::Gpu)?;
         let v_trunc = GpuTensor::from_cpu(
-            &v_cpu.slice(ndarray::s![.., 0..k_actual]).to_owned().into_dyn()
-        ).map_err(SedcError::Gpu)?;
+            &v_cpu
+                .slice(ndarray::s![.., 0..k_actual])
+                .to_owned()
+                .into_dyn(),
+        )
+        .map_err(SedcError::Gpu)?;
 
-        let s_inv_data: Vec<f32> = s.iter().take(k_actual).map(|x| if *x > 1e-10 { 1.0 / x } else { 0.0 }).collect();
+        let s_inv_data: Vec<f32> = s
+            .iter()
+            .take(k_actual)
+            .map(|x| if *x > 1e-10 { 1.0 / x } else { 0.0 })
+            .collect();
         let s_inv_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, 1], s_inv_data.clone())
             .map_err(|e| SedcError::Svd(e.to_string()))?;
         let s_inv_gpu = GpuTensor::from_cpu(&s_inv_arr).map_err(SedcError::Gpu)?;
@@ -1000,18 +1130,36 @@ impl GpuContext {
         let v_s_inv = self.matmul(&v_trunc, &s_inv_gpu).map_err(SedcError::Gpu)?;
         let r = self.matmul(w_next, &v_s_inv).map_err(SedcError::Gpu)?;
 
-        let c_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
-            (0..k_actual * k_actual).map(|i| if i / k_actual == i % k_actual { 1.0 } else { 0.0 }).collect()
-        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+        let c_arr = ndarray::ArrayD::from_shape_vec(
+            vec![k_actual, k_actual],
+            (0..k_actual * k_actual)
+                .map(|i| {
+                    if i / k_actual == i % k_actual {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                })
+                .collect(),
+        )
+        .map_err(|e| SedcError::Svd(e.to_string()))?;
         let c = GpuTensor::from_cpu(&c_arr).map_err(SedcError::Gpu)?;
 
-        let s_diag_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, k_actual],
-            (0..k_actual * k_actual).map(|i| {
-                let col = i % k_actual;
-                let row = i / k_actual;
-                if row == col { s[row] } else { 0.0 }
-            }).collect()
-        ).map_err(|e| SedcError::Svd(e.to_string()))?;
+        let s_diag_arr = ndarray::ArrayD::from_shape_vec(
+            vec![k_actual, k_actual],
+            (0..k_actual * k_actual)
+                .map(|i| {
+                    let col = i % k_actual;
+                    let row = i / k_actual;
+                    if row == col {
+                        s[row]
+                    } else {
+                        0.0
+                    }
+                })
+                .collect(),
+        )
+        .map_err(|e| SedcError::Svd(e.to_string()))?;
         let s_diag = GpuTensor::from_cpu(&s_diag_arr).map_err(SedcError::Gpu)?;
         let us = self.matmul(&u_trunc, &s_diag).map_err(SedcError::Gpu)?;
         let v_trunc_t = self.transpose(&v_trunc).map_err(SedcError::Gpu)?;
@@ -1032,7 +1180,9 @@ impl GpuContext {
         let k = r.shape()[1] as u32;
         let n = w.shape()[1] as u32;
 
-        let pipeline = self.pipelines.get("sedc_str")
+        let pipeline = self
+            .pipelines
+            .get("sedc_str")
             .ok_or_else(|| GpuError::Pipeline("sedc_str not compiled".into()))?;
 
         let out = GpuTensor::zeros(&[m as usize, n as usize])?;
@@ -1043,17 +1193,33 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, k, n, 0u32]));
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, k, n, 0u32]));
 
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("str_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: w.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: r.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: c.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: w.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: r.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
 
@@ -1079,7 +1245,9 @@ impl GpuContext {
         let vt = self.transpose(v).map_err(SedcError::Gpu)?;
         let proj = self.matmul(v, &vt).map_err(SedcError::Gpu)?;
 
-        let pipeline = self.pipelines.get("sedc_rec")
+        let pipeline = self
+            .pipelines
+            .get("sedc_rec")
             .ok_or_else(|| SedcError::Gpu(GpuError::Pipeline("sedc_rec not compiled".into())))?;
 
         let out = GpuTensor::zeros(&w_next.shape())?;
@@ -1089,16 +1257,35 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&[m, n, f32::to_bits(lambda), 0u32]));
+        self.queue.write_buffer(
+            &cfg_buf,
+            0,
+            bytemuck::cast_slice(&[m, n, f32::to_bits(lambda), 0u32]),
+        );
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rec_bg"),
             layout: &pipeline.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: w_next.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: error.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: proj.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: out.buffer().as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: cfg_buf.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: w_next.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: error.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: proj.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: out.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: cfg_buf.as_entire_binding(),
+                },
             ],
         });
         self.dispatch(pipeline, &bg, (m.div_ceil(8), n.div_ceil(8), 1));
@@ -1191,7 +1378,10 @@ impl SedcCompressor {
 
         // ── Phase 1: RSC — Randomized SVD (full GPU) ──
         let (u_gpu, v_gpu, _qt_gpu, s, k_est) = ctx.randomized_svd_gpu(
-            &w_gpu, max_rank / 2, self.config.oversamples, self.config.power_iters,
+            &w_gpu,
+            max_rank / 2,
+            self.config.oversamples,
+            self.config.power_iters,
         )?;
 
         // ── Phase 2: VET — Optimal Rank (CPU) ──
@@ -1204,7 +1394,10 @@ impl SedcCompressor {
         let s_len = s.len();
         let (u_final_gpu, v_final_gpu, s_final, k_final) = if k_star > k_est && k_est < s_len {
             let (u2, v2, _qt2, s2, _) = ctx.randomized_svd_gpu(
-                &w_gpu, k_star + self.config.oversamples, self.config.oversamples, self.config.power_iters,
+                &w_gpu,
+                k_star + self.config.oversamples,
+                self.config.oversamples,
+                self.config.power_iters,
             )?;
             let s2_len = s2.len();
             (u2, v2, s2, k_star.min(s2_len))
@@ -1224,33 +1417,45 @@ impl SedcCompressor {
         let s_arr = ndarray::Array1::from_vec(s_trunc.clone());
 
         // Reconstruct and compute error
-        let w_approx = u_arr.dot(&ndarray::Array2::from_diag(&s_arr)).dot(&v_arr.t());
+        let w_approx = u_arr
+            .dot(&ndarray::Array2::from_diag(&s_arr))
+            .dot(&v_arr.t());
         let diff = w - &w_approx;
         let w_norm = frob_norm_sq.sqrt();
         let err_norm: f32 = diff.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let relative_error = if w_norm > 1e-10 { err_norm / w_norm } else { 0.0 };
+        let relative_error = if w_norm > 1e-10 {
+            err_norm / w_norm
+        } else {
+            0.0
+        };
 
         // Retry with higher rank if error > tolerance
-        let (u_final, s_final, v_final, k_final, err_final) = if relative_error > self.config.tolerance && k_final < max_rank {
-            let k_new = (k_final + 1).min(max_rank);
-            // Need to redo SVD with higher rank
-            let (u3, v3, _qt3, s3, _) = ctx.randomized_svd_gpu(
-                &w_gpu, k_new, self.config.oversamples, self.config.power_iters,
-            )?;
-            let s3_trunc: Vec<f32> = s3.iter().take(k_new).copied().collect();
-            let u3_cpu = u3.to_cpu().map_err(SedcError::Gpu)?;
-            let v3_cpu = v3.to_cpu().map_err(SedcError::Gpu)?;
-            let u3_arr = u3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
-            let v3_arr = v3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
-            let s3_arr = ndarray::Array1::from_vec(s3_trunc.clone());
-            let w3 = u3_arr.dot(&ndarray::Array2::from_diag(&s3_arr)).dot(&v3_arr.t());
-            let diff3 = w - &w3;
-            let err3 = diff3.iter().map(|x| x * x).sum::<f32>().sqrt();
-            let rel_err3 = if w_norm > 1e-10 { err3 / w_norm } else { 0.0 };
-            (u3_arr, s3_trunc, v3_arr, k_new, rel_err3)
-        } else {
-            (u_arr, s_trunc, v_arr, k_final, relative_error)
-        };
+        let (u_final, s_final, v_final, k_final, err_final) =
+            if relative_error > self.config.tolerance && k_final < max_rank {
+                let k_new = (k_final + 1).min(max_rank);
+                // Need to redo SVD with higher rank
+                let (u3, v3, _qt3, s3, _) = ctx.randomized_svd_gpu(
+                    &w_gpu,
+                    k_new,
+                    self.config.oversamples,
+                    self.config.power_iters,
+                )?;
+                let s3_trunc: Vec<f32> = s3.iter().take(k_new).copied().collect();
+                let u3_cpu = u3.to_cpu().map_err(SedcError::Gpu)?;
+                let v3_cpu = v3.to_cpu().map_err(SedcError::Gpu)?;
+                let u3_arr = u3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
+                let v3_arr = v3_cpu.slice(ndarray::s![.., 0..k_new]).to_owned();
+                let s3_arr = ndarray::Array1::from_vec(s3_trunc.clone());
+                let w3 = u3_arr
+                    .dot(&ndarray::Array2::from_diag(&s3_arr))
+                    .dot(&v3_arr.t());
+                let diff3 = w - &w3;
+                let err3 = diff3.iter().map(|x| x * x).sum::<f32>().sqrt();
+                let rel_err3 = if w_norm > 1e-10 { err3 / w_norm } else { 0.0 };
+                (u3_arr, s3_trunc, v3_arr, k_new, rel_err3)
+            } else {
+                (u_arr, s_trunc, v_arr, k_final, relative_error)
+            };
 
         // ── Phase 3: EGSS — Entropy-Guided Structured Sparsity (GPU) ──
         let max_entropy = (max_rank as f32).log2();
@@ -1264,7 +1469,8 @@ impl SedcCompressor {
         // Upload threshold mask to GPU
         let mask_gpu = ctx.sparsity_mask_gpu(&w_gpu, threshold)?;
         let mask_cpu = mask_gpu.to_cpu().map_err(SedcError::Gpu)?;
-        let mask_arr = mask_cpu.into_dimensionality::<ndarray::Ix2>()
+        let mask_arr = mask_cpu
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
 
         // Compute sparsity percentage
@@ -1325,9 +1531,8 @@ impl SedcCompressor {
         h: &GpuTensor,
     ) -> Result<(Vec<Vec<i8>>, Vec<f32>), SedcError> {
         let ctx = GpuContext::global().map_err(|_| SedcError::NoContext)?;
-        let (bits, scales, _residual) = ctx.arq_quantize_gpu(
-            h, self.config.arq_bits, self.config.arq_eta,
-        )?;
+        let (bits, scales, _residual) =
+            ctx.arq_quantize_gpu(h, self.config.arq_bits, self.config.arq_eta)?;
         Ok((bits, scales))
     }
 
@@ -1346,7 +1551,10 @@ impl SedcCompressor {
         if w2.nrows() != m || w2.ncols() != n {
             return Err(SedcError::Shape(format!(
                 "STR: layer {} and {} shape mismatch: {:?} vs {:?}",
-                layer_idx, layer_idx + 1, (m, n), (w2.nrows(), w2.ncols())
+                layer_idx,
+                layer_idx + 1,
+                (m, n),
+                (w2.nrows(), w2.ncols())
             )));
         }
 
@@ -1357,19 +1565,21 @@ impl SedcCompressor {
             .map_err(|e| SedcError::Svd(e.to_string()))?;
 
         let k_actual = k.min(m).min(n).max(1);
-        let (r_gpu, c_gpu, w_approx_gpu) = ctx.str_route_gpu(
-            &w1_gpu, &w2_gpu, k_actual, self.config.str_lambda,
-        )?;
+        let (r_gpu, c_gpu, w_approx_gpu) =
+            ctx.str_route_gpu(&w1_gpu, &w2_gpu, k_actual, self.config.str_lambda)?;
 
         // Download results
         let r_cpu = r_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let c_cpu = c_gpu.to_cpu().map_err(SedcError::Gpu)?;
         let w_approx_cpu = w_approx_gpu.to_cpu().map_err(SedcError::Gpu)?;
-        let r_arr = r_cpu.into_dimensionality::<ndarray::Ix2>()
+        let r_arr = r_cpu
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
-        let c_arr = c_cpu.into_dimensionality::<ndarray::Ix2>()
+        let c_arr = c_cpu
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
-        let w_approx_arr = w_approx_cpu.into_dimensionality::<ndarray::Ix2>()
+        let w_approx_arr = w_approx_cpu
+            .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| SedcError::Svd(e.to_string()))?;
 
         // Compute error
@@ -1418,7 +1628,9 @@ impl SedcCompressor {
             {
                 continue;
             }
-            if let Some(fused) = self.fuse_layers_str(&weights[layer_i], &weights[layer_i + 1], k, layer_i)? {
+            if let Some(fused) =
+                self.fuse_layers_str(&weights[layer_i], &weights[layer_i + 1], k, layer_i)?
+            {
                 skip_layers.insert(layer_i);
                 skip_layers.insert(layer_i + 1);
                 fused_pairs_vec.push(fused);
@@ -1482,26 +1694,44 @@ impl SedcCompressor {
 
         let num_items = compressed_weights.len().max(1);
         let report = ModelCompressionReport {
-            layers: compressed_weights.iter().map(|cw| LayerCompressionReport {
-                layer: cw.layer,
-                name: cw.name.clone(),
-                shape: cw.shape,
-                original_params: cw.shape.0 * cw.shape.1,
-                compressed_params: cw.rank * (cw.shape.0 + cw.shape.1),
-                rank: cw.rank,
-                spectral_entropy: cw.entropy,
-                relative_error: cw.relative_error,
-                compression_ratio: if cw.rank * (cw.shape.0 + cw.shape.1) > 0 {
-                    (cw.shape.0 * cw.shape.1) as f32 / (cw.rank * (cw.shape.0 + cw.shape.1)) as f32
-                } else { 1.0 },
-                sparsity: cw.sparsity,
-                quant_bits: cw.quant_bits,
-            }).collect(),
+            layers: compressed_weights
+                .iter()
+                .map(|cw| LayerCompressionReport {
+                    layer: cw.layer,
+                    name: cw.name.clone(),
+                    shape: cw.shape,
+                    original_params: cw.shape.0 * cw.shape.1,
+                    compressed_params: cw.rank * (cw.shape.0 + cw.shape.1),
+                    rank: cw.rank,
+                    spectral_entropy: cw.entropy,
+                    relative_error: cw.relative_error,
+                    compression_ratio: if cw.rank * (cw.shape.0 + cw.shape.1) > 0 {
+                        (cw.shape.0 * cw.shape.1) as f32
+                            / (cw.rank * (cw.shape.0 + cw.shape.1)) as f32
+                    } else {
+                        1.0
+                    },
+                    sparsity: cw.sparsity,
+                    quant_bits: cw.quant_bits,
+                })
+                .collect(),
             total_original,
             total_compressed,
-            total_ratio: if total_compressed > 0 { total_original as f32 / total_compressed as f32 } else { 1.0 },
-            mean_relative_error: if layer_count > 0 { total_error / layer_count as f32 } else { 0.0 },
-            mean_sparsity: if layer_count > 0 { total_sparsity / layer_count as f32 } else { 0.0 },
+            total_ratio: if total_compressed > 0 {
+                total_original as f32 / total_compressed as f32
+            } else {
+                1.0
+            },
+            mean_relative_error: if layer_count > 0 {
+                total_error / layer_count as f32
+            } else {
+                0.0
+            },
+            mean_sparsity: if layer_count > 0 {
+                total_sparsity / layer_count as f32
+            } else {
+                0.0
+            },
             total_quant_bits: self.config.arq_bits,
         };
 
@@ -1534,14 +1764,17 @@ impl SedcCompressor {
                 let w_gpu = GpuTensor::from_cpu(&w_orig.clone().into_dyn())
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
                 let w_cpu_arr = w_gpu.to_cpu().map_err(SedcError::Gpu)?;
-                let w_cpu = w_cpu_arr.into_dimensionality::<ndarray::Ix2>()
+                let w_cpu = w_cpu_arr
+                    .into_dimensionality::<ndarray::Ix2>()
                     .map_err(|e| SedcError::Svd(e.to_string()))?;
                 compensated.push(w_cpu);
 
                 // Compute error for next layer
-                let w_recon = cw.u.dot(&ndarray::Array2::from_diag(
-                    &ndarray::Array1::from_vec(cw.s.clone())
-                )).dot(&cw.v.t());
+                let w_recon =
+                    cw.u.dot(&ndarray::Array2::from_diag(&ndarray::Array1::from_vec(
+                        cw.s.clone(),
+                    )))
+                    .dot(&cw.v.t());
                 prev_error = Some(w_orig - &w_recon);
                 prev_v = Some(cw.v.clone());
                 continue;
@@ -1551,28 +1784,34 @@ impl SedcCompressor {
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
             // prev_error/prev_v are Some here — guarded by prev_error.is_none() check above
             let Some(ref prev_err) = prev_error else {
-                return Err(SedcError::Svd("prev_error is None in REC layer (logic error)".into()));
+                return Err(SedcError::Svd(
+                    "prev_error is None in REC layer (logic error)".into(),
+                ));
             };
             let Some(ref prev_v_val) = prev_v else {
-                return Err(SedcError::Svd("prev_v is None in REC layer (logic error)".into()));
+                return Err(SedcError::Svd(
+                    "prev_v is None in REC layer (logic error)".into(),
+                ));
             };
             let error_gpu = GpuTensor::from_cpu(&prev_err.clone().into_dyn())
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
             let v_gpu = GpuTensor::from_cpu(&prev_v_val.clone().into_dyn())
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
 
-            let w_comp = ctx.rec_compensate_gpu(
-                &w_next_gpu, &error_gpu, &v_gpu, self.config.rec_lambda,
-            )?;
+            let w_comp =
+                ctx.rec_compensate_gpu(&w_next_gpu, &error_gpu, &v_gpu, self.config.rec_lambda)?;
             let w_comp_arr = w_comp.to_cpu().map_err(SedcError::Gpu)?;
-            let w_comp_cpu = w_comp_arr.into_dimensionality::<ndarray::Ix2>()
+            let w_comp_cpu = w_comp_arr
+                .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|e| SedcError::Svd(e.to_string()))?;
             compensated.push(w_comp_cpu);
 
             // Compute error for next iteration
-            let w_recon = cw.u.dot(&ndarray::Array2::from_diag(
-                &ndarray::Array1::from_vec(cw.s.clone())
-            )).dot(&cw.v.t());
+            let w_recon =
+                cw.u.dot(&ndarray::Array2::from_diag(&ndarray::Array1::from_vec(
+                    cw.s.clone(),
+                )))
+                .dot(&cw.v.t());
             let rec_error = w_orig - &w_recon;
             prev_error = Some(rec_error);
             prev_v = Some(cw.v.clone());
@@ -1626,7 +1865,10 @@ mod tests {
     fn test_spectral_entropy_uniform() {
         let s = vec![1.0, 1.0, 1.0, 1.0];
         let h = spectral_entropy(&s);
-        assert!((h - 2.0).abs() < 1e-5, "uniform entropy should be 2.0, got {h}");
+        assert!(
+            (h - 2.0).abs() < 1e-5,
+            "uniform entropy should be 2.0, got {h}"
+        );
     }
 
     #[test]
@@ -1641,7 +1883,10 @@ mod tests {
         // Concentrated spectrum → low rank (should pick k=1 or k=2)
         let s = vec![100.0, 0.1, 0.01, 0.001, 0.0001];
         let k = vet_optimal_rank(&s, 0.1, 10000.0);
-        assert!(k <= 2, "concentrated spectrum should choose low rank (k<=2), got {k}");
+        assert!(
+            k <= 2,
+            "concentrated spectrum should choose low rank (k<=2), got {k}"
+        );
     }
 
     // ── EGSS Tests ──
@@ -1650,7 +1895,10 @@ mod tests {
     fn test_egss_threshold_basic() {
         let values: Vec<f32> = (0..100).map(|i| i as f32).collect();
         let threshold = egss_threshold(&values, 2.0, 3.0, 6.0);
-        assert!(threshold > 0.0, "threshold should be positive, got {threshold}");
+        assert!(
+            threshold > 0.0,
+            "threshold should be positive, got {threshold}"
+        );
     }
 
     // ── Compressor Tests (CPU-only path when GPU unavailable) ──
@@ -1673,8 +1921,12 @@ mod tests {
             assert_eq!(cw.shape, (16, 12));
             assert!(cw.rank <= 16);
             assert!(cw.relative_error >= 0.0);
-            tracing::debug!("  Rank: {}, Error: {:.4}, Sparsity: {:.2}",
-                cw.rank, cw.relative_error, cw.sparsity);
+            tracing::debug!(
+                "  Rank: {}, Error: {:.4}, Sparsity: {:.2}",
+                cw.rank,
+                cw.relative_error,
+                cw.sparsity
+            );
         }
     }
 
@@ -1719,8 +1971,12 @@ mod tests {
 
         let model = compressor.compress_model(&weights, names, &fuse_pairs);
         if let Ok(m) = model {
-            tracing::debug!("  Total ratio: {:.2}×, Avg error: {:.4}, Sparsity: {:.2}",
-                m.report.total_ratio, m.report.mean_relative_error, m.report.mean_sparsity);
+            tracing::debug!(
+                "  Total ratio: {:.2}×, Avg error: {:.4}, Sparsity: {:.2}",
+                m.report.total_ratio,
+                m.report.mean_relative_error,
+                m.report.mean_sparsity
+            );
         }
     }
 }

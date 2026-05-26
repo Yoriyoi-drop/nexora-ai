@@ -621,11 +621,16 @@ impl CompressionEngine {
                 if actual_rank == 0 {
                     return Ok(ndarray::ArrayD::zeros(vec![m, n]));
                 }
-                let view2 = tensor.view().into_dimensionality::<ndarray::Ix2>()
-                    .map_err(|_| crate::ATQSError::CompressionError(
-                        "Expected 2D tensor for SVD compression".to_string()
-                    ))?;
-                let (u, s, vt) = crate::core::tensor_ops::compute_svd_truncated(&view2, actual_rank)?;
+                let view2 = tensor
+                    .view()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| {
+                        crate::ATQSError::CompressionError(
+                            "Expected 2D tensor for SVD compression".to_string(),
+                        )
+                    })?;
+                let (u, s, vt) =
+                    crate::core::tensor_ops::compute_svd_truncated(&view2, actual_rank)?;
                 let s_mat = {
                     let mut diag = ndarray::Array2::<f32>::zeros((actual_rank, actual_rank));
                     for i in 0..actual_rank {

@@ -81,12 +81,21 @@ impl Default for MySQLConfig {
     fn default() -> Self {
         Self {
             host: std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            port: std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3306),
+            port: std::env::var("DB_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(3306),
             username: std::env::var("DB_USER").unwrap_or_else(|_| "nexora".to_string()),
             password: std::env::var("DB_PASSWORD").unwrap_or_default(),
             database: std::env::var("DB_NAME").unwrap_or_else(|_| "nexora".to_string()),
-            pool_size: std::env::var("DB_POOL_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(10),
-            timeout: std::env::var("DB_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
+            pool_size: std::env::var("DB_POOL_SIZE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
+            timeout: std::env::var("DB_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
         }
     }
 }
@@ -117,7 +126,8 @@ mod mysql_impl {
                             .unwrap_or_default(),
                         )
                         .and_utc()
-                        .timestamp().max(0) as u64,
+                        .timestamp()
+                        .max(0) as u64,
                     ),
             ),
         }
@@ -239,13 +249,11 @@ mod mysql_impl {
         )?;
             let database_size_mb = size_result
                 .first()
-                .and_then(|(size,)| {
-                    match size.parse::<f64>() {
-                        Ok(v) => Some(v),
-                        Err(e) => {
-                            tracing::warn!("Failed to parse database size '{}': {}", size, e);
-                            None
-                        }
+                .and_then(|(size,)| match size.parse::<f64>() {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse database size '{}': {}", size, e);
+                        None
                     }
                 })
                 .unwrap_or(0.0);
@@ -882,20 +890,39 @@ impl Default for DatabaseConfig {
         Self {
             database_type: DatabaseType::PostgreSQL,
             host: std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_string()),
-            port: std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432),
+            port: std::env::var("DB_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(5432),
             database: std::env::var("DB_NAME").unwrap_or_else(|_| "nexora".to_string()),
             username: std::env::var("DB_USER").unwrap_or_else(|_| "nexora".to_string()),
             password: std::env::var("DB_PASSWORD").unwrap_or_default(),
-            ssl_mode: match std::env::var("DB_SSL_MODE").unwrap_or_else(|_| "prefer".to_string()).to_lowercase().as_str() {
+            ssl_mode: match std::env::var("DB_SSL_MODE")
+                .unwrap_or_else(|_| "prefer".to_string())
+                .to_lowercase()
+                .as_str()
+            {
                 "disable" => SslMode::Disable,
                 "allow" => SslMode::Allow,
                 "require" => SslMode::Require,
                 _ => SslMode::Prefer,
             },
-            max_connections: std::env::var("DB_MAX_CONNECTIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(10),
-            connection_timeout_seconds: std::env::var("DB_CONNECT_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
-            idle_timeout_seconds: std::env::var("DB_IDLE_TIMEOUT").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
-            max_lifetime_seconds: std::env::var("DB_MAX_LIFETIME").ok().and_then(|v| v.parse().ok()).unwrap_or(3600),
+            max_connections: std::env::var("DB_MAX_CONNECTIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
+            connection_timeout_seconds: std::env::var("DB_CONNECT_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
+            idle_timeout_seconds: std::env::var("DB_IDLE_TIMEOUT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+            max_lifetime_seconds: std::env::var("DB_MAX_LIFETIME")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3600),
         }
     }
 }
@@ -973,11 +1000,8 @@ impl Value {
                     return Value::Timestamp(std::time::SystemTime::now());
                 }
             };
-            if let Some(system_time) =
-                std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                    seconds_u64,
-                    nanos,
-                ))
+            if let Some(system_time) = std::time::SystemTime::UNIX_EPOCH
+                .checked_add(std::time::Duration::new(seconds_u64, nanos))
             {
                 return Value::Timestamp(system_time);
             }
@@ -992,12 +1016,9 @@ impl Value {
                         Ok(s) => s,
                         Err(_) => continue,
                     };
-                    if let Some(system_time) =
-                        std::time::SystemTime::UNIX_EPOCH.checked_add(std::time::Duration::new(
-                            secs_u64,
-                            (nanos_total % 1_000_000_000) as u32,
-                        ))
-                    {
+                    if let Some(system_time) = std::time::SystemTime::UNIX_EPOCH.checked_add(
+                        std::time::Duration::new(secs_u64, (nanos_total % 1_000_000_000) as u32),
+                    ) {
                         return Value::Timestamp(system_time);
                     }
                 }

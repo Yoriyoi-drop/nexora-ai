@@ -9,7 +9,7 @@
 use crate::core::SelectiveUpdate;
 use crate::fused_ops::{FusedElementWise, FusedLinearActivation};
 use crate::tensor_pool::PooledTensor1D;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -341,10 +341,18 @@ impl SelectiveUpdate for SelectiveStateUpdate {
         relevance: &ArrayD<f32>,
         threshold: f32,
     ) -> DLResult<ArrayD<f32>> {
-        let prev_flat = previous_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
-        let cand_flat = candidate_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let prev_flat =
+            previous_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
+        let cand_flat =
+            candidate_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
         let rel_flat = require_contiguous(relevance.as_slice())?;
 
         if prev_flat.len() != cand_flat.len() || prev_flat.len() != rel_flat.len() {
@@ -394,10 +402,18 @@ impl SelectiveStateUpdate {
         block_size: usize,
         threshold: f32,
     ) -> DLResult<ArrayD<f32>> {
-        let prev_flat = previous_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
-        let cand_flat = candidate_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let prev_flat =
+            previous_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
+        let cand_flat =
+            candidate_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
         let rel_flat = require_contiguous(relevance.as_slice())?;
 
         let mut updated_state = prev_flat.to_vec();
@@ -435,10 +451,18 @@ impl SelectiveStateUpdate {
         relevance: &ArrayD<f32>,
         thresholds: &[f32],
     ) -> DLResult<ArrayD<f32>> {
-        let prev_flat = previous_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
-        let cand_flat = candidate_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let prev_flat =
+            previous_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
+        let cand_flat =
+            candidate_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
         let rel_flat = require_contiguous(relevance.as_slice())?;
 
         let mut updated_state = Vec::with_capacity(prev_flat.len());
@@ -472,10 +496,18 @@ impl SelectiveStateUpdate {
         temporal_coherence: f32,
         threshold: f32,
     ) -> DLResult<ArrayD<f32>> {
-        let prev_flat = previous_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
-        let cand_flat = candidate_state
-            .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+        let prev_flat =
+            previous_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
+        let cand_flat =
+            candidate_state
+                .as_slice()
+                .ok_or_else(|| DeepLearningError::Computation {
+                    reason: "tensor not contiguous".to_string(),
+                })?;
         let rel_flat = require_contiguous(relevance.as_slice())?;
 
         let mut updated_state = Vec::with_capacity(prev_flat.len());
@@ -644,7 +676,8 @@ mod tests {
         let prev = Array1::from_vec(vec![1.0; 128]).into_dyn();
         let cand = Array1::from_vec(vec![2.0; 128]).into_dyn();
         let relevance = Array1::from_vec(vec![0.3; 128]).into_dyn();
-        let result = ssu.hierarchical_selective_update(&prev, &cand, &relevance, &[0.2, 0.6, 0.9])?;
+        let result =
+            ssu.hierarchical_selective_update(&prev, &cand, &relevance, &[0.2, 0.6, 0.9])?;
         assert_eq!(result.shape(), &[128]);
         Ok(())
     }

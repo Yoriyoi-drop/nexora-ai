@@ -33,12 +33,12 @@ use nexora_shared::{
 };
 use nexora_vogp::VOGPConfig;
 
-use self::{
-    agents::OmnisAgents, capabilities::OmnisCapabilities,
-    config::OmnisConfig, identity::OmnisIdentity,
-};
 #[cfg(feature = "simulated-models")]
 use self::architecture::OmnisArchitecture;
+use self::{
+    agents::OmnisAgents, capabilities::OmnisCapabilities, config::OmnisConfig,
+    identity::OmnisIdentity,
+};
 
 /// NXR-OMNIS Model Implementation
 pub struct NxrOmnisModel {
@@ -259,7 +259,9 @@ impl NxrOmnisModel {
             components,
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -299,7 +301,9 @@ impl NxrOmnisModel {
             components,
             config: config.clone(),
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         };
 
         // Initialize components
@@ -366,10 +370,12 @@ impl NxrOmnisModel {
             .arbitrate(&decomposition, &chain_result)?;
 
         // Step 6: Synthesis
-        let synthesis = self
-            .agents
-            .synth_prime()
-            .synthesize(&[decomposition.clone(), meta_reasoning, chain_result, truth_arbitration])?;
+        let synthesis = self.agents.synth_prime().synthesize(&[
+            decomposition.clone(),
+            meta_reasoning,
+            chain_result,
+            truth_arbitration,
+        ])?;
 
         Ok(format!(
             "{}\n\nDL Processing: {} (tokens: {})",
@@ -462,13 +468,20 @@ impl NxrOmnisModel {
 
 const OMNIS_SYSTEM_PROMPT: &str = "You are NXR-OMNIS (Nexus Omniscient Reasoning System) [NXR-01 ULTRA], the flagship model. Capabilities: multi-modal reasoning, world modeling, meta-cognition, research, and comprehensive analysis. Respond with thorough, well-reasoned answers.";
 
-fn augment_omnis_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_omnis_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", OMNIS_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", OMNIS_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

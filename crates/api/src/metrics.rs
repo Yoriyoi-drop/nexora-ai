@@ -281,9 +281,11 @@ impl MetricsCollector {
 
     /// Get memory usage in MB, or `None` if unavailable
     async fn get_memory_usage(&self) -> Option<f64> {
-        if let Ok(status) = tokio::task::spawn_blocking(|| {
-            std::fs::read_to_string("/proc/self/status")
-        }).await.unwrap_or(Ok(String::new())) {
+        if let Ok(status) =
+            tokio::task::spawn_blocking(|| std::fs::read_to_string("/proc/self/status"))
+                .await
+                .unwrap_or(Ok(String::new()))
+        {
             for line in status.lines() {
                 if line.starts_with("VmRSS:") {
                     if let Some(kb_str) = line.split_whitespace().nth(1) {
@@ -297,13 +299,16 @@ impl MetricsCollector {
 
         tokio::task::spawn_blocking(|| {
             let mut system = sysinfo::System::new_with_specifics(
-                sysinfo::RefreshKind::new()
-                    .with_memory(sysinfo::MemoryRefreshKind::everything()),
+                sysinfo::RefreshKind::new().with_memory(sysinfo::MemoryRefreshKind::everything()),
             );
             system.refresh_memory();
             let pid = sysinfo::Pid::from_u32(std::process::id());
-            system.process(pid).map(|p| p.memory() as f64 / (1024.0 * 1024.0))
-        }).await.unwrap_or(None)
+            system
+                .process(pid)
+                .map(|p| p.memory() as f64 / (1024.0 * 1024.0))
+        })
+        .await
+        .unwrap_or(None)
     }
 
     /// Get CPU usage as percentage, or `None` if unavailable
@@ -319,9 +324,10 @@ impl MetricsCollector {
 
     /// Get process CPU usage from /proc/self/stat on Linux
     async fn get_process_cpu_usage(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        let stat_content = tokio::task::spawn_blocking(|| {
-            std::fs::read_to_string("/proc/self/stat")
-        }).await.map_err(|e| format!("spawn_blocking error: {}", e))??;
+        let stat_content =
+            tokio::task::spawn_blocking(|| std::fs::read_to_string("/proc/self/stat"))
+                .await
+                .map_err(|e| format!("spawn_blocking error: {}", e))??;
         let parts: Vec<&str> = stat_content.split_whitespace().collect();
 
         if parts.len() < 17 {
@@ -335,21 +341,19 @@ impl MetricsCollector {
         let total_time = utime + stime;
 
         // Get total CPU time from /proc/stat (also in clock ticks)
-        let stat_content = tokio::task::spawn_blocking(|| {
-            std::fs::read_to_string("/proc/stat")
-        }).await.map_err(|e| format!("spawn_blocking error: {}", e))??;
+        let stat_content = tokio::task::spawn_blocking(|| std::fs::read_to_string("/proc/stat"))
+            .await
+            .map_err(|e| format!("spawn_blocking error: {}", e))??;
         let first_line = stat_content.lines().next().ok_or("No data in /proc/stat")?;
         let cpu_parts: Vec<u64> = first_line
             .split_whitespace()
             .skip(1) // Skip "cpu"
             .take(4) // user, nice, system, idle
-            .filter_map(|s| {
-                match s.parse::<u64>() {
-                    Ok(v) => Some(v),
-                    Err(e) => {
-                        tracing::warn!("Failed to parse CPU stat value '{}': {}", s, e);
-                        None
-                    }
+            .filter_map(|s| match s.parse::<u64>() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!("Failed to parse CPU stat value '{}': {}", s, e);
+                    None
                 }
             })
             .collect();

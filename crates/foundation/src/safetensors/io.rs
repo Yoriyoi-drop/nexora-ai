@@ -46,8 +46,9 @@ pub fn save_safetensors(
     let header_obj = SafetensorsHeader {
         tensors: header_map,
     };
-    let header_json = serde_json::to_string(&header_obj)
-        .map_err(|e| crate::FoundationError::Configuration(format!("JSON serialize header: {}", e)))?;
+    let header_json = serde_json::to_string(&header_obj).map_err(|e| {
+        crate::FoundationError::Configuration(format!("JSON serialize header: {}", e))
+    })?;
     let header_bytes = header_json.as_bytes();
     let header_len = header_bytes.len() as u64;
 
@@ -56,15 +57,17 @@ pub fn save_safetensors(
     out.extend_from_slice(header_bytes);
     out.extend_from_slice(&data_bytes);
 
-    std::fs::write(path.as_ref(), &out)
-        .map_err(|e| crate::FoundationError::Resource(format!("Write file {}: {}", path.as_ref().display(), e)))?;
+    std::fs::write(path.as_ref(), &out).map_err(|e| {
+        crate::FoundationError::Resource(format!("Write file {}: {}", path.as_ref().display(), e))
+    })?;
 
     Ok(())
 }
 
 pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
-    let raw = std::fs::read(path.as_ref())
-        .map_err(|e| crate::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e)))?;
+    let raw = std::fs::read(path.as_ref()).map_err(|e| {
+        crate::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e))
+    })?;
 
     if raw.len() < 8 {
         return Err(crate::FoundationError::Configuration(
@@ -74,7 +77,8 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
 
     let header_len = usize::try_from(u64::from_le_bytes([
         raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
-    ])).unwrap_or(usize::MAX);
+    ]))
+    .unwrap_or(usize::MAX);
 
     let header_end = 8 + header_len;
     if header_end > raw.len() {
@@ -85,11 +89,13 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
         )));
     }
 
-    let header_json = std::str::from_utf8(&raw[8..header_end])
-        .map_err(|e| crate::FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e)))?;
+    let header_json = std::str::from_utf8(&raw[8..header_end]).map_err(|e| {
+        crate::FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e))
+    })?;
 
-    let header: SafetensorsHeader = serde_json::from_str(header_json)
-        .map_err(|e| crate::FoundationError::Configuration(format!("Invalid JSON header: {}", e)))?;
+    let header: SafetensorsHeader = serde_json::from_str(header_json).map_err(|e| {
+        crate::FoundationError::Configuration(format!("Invalid JSON header: {}", e))
+    })?;
 
     let mut result = HashMap::new();
     for (name, entry) in &header.tensors {
@@ -113,8 +119,12 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
         for chunk in bytes.chunks_exact(4) {
             floats.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
         }
-        let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats)
-            .map_err(|e| crate::FoundationError::Configuration(format!("Shape mismatch for tensor '{}': {}", name, e)))?;
+        let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats).map_err(|e| {
+            crate::FoundationError::Configuration(format!(
+                "Shape mismatch for tensor '{}': {}",
+                name, e
+            ))
+        })?;
         result.insert(name.clone(), arr);
     }
 
@@ -143,11 +153,14 @@ mod tests {
     #[test]
     fn test_safetensors_header_serde() {
         let mut tensors = HashMap::new();
-        tensors.insert("weight".to_string(), TensorEntry {
-            dtype: "F32".to_string(),
-            shape: vec![3, 3],
-            data_offsets: [0, 36],
-        });
+        tensors.insert(
+            "weight".to_string(),
+            TensorEntry {
+                dtype: "F32".to_string(),
+                shape: vec![3, 3],
+                data_offsets: [0, 36],
+            },
+        );
         let header = SafetensorsHeader { tensors };
         let json = serde_json::to_string(&header).unwrap();
         let back: SafetensorsHeader = serde_json::from_str(&json).unwrap();
@@ -160,7 +173,8 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("test.safetensors");
 
-        let tensor = ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let tensor =
+            ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
         save_safetensors(&path, &[("weights", tensor)]).unwrap();
 
         let loaded = load_safetensors(&path).unwrap();

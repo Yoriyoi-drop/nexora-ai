@@ -205,11 +205,7 @@ mod tests {
     #[test]
     fn test_get_top_experts_returns_correct_count() {
         let moe = small_moe();
-        let weights = ndarray::Array2::from_shape_vec(
-            (1, 4),
-            vec![0.1, 0.4, 0.3, 0.2],
-        )
-        .unwrap();
+        let weights = ndarray::Array2::from_shape_vec((1, 4), vec![0.1, 0.4, 0.3, 0.2]).unwrap();
         let top = moe.get_top_experts(&weights, 0);
         assert_eq!(top.len(), 2);
         assert!(top.contains(&1));

@@ -177,8 +177,8 @@ impl BlaaClient {
         let mut last_error = None;
         let url_owned = url.to_string();
         let body_owned = body.map(|s| s.to_string());
-        let http_method = reqwest::Method::from_bytes(method.as_bytes())
-            .unwrap_or(reqwest::Method::POST);
+        let http_method =
+            reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
 
         for attempt in 1..=self.config.max_retries {
             debug!(

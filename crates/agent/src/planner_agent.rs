@@ -550,10 +550,11 @@ impl Agent for PlannerAgent {
                         reason: "plan_id required".to_string(),
                     })?;
 
-                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid plan_id".to_string(),
-                })?;
+                let plan_id =
+                    Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid plan_id".to_string(),
+                    })?;
 
                 let step = self.execute_next_step(plan_id).await?;
 
@@ -602,15 +603,17 @@ impl Agent for PlannerAgent {
                     .cloned()
                     .unwrap_or(Value::Null);
 
-                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid plan_id".to_string(),
-                })?;
+                let plan_id =
+                    Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid plan_id".to_string(),
+                    })?;
 
-                let step_id = Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid step_id".to_string(),
-                })?;
+                let step_id =
+                    Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid step_id".to_string(),
+                    })?;
 
                 self.complete_step(plan_id, step_id, result).await?;
 
@@ -632,10 +635,11 @@ impl Agent for PlannerAgent {
                         reason: "plan_id required".to_string(),
                     })?;
 
-                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid plan_id".to_string(),
-                })?;
+                let plan_id =
+                    Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid plan_id".to_string(),
+                    })?;
 
                 let plan = self.get_plan(plan_id).await?;
 
@@ -956,7 +960,9 @@ impl PlanningStrategy for DependencyBasedStrategy {
     }
 
     async fn adapt_plan(&self, plan: &mut ExecutionPlan, feedback: &Value) -> Result<()> {
-        if let Some(changed_deps) = feedback.get("dependency_changes").and_then(|v| v.as_object())
+        if let Some(changed_deps) = feedback
+            .get("dependency_changes")
+            .and_then(|v| v.as_object())
         {
             for (step_id_str, new_deps) in changed_deps {
                 if let Ok(step_id) = Uuid::parse_str(step_id_str) {
@@ -964,13 +970,11 @@ impl PlanningStrategy for DependencyBasedStrategy {
                         let deps: Vec<Uuid> = dep_ids
                             .iter()
                             .filter_map(|d| {
-                                d.as_str().and_then(|s| {
-                                    match Uuid::parse_str(s) {
-                                        Ok(uuid) => Some(uuid),
-                                        Err(e) => {
-                                            tracing::warn!("Failed to parse UUID '{}': {}", s, e);
-                                            None
-                                        }
+                                d.as_str().and_then(|s| match Uuid::parse_str(s) {
+                                    Ok(uuid) => Some(uuid),
+                                    Err(e) => {
+                                        tracing::warn!("Failed to parse UUID '{}': {}", s, e);
+                                        None
                                     }
                                 })
                             })
@@ -986,14 +990,11 @@ impl PlanningStrategy for DependencyBasedStrategy {
         }
 
         for i in 0..plan.steps.len() {
-            let deps_met = plan.steps[i]
-                .dependencies
-                .iter()
-                .all(|dep_id| {
-                    plan.steps
-                        .iter()
-                        .any(|s| s.step_id == *dep_id && matches!(s.status, StepStatus::Completed))
-                });
+            let deps_met = plan.steps[i].dependencies.iter().all(|dep_id| {
+                plan.steps
+                    .iter()
+                    .any(|s| s.step_id == *dep_id && matches!(s.status, StepStatus::Completed))
+            });
 
             if matches!(plan.steps[i].status, StepStatus::Pending) && deps_met {
                 plan.steps[i].status = StepStatus::Pending;
@@ -1067,7 +1068,10 @@ mod tests {
         assert!(matches!(PlanStatus::Ready, PlanStatus::Ready));
         assert!(matches!(PlanStatus::Executing, PlanStatus::Executing));
         assert!(matches!(PlanStatus::Completed, PlanStatus::Completed));
-        assert!(matches!(PlanStatus::Failed("x".into()), PlanStatus::Failed(_)));
+        assert!(matches!(
+            PlanStatus::Failed("x".into()),
+            PlanStatus::Failed(_)
+        ));
         assert!(matches!(PlanStatus::Cancelled, PlanStatus::Cancelled));
     }
 

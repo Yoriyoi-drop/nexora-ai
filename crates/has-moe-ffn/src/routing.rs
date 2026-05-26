@@ -542,7 +542,8 @@ mod tests {
             ..Default::default()
         };
         let mut r = Router::with_config(config);
-        let input = Array2::from_shape_vec((8, 4), (0..32).map(|v| v as f32 / 32.0).collect()).unwrap();
+        let input =
+            Array2::from_shape_vec((8, 4), (0..32).map(|v| v as f32 / 32.0).collect()).unwrap();
         let result = r.route(&input);
         assert!(result.is_ok());
         let routes = result.unwrap();
@@ -585,10 +586,7 @@ mod tests {
             ..Default::default()
         };
         let r = Router::with_config(config);
-        let routing_weights = vec![
-            vec![(0, 0.25), (1, 0.25)],
-            vec![(2, 0.25), (3, 0.25)],
-        ];
+        let routing_weights = vec![vec![(0, 0.25), (1, 0.25)], vec![(2, 0.25), (3, 0.25)]];
         let loss = r.compute_load_balancing_loss(&routing_weights, 2);
         assert!(loss > 0.0);
     }

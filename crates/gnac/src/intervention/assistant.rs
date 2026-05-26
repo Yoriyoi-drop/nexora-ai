@@ -144,7 +144,10 @@ mod tests {
         };
         let advice = DiagnosticAssistant::analyze(&anomaly);
         assert!(advice.explanation.contains("dead"));
-        assert_eq!(advice.auto_fix, Some("Replace ReLU with LeakyReLU (negative_slope=0.01)".to_string()));
+        assert_eq!(
+            advice.auto_fix,
+            Some("Replace ReLU with LeakyReLU (negative_slope=0.01)".to_string())
+        );
     }
 
     #[test]

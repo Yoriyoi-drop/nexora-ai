@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-SWIFT Architecture Implementation
-#[deprecated(note = "Simulated architecture — not a real neural network. Uses keyword matching and template responses, not tensor computation. Gated behind `simulated-models` feature (default: off).")]
+#[deprecated(
+    note = "Simulated architecture — not a real neural network. Uses keyword matching and template responses, not tensor computation. Gated behind `simulated-models` feature (default: off)."
+)]
 pub struct SwiftArchitecture {
     /// Configuration
     config: SwiftConfig,
@@ -575,36 +577,39 @@ impl SwiftArchitecture {
                 workflow_orchestrator: WorkflowOrchestrator {
                     workflow_templates: {
                         let mut templates = HashMap::new();
-                        templates.insert("default-pipeline".to_string(), WorkflowTemplate {
-                            id: uuid::Uuid::new_v4(),
-                            name: "default-pipeline".to_string(),
-                            steps: vec![
-                                WorkflowStep {
-                                    id: uuid::Uuid::new_v4(),
-                                    name: "process-data".to_string(),
-                                    step_type: WorkflowStepType::Processing,
-                                    dependencies: vec![],
-                                },
-                                WorkflowStep {
-                                    id: uuid::Uuid::new_v4(),
-                                    name: "transform-data".to_string(),
-                                    step_type: WorkflowStepType::Transformation,
-                                    dependencies: vec![],
-                                },
-                                WorkflowStep {
-                                    id: uuid::Uuid::new_v4(),
-                                    name: "validate-output".to_string(),
-                                    step_type: WorkflowStepType::Validation,
-                                    dependencies: vec![],
-                                },
-                                WorkflowStep {
-                                    id: uuid::Uuid::new_v4(),
-                                    name: "notify-result".to_string(),
-                                    step_type: WorkflowStepType::Notification,
-                                    dependencies: vec![],
-                                },
-                            ],
-                        });
+                        templates.insert(
+                            "default-pipeline".to_string(),
+                            WorkflowTemplate {
+                                id: uuid::Uuid::new_v4(),
+                                name: "default-pipeline".to_string(),
+                                steps: vec![
+                                    WorkflowStep {
+                                        id: uuid::Uuid::new_v4(),
+                                        name: "process-data".to_string(),
+                                        step_type: WorkflowStepType::Processing,
+                                        dependencies: vec![],
+                                    },
+                                    WorkflowStep {
+                                        id: uuid::Uuid::new_v4(),
+                                        name: "transform-data".to_string(),
+                                        step_type: WorkflowStepType::Transformation,
+                                        dependencies: vec![],
+                                    },
+                                    WorkflowStep {
+                                        id: uuid::Uuid::new_v4(),
+                                        name: "validate-output".to_string(),
+                                        step_type: WorkflowStepType::Validation,
+                                        dependencies: vec![],
+                                    },
+                                    WorkflowStep {
+                                        id: uuid::Uuid::new_v4(),
+                                        name: "notify-result".to_string(),
+                                        step_type: WorkflowStepType::Notification,
+                                        dependencies: vec![],
+                                    },
+                                ],
+                            },
+                        );
                         templates
                     },
                     execution_engine: ExecutionEngine {

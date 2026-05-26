@@ -765,8 +765,7 @@ mod tests {
 
     #[test]
     fn test_quantize_int4_roundtrip() -> DLResult<()> {
-        let tensor =
-            Array2::from_shape_vec((2, 4), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])?;
+        let tensor = Array2::from_shape_vec((2, 4), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])?;
         let mut engine = QuantizationEngine::new(QuantPrecision::INT4, QuantMethod::GPTQ)?;
         let quantized = engine.quantize_weights_gptq(&tensor)?;
         assert_eq!(quantized.precision() as i32, QuantPrecision::INT4 as i32);

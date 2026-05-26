@@ -79,7 +79,11 @@ pub fn prefix_cache_hit_ratio() -> f64 {
     let hits = PREFIX_CACHE_HITS.load(Ordering::Relaxed);
     let misses = PREFIX_CACHE_MISSES.load(Ordering::Relaxed);
     let total = hits + misses;
-    if total == 0 { 0.0 } else { hits as f64 / total as f64 }
+    if total == 0 {
+        0.0
+    } else {
+        hits as f64 / total as f64
+    }
 }
 
 /// Returns all observability counters as a snapshot struct.
@@ -100,8 +104,7 @@ pub struct ObservabilitySnapshot {
 
 /// Collect a snapshot of all observability counters.
 pub fn observability_snapshot() -> ObservabilitySnapshot {
-    let gpu_ok = cfg!(feature = "gpu")
-        && nexora_autograd::gpu::GpuContext::is_available();
+    let gpu_ok = cfg!(feature = "gpu") && nexora_autograd::gpu::GpuContext::is_available();
     let gpu_tokens = GPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let cpu_tokens = CPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let total = gpu_tokens + cpu_tokens;
@@ -112,7 +115,11 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
         gpu_resident_fallbacks: GPU_RESIDENT_FALLBACKS.load(Ordering::Relaxed),
         gpu_tokens_generated: gpu_tokens,
         cpu_tokens_generated: cpu_tokens,
-        gpu_resident_ratio: if total > 0 { gpu_tokens as f64 / total as f64 } else { 0.0 },
+        gpu_resident_ratio: if total > 0 {
+            gpu_tokens as f64 / total as f64
+        } else {
+            0.0
+        },
         gpu_alive: gpu_ok,
         prefix_cache_hits: PREFIX_CACHE_HITS.load(Ordering::Relaxed),
         prefix_cache_misses: PREFIX_CACHE_MISSES.load(Ordering::Relaxed),
@@ -120,7 +127,11 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
             let h = PREFIX_CACHE_HITS.load(Ordering::Relaxed);
             let m = PREFIX_CACHE_MISSES.load(Ordering::Relaxed);
             let t = h + m;
-            if t == 0 { 0.0 } else { h as f64 / t as f64 }
+            if t == 0 {
+                0.0
+            } else {
+                h as f64 / t as f64
+            }
         },
     }
 }
@@ -145,15 +156,76 @@ pub trait ModelForward: Send + Sync {
     /// Default implementation processes each input **sequentially** via
     /// [`forward`]. Throughput scales as O(N). Implementations backed by
     /// GPU/TPU should override this with a true batched forward path.
-    fn forward_batched(
-        &self,
-        input_ids: &[u32],
-        kv_caches: &mut [CpuKVCache],
-    ) -> Vec<Array1<f32>> {
+    fn forward_batched(&self, input_ids: &[u32], kv_caches: &mut [CpuKVCache]) -> Vec<Array1<f32>> {
         input_ids
             .iter()
             .zip(kv_caches.iter_mut())
             .map(|(&id, cache)| self.forward(&[id], cache))
+            .collect()
+    }
+
+    /// Prefill multiple sequences with their full prompts.
+    ///
+    /// Each entry in `inputs` holds one sequence's prompt (remaining tokens).
+    /// Each entry in `caches` holds that sequence's KV cache.
+    /// Returns logits for the **last** token of each sequence.
+    ///
+    /// Default implementation: **position-by-position** batched prefill.
+    /// At each position P, all sequences with `prompt.len() > P` have their
+    /// P-th token processed together via [`forward_batched`]. This ensures:
+    ///
+    /// 1. KV cache is built position-by-position across the batch (better locality)
+    /// 2. If [`forward_batched`] has a GPU-accelerated override, each position
+    ///    automatically benefits from true batched matmul across all active sequences
+    /// 3. Foundation for padded batch prefill where shorter sequences are
+    ///    masked out rather than dropped
+    ///
+    /// GPU-aware implementations should override this to keep intermediate
+    /// logits on device, reading back only the final per-sequence results.
+    fn forward_prefill_batched(
+        &self,
+        inputs: &[Vec<u32>],
+        caches: &mut [Box<dyn KVCacheProvider>],
+    ) -> Vec<Array1<f32>> {
+        let n = inputs.len();
+        if n == 0 || n != caches.len() {
+            return Vec::new();
+        }
+
+        let max_len = inputs.iter().map(|t| t.len()).max().unwrap_or(0);
+        if max_len == 0 {
+            return vec![Array1::zeros(1); n];
+        }
+
+        let mut results: Vec<Option<Array1<f32>>> = vec![None; n];
+        let mut active: Vec<bool> = vec![true; n];
+
+        // Position-by-position prefill.
+        // At each position P, all sequences still in prefill have their
+        // P-th token processed together via forward(). This reorders the
+        // computation from sequence-major to position-major, which:
+        //   1. Lays foundation for future true GPU batched prefill
+        //   2. Builds KV cache position-by-position across the batch
+        //   3. Enables seamless merge of new arrivals during prefill
+        for pos in 0..max_len {
+            for (i, tokens) in inputs.iter().enumerate() {
+                if !active[i] {
+                    continue;
+                }
+                if pos < tokens.len() {
+                    let tok = tokens[pos];
+                    let logits = self.forward(&[tok], &mut *caches[i]);
+                    if pos == tokens.len() - 1 {
+                        results[i] = Some(logits);
+                        active[i] = false;
+                    }
+                }
+            }
+        }
+
+        results
+            .into_iter()
+            .map(|r| r.unwrap_or_else(|| Array1::zeros(1)))
             .collect()
     }
 
@@ -174,6 +246,27 @@ pub trait ModelForward: Send + Sync {
         _seed: u64,
     ) -> Option<u32> {
         None
+    }
+
+    /// Batched forward pass with GPU-native sampling — processes one token per
+    /// sequence and samples next tokens entirely on GPU. Zero readback of full
+    /// logits (128KB/seq). Only token IDs (4 bytes/seq) are returned.
+    ///
+    /// Returns `Vec<Option<u32>>` — `Some(token_id)` when GPU-resident path
+    /// succeeds for that sequence, `None` to indicate caller should fall back
+    /// to [`forward`]/[`forward_batched`] + CPU sampling for that sequence.
+    ///
+    /// Default implementation returns all `None`.
+    fn forward_batched_sample_gpu(
+        &self,
+        _input_ids: &[u32],
+        _caches: &mut [Box<dyn KVCacheProvider>],
+        _temperatures: &[f32],
+        _top_ks: &[usize],
+        _top_ps: &[f32],
+        _seed: u64,
+    ) -> Vec<Option<u32>> {
+        vec![None; _input_ids.len()]
     }
 
     /// Create a fresh, empty KV cache for this model.
@@ -249,11 +342,7 @@ impl ModelForward for nexora_transformer::CausalLM {
         CpuKVCache::new(self.config.num_layers)
     }
 
-    fn forward_batched(
-        &self,
-        input_ids: &[u32],
-        kv_caches: &mut [CpuKVCache],
-    ) -> Vec<Array1<f32>> {
+    fn forward_batched(&self, input_ids: &[u32], kv_caches: &mut [CpuKVCache]) -> Vec<Array1<f32>> {
         #[cfg(feature = "gpu")]
         if nexora_autograd::gpu::GpuContext::is_available() {
             let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = kv_caches
@@ -285,6 +374,60 @@ impl ModelForward for nexora_transformer::CausalLM {
             .collect()
     }
 
+    fn forward_prefill_batched(
+        &self,
+        inputs: &[Vec<u32>],
+        caches: &mut [Box<dyn KVCacheProvider>],
+    ) -> Vec<Array1<f32>> {
+        #[cfg(feature = "gpu")]
+        {
+            let use_gpu_path = caches.iter_mut().all(|c| c.as_gpu_entries().is_some());
+            if use_gpu_path {
+                let n = inputs.len();
+                if n == 0 || n != caches.len() {
+                    return Vec::new();
+                }
+
+                let max_len = inputs.iter().map(|t| t.len()).max().unwrap_or(0);
+                if max_len == 0 {
+                    return vec![Array1::zeros(1); n];
+                }
+
+                // True GPU padded-batch prefill: process ALL remaining tokens
+                // across ALL sequences in ONE forward pass.
+                // Take GPU entries from ALL sequences at once.
+                let mut gpu_entries_owned: Vec<Vec<nexora_transformer::GpuKVCacheEntry>> = caches
+                    .iter_mut()
+                    .map(|c| std::mem::take(c.as_gpu_entries().unwrap()))
+                    .collect();
+
+                let result = self.forward_gpu_batched_prefill_full(inputs, &mut gpu_entries_owned);
+
+                // Restore GPU entries to caches
+                for (i, entries) in gpu_entries_owned.into_iter().enumerate() {
+                    if i < caches.len() {
+                        let dst = caches[i].as_gpu_entries().unwrap();
+                        *dst = entries;
+                    }
+                }
+
+                match result {
+                    Ok(logits) => return logits,
+                    Err(e) => {
+                        GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                        GPU_CPU_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(
+                            "GPU padded-batch prefill failed: {}, falling back to position-by-position",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        // Fallback to position-by-position batched prefill (default)
+        ModelForward::forward_prefill_batched(self, inputs, caches)
+    }
+
     fn forward_sample_gpu(
         &self,
         input_ids: &[u32],
@@ -310,5 +453,72 @@ impl ModelForward for nexora_transformer::CausalLM {
         }
         #[cfg(not(feature = "gpu"))]
         None
+    }
+
+    fn forward_batched_sample_gpu(
+        &self,
+        input_ids: &[u32],
+        caches: &mut [Box<dyn KVCacheProvider>],
+        temperatures: &[f32],
+        top_ks: &[usize],
+        top_ps: &[f32],
+        seed: u64,
+    ) -> Vec<Option<u32>> {
+        #[cfg(feature = "gpu")]
+        {
+            let use_gpu_path = caches.iter_mut().all(|c| c.as_gpu_entries().is_some());
+            if use_gpu_path {
+                let n = input_ids.len();
+                if n == 0 || n != caches.len() {
+                    return Vec::new();
+                }
+
+                // Take GPU entries from all sequences
+                let mut gpu_entries: Vec<Vec<nexora_transformer::GpuKVCacheEntry>> = caches
+                    .iter_mut()
+                    .map(|c| std::mem::take(c.as_gpu_entries().unwrap()))
+                    .collect();
+
+                // Per-seq seeds: mix base seed with sequence index
+                let seeds: Vec<u64> = (0..n)
+                    .map(|i| seed.wrapping_add(i as u64))
+                    .collect();
+                let top_ks_u32: Vec<u32> = top_ks.iter().map(|&k| k as u32).collect();
+
+                let result = self.forward_gpu_batched_sample(
+                    input_ids,
+                    &mut gpu_entries,
+                    temperatures,
+                    &top_ks_u32,
+                    top_ps,
+                    &seeds,
+                );
+
+                // Restore GPU entries
+                for (i, entries) in gpu_entries.into_iter().enumerate() {
+                    if i < caches.len() {
+                        let dst = caches[i].as_gpu_entries().unwrap();
+                        *dst = entries;
+                    }
+                }
+
+                match result {
+                    Ok(tokens) => {
+                        GPU_RESIDENT_SUCCESSES.fetch_add(n as u64, Ordering::Relaxed);
+                        GPU_TOKENS_GENERATED.fetch_add(n as u64, Ordering::Relaxed);
+                        return tokens.into_iter().map(Some).collect();
+                    }
+                    Err(e) => {
+                        GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                        GPU_CPU_FALLBACKS.fetch_add(n as u64, Ordering::Relaxed);
+                        tracing::warn!(
+                            "GPU batched sample failed: {}, falling back to per-sequence CPU",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        vec![None; input_ids.len()]
     }
 }

@@ -161,10 +161,7 @@ impl Pipeline {
         let _ = self.cancel_tx.send(true);
     }
 
-    pub async fn run(
-        &mut self,
-        samples: Vec<DataSample>,
-    ) -> Vec<graph::ExecutionResult> {
+    pub async fn run(&mut self, samples: Vec<DataSample>) -> Vec<graph::ExecutionResult> {
         let mut results = Vec::with_capacity(samples.len());
 
         let ingested = self.intake.prepare_samples(samples);

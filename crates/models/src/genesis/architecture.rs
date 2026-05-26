@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-GENESIS Architecture Implementation
-#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrGenesisModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrGenesisModel (CausalLM-backed) instead."
+)]
 pub struct GenesisArchitecture {
     /// Configuration
     config: GenesisConfig,

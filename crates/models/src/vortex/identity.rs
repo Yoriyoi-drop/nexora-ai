@@ -19,7 +19,7 @@ impl VortexIdentity {
             "Variable Optimization Recursive Text & Expert eXchange - Code generation and software engineering specialist with advanced debugging, architecture analysis, and optimization capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

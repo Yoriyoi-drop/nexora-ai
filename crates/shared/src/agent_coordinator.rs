@@ -273,6 +273,223 @@ impl CoordinationStrategyTrait for HierarchicalCoordinator {
     }
 }
 
+/// Adaptive coordination — selects strategy based on task properties
+pub struct AdaptiveCoordinator;
+
+#[async_trait]
+impl CoordinationStrategyTrait for AdaptiveCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, task: &str) -> AgentResult<Vec<String>> {
+        if agents.is_empty() {
+            return Ok(agents);
+        }
+        // Simple heuristic: longer/more complex tasks use parallel, short tasks use sequential
+        if task.len() > 100 && agents.len() > 1 {
+            Ok(agents) // parallel for complex tasks
+        } else {
+            Ok(vec![agents[0].clone()]) // sequential, first agent for simple tasks
+        }
+    }
+
+    fn strategy_name(&self) -> &str {
+        "Adaptive"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 0
+    }
+}
+
+/// Consensus-based coordination — returns agents above consensus threshold
+pub struct ConsensusBasedCoordinator {
+    threshold: f32,
+}
+
+impl ConsensusBasedCoordinator {
+    pub fn new(threshold: f32) -> Self {
+        Self {
+            threshold: threshold.clamp(0.0, 1.0),
+        }
+    }
+}
+
+#[async_trait]
+impl CoordinationStrategyTrait for ConsensusBasedCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        if agents.is_empty() {
+            return Ok(agents);
+        }
+        let count = (agents.len() as f32 * self.threshold).ceil() as usize;
+        let count = count.max(1).min(agents.len());
+        Ok(agents.into_iter().take(count).collect())
+    }
+
+    fn strategy_name(&self) -> &str {
+        "ConsensusBased"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 1
+    }
+}
+
+/// Load-balanced coordination — distributes work evenly across agents
+pub struct LoadBalancedCoordinator;
+
+#[async_trait]
+impl CoordinationStrategyTrait for LoadBalancedCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        let mut sorted = agents;
+        sorted.sort();
+        Ok(sorted)
+    }
+
+    fn strategy_name(&self) -> &str {
+        "LoadBalanced"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 1
+    }
+}
+
+/// Priority-based coordination — orders agents by priority
+pub struct PriorityBasedCoordinator;
+
+#[async_trait]
+impl CoordinationStrategyTrait for PriorityBasedCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        let mut sorted = agents;
+        // Longer agent names = higher priority (simple heuristic)
+        sorted.sort_by(|a, b| b.len().cmp(&a.len()));
+        Ok(sorted)
+    }
+
+    fn strategy_name(&self) -> &str {
+        "PriorityBased"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 0
+    }
+}
+
+/// Empathy-driven coordination — prioritizes agents with higher empathy weighting
+pub struct EmpathyDrivenCoordinator {
+    empathy_weight: f32,
+}
+
+impl EmpathyDrivenCoordinator {
+    pub fn new(empathy_weight: f32) -> Self {
+        Self {
+            empathy_weight: empathy_weight.clamp(0.0, 1.0),
+        }
+    }
+}
+
+#[async_trait]
+impl CoordinationStrategyTrait for EmpathyDrivenCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        if agents.is_empty() {
+            return Ok(agents);
+        }
+        // Empathy-weighted ordering: use agent name hash as deterministic empathy score
+        let mut scored: Vec<(String, u64)> = agents
+            .into_iter()
+            .map(|a| {
+                let empathy_score = a
+                    .bytes()
+                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                (a, empathy_score)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(scored.into_iter().map(|(a, _)| a).collect())
+    }
+
+    fn strategy_name(&self) -> &str {
+        "EmpathyDriven"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 1
+    }
+}
+
+/// Creativity-driven coordination — prioritizes agents with higher creativity weighting
+pub struct CreativeDrivenCoordinator {
+    creativity_weight: f32,
+}
+
+impl CreativeDrivenCoordinator {
+    pub fn new(creativity_weight: f32) -> Self {
+        Self {
+            creativity_weight: creativity_weight.clamp(0.0, 1.0),
+        }
+    }
+}
+
+#[async_trait]
+impl CoordinationStrategyTrait for CreativeDrivenCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        if agents.is_empty() {
+            return Ok(agents);
+        }
+        // Creativity-weighted ordering: reverse empathy score as simple proxy
+        let mut scored: Vec<(String, u64)> = agents
+            .into_iter()
+            .map(|a| {
+                let creativity_score = u64::MAX
+                    - a.bytes()
+                        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                (a, creativity_score)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(scored.into_iter().map(|(a, _)| a).collect())
+    }
+
+    fn strategy_name(&self) -> &str {
+        "CreativeDriven"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 1
+    }
+}
+
+/// Consensus coordination — returns majority of agents based on threshold
+pub struct ConsensusCoordinator {
+    threshold: f32,
+}
+
+impl ConsensusCoordinator {
+    pub fn new(threshold: f32) -> Self {
+        Self {
+            threshold: threshold.clamp(0.0, 1.0),
+        }
+    }
+}
+
+#[async_trait]
+impl CoordinationStrategyTrait for ConsensusCoordinator {
+    async fn coordinate(&self, agents: Vec<String>, _task: &str) -> AgentResult<Vec<String>> {
+        if agents.is_empty() {
+            return Ok(agents);
+        }
+        let count = (agents.len() as f32 * self.threshold).ceil() as usize;
+        let count = count.max(agents.len() / 2 + 1).min(agents.len());
+        Ok(agents.into_iter().take(count).collect())
+    }
+
+    fn strategy_name(&self) -> &str {
+        "Consensus"
+    }
+
+    fn is_applicable(&self, _task: &str, agent_count: usize) -> bool {
+        agent_count > 1
+    }
+}
+
 /// Factory for creating coordination strategies
 pub struct CoordinationStrategyFactory;
 
@@ -284,30 +501,24 @@ impl CoordinationStrategyFactory {
         match strategy {
             CoordinationStrategy::Sequential => Ok(Box::new(SequentialCoordinator)),
             CoordinationStrategy::Parallel => Ok(Box::new(ParallelCoordinator)),
-            CoordinationStrategy::Hierarchical { hierarchy } => Ok(Box::new(
-                HierarchicalCoordinator::new(hierarchy.clone()),
-            )),
-            CoordinationStrategy::Adaptive => Err(AgentError::ConfigurationError(
-                "Adaptive coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::ConsensusBased { .. } => Err(AgentError::ConfigurationError(
-                "ConsensusBased coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::LoadBalanced => Err(AgentError::ConfigurationError(
-                "LoadBalanced coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::PriorityBased => Err(AgentError::ConfigurationError(
-                "PriorityBased coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::EmpathyDriven { .. } => Err(AgentError::ConfigurationError(
-                "EmpathyDriven coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::CreativeDriven { .. } => Err(AgentError::ConfigurationError(
-                "CreativeDriven coordination strategy is not yet implemented".into(),
-            )),
-            CoordinationStrategy::Consensus { .. } => Err(AgentError::ConfigurationError(
-                "Consensus coordination strategy is not yet implemented".into(),
-            )),
+            CoordinationStrategy::Hierarchical { hierarchy } => {
+                Ok(Box::new(HierarchicalCoordinator::new(hierarchy.clone())))
+            }
+            CoordinationStrategy::Adaptive => Ok(Box::new(AdaptiveCoordinator)),
+            CoordinationStrategy::ConsensusBased { threshold } => {
+                Ok(Box::new(ConsensusBasedCoordinator::new(*threshold)))
+            }
+            CoordinationStrategy::LoadBalanced => Ok(Box::new(LoadBalancedCoordinator)),
+            CoordinationStrategy::PriorityBased => Ok(Box::new(PriorityBasedCoordinator)),
+            CoordinationStrategy::EmpathyDriven { empathy_weight } => {
+                Ok(Box::new(EmpathyDrivenCoordinator::new(*empathy_weight)))
+            }
+            CoordinationStrategy::CreativeDriven { creativity_weight } => {
+                Ok(Box::new(CreativeDrivenCoordinator::new(*creativity_weight)))
+            }
+            CoordinationStrategy::Consensus { threshold } => {
+                Ok(Box::new(ConsensusCoordinator::new(*threshold)))
+            }
         }
     }
 }

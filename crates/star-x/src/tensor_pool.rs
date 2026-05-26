@@ -278,9 +278,8 @@ pub struct PoolStats {
 // Uses expect() since this must succeed for the system to function — failure here
 // indicates fatal OOM or programming error, which should crash early.
 static GLOBAL_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::new(|| {
-    TensorPool::new().expect(
-        "Failed to create global tensor pool (OOM or invalid size category config)"
-    )
+    TensorPool::new()
+        .expect("Failed to create global tensor pool (OOM or invalid size category config)")
 });
 
 /// Get global tensor pool

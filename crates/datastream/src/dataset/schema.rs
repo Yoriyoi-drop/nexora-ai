@@ -248,7 +248,9 @@ mod tests {
 
     #[test]
     fn test_schema_issue_missing_column() {
-        let issue = SchemaIssue::MissingColumn { field: "text".into() };
+        let issue = SchemaIssue::MissingColumn {
+            field: "text".into(),
+        };
         assert!(matches!(issue, SchemaIssue::MissingColumn { .. }));
     }
 }

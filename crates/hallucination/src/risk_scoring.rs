@@ -211,7 +211,10 @@ mod tests {
     #[test]
     fn test_decide_action_medium() {
         let s = scorer();
-        assert_eq!(s.decide_action(RiskLevel::Medium), GuardAction::PassWithDisclaimer);
+        assert_eq!(
+            s.decide_action(RiskLevel::Medium),
+            GuardAction::PassWithDisclaimer
+        );
     }
 
     #[test]

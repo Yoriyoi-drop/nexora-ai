@@ -138,13 +138,11 @@ impl RequestScheduler {
         let request_uuid = request
             .request_id
             .as_ref()
-            .and_then(|s| {
-                match Uuid::parse_str(s) {
-                    Ok(uuid) => Some(uuid),
-                    Err(e) => {
-                        tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                        None
-                    }
+            .and_then(|s| match Uuid::parse_str(s) {
+                Ok(uuid) => Some(uuid),
+                Err(e) => {
+                    tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                    None
                 }
             })
             .unwrap_or_else(Uuid::new_v4);
@@ -209,7 +207,9 @@ impl RequestScheduler {
                 let timed_out = match queue.pop_front() {
                     Some(item) => item,
                     None => {
-                        tracing::warn!("Scheduler race condition: queue was empty despite front() check");
+                        tracing::warn!(
+                            "Scheduler race condition: queue was empty despite front() check"
+                        );
                         break;
                     }
                 };
@@ -361,13 +361,11 @@ impl RequestScheduler {
                 req.request
                     .request_id
                     .as_ref()
-                    .and_then(|s| {
-                        match Uuid::parse_str(s) {
-                            Ok(uuid) => Some(uuid),
-                            Err(e) => {
-                                tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                                None
-                            }
+                    .and_then(|s| match Uuid::parse_str(s) {
+                        Ok(uuid) => Some(uuid),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                            None
                         }
                     })
                     .map(|uuid| uuid == request_id)
@@ -482,13 +480,11 @@ impl RequestScheduler {
                     .request
                     .request_id
                     .as_ref()
-                    .and_then(|s| {
-                        match Uuid::parse_str(s) {
-                            Ok(uuid) => Some(uuid),
-                            Err(e) => {
-                                tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                                None
-                            }
+                    .and_then(|s| match Uuid::parse_str(s) {
+                        Ok(uuid) => Some(uuid),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                            None
                         }
                     })
                     .unwrap_or_else(Uuid::new_v4),
@@ -507,9 +503,9 @@ impl RequestScheduler {
                 // rotating pattern. Insert before the next existing request from
                 // the same priority group. Combined with the index-based rotation
                 // in get_next_request, this ensures fair round-robin dispatching.
-                queue.iter().position(|existing| {
-                    existing.priority / 10 * 10 == target_group
-                })
+                queue
+                    .iter()
+                    .position(|existing| existing.priority / 10 * 10 == target_group)
             }
             SchedulingStrategy::Fair => {
                 // Fair: fair queuing by priority group. Within each group,

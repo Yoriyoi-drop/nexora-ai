@@ -36,7 +36,7 @@ impl BatchIterator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -69,8 +69,12 @@ mod tests {
     fn test_push_and_next_batch() {
         let mut iter = BatchIterator::new(4, 100);
         let samples = vec![
-            sample("a"), sample("b"), sample("c"), sample("d"),
-            sample("e"), sample("f"),
+            sample("a"),
+            sample("b"),
+            sample("c"),
+            sample("d"),
+            sample("e"),
+            sample("f"),
         ];
         iter.push(samples);
         assert_eq!(iter.remaining(), 6);

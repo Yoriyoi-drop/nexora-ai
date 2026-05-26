@@ -35,9 +35,16 @@ impl PersistentTokens {
         }))
     }
 
-    pub fn append(prefix: Option<Arc<PersistentTokens>>, token: Arc<GeneratedToken>) -> Arc<PersistentTokens> {
+    pub fn append(
+        prefix: Option<Arc<PersistentTokens>>,
+        token: Arc<GeneratedToken>,
+    ) -> Arc<PersistentTokens> {
         let new_len = prefix.as_ref().map(|p| p.len).unwrap_or(0) + 1;
-        Arc::new(PersistentTokens { prefix: prefix.clone(), token, len: new_len })
+        Arc::new(PersistentTokens {
+            prefix: prefix.clone(),
+            token,
+            len: new_len,
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -45,7 +52,9 @@ impl PersistentTokens {
     }
 
     pub fn iter(&self) -> PersistentTokensIter {
-        PersistentTokensIter { current: Some(Arc::new(self.clone())) }
+        PersistentTokensIter {
+            current: Some(Arc::new(self.clone())),
+        }
     }
 
     pub fn to_vec(&self) -> Vec<Arc<GeneratedToken>> {
@@ -351,7 +360,8 @@ impl BeamSearchEngine {
                 ));
 
                 // O(1) append using persistent tokens — no full Vec clone
-                let new_tokens = PersistentTokens::append(hypothesis.tokens.clone(), Arc::clone(&token));
+                let new_tokens =
+                    PersistentTokens::append(hypothesis.tokens.clone(), Arc::clone(&token));
                 let new_token_count = hypothesis.token_count + 1;
                 let new_cumulative_log_prob = hypothesis.cumulative_log_prob + logit;
                 let new_len = new_token_count as f32;
@@ -464,11 +474,12 @@ impl BeamSearchEngine {
 
         for candidate in candidates {
             // Check diversity using first token ID as key (avoids String allocation for dedup)
-            let first_token_id = candidate.tokens.as_ref().and_then(|pt| {
-                pt.iter().last().map(|t| t.token_id)
-            }).unwrap_or(0);
-            let diversity_score =
-                self.calculate_diversity_score(&candidate, &diversity_tracker);
+            let first_token_id = candidate
+                .tokens
+                .as_ref()
+                .and_then(|pt| pt.iter().last().map(|t| t.token_id))
+                .unwrap_or(0);
+            let diversity_score = self.calculate_diversity_score(&candidate, &diversity_tracker);
 
             // Apply divergence penalty
             let adjusted_score =
@@ -529,10 +540,8 @@ impl BeamSearchEngine {
             let mut group = vec![i];
             for j in (i + 1)..hyp_len {
                 if !used[j] {
-                    let similarity = Self::token_id_similarity(
-                        &state.hypotheses[i],
-                        &state.hypotheses[j],
-                    );
+                    let similarity =
+                        Self::token_id_similarity(&state.hypotheses[i], &state.hypotheses[j]);
                     if similarity > (1.0 - self.config.convergence_threshold) {
                         group.push(j);
                         used[j] = true;

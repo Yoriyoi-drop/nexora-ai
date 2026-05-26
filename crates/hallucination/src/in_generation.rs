@@ -1,20 +1,19 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static RE_YEAR_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(202[4-9]|2030)\b").expect("valid year pattern regex")
-});
+static RE_YEAR_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(202[4-9]|2030)\b").expect("valid year pattern regex"));
 static RE_RECENCY_WORDS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(terbaru|latest|recently|baru-baru)\b").expect("valid recency keyword regex")
 });
 static RE_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b\d{1,3}(,\d{3})*(\.\d+)?\b").expect("valid number pattern regex")
 });
-static RE_LONG_QUOTE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#""[^"]{15,}""#).expect("valid quote pattern regex")
-});
+static RE_LONG_QUOTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""[^"]{15,}""#).expect("valid quote pattern regex"));
 static RE_CITATION_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(menurut|according to|research shows|studies show)\b").expect("valid citation keyword regex")
+    Regex::new(r"(?i)\b(menurut|according to|research shows|studies show)\b")
+        .expect("valid citation keyword regex")
 });
 
 #[derive(Debug, Clone)]
@@ -43,15 +42,8 @@ pub struct InGenerationGuard {
 impl InGenerationGuard {
     pub fn new(config: InGenConfig) -> Self {
         Self {
-            recency_keywords: [
-                &RE_YEAR_PATTERN,
-                &RE_RECENCY_WORDS,
-            ],
-            specific_claim_patterns: [
-                &RE_NUMBER,
-                &RE_LONG_QUOTE,
-                &RE_CITATION_KEYWORD,
-            ],
+            recency_keywords: [&RE_YEAR_PATTERN, &RE_RECENCY_WORDS],
+            specific_claim_patterns: [&RE_NUMBER, &RE_LONG_QUOTE, &RE_CITATION_KEYWORD],
             config,
         }
     }

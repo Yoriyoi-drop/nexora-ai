@@ -12,7 +12,11 @@ use tracing::info;
 
 /// Generate noise array untuk GPU acceleration
 #[cfg(feature = "gpu")]
-fn generate_noise_array(shape: Vec<usize>, std: f32, rng: &mut ThreadRng) -> Result<ndarray::ArrayD<f32>, String> {
+fn generate_noise_array(
+    shape: Vec<usize>,
+    std: f32,
+    rng: &mut ThreadRng,
+) -> Result<ndarray::ArrayD<f32>, String> {
     let len: usize = shape.iter().product();
     let noise: Vec<f32> = (0..len)
         .map(|_| rng.sample::<f32, _>(StandardNormal) * std)
@@ -63,18 +67,21 @@ impl AugmentationUtils {
         std: f32,
         rng: &mut ThreadRng,
     ) -> Option<Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let shape = vec![data.shape()[0], data.shape()[1]];
         let noise_arr = generate_noise_array(shape.clone(), std, rng).ok()?;
         let data_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(shape, data.iter().copied().collect()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(shape, data.iter().copied().collect()).ok()?,
+        )
+        .ok()?;
         let noise_gpu = GpuTensor::from_cpu(&noise_arr).ok()?;
         let result = ctx.add(&data_gpu, &noise_gpu).ok()?;
         let cpu = result.to_cpu().ok()?;
-        cpu.into_dimensionality::<ndarray::Ix2>().ok().map(|a| a.to_owned())
+        cpu.into_dimensionality::<ndarray::Ix2>()
+            .ok()
+            .map(|a| a.to_owned())
     }
 
     /// Apply dropout-style augmentation
@@ -103,24 +110,31 @@ impl AugmentationUtils {
         dropout_rate: f32,
         rng: &mut ThreadRng,
     ) -> Option<Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let shape = vec![data.shape()[0], data.shape()[1]];
         let len: usize = shape.iter().product();
         let scale = 1.0 / (1.0 - dropout_rate);
         let mask: Vec<f32> = (0..len)
-            .map(|_| if rng.gen::<f32>() < dropout_rate { 0.0 } else { scale })
+            .map(|_| {
+                if rng.gen::<f32>() < dropout_rate {
+                    0.0
+                } else {
+                    scale
+                }
+            })
             .collect();
         let data_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(shape.clone(), data.iter().copied().collect()).ok()?
-        ).ok()?;
-        let mask_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(shape, mask).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(shape.clone(), data.iter().copied().collect()).ok()?,
+        )
+        .ok()?;
+        let mask_gpu = GpuTensor::from_cpu(&ArrayD::from_shape_vec(shape, mask).ok()?).ok()?;
         let result = ctx.mul(&data_gpu, &mask_gpu).ok()?;
         let cpu = result.to_cpu().ok()?;
-        cpu.into_dimensionality::<ndarray::Ix2>().ok().map(|a| a.to_owned())
+        cpu.into_dimensionality::<ndarray::Ix2>()
+            .ok()
+            .map(|a| a.to_owned())
     }
 
     /// Apply random crop augmentation

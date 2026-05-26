@@ -179,7 +179,10 @@ fn generate_improvements(
     }
 
     if suggestions.is_empty() {
-        suggestions.push("No critical failures detected. Monitor latency and resource usage proactively.".to_string());
+        suggestions.push(
+            "No critical failures detected. Monitor latency and resource usage proactively."
+                .to_string(),
+        );
     }
 
     suggestions
@@ -218,7 +221,8 @@ fn extract_insights(actions: &[Action]) -> Vec<String> {
             );
         } else if late_rate - early_rate > 0.2 {
             insights.push(
-                "Performance improved over time — warm-up effect or adaptive behaviour detected.".to_string()
+                "Performance improved over time — warm-up effect or adaptive behaviour detected."
+                    .to_string(),
             );
         }
     }
@@ -227,7 +231,10 @@ fn extract_insights(actions: &[Action]) -> Vec<String> {
     let unique_types: std::collections::HashSet<&str> =
         actions.iter().map(|a| a.action_type.as_str()).collect();
     if unique_types.len() == 1 {
-        insights.push("All actions are of the same type — consider diversifying task distribution.".to_string());
+        insights.push(
+            "All actions are of the same type — consider diversifying task distribution."
+                .to_string(),
+        );
     }
 
     insights
@@ -238,7 +245,8 @@ fn classify_reflection_type(context: &str) -> ReflectionType {
     let lower = context.to_lowercase();
     if lower.contains("performance") || lower.contains("latency") || lower.contains("throughput") {
         ReflectionType::Performance
-    } else if lower.contains("accuracy") || lower.contains("correct") || lower.contains("precision") {
+    } else if lower.contains("accuracy") || lower.contains("correct") || lower.contains("precision")
+    {
         ReflectionType::Accuracy
     } else if lower.contains("efficien") || lower.contains("resource") || lower.contains("memory") {
         ReflectionType::Efficiency
@@ -286,7 +294,11 @@ impl ReflectionEngine for DefaultReflector {
     ) -> FoundationResult<ReflectionResult> {
         let total = actions.len();
         let successes = actions.iter().filter(|a| a.success).count();
-        let success_rate = if total == 0 { 0.5 } else { successes as f32 / total as f32 };
+        let success_rate = if total == 0 {
+            0.5
+        } else {
+            successes as f32 / total as f32
+        };
 
         let rates = failure_rates(actions);
         let errors = extract_error_patterns(actions);
@@ -295,7 +307,11 @@ impl ReflectionEngine for DefaultReflector {
 
         // Confidence: weighted blend of success rate, diversity, and pattern clarity
         let diversity_bonus = if rates.len() > 1 { 0.05 } else { 0.0 };
-        let confidence = (0.5 * success_rate + 0.4 * (1.0 - rates.values().copied().sum::<f32>() / rates.len().max(1) as f32) + diversity_bonus).min(1.0).max(0.0);
+        let confidence = (0.5 * success_rate
+            + 0.4 * (1.0 - rates.values().copied().sum::<f32>() / rates.len().max(1) as f32)
+            + diversity_bonus)
+            .min(1.0)
+            .max(0.0);
 
         let reflection_type = classify_reflection_type(context);
 
@@ -326,8 +342,13 @@ impl ReflectionEngine for DefaultReflector {
         );
 
         if reflection.confidence < 0.3 {
-            suggestions.push("Confidence is critically low. Consider using a different approach entirely.".to_string());
-            suggestions.push("Break down the problem into smaller, independently verifiable steps.".to_string());
+            suggestions.push(
+                "Confidence is critically low. Consider using a different approach entirely."
+                    .to_string(),
+            );
+            suggestions.push(
+                "Break down the problem into smaller, independently verifiable steps.".to_string(),
+            );
         } else if reflection.confidence < 0.7 {
             suggestions.push("Add validation checkpoints between action steps.".to_string());
             suggestions.push("Review recent changes for regressions.".to_string());
@@ -345,7 +366,9 @@ impl ReflectionEngine for DefaultReflector {
     async fn update_model(&self, reflection: &ReflectionResult) -> FoundationResult<()> {
         let mut history = self.history.write().await;
         // Avoid duplicating entries that were already added in reflect()
-        let already_exists = history.iter().any(|r| r.metadata.timestamp == reflection.metadata.timestamp);
+        let already_exists = history
+            .iter()
+            .any(|r| r.metadata.timestamp == reflection.metadata.timestamp);
         if !already_exists {
             history.push(reflection.clone());
         }
@@ -389,7 +412,11 @@ mod tests {
         Action {
             action_type: action_type.to_string(),
             input: "test input".to_string(),
-            output: if success { "ok".to_string() } else { "error".to_string() },
+            output: if success {
+                "ok".to_string()
+            } else {
+                "error".to_string()
+            },
             timestamp: now_unix(),
             success,
         }
@@ -445,7 +472,10 @@ mod tests {
     #[tokio::test]
     async fn test_stats_live_after_reflect() {
         let engine = DefaultReflector::new();
-        let actions = vec![make_action("generate", true), make_action("generate", false)];
+        let actions = vec![
+            make_action("generate", true),
+            make_action("generate", false),
+        ];
         engine.reflect(&actions, "monitoring").await.unwrap();
         let stats = engine.stats().await.unwrap();
         assert_eq!(stats.total_reflections, 1);
@@ -456,10 +486,25 @@ mod tests {
     async fn test_stuck_state_detection() {
         let engine = DefaultReflector::new();
         let actions = vec![
-            Action { action_type: "decode".to_string(), input: "x".to_string(), output: "same_output".to_string(), timestamp: 0, success: false },
-            Action { action_type: "decode".to_string(), input: "y".to_string(), output: "same_output".to_string(), timestamp: 1, success: false },
+            Action {
+                action_type: "decode".to_string(),
+                input: "x".to_string(),
+                output: "same_output".to_string(),
+                timestamp: 0,
+                success: false,
+            },
+            Action {
+                action_type: "decode".to_string(),
+                input: "y".to_string(),
+                output: "same_output".to_string(),
+                timestamp: 1,
+                success: false,
+            },
         ];
         let result = engine.reflect(&actions, "error analysis").await.unwrap();
-        assert!(result.errors_identified.iter().any(|e| e.contains("stuck state")));
+        assert!(result
+            .errors_identified
+            .iter()
+            .any(|e| e.contains("stuck state")));
     }
 }

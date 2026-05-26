@@ -75,9 +75,9 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
-    use uuid::Uuid;
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use std::path::Path;
+    use uuid::Uuid;
 
     fn sample() -> DataSample {
         DataSample {
@@ -127,9 +127,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify we can read it back
-        let read_result = arrow::ipc::reader::FileReader::try_new(
-            std::fs::File::open(&path).unwrap(), None
-        );
+        let read_result =
+            arrow::ipc::reader::FileReader::try_new(std::fs::File::open(&path).unwrap(), None);
         assert!(read_result.is_ok());
     }
 

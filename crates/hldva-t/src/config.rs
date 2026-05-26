@@ -97,9 +97,18 @@ mod tests {
 
     #[test]
     fn test_noise_schedule_type_variants() {
-        assert!(matches!(NoiseScheduleType::Linear, NoiseScheduleType::Linear));
-        assert!(matches!(NoiseScheduleType::Cosine, NoiseScheduleType::Cosine));
-        assert!(matches!(NoiseScheduleType::ScaledLinear, NoiseScheduleType::ScaledLinear));
+        assert!(matches!(
+            NoiseScheduleType::Linear,
+            NoiseScheduleType::Linear
+        ));
+        assert!(matches!(
+            NoiseScheduleType::Cosine,
+            NoiseScheduleType::Cosine
+        ));
+        assert!(matches!(
+            NoiseScheduleType::ScaledLinear,
+            NoiseScheduleType::ScaledLinear
+        ));
     }
 
     #[test]

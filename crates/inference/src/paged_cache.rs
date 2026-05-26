@@ -679,7 +679,8 @@ pub fn init_global_paged_cache(
     max_seq_len: usize,
 ) -> &'static Mutex<PagedKVCache> {
     GLOBAL_PAGED_CACHE.get_or_init(|| {
-        let mut cache = PagedKVCache::new_for_engine(num_layers, num_kv_heads, head_dim, max_seq_len);
+        let mut cache =
+            PagedKVCache::new_for_engine(num_layers, num_kv_heads, head_dim, max_seq_len);
         #[cfg(feature = "gpu")]
         if let Err(e) = cache.init_gpu_page_table() {
             tracing::warn!("Failed to init GPU page table for global paged cache: {e}");
@@ -948,7 +949,8 @@ mod tests {
 
         let input = [1u32, 2u32, 3u32];
         for (i, &token) in input.iter().enumerate() {
-            let logits = model.forward_paged(&[token], &mut paged_cache, 1)
+            let logits = model
+                .forward_paged(&[token], &mut paged_cache, 1)
                 .expect("forward_paged should succeed in test");
             assert_eq!(logits.len(), 256);
             if i > 0 {
@@ -998,9 +1000,11 @@ mod tests {
 
         let tokens = [5u32, 10u32, 15u32];
         for (i, &token) in tokens.iter().enumerate() {
-            let logits_flat = model.forward(&[token], &mut flat_cache)
+            let logits_flat = model
+                .forward(&[token], &mut flat_cache)
                 .expect("forward should succeed in test");
-            let logits_paged = model.forward_paged(&[token], &mut paged_cache, 1)
+            let logits_paged = model
+                .forward_paged(&[token], &mut paged_cache, 1)
                 .expect("forward_paged should succeed in test");
 
             for j in 0..logits_flat.len() {

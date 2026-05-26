@@ -112,38 +112,54 @@ fn get_or_compile_pipeline(
     entries: &[wgpu::BindGroupLayoutEntry],
 ) -> Result<CachedPipeline, DeepLearningError> {
     {
-        let cache = PIPELINE_CACHE.lock().map_err(|e| {
-            DeepLearningError::Computation { reason: format!("Pipeline cache mutex poisoned: {e}") }
-        })?;
+        let cache = PIPELINE_CACHE
+            .lock()
+            .map_err(|e| DeepLearningError::Computation {
+                reason: format!("Pipeline cache mutex poisoned: {e}"),
+            })?;
         if let Some(cached) = cache.get(cache_key) {
             return Ok(cached.clone());
         }
     }
-    let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(cache_key),
-        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl)),
-    });
-    let bind_group_layout = ctx.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some(cache_key),
-        entries,
-    });
-    let pipeline_layout = ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some(cache_key),
-        bind_group_layouts: &[Some(&bind_group_layout)],
-        immediate_size: 0,
-    });
-    let pipeline = ctx.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some(cache_key),
-        layout: Some(&pipeline_layout),
-        module: &shader,
-        entry_point: Some(entry_point),
-        compilation_options: Default::default(),
-        cache: None,
-    });
-    let cached = CachedPipeline { pipeline, bind_group_layout, pipeline_layout };
-    let mut cache = PIPELINE_CACHE.lock().map_err(|e| {
-        DeepLearningError::Computation { reason: format!("Pipeline cache mutex poisoned: {e}") }
-    })?;
+    let shader = ctx
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(cache_key),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl)),
+        });
+    let bind_group_layout = ctx
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some(cache_key),
+            entries,
+        });
+    let pipeline_layout = ctx
+        .device
+        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(cache_key),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+    let pipeline = ctx
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(cache_key),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some(entry_point),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+    let cached = CachedPipeline {
+        pipeline,
+        bind_group_layout,
+        pipeline_layout,
+    };
+    let mut cache = PIPELINE_CACHE
+        .lock()
+        .map_err(|e| DeepLearningError::Computation {
+            reason: format!("Pipeline cache mutex poisoned: {e}"),
+        })?;
     cache.insert(cache_key.to_string(), cached.clone());
     Ok(cached)
 }
@@ -183,7 +199,8 @@ fn run_compute_shader(
     output_buf: &wgpu::Buffer,
     output_size: u64,
 ) -> Result<Vec<f32>, DeepLearningError> {
-    let cached = get_or_compile_pipeline(ctx, cache_key, wgsl, entry_point, bind_group_layout_entries)?;
+    let cached =
+        get_or_compile_pipeline(ctx, cache_key, wgsl, entry_point, bind_group_layout_entries)?;
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(cache_key),
@@ -200,9 +217,11 @@ fn run_compute_shader(
     });
 
     // Encoder
-    let mut encoder = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("echo_gpu_encoder"),
-    });
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("echo_gpu_encoder"),
+        });
 
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
@@ -212,13 +231,7 @@ fn run_compute_shader(
     }
 
     // Copy output to readback buffer
-    encoder.copy_buffer_to_buffer(
-        output_buf,
-        0,
-        &readback_buf,
-        0,
-        output_size,
-    );
+    encoder.copy_buffer_to_buffer(output_buf, 0, &readback_buf, 0, output_size);
 
     ctx.queue.submit(Some(encoder.finish()));
     ctx.sync();
@@ -234,8 +247,12 @@ fn run_compute_shader(
         timeout: Some(std::time::Duration::from_secs(30)),
     });
     rx.recv_timeout(std::time::Duration::from_secs(30))
-        .map_err(|e| DeepLearningError::Computation { reason: format!("GPU readback recv: {e}") })?
-        .map_err(|e| DeepLearningError::Computation { reason: format!("GPU map_async: {e:?}") })?;
+        .map_err(|e| DeepLearningError::Computation {
+            reason: format!("GPU readback recv: {e}"),
+        })?
+        .map_err(|e| DeepLearningError::Computation {
+            reason: format!("GPU map_async: {e:?}"),
+        })?;
 
     let mapped = slice.get_mapped_range();
     let data: &[f32] = bytemuck::cast_slice(&*mapped);
@@ -253,8 +270,9 @@ pub fn gpu_ifft_2d(
     collapse_kernel: &Array2<Complex>,
     collapse_strength: f32,
 ) -> DLResult<Array2<Complex>> {
-    let ctx = GpuContext::global()
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+    let ctx = GpuContext::global().map_err(|e| DeepLearningError::Computation {
+        reason: e.to_string(),
+    })?;
 
     let (rows, cols) = context.dim();
     if rows != cols {
@@ -276,7 +294,8 @@ pub fn gpu_ifft_2d(
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    ctx.queue.write_buffer(&input_buf, 0, bytemuck::cast_slice(&input_data));
+    ctx.queue
+        .write_buffer(&input_buf, 0, bytemuck::cast_slice(&input_data));
 
     let kernel_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("ifft_kernel"),
@@ -284,7 +303,8 @@ pub fn gpu_ifft_2d(
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    ctx.queue.write_buffer(&kernel_buf, 0, bytemuck::cast_slice(&kernel_data));
+    ctx.queue
+        .write_buffer(&kernel_buf, 0, bytemuck::cast_slice(&kernel_data));
 
     // Output buffer
     let numel = n as usize * n as usize;
@@ -303,7 +323,8 @@ pub fn gpu_ifft_2d(
         mapped_at_creation: false,
     });
     let cfg: [u32; 4] = [n, k, 0, 0];
-    ctx.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+    ctx.queue
+        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
     let result_data = run_compute_shader(
         &ctx,
@@ -311,16 +332,64 @@ pub fn gpu_ifft_2d(
         IFFT_2D_WGSL,
         "ifft_2d_main",
         &[
-            wgpu::BindGroupEntry { binding: 0, resource: input_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: kernel_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: output_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: kernel_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: cfg_buf.as_entire_binding(),
+            },
         ],
         &[
-            wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
         ((n + 7) / 8, (n + 7) / 8, 1),
         &output_buf,
@@ -338,12 +407,10 @@ pub fn gpu_ifft_2d(
 
 // ─── GPU 2D Convolution ────────────────────────────────────────────────────────
 
-pub fn gpu_conv_2d(
-    input: &Array2<Complex>,
-    kernel: &Array2<Complex>,
-) -> DLResult<Array2<Complex>> {
-    let ctx = GpuContext::global()
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+pub fn gpu_conv_2d(input: &Array2<Complex>, kernel: &Array2<Complex>) -> DLResult<Array2<Complex>> {
+    let ctx = GpuContext::global().map_err(|e| DeepLearningError::Computation {
+        reason: e.to_string(),
+    })?;
 
     let (ir, ic) = input.dim();
     let (kr, kc) = kernel.dim();
@@ -359,7 +426,8 @@ pub fn gpu_conv_2d(
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    ctx.queue.write_buffer(&input_buf, 0, bytemuck::cast_slice(&input_data));
+    ctx.queue
+        .write_buffer(&input_buf, 0, bytemuck::cast_slice(&input_data));
 
     let kernel_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("conv_kernel"),
@@ -367,7 +435,8 @@ pub fn gpu_conv_2d(
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    ctx.queue.write_buffer(&kernel_buf, 0, bytemuck::cast_slice(&kernel_data));
+    ctx.queue
+        .write_buffer(&kernel_buf, 0, bytemuck::cast_slice(&kernel_data));
 
     let output_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("conv_output"),
@@ -383,7 +452,8 @@ pub fn gpu_conv_2d(
         mapped_at_creation: false,
     });
     let cfg: [u32; 4] = [ir as u32, ic as u32, kr as u32, kc as u32];
-    ctx.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+    ctx.queue
+        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
     let result_data = run_compute_shader(
         &ctx,
@@ -391,16 +461,64 @@ pub fn gpu_conv_2d(
         CONV_2D_WGSL,
         "conv_2d_main",
         &[
-            wgpu::BindGroupEntry { binding: 0, resource: input_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: kernel_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: output_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: cfg_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: kernel_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: cfg_buf.as_entire_binding(),
+            },
         ],
         &[
-            wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
-            wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
         ((oc as u32 + 7) / 8, (or as u32 + 7) / 8, 1),
         &output_buf,
@@ -416,8 +534,9 @@ pub fn gpu_conv_2d(
 // Pure CPU approach would be O(T²·D); GPU matmul handles the O(T²·D) part.
 
 pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2<f32>> {
-    let ctx = GpuContext::global()
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+    let ctx = GpuContext::global().map_err(|e| DeepLearningError::Computation {
+        reason: e.to_string(),
+    })?;
 
     let shape = embeddings.shape();
     let num_tokens = shape[0];
@@ -427,7 +546,9 @@ pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2
     let emb_2d = embeddings
         .clone()
         .into_shape(vec![num_tokens, emb_dim])
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        .map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
     let mut normed_arr = Array2::zeros((num_tokens, emb_dim));
     for i in 0..num_tokens {
         let mut sq_sum = 0.0;
@@ -442,24 +563,43 @@ pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2
     }
 
     // GPU: upload normalized embeddings as 1D then reshape to [T, D]
-    let normed_flat = normed_arr.clone().into_shape(vec![num_tokens * emb_dim])
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-    let normed_gpu = GpuTensor::from_cpu(&normed_flat)
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-    let normed_2d = normed_gpu.reshape(vec![num_tokens, emb_dim])
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+    let normed_flat = normed_arr
+        .clone()
+        .into_shape(vec![num_tokens * emb_dim])
+        .map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+    let normed_gpu =
+        GpuTensor::from_cpu(&normed_flat).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+    let normed_2d = normed_gpu.reshape(vec![num_tokens, emb_dim]).map_err(|e| {
+        DeepLearningError::Computation {
+            reason: e.to_string(),
+        }
+    })?;
 
     // GPU: similarity = normed @ normed^T (shape [T, T])
-    let normed_t = ctx.transpose(&normed_2d)
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-    let sim = ctx.matmul(&normed_2d, &normed_t)
-        .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+    let normed_t = ctx
+        .transpose(&normed_2d)
+        .map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+    let sim = ctx
+        .matmul(&normed_2d, &normed_t)
+        .map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
 
     // Download
-    let sim_cpu = sim.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-    let sim_slice = sim_cpu.as_slice().ok_or_else(|| {
-        DeepLearningError::Computation { reason: "similarity matrix not contiguous".into() }
+    let sim_cpu = sim.to_cpu().map_err(|e| DeepLearningError::Computation {
+        reason: e.to_string(),
     })?;
+    let sim_slice = sim_cpu
+        .as_slice()
+        .ok_or_else(|| DeepLearningError::Computation {
+            reason: "similarity matrix not contiguous".into(),
+        })?;
 
     let mut result = Array2::zeros((num_tokens, num_tokens));
     for i in 0..num_tokens {

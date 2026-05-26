@@ -467,7 +467,9 @@ impl DualEntropicResonanceRetrieval {
         let event = RetrievalEvent {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| DeepLearningError::Configuration { reason: format!("system time: {}", e) })?
+                .map_err(|e| DeepLearningError::Configuration {
+                    reason: format!("system time: {}", e),
+                })?
                 .as_secs(),
             total_candidates: all_candidates.len(),
             retrieved_candidates: filtered_candidates.len(),
@@ -598,17 +600,24 @@ impl DualEntropicResonanceRetrieval {
     pub fn get_parameters(&self) -> Vec<ArrayD<f32>> {
         // Return trainable parameters as ArrayD<f32> for gradient computation
         // Gate parameters: alpha, beta, delta
-        let gate_alpha = ArrayD::from_shape_vec(vec![1], vec![self.gate_alpha]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
-        let gate_beta = ArrayD::from_shape_vec(vec![1], vec![self.gate_beta]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
-        let gate_delta = ArrayD::from_shape_vec(vec![1], vec![self.gate_delta]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let gate_alpha = ArrayD::from_shape_vec(vec![1], vec![self.gate_alpha])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let gate_beta = ArrayD::from_shape_vec(vec![1], vec![self.gate_beta])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let gate_delta = ArrayD::from_shape_vec(vec![1], vec![self.gate_delta])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         // Weight parameters: energy_weight, entropy_weight, coherence_weight
-        let energy_weight = ArrayD::from_shape_vec(vec![1], vec![self.energy_weight]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
-        let entropy_weight = ArrayD::from_shape_vec(vec![1], vec![self.entropy_weight]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
-        let coherence_weight = ArrayD::from_shape_vec(vec![1], vec![self.coherence_weight]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let energy_weight = ArrayD::from_shape_vec(vec![1], vec![self.energy_weight])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let entropy_weight = ArrayD::from_shape_vec(vec![1], vec![self.entropy_weight])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let coherence_weight = ArrayD::from_shape_vec(vec![1], vec![self.coherence_weight])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         // Learning rate parameter
-        let weight_update_rate = ArrayD::from_shape_vec(vec![1], vec![self.weight_update_rate]).unwrap_or_else(|_| ArrayD::zeros(vec![1]));
+        let weight_update_rate = ArrayD::from_shape_vec(vec![1], vec![self.weight_update_rate])
+            .unwrap_or_else(|_| ArrayD::zeros(vec![1]));
 
         vec![
             gate_alpha,

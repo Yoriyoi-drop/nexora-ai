@@ -84,7 +84,9 @@ impl RequestScheduler {
             total_queue_time_ms: RwLock::new(0.0),
             total_processing_time_ms: RwLock::new(0.0),
             scheduler_start: Instant::now(),
-            inner: Arc::new(nexora_runtime::scheduler::RequestScheduler::new(max_concurrent_requests)),
+            inner: Arc::new(nexora_runtime::scheduler::RequestScheduler::new(
+                max_concurrent_requests,
+            )),
         }
     }
 
@@ -131,16 +133,22 @@ impl RequestScheduler {
             let response_tx_clone = response_tx.clone();
             let handle = tokio::spawn(async move {
                 while let Some(resp) = rx.recv().await {
-                    let req_id: uuid::Uuid = resp.request_id.as_deref().and_then(|s| s.parse().ok()).unwrap_or(request_id);
-                    let _ = response_tx_clone.send(crate::InferenceResponse {
-                        request_id: req_id,
-                        inference_time_ms: resp.processing_time_ms,
-                        finish_reason: crate::FinishReason::StopSequence,
-                        text: String::new(),
-                        tokens: Vec::new(),
-                        total_tokens: 0,
-                        metadata: resp.metadata,
-                    }).await;
+                    let req_id: uuid::Uuid = resp
+                        .request_id
+                        .as_deref()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(request_id);
+                    let _ = response_tx_clone
+                        .send(crate::InferenceResponse {
+                            request_id: req_id,
+                            inference_time_ms: resp.processing_time_ms,
+                            finish_reason: crate::FinishReason::StopSequence,
+                            text: String::new(),
+                            tokens: Vec::new(),
+                            total_tokens: 0,
+                            metadata: resp.metadata,
+                        })
+                        .await;
                 }
             });
             let mut handles = self.background_handles.lock().await;
@@ -340,7 +348,10 @@ impl RequestScheduler {
                 req.processing_started_at = Some(Instant::now());
             }
             if req.status != status
-                && matches!(&status, RequestStatus::Completed | RequestStatus::Failed(_) | RequestStatus::Timeout)
+                && matches!(
+                    &status,
+                    RequestStatus::Completed | RequestStatus::Failed(_) | RequestStatus::Timeout
+                )
             {
                 if let Some(started) = req.processing_started_at {
                     let queue_time = started.duration_since(req.queued_at).as_secs_f64() * 1000.0;

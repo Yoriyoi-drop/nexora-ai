@@ -19,7 +19,7 @@ impl GenesisIdentity {
             "Generative Evolution Network for Emergent Simulation & Intelligence Synthesis - Specialized generative AI model for creative synthesis, innovation, and novel content generation across multiple domains.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

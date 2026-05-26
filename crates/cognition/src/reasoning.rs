@@ -108,11 +108,20 @@ fn infer_step_type(premise: &str, inference: &str) -> ReasoningType {
     let combined = format!("{} {}", premise, inference).to_lowercase();
     if combined.contains("therefore") || combined.contains("thus") || combined.contains("hence") {
         ReasoningType::Deductive
-    } else if combined.contains("usually") || combined.contains("often") || combined.contains("generally") {
+    } else if combined.contains("usually")
+        || combined.contains("often")
+        || combined.contains("generally")
+    {
         ReasoningType::Inductive
-    } else if combined.contains("because") || combined.contains("cause") || combined.contains("leads to") {
+    } else if combined.contains("because")
+        || combined.contains("cause")
+        || combined.contains("leads to")
+    {
         ReasoningType::Causal
-    } else if combined.contains("similar") || combined.contains("like") || combined.contains("analogy") {
+    } else if combined.contains("similar")
+        || combined.contains("like")
+        || combined.contains("analogy")
+    {
         ReasoningType::Analogical
     } else {
         ReasoningType::Abductive
@@ -120,7 +129,12 @@ fn infer_step_type(premise: &str, inference: &str) -> ReasoningType {
 }
 
 /// Synthesize a natural-language inference from a premise given available context.
-fn synthesize_inference(premise: &str, step_idx: usize, total: usize, _ctx: &serde_json::Value) -> String {
+fn synthesize_inference(
+    premise: &str,
+    step_idx: usize,
+    total: usize,
+    _ctx: &serde_json::Value,
+) -> String {
     let position_label = if step_idx == 0 {
         "Starting from the initial observation"
     } else if step_idx == total - 1 {
@@ -141,7 +155,11 @@ fn chain_confidence(steps: &[ReasoningStep]) -> f32 {
         return 0.0;
     }
     let mean = steps.iter().map(|s| s.confidence).sum::<f32>() / steps.len() as f32;
-    let var = steps.iter().map(|s| (s.confidence - mean).powi(2)).sum::<f32>() / steps.len() as f32;
+    let var = steps
+        .iter()
+        .map(|s| (s.confidence - mean).powi(2))
+        .sum::<f32>()
+        / steps.len() as f32;
     // Penalise high variance (inconsistent confidence)
     (mean - var.sqrt() * 0.3).max(0.0).min(1.0)
 }
@@ -152,8 +170,16 @@ fn synthesize_conclusion(steps: &[ReasoningStep]) -> String {
         return "No reasoning steps were produced.".to_string();
     }
     let mut ranked: Vec<&ReasoningStep> = steps.iter().collect();
-    ranked.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
-    let top: Vec<&str> = ranked.iter().take(3).map(|s| s.inference.as_str()).collect();
+    ranked.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let top: Vec<&str> = ranked
+        .iter()
+        .take(3)
+        .map(|s| s.inference.as_str())
+        .collect();
     format!(
         "Based on {} reasoning steps, the strongest inferences are: {}",
         steps.len(),
@@ -195,7 +221,11 @@ impl ChainOfThoughtReasoner {
                 let prem_freq = keyword_freq(clause);
                 // Confidence: overlap between premise keywords and context keywords + position bonus
                 let overlap = jaccard(&prem_freq, &ctx_freq);
-                let position_bonus = if idx == 0 || idx == total - 1 { 0.05 } else { 0.0 };
+                let position_bonus = if idx == 0 || idx == total - 1 {
+                    0.05
+                } else {
+                    0.0
+                };
                 let length_bonus = (clause.len() as f32 / 80.0).min(0.1);
                 let confidence = (0.4 + overlap * 0.4 + position_bonus + length_bonus).min(1.0);
 
@@ -223,7 +253,11 @@ impl ChainOfThoughtReasoner {
         let confidence = chain_confidence(&steps);
         let conclusion = synthesize_conclusion(&steps);
 
-        ReasoningChain { steps, conclusion, confidence }
+        ReasoningChain {
+            steps,
+            conclusion,
+            confidence,
+        }
     }
 }
 
@@ -256,9 +290,15 @@ impl ReasoningEngine for ChainOfThoughtReasoner {
             return Ok(false);
         }
         // Basic coherence check: every step must have non-empty premise + inference
-        let all_non_empty = chain.steps.iter().all(|s| !s.premise.is_empty() && !s.inference.is_empty());
+        let all_non_empty = chain
+            .steps
+            .iter()
+            .all(|s| !s.premise.is_empty() && !s.inference.is_empty());
         // Step IDs must be monotonically increasing
-        let ids_ordered = chain.steps.windows(2).all(|w| w[1].step_id == w[0].step_id + 1);
+        let ids_ordered = chain
+            .steps
+            .windows(2)
+            .all(|w| w[1].step_id == w[0].step_id + 1);
         // Minimum chain confidence threshold
         let confidence_ok = chain.confidence >= 0.15;
         Ok(all_non_empty && ids_ordered && confidence_ok)
@@ -328,7 +368,10 @@ mod tests {
     async fn test_reason_basic() {
         let engine = ChainOfThoughtReasoner::new();
         let chain = engine
-            .reason("The model is slow. It uses too much memory. We should profile first.", serde_json::Value::Null)
+            .reason(
+                "The model is slow. It uses too much memory. We should profile first.",
+                serde_json::Value::Null,
+            )
             .await
             .unwrap();
         assert!(!chain.steps.is_empty());
@@ -340,7 +383,10 @@ mod tests {
     async fn test_verify_valid_chain() {
         let engine = ChainOfThoughtReasoner::new();
         let chain = engine
-            .reason("Performance matters. Latency is critical.", serde_json::Value::Null)
+            .reason(
+                "Performance matters. Latency is critical.",
+                serde_json::Value::Null,
+            )
             .await
             .unwrap();
         let valid = engine.verify(&chain).await.unwrap();
@@ -351,7 +397,10 @@ mod tests {
     async fn test_alternatives_produces_five_chains() {
         let engine = ChainOfThoughtReasoner::new();
         let alts = engine
-            .alternatives("Should we cache results or recompute?", serde_json::Value::Null)
+            .alternatives(
+                "Should we cache results or recompute?",
+                serde_json::Value::Null,
+            )
             .await
             .unwrap();
         assert_eq!(alts.len(), 5);

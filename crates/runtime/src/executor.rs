@@ -42,8 +42,10 @@ impl TaskExecutor {
                         retries + 1,
                         e
                     );
-                    tokio::time::sleep(std::time::Duration::from_millis(100 * 2u64.pow(attempt.min(63))))
-                        .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        100 * 2u64.pow(attempt.min(63)),
+                    ))
+                    .await;
                 }
                 Err(e) => return Err(e),
             }

@@ -299,8 +299,15 @@ pub struct TaskPipeline {
 impl TaskPipeline {
     /// Execute a task through this pipeline
     pub async fn execute(&self, task: &str) -> String {
-        tracing::debug!("Executing task via pipeline '{}' (latency={}ms)", self.name, self.estimated_latency_ms);
-        format!("{task} | pipeline={} latency={}ms throughput={}", self.name, self.estimated_latency_ms, self.throughput)
+        tracing::debug!(
+            "Executing task via pipeline '{}' (latency={}ms)",
+            self.name,
+            self.estimated_latency_ms
+        );
+        format!(
+            "{task} | pipeline={} latency={}ms throughput={}",
+            self.name, self.estimated_latency_ms, self.throughput
+        )
     }
 }
 
@@ -813,7 +820,11 @@ impl NexumAgents {
         let verdict = self.consensus_ai.evaluate(&opinions);
         Ok(format!(
             "[Nexum alignment] consensus: {}, agreement: {:.2}, supporters: {}",
-            if verdict.consensus_reached { "reached" } else { "not reached" },
+            if verdict.consensus_reached {
+                "reached"
+            } else {
+                "not reached"
+            },
             verdict.agreement_level,
             verdict.supporters.len(),
         ))

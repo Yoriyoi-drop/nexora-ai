@@ -161,7 +161,10 @@ impl RequestProcessor {
         };
 
         let output = model.infer(&nxr_input).await.map_err(|e| {
-            NexoraError::model(format!("Inference failed for '{}': {}", self.active_model_id, e))
+            NexoraError::model(format!(
+                "Inference failed for '{}': {}",
+                self.active_model_id, e
+            ))
         })?;
 
         match output.data {
@@ -522,7 +525,9 @@ impl RequestProcessor {
             patterns.push(PatternInfo {
                 name: "Singleton".into(),
                 confidence: 0.8,
-                description: "Static instance accessor pattern detected (OnceLock/static + constructor)".into(),
+                description:
+                    "Static instance accessor pattern detected (OnceLock/static + constructor)"
+                        .into(),
             });
         }
 
@@ -538,13 +543,19 @@ impl RequestProcessor {
         }
 
         // Builder: methods returning Self + build/into method
-        if code.contains("fn ") && code.contains("-> Self") && code.contains("self")
-            && (code.contains("fn build(") || code.contains("fn into(") || code.contains("fn finalize("))
+        if code.contains("fn ")
+            && code.contains("-> Self")
+            && code.contains("self")
+            && (code.contains("fn build(")
+                || code.contains("fn into(")
+                || code.contains("fn finalize("))
         {
             patterns.push(PatternInfo {
                 name: "Builder".into(),
                 confidence: 0.8,
-                description: "Chainable builder pattern: methods return Self with terminal build/finalize".into(),
+                description:
+                    "Chainable builder pattern: methods return Self with terminal build/finalize"
+                        .into(),
             });
         }
 
@@ -577,7 +588,8 @@ impl RequestProcessor {
             patterns.push(PatternInfo {
                 name: "Adapter/Wrapper".into(),
                 confidence: 0.6,
-                description: "Wrapper/newtype or adapter pattern detected (tuple struct wrapping)".into(),
+                description: "Wrapper/newtype or adapter pattern detected (tuple struct wrapping)"
+                    .into(),
             });
         }
 
@@ -594,9 +606,7 @@ impl RequestProcessor {
         }
 
         // Decorator: wrapping function calls or middleware
-        if code.contains("middleware")
-            || (code.contains("wrap") && code.contains("fn"))
-        {
+        if code.contains("middleware") || (code.contains("wrap") && code.contains("fn")) {
             patterns.push(PatternInfo {
                 name: "Decorator/Middleware".into(),
                 confidence: 0.5,

@@ -141,27 +141,41 @@ impl QuantizedWeights {
         let mut blocks = Vec::with_capacity(num_layers);
         for bq in &self.blocks {
             blocks.push(DequantizedBlockWeights {
-                wq: bq.wq.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                wk: bq.wk.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                wv: bq.wv.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                wo: bq.wo.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                w1: bq.w1.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                w2: bq.w2.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
-                w3: bq.w3.as_ref().map(|t| t.dequantize()).unwrap_or_else(|| {
-                    Array2::zeros((0, 0))
-                }),
+                wq: bq
+                    .wq
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                wk: bq
+                    .wk
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                wv: bq
+                    .wv
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                wo: bq
+                    .wo
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                w1: bq
+                    .w1
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                w2: bq
+                    .w2
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
+                w3: bq
+                    .w3
+                    .as_ref()
+                    .map(|t| t.dequantize())
+                    .unwrap_or_else(|| Array2::zeros((0, 0))),
             });
         }
 

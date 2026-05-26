@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-KRONOS Architecture Implementation
-#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrKronosModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrKronosModel (CausalLM-backed) instead."
+)]
 pub struct KronosArchitecture {
     /// Configuration
     config: KronosConfig,
@@ -324,18 +326,12 @@ impl InformationExtractionPipeline {
                 StageFunction::EntityRecognition => {
                     let entity_types = &self.entity_recognition.entity_types;
                     let recognition = &self.entity_recognition.recognition_method;
-                    vec![(
-                        format!("entities_{recognition:?}"),
-                        entity_types.join(","),
-                    )]
+                    vec![(format!("entities_{recognition:?}"), entity_types.join(","))]
                 }
                 StageFunction::RelationExtraction => {
                     let rel_types = &self.relation_extraction.relation_types;
                     let extraction = &self.relation_extraction.extraction_method;
-                    vec![(
-                        format!("relations_{extraction:?}"),
-                        rel_types.join(","),
-                    )]
+                    vec![(format!("relations_{extraction:?}"), rel_types.join(","))]
                 }
             };
             results.extend(stage_result);

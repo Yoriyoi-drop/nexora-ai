@@ -26,7 +26,10 @@ impl MemoryPool {
     }
 
     fn get_buffer(&self, size: usize) -> Vec<f32> {
-        let mut buffers = self.buffers.lock().unwrap_or_else(|e| { tracing::warn!("Mutex poisoned: {}", e); e.into_inner() });
+        let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
+            tracing::warn!("Mutex poisoned: {}", e);
+            e.into_inner()
+        });
         if let Some(mut buffer) = buffers.pop() {
             if buffer.capacity() >= size {
                 buffer.clear();
@@ -41,7 +44,10 @@ impl MemoryPool {
     }
 
     fn return_buffer(&self, buffer: Vec<f32>) {
-        let mut buffers = self.buffers.lock().unwrap_or_else(|e| { tracing::warn!("Mutex poisoned: {}", e); e.into_inner() });
+        let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
+            tracing::warn!("Mutex poisoned: {}", e);
+            e.into_inner()
+        });
         if buffers.len() < self._max_pool_size {
             buffers.push(buffer);
         }

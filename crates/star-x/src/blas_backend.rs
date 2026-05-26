@@ -29,12 +29,12 @@
 //! `*_gpu_keep_gpu` variants and download only the final result.
 
 use crate::fused_ops::ActivationType;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use libloading::{Library, Symbol};
-use tracing::warn;
-use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use ndarray::linalg::general_mat_mul;
+use ndarray::{Array1, Array2, ArrayView, ArrayViewMut};
 use std::arch::x86_64::*;
+use tracing::warn;
 
 /// BLAS Backend types untuk runtime selection
 #[derive(Debug, Clone, Copy)]
@@ -62,7 +62,22 @@ pub struct BlasOperations {
     /// Cached `cblas_sgemm` function pointer to avoid symbol resolution on
     /// every GEMM call. Set during construction when the library is loaded.
     sgemm_fn: Option<
-        unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32),
+        unsafe extern "C" fn(
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            f32,
+            *const f32,
+            i32,
+            *const f32,
+            i32,
+            f32,
+            *mut f32,
+            i32,
+        ),
     >,
 }
 
@@ -271,7 +286,10 @@ impl BlasOperations {
             let a_owned = a.to_owned();
             let b_owned = b.to_owned();
             let mut c_owned = c.to_owned();
-            if self.gemm_gpu(alpha, &a_owned, &b_owned, beta, &mut c_owned).is_ok() {
+            if self
+                .gemm_gpu(alpha, &a_owned, &b_owned, beta, &mut c_owned)
+                .is_ok()
+            {
                 c.assign(&c_owned);
                 return Ok(());
             }
@@ -298,7 +316,10 @@ impl BlasOperations {
             let a_owned = a.to_owned();
             let x_owned = x.to_owned();
             let mut y_owned = y.to_owned();
-            if self.gemv_gpu(alpha, &a_owned, &x_owned, beta, &mut y_owned).is_ok() {
+            if self
+                .gemv_gpu(alpha, &a_owned, &x_owned, beta, &mut y_owned)
+                .is_ok()
+            {
                 y.assign(&y_owned);
                 return Ok(());
             }
@@ -417,7 +438,10 @@ impl BlasOperations {
         let (m, k) = a.dim();
         let (k2, n) = b.dim();
         if k != k2 {
-            return Err(DeepLearningError::ShapeMismatch { expected: vec![k], actual: vec![k2] });
+            return Err(DeepLearningError::ShapeMismatch {
+                expected: vec![k],
+                actual: vec![k2],
+            });
         }
 
         let (m2, n2) = c.dim();
@@ -477,9 +501,11 @@ impl BlasOperations {
             reason: format!("BLAS leading dimension n={n} exceeds i32 range"),
         })?;
 
-        let func = self.sgemm_fn.ok_or_else(|| DeepLearningError::Computation {
-            reason: "cblas_sgemm function pointer not cached".into(),
-        })?;
+        let func = self
+            .sgemm_fn
+            .ok_or_else(|| DeepLearningError::Computation {
+                reason: "cblas_sgemm function pointer not cached".into(),
+            })?;
 
         let a_slice = a.as_slice().ok_or_else(|| DeepLearningError::Computation {
             reason: "Matrix A not contiguous for CBLAS FFI call".into(),
@@ -487,9 +513,11 @@ impl BlasOperations {
         let b_slice = b.as_slice().ok_or_else(|| DeepLearningError::Computation {
             reason: "Matrix B not contiguous for CBLAS FFI call".into(),
         })?;
-        let c_slice_mut = c.as_slice_mut().ok_or_else(|| DeepLearningError::Computation {
-            reason: "Matrix C not contiguous for CBLAS FFI call".into(),
-        })?;
+        let c_slice_mut = c
+            .as_slice_mut()
+            .ok_or_else(|| DeepLearningError::Computation {
+                reason: "Matrix C not contiguous for CBLAS FFI call".into(),
+            })?;
 
         let m_i32 = i32::try_from(m).map_err(|_| DeepLearningError::Configuration {
             reason: format!("BLAS dimension m={m} exceeds i32 range"),
@@ -727,37 +755,55 @@ impl BlasOperations {
 
         let a_shape = vec![a.shape()[0], a.shape()[1]];
         let b_shape = vec![b.shape()[0], b.shape()[1]];
-        let a_data = a
-            .as_slice()
-            .ok_or_else(|| DeepLearningError::Computation { reason: "a not contiguous".into() })?;
-        let b_data = b
-            .as_slice()
-            .ok_or_else(|| DeepLearningError::Computation { reason: "b not contiguous".into() })?;
+        let a_data = a.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "a not contiguous".into(),
+        })?;
+        let b_data = b.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "b not contiguous".into(),
+        })?;
 
-        let a_cpu = ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let b_cpu = ndarray::ArrayD::from_shape_vec(b_shape.clone(), b_data.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let a_cpu =
+            ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec()).map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: e.to_string(),
+                }
+            })?;
+        let b_cpu =
+            ndarray::ArrayD::from_shape_vec(b_shape.clone(), b_data.to_vec()).map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: e.to_string(),
+                }
+            })?;
 
-        let a_gpu = GpuTensor::from_cpu(&a_cpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let b_gpu = GpuTensor::from_cpu(&b_cpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let a_gpu = GpuTensor::from_cpu(&a_cpu).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+        let b_gpu = GpuTensor::from_cpu(&b_cpu).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
 
         // Transpose b for matmul: result = a * b^T (since ndarray stores row-major)
         let b_t = ctx
             .transpose(&b_gpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
         let result_gpu = ctx
             .matmul(&a_gpu, &b_t)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
 
-        let result_cpu = result_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let result_slice = result_cpu.as_slice().ok_or_else(|| {
-            DeepLearningError::Computation {
+        let result_cpu = result_gpu
+            .to_cpu()
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
+        let result_slice = result_cpu
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation {
                 reason: "result not contiguous".into(),
-            }
-        })?;
+            })?;
 
         if (alpha - 1.0).abs() > f32::EPSILON || beta != 0.0 {
             for i in 0..c.shape()[0] {
@@ -766,11 +812,11 @@ impl BlasOperations {
                 }
             }
         } else {
-            let c_slice_mut = c.as_slice_mut().ok_or_else(|| {
-                DeepLearningError::Computation {
+            let c_slice_mut = c
+                .as_slice_mut()
+                .ok_or_else(|| DeepLearningError::Computation {
                     reason: "c not contiguous mut".into(),
-                }
-            })?;
+                })?;
             c_slice_mut.copy_from_slice(result_slice);
         }
 
@@ -795,33 +841,49 @@ impl BlasOperations {
 
         let a_shape = vec![a.shape()[0], a.shape()[1]];
         let x_shape = vec![x.shape()[0], 1];
-        let a_data = a
-            .as_slice()
-            .ok_or_else(|| DeepLearningError::Computation { reason: "a not contiguous".into() })?;
-        let x_data = x
-            .as_slice()
-            .ok_or_else(|| DeepLearningError::Computation { reason: "x not contiguous".into() })?;
-
-        let a_cpu = ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let x_cpu = ndarray::ArrayD::from_shape_vec(x_shape.clone(), x_data.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-
-        let a_gpu = GpuTensor::from_cpu(&a_cpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let x_gpu = GpuTensor::from_cpu(&x_cpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-
-        let result_gpu = ctx
-            .matmul(&a_gpu, &x_gpu)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-
-        let result_cpu = result_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let result_slice = result_cpu.as_slice().ok_or_else(|| {
-            DeepLearningError::Computation {
-                reason: "result not contiguous".into(),
-            }
+        let a_data = a.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "a not contiguous".into(),
         })?;
+        let x_data = x.as_slice().ok_or_else(|| DeepLearningError::Computation {
+            reason: "x not contiguous".into(),
+        })?;
+
+        let a_cpu =
+            ndarray::ArrayD::from_shape_vec(a_shape.clone(), a_data.to_vec()).map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: e.to_string(),
+                }
+            })?;
+        let x_cpu =
+            ndarray::ArrayD::from_shape_vec(x_shape.clone(), x_data.to_vec()).map_err(|e| {
+                DeepLearningError::Computation {
+                    reason: e.to_string(),
+                }
+            })?;
+
+        let a_gpu = GpuTensor::from_cpu(&a_cpu).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+        let x_gpu = GpuTensor::from_cpu(&x_cpu).map_err(|e| DeepLearningError::Computation {
+            reason: e.to_string(),
+        })?;
+
+        let result_gpu =
+            ctx.matmul(&a_gpu, &x_gpu)
+                .map_err(|e| DeepLearningError::Computation {
+                    reason: e.to_string(),
+                })?;
+
+        let result_cpu = result_gpu
+            .to_cpu()
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
+        let result_slice = result_cpu
+            .as_slice()
+            .ok_or_else(|| DeepLearningError::Computation {
+                reason: "result not contiguous".into(),
+            })?;
 
         for i in 0..y.shape()[0] {
             y[i] = alpha * result_slice[i] + beta * y[i];
@@ -841,10 +903,14 @@ impl BlasOperations {
 
         let b_t = ctx
             .transpose(b)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
         let result = ctx
             .matmul(a, &b_t)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
         Ok(result)
     }
 
@@ -857,7 +923,9 @@ impl BlasOperations {
     ) -> DLResult<nexora_autograd::gpu::GpuTensor> {
         let result = ctx
             .matmul(a, x)
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+            .map_err(|e| DeepLearningError::Computation {
+                reason: e.to_string(),
+            })?;
         Ok(result)
     }
 
@@ -1136,7 +1204,22 @@ pub struct BlasBackendInfo {
 fn resolve_sgemm_fn(
     lib_handle: &Option<Library>,
 ) -> Option<
-    unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32),
+    unsafe extern "C" fn(
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        f32,
+        *const f32,
+        i32,
+        *const f32,
+        i32,
+        f32,
+        *mut f32,
+        i32,
+    ),
 > {
     let lib = lib_handle.as_ref()?;
     // SAFETY: `lib` was loaded from a known BLAS shared library (libmkl_rt.so,
@@ -1144,8 +1227,24 @@ fn resolve_sgemm_fn(
     // `cblas_sgemm` with a stable C ABI. The symbol name is null-terminated as
     // required by libloading. The returned function pointer matches the standard
     // cblas_sgemm signature (row-major, no-transpose, f32).
-    let func: Symbol<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, f32, *const f32, i32, *const f32, i32, f32, *mut f32, i32)> =
-        unsafe { lib.get(b"cblas_sgemm\0") }.ok()?;
+    let func: Symbol<
+        unsafe extern "C" fn(
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            f32,
+            *const f32,
+            i32,
+            *const f32,
+            i32,
+            f32,
+            *mut f32,
+            i32,
+        ),
+    > = unsafe { lib.get(b"cblas_sgemm\0") }.ok()?;
     Some(*func)
 }
 
@@ -1180,23 +1279,22 @@ pub fn get_blas_operations() -> &'static BlasOperations {
                 // auto_detect always falls back to CustomSIMD, so this should never fail.
                 // But if it does, we still initialize CustomSIMD directly.
                 warn!("BLAS auto-detect failed ({}), using CustomSIMD fallback", e);
-                BlasOperations::with_backend(BlasBackend::CustomSIMD)
-                    .unwrap_or_else(|_| {
-                        warn!("CustomSIMD backend unexpectedly failed, initializing direct fallback");
-                        BlasOperations {
-                            backend: BlasBackend::CustomSIMD,
-                            available_features: BlasFeatures {
-                                supports_fma: is_x86_feature_detected!("fma"),
-                                supports_avx2: is_x86_feature_detected!("avx2"),
-                                supports_avx512: is_x86_feature_detected!("avx512f"),
-                                supports_multi_threading: false,
-                                supports_batched_operations: false,
-                                max_threads: 1,
-                            },
-                            lib_handle: None,
-                            sgemm_fn: None,
-                        }
-                    })
+                BlasOperations::with_backend(BlasBackend::CustomSIMD).unwrap_or_else(|_| {
+                    warn!("CustomSIMD backend unexpectedly failed, initializing direct fallback");
+                    BlasOperations {
+                        backend: BlasBackend::CustomSIMD,
+                        available_features: BlasFeatures {
+                            supports_fma: is_x86_feature_detected!("fma"),
+                            supports_avx2: is_x86_feature_detected!("avx2"),
+                            supports_avx512: is_x86_feature_detected!("avx512f"),
+                            supports_multi_threading: false,
+                            supports_batched_operations: false,
+                            max_threads: 1,
+                        },
+                        lib_handle: None,
+                        sgemm_fn: None,
+                    }
+                })
             }
         }
     })
@@ -1328,7 +1426,13 @@ mod tests {
         let a = Array2::from_shape_fn((2, 2), |(i, j)| if i == j { 100.0 } else { 0.0 });
         let b = Array2::from_shape_fn((2, 2), |(i, j)| if i == j { 1.0 } else { 0.0 });
         let mut c = Array2::zeros((2, 2));
-        ops.gemm_activation(1.0, a.view(), b.view(), ActivationType::Sigmoid, c.view_mut())?;
+        ops.gemm_activation(
+            1.0,
+            a.view(),
+            b.view(),
+            ActivationType::Sigmoid,
+            c.view_mut(),
+        )?;
         assert!((c[[0, 0]] - 1.0).abs() < 1e-5);
         Ok(())
     }

@@ -416,9 +416,9 @@ fn contract_cores(core1: &ArrayD<f32>, core2: &ArrayD<f32>) -> ATQSResult<ArrayD
 
     let c1_slice = core1.as_slice().unwrap_or(&[]);
     let c2_slice = core2.as_slice().unwrap_or(&[]);
-    let r_slice = result.as_slice_mut().ok_or_else(|| {
-        ATQSError::TensorError("Cannot get mutable slice of result".to_string())
-    })?;
+    let r_slice = result
+        .as_slice_mut()
+        .ok_or_else(|| ATQSError::TensorError("Cannot get mutable slice of result".to_string()))?;
 
     for b in 0..batch_size {
         for i in 0..m {

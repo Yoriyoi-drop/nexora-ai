@@ -5,7 +5,7 @@
 
 use once_cell::sync::OnceCell;
 
-use super::{GpuContext, GpuDtype, GpuTensor, GpuError};
+use super::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 /// Multi-device GPU manager singleton
 static GPU_DEVICES: OnceCell<GpuDeviceManager> = OnceCell::new();
@@ -53,7 +53,9 @@ impl GpuDeviceManager {
         grads: &[&GpuTensor],
     ) -> Result<(), GpuError> {
         let n = grads.len();
-        if n <= 1 { return Ok(()); }
+        if n <= 1 {
+            return Ok(());
+        }
 
         let numel = grads[0].numel();
         let total_elements = numel * n;
@@ -67,9 +69,11 @@ impl GpuDeviceManager {
             mapped_at_creation: false,
         });
 
-        let mut enc = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("allreduce_copy"),
-        });
+        let mut enc = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("allreduce_copy"),
+            });
         for (i, grad) in grads.iter().enumerate() {
             let offset = (i * numel * 4) as u64;
             enc.copy_buffer_to_buffer(grad.buffer(), 0, &flat_buffer, offset, (numel * 4) as u64);
@@ -96,11 +100,19 @@ impl GpuDeviceManager {
         };
         ctx.gradient_allreduce(&flat_tensor, &out_tensor, n as u32)?;
 
-        let mut cb = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("allreduce_copy_back"),
-        });
+        let mut cb = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("allreduce_copy_back"),
+            });
         for grad in grads {
-            cb.copy_buffer_to_buffer(&out_tensor.buffer(), 0, grad.buffer(), 0, (numel * 4) as u64);
+            cb.copy_buffer_to_buffer(
+                &out_tensor.buffer(),
+                0,
+                grad.buffer(),
+                0,
+                (numel * 4) as u64,
+            );
         }
         ctx.queue.submit(Some(cb.finish()));
 

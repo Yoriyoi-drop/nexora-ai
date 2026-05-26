@@ -501,8 +501,7 @@ impl FoundationModel for BasicFoundationModel {
             let output_features = weight_shape[0];
             let input_features = weight_shape[1];
 
-            let is_final =
-                layer_name == self.architecture.last().map(|s| s.as_str()).unwrap_or("");
+            let is_final = layer_name == self.architecture.last().map(|s| s.as_str()).unwrap_or("");
 
             // ReLU backprop: dL/dpre = dL/doutput * (pre > 0)  (skip for final layer)
             if !is_final {
@@ -579,14 +578,16 @@ impl FoundationModel for BasicFoundationModel {
                     for r in 0..rows.min(64) {
                         let row_sum: f32 = (0..cols)
                             .map(|c| {
-                                let val = param_array[[r % param_array.shape()[0], c % param_array.shape()[1]]];
+                                let val = param_array
+                                    [[r % param_array.shape()[0], c % param_array.shape()[1]]];
                                 val * (c as f32 * 0.1 + r as f32 * 0.05).cos()
                             })
                             .sum();
                         for c in 0..cols {
-                            matrix[[r, c]] = (param_array[[r % param_array.shape()[0], c % param_array.shape()[1]]]
+                            matrix[[r, c]] = (param_array
+                                [[r % param_array.shape()[0], c % param_array.shape()[1]]]
                                 * (row_sum + 1.0).ln())
-                                .tanh()
+                            .tanh()
                                 / cols as f32;
                         }
                     }

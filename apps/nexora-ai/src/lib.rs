@@ -26,10 +26,7 @@ pub use core::*;
 pub use server::{NexoraServer, ServerConfig};
 
 // --- Foundation model integration ---
-use nexora_foundation::shared::{
-    model_identity::NxrModelId,
-    model_registry::global_registry,
-};
+use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::global_registry};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 use tokio::sync::Mutex;
 /// Create an InferenceEngine sharing the model from the registry via with_model().
@@ -46,9 +43,7 @@ pub async fn create_inference_engine(
 
     let causal_lm_model = model_raw
         .downcast_ref::<nexora_foundation::causal_lm_model::CausalLmModel>()
-        .ok_or_else(|| {
-            NexoraError::model(format!("Model {} is not a CausalLmModel", model_id))
-        })?;
+        .ok_or_else(|| NexoraError::model(format!("Model {} is not a CausalLmModel", model_id)))?;
 
     let model_arc = causal_lm_model
         .get_model_arc()
@@ -60,11 +55,8 @@ pub async fn create_inference_engine(
         ..Default::default()
     })));
 
-    let mut engine = nexora_inference::InferenceEngineStruct::with_model(
-        model_arc,
-        Some(tokenizer),
-        config,
-    );
+    let mut engine =
+        nexora_inference::InferenceEngineStruct::with_model(model_arc, Some(tokenizer), config);
     engine.initialize().await.map_err(|e| {
         NexoraError::system(format!("Failed to initialize inference engine: {}", e))
     })?;
@@ -139,10 +131,7 @@ impl NexoraAI {
 
         let registry = global_registry();
 
-        let active_model_id = config
-            .models
-            .active_model
-            .unwrap_or(NxrModelId::Omnis);
+        let active_model_id = config.models.active_model.unwrap_or(NxrModelId::Omnis);
         info!(
             "Active model: {} ({})",
             active_model_id,

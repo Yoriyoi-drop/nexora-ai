@@ -54,7 +54,8 @@ impl StreamingEngine {
     pub async fn initialize(&self) -> Result<(), anyhow::Error> {
         tracing::info!(
             "StreamingEngine initializing: max_streams={}, timeout={:?}",
-            self.max_concurrent_streams, self.stream_timeout
+            self.max_concurrent_streams,
+            self.stream_timeout
         );
         // Clear any stale streams
         {

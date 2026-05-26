@@ -106,11 +106,9 @@ impl ResponseAgent {
             .formatters
             .get(format_name)
             .or_else(|| self.formatters.get(&self.config.default_format))
-            .ok_or_else(|| {
-                AgentError::ProcessingError {
-                    operation: "format".to_string(),
-                    reason: format!("No formatter found for format: {}", format_name),
-                }
+            .ok_or_else(|| AgentError::ProcessingError {
+                operation: "format".to_string(),
+                reason: format!("No formatter found for format: {}", format_name),
             })?;
 
         // Format response
@@ -157,8 +155,8 @@ impl ResponseAgent {
         data: Value,
         metadata: Option<HashMap<String, Value>>,
     ) -> Result<FormattedResponse> {
-        let content = serde_json::to_string_pretty(&data)
-            .map_err(|e| AgentError::ProcessingError {
+        let content =
+            serde_json::to_string_pretty(&data).map_err(|e| AgentError::ProcessingError {
                 operation: "serialize".to_string(),
                 reason: format!("JSON serialization error: {}", e),
             })?;
@@ -396,9 +394,9 @@ impl Agent for ResponseAgent {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| AgentError::ProcessingError {
-                    operation: "validate".to_string(),
-                    reason: "content required".to_string(),
-                })?;
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
+                    })?;
 
                 let formatted = self.create_text_response(content.to_string(), None);
 
@@ -441,9 +439,9 @@ impl Agent for ResponseAgent {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| AgentError::ProcessingError {
-                    operation: "validate".to_string(),
-                    reason: "content required".to_string(),
-                })?;
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
+                    })?;
 
                 let formatted = self.create_markdown_response(content.to_string(), None);
 
@@ -465,9 +463,9 @@ impl Agent for ResponseAgent {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| AgentError::ProcessingError {
-                    operation: "validate".to_string(),
-                    reason: "content required".to_string(),
-                })?;
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
+                    })?;
 
                 let formatted = self.create_html_response(content.to_string(), None);
 
@@ -526,12 +524,12 @@ impl Agent for ResponseAgent {
                 let chunk_strings: std::result::Result<Vec<String>, _> = chunks
                     .iter()
                     .map(|v| {
-                        v.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| AgentError::ProcessingError {
+                        v.as_str().map(|s| s.to_string()).ok_or_else(|| {
+                            AgentError::ProcessingError {
                                 operation: "parse".to_string(),
                                 reason: "Invalid chunk".to_string(),
-                            })
+                            }
+                        })
                     })
                     .collect();
 
@@ -555,9 +553,9 @@ impl Agent for ResponseAgent {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| AgentError::ProcessingError {
-                    operation: "validate".to_string(),
-                    reason: "content required".to_string(),
-                })?;
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
+                    })?;
 
                 let format = context
                     .parameters
@@ -675,8 +673,8 @@ impl ResponseFormatter for JsonFormatter {
     }
 
     fn format(&self, data: &Value, _context: &Value) -> Result<FormattedResponse> {
-        let content = serde_json::to_string_pretty(data)
-            .map_err(|e| AgentError::ProcessingError {
+        let content =
+            serde_json::to_string_pretty(data).map_err(|e| AgentError::ProcessingError {
                 operation: "serialize".to_string(),
                 reason: format!("JSON formatting error: {}", e),
             })?;
@@ -984,7 +982,10 @@ mod tests {
         let chunks = vec!["Hello ".into(), "World".into()];
         let resp = agent.create_streaming_response(chunks).unwrap();
         assert_eq!(resp.content, "Hello World");
-        assert_eq!(resp.metadata.get("chunk_count"), Some(&serde_json::json!(2)));
+        assert_eq!(
+            resp.metadata.get("chunk_count"),
+            Some(&serde_json::json!(2))
+        );
     }
 
     #[test]

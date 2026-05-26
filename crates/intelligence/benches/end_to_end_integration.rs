@@ -41,10 +41,7 @@ fn create_benchmark_multimodal_input(_batch_size: usize) -> MultiModalInputs {
     let span = span!(Level::DEBUG, "create_benchmark_input", _batch_size);
     let _enter = span.enter();
 
-    debug!(
-        "Creating multimodal input for batch size: {}",
-        _batch_size
-    );
+    debug!("Creating multimodal input for batch size: {}", _batch_size);
 
     // Real text data with longer content and proper tokens
     let text_data = "This is a comprehensive text input for benchmark testing purposes. It contains enough content to ensure proper tokenization and encoding by the text encoder. The text should be substantial enough to generate meaningful embeddings.";

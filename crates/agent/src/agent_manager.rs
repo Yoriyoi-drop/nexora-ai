@@ -351,7 +351,9 @@ impl AgentManager {
             .registry
             .get_agent_info(agent_id)
             .await?
-            .ok_or_else(|| AgentError::AgentNotFound { agent_id: agent_id.to_string() })?;
+            .ok_or_else(|| AgentError::AgentNotFound {
+                agent_id: agent_id.to_string(),
+            })?;
 
         // Stop agent
         self.stop_agent_internal(agent_id).await?;
@@ -637,7 +639,10 @@ mod tests {
     async fn test_agent_manager_new() {
         let config = AgentManagerConfig::default();
         let manager = AgentManager::new(config.clone());
-        assert_eq!(manager.config.max_concurrent_agents, config.max_concurrent_agents);
+        assert_eq!(
+            manager.config.max_concurrent_agents,
+            config.max_concurrent_agents
+        );
         let _sender = manager.command_sender();
     }
 

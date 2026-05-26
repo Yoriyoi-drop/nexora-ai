@@ -11,7 +11,7 @@ use crate::core::{core_utils, SparseAttention};
 use crate::fused_ops::{ElementWiseOp, FusedAttentionSoftmax, FusedElementWise};
 use crate::kv_cache::{KVCache, StreamingKVCache};
 use crate::traits::Forward;
-use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
+use crate::{require_contiguous, require_contiguous_mut, DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use rand;
 
@@ -220,12 +220,18 @@ impl SparseCausalAttention {
         let input_flat = input.as_slice()?;
 
         let input_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, w_shape[0]], input_flat.to_vec()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![1, w_shape[0]], input_flat.to_vec()).ok()?,
+        )
+        .ok()?;
 
         let w_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![w_shape[0], w_shape[1]], weights.iter().copied().collect()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(
+                vec![w_shape[0], w_shape[1]],
+                weights.iter().copied().collect(),
+            )
+            .ok()?,
+        )
+        .ok()?;
 
         let out_gpu = self.matmul_gpu_keep_gpu(&w_gpu, &input_gpu, &ctx)?;
         let out_cpu = out_gpu.to_cpu().ok()?;
@@ -263,8 +269,12 @@ impl SparseCausalAttention {
             let temporal_bias = -self.temporal_distance_weight * temporal_distance;
 
             // Add harmonic temporal encoding contribution
-            let temp_enc_flat = temporal_encoding
-                .as_slice().ok_or_else(|| DeepLearningError::Computation { reason: "tensor not contiguous".to_string() })?;
+            let temp_enc_flat =
+                temporal_encoding
+                    .as_slice()
+                    .ok_or_else(|| DeepLearningError::Computation {
+                        reason: "tensor not contiguous".to_string(),
+                    })?;
             let harmonic_contribution = if i < temp_enc_flat.len() {
                 temp_enc_flat[i] * 0.1
             } else {
@@ -357,7 +367,11 @@ impl SparseCausalAttention {
             .min(2.0)
             .max(0.5);
         let adaptive_k_f = self.max_sparse_connections as f32 * entropy_factor;
-        let adaptive_k = if adaptive_k_f.is_nan() { 1 } else { adaptive_k_f.max(0.0) as usize };
+        let adaptive_k = if adaptive_k_f.is_nan() {
+            1
+        } else {
+            adaptive_k_f.max(0.0) as usize
+        };
 
         adaptive_k.min(sequence_length).max(1)
     }
@@ -409,7 +423,11 @@ impl SparseAttention for SparseCausalAttention {
                 let sum_exp: f32 = exp_s.iter().sum();
                 if sum_exp > 0.0 {
                     let probs: Vec<f32> = exp_s.iter().map(|&e| e / sum_exp).collect();
-                    -probs.iter().filter(|&&p| p > 0.0).map(|&p| p * p.ln()).sum::<f32>()
+                    -probs
+                        .iter()
+                        .filter(|&&p| p > 0.0)
+                        .map(|&p| p * p.ln())
+                        .sum::<f32>()
                 } else {
                     1.0
                 }
@@ -475,7 +493,11 @@ impl SparseAttention for SparseCausalAttention {
 
         // Adjust max_sparse_connections based on target sparsity
         let target_connections_f = (1.0 - ratio) * (self.num_heads * 100) as f32;
-        let target_connections = if target_connections_f.is_nan() { 1 } else { target_connections_f.max(0.0) as usize };
+        let target_connections = if target_connections_f.is_nan() {
+            1
+        } else {
+            target_connections_f.max(0.0) as usize
+        };
         self.max_sparse_connections = target_connections.max(1);
 
         Ok(())
@@ -546,40 +568,24 @@ impl SparseCausalAttention {
         let attention_output = if let Some(cache) = &mut self.kv_cache {
             // Add to cache
             cache.append(
-                require_contiguous(key.as_slice())?
-                    .to_vec()
-                    .into(),
-                require_contiguous(value.as_slice())?
-                    .to_vec()
-                    .into(),
+                require_contiguous(key.as_slice())?.to_vec().into(),
+                require_contiguous(value.as_slice())?.to_vec().into(),
             )?;
 
             // Compute attention with cache
             cache
-                .compute_attention(
-                    &require_contiguous(query.as_slice())?
-                        .to_vec()
-                        .into(),
-                )?
+                .compute_attention(&require_contiguous(query.as_slice())?.to_vec().into())?
                 .into_dyn()
         } else if let Some(streaming_cache) = &mut self.streaming_cache {
             // Add to streaming cache
             streaming_cache.append(
-                require_contiguous(key.as_slice())?
-                    .to_vec()
-                    .into(),
-                require_contiguous(value.as_slice())?
-                    .to_vec()
-                    .into(),
+                require_contiguous(key.as_slice())?.to_vec().into(),
+                require_contiguous(value.as_slice())?.to_vec().into(),
             )?;
 
             // Compute attention with streaming cache
             streaming_cache
-                .compute_attention(
-                    &require_contiguous(query.as_slice())?
-                        .to_vec()
-                        .into(),
-                )?
+                .compute_attention(&require_contiguous(query.as_slice())?.to_vec().into())?
                 .into_dyn()
         } else {
             // Fallback to regular attention

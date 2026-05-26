@@ -198,7 +198,9 @@ impl NxrNexumModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -365,13 +367,20 @@ pub struct ConsensusResult {
 
 const NEXUM_SYSTEM_PROMPT: &str = "You are NXR-NEXUM (Networked EXpert Unified Mediator) [NXR-05 APEX], a multi-agent orchestration and coordination specialist. Capabilities: consensus building, conflict resolution, task decomposition, workflow orchestration, collaboration strategy, and distributed problem-solving across complex systems.";
 
-fn augment_nexum_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_nexum_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", NEXUM_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", NEXUM_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

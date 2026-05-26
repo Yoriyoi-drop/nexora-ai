@@ -17,14 +17,16 @@ static TAB_CHARACTER_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\t").expect("valid tab character regex"));
 static MISSING_DOCUMENTATION_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]*//").expect("valid missing doc regex"));
-static CAMEL_CASE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]").expect("valid camel case regex"));
+static CAMEL_CASE_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(let|const|var)\s+[a-z][a-zA-Z0-9]*[A-Z]").expect("valid camel case regex")
+});
 static MAGIC_NUMBER_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b(10|100|1000|24|60|3600)\b").expect("valid magic number regex"));
 static DEEP_NESTING_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^\s{16,}").expect("valid deep nesting regex"));
-static LARGE_FUNCTION_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}").expect("valid large function regex"));
+static LARGE_FUNCTION_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"fn\s+\w+\s*\([^)]*\)\s*\{[^}]{500,}").expect("valid large function regex")
+});
 
 /// Style pattern
 #[derive(Debug, Clone)]
@@ -112,7 +114,8 @@ impl CodeVerifier for StyleVerifier {
         let mut score: f32 = 1.0;
 
         // Filter out lines starting with "const " for magic number check
-        let filtered_code: String = code.lines()
+        let filtered_code: String = code
+            .lines()
             .filter(|l| !l.trim().starts_with("const "))
             .collect::<Vec<_>>()
             .join("\n");
@@ -124,7 +127,11 @@ impl CodeVerifier for StyleVerifier {
         // Check general style patterns
         for pattern in &self.style_patterns {
             if pattern.language == "all" || pattern.language == language {
-                let check_code = if pattern.name == "Magic Number" { &filtered_code } else { code };
+                let check_code = if pattern.name == "Magic Number" {
+                    &filtered_code
+                } else {
+                    code
+                };
                 for (line_num, line) in check_code.lines().enumerate() {
                     if pattern.pattern.is_match(line) {
                         issues.push(CodeIssue {

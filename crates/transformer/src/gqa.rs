@@ -54,16 +54,8 @@ impl GpuKVCacheEntry {
                 | wgpu::BufferUsages::COPY_SRC;
             let k_buf = ctx.alloc_or_create_buffer(buf_size, usage);
             let v_buf = ctx.alloc_or_create_buffer(buf_size, usage);
-            let k = GpuTensor::from_raw(
-                vec![max_seq, kv_heads, head_dim],
-                k_buf,
-                GpuDtype::F16,
-            );
-            let v = GpuTensor::from_raw(
-                vec![max_seq, kv_heads, head_dim],
-                v_buf,
-                GpuDtype::F16,
-            );
+            let k = GpuTensor::from_raw(vec![max_seq, kv_heads, head_dim], k_buf, GpuDtype::F16);
+            let v = GpuTensor::from_raw(vec![max_seq, kv_heads, head_dim], v_buf, GpuDtype::F16);
             ctx.fill_zero_u32(&k)?;
             ctx.fill_zero_u32(&v)?;
             Ok(Self {
@@ -111,40 +103,16 @@ impl GpuKVCacheEntry {
             let byte_size = (kv_elems * 2) as u64;
             let offset = (self.seq_len * kv_elems * 2) as u64;
             ctx.batch_dispatch(|enc| {
-                enc.copy_buffer_to_buffer(
-                    pk.buffer(),
-                    0,
-                    self.k.buffer(),
-                    offset,
-                    byte_size,
-                );
-                enc.copy_buffer_to_buffer(
-                    pv.buffer(),
-                    0,
-                    self.v.buffer(),
-                    offset,
-                    byte_size,
-                );
+                enc.copy_buffer_to_buffer(pk.buffer(), 0, self.k.buffer(), offset, byte_size);
+                enc.copy_buffer_to_buffer(pv.buffer(), 0, self.v.buffer(), offset, byte_size);
                 Ok(())
             })?;
         } else {
             let byte_size = (kv_elems * 4) as u64;
             let offset = (self.seq_len * kv_elems * 4) as u64;
             ctx.batch_dispatch(|enc| {
-                enc.copy_buffer_to_buffer(
-                    new_k.buffer(),
-                    0,
-                    self.k.buffer(),
-                    offset,
-                    byte_size,
-                );
-                enc.copy_buffer_to_buffer(
-                    new_v.buffer(),
-                    0,
-                    self.v.buffer(),
-                    offset,
-                    byte_size,
-                );
+                enc.copy_buffer_to_buffer(new_k.buffer(), 0, self.k.buffer(), offset, byte_size);
+                enc.copy_buffer_to_buffer(new_v.buffer(), 0, self.v.buffer(), offset, byte_size);
                 Ok(())
             })?;
         }
@@ -174,13 +142,7 @@ impl GpuKVCacheEntry {
         &self,
         ctx: &GpuContext,
         q_heads: u32,
-    ) -> Result<
-        (
-            GpuTensor,
-            GpuTensor,
-        ),
-        nexora_autograd::gpu::GpuError,
-    > {
+    ) -> Result<(GpuTensor, GpuTensor), nexora_autograd::gpu::GpuError> {
         let dim = self.head_dim as u32;
         let kv_heads = self.kv_heads as u32;
 
@@ -191,21 +153,110 @@ impl GpuKVCacheEntry {
             let v_repeated = ctx.repeat_heads(&v_f32, kv_heads, q_heads, dim)?;
             Ok((k_repeated, v_repeated))
         } else {
-            let k_repeated =
-                ctx.repeat_heads(&self.k_view(), kv_heads, q_heads, dim)?;
-            let v_repeated =
-                ctx.repeat_heads(&self.v_view(), kv_heads, q_heads, dim)?;
+            let k_repeated = ctx.repeat_heads(&self.k_view(), kv_heads, q_heads, dim)?;
+            let v_repeated = ctx.repeat_heads(&self.v_view(), kv_heads, q_heads, dim)?;
             Ok((k_repeated, v_repeated))
         }
+    }
+
+    /// Bulk-append N tokens of K and V (each shape [N, kv_heads, head_dim]) to the GPU cache.
+    /// Uses GPU-side buffer copy — no CPU round-trip.
+    /// Supports F16 storage conversion.
+    pub fn bulk_append(
+        &mut self,
+        ctx: &GpuContext,
+        new_k: &GpuTensor,
+        new_v: &GpuTensor,
+        num_tokens: usize,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        if self.seq_len + num_tokens > self.capacity {
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                "GpuKVCacheEntry capacity exceeded: {} + {} > {}",
+                self.seq_len, num_tokens, self.capacity
+            )));
+        }
+        let kv_elems = self.kv_heads * self.head_dim;
+
+        if self.f16_storage {
+            let pk = ctx.f32_to_f16_packed(new_k)?;
+            let pv = ctx.f32_to_f16_packed(new_v)?;
+            let byte_size = (num_tokens * kv_elems * 2) as u64;
+            let offset = (self.seq_len * kv_elems * 2) as u64;
+            ctx.batch_dispatch(|enc| {
+                enc.copy_buffer_to_buffer(pk.buffer(), 0, self.k.buffer(), offset, byte_size);
+                enc.copy_buffer_to_buffer(pv.buffer(), 0, self.v.buffer(), offset, byte_size);
+                Ok(())
+            })?;
+        } else {
+            let byte_size = (num_tokens * kv_elems * 4) as u64;
+            let offset = (self.seq_len * kv_elems * 4) as u64;
+            ctx.batch_dispatch(|enc| {
+                enc.copy_buffer_to_buffer(new_k.buffer(), 0, self.k.buffer(), offset, byte_size);
+                enc.copy_buffer_to_buffer(new_v.buffer(), 0, self.v.buffer(), offset, byte_size);
+                Ok(())
+            })?;
+        }
+
+        self.seq_len += num_tokens;
+        Ok(())
+    }
+
+    /// Copy the first `prefix_len` K/V positions from `source` into this entry.
+    /// Both entries must have matching dimensions and storage type.
+    /// Source must have `seq_len >= prefix_len`.
+    /// GPU-side buffer-to-buffer copy — no CPU round-trip.
+    /// Sets `self.seq_len = prefix_len`.
+    pub fn copy_prefix_from(
+        &mut self,
+        ctx: &GpuContext,
+        source: &GpuKVCacheEntry,
+        prefix_len: usize,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        assert_eq!(
+            self.kv_heads, source.kv_heads,
+            "copy_prefix_from: kv_heads mismatch {} vs {}",
+            self.kv_heads, source.kv_heads
+        );
+        assert_eq!(
+            self.head_dim, source.head_dim,
+            "copy_prefix_from: head_dim mismatch {} vs {}",
+            self.head_dim, source.head_dim
+        );
+        assert_eq!(
+            self.f16_storage, source.f16_storage,
+            "copy_prefix_from: f16_storage mismatch"
+        );
+        assert!(
+            prefix_len <= source.seq_len,
+            "copy_prefix_from: source seq_len ({}) < prefix_len ({})",
+            source.seq_len,
+            prefix_len
+        );
+        assert!(
+            prefix_len <= self.capacity,
+            "copy_prefix_from: dest capacity ({}) < prefix_len ({})",
+            self.capacity,
+            prefix_len
+        );
+
+        let kv_elems = self.kv_heads * self.head_dim;
+        let elem_size: u64 = if self.f16_storage { 2 } else { 4 };
+        let byte_size = (prefix_len as u64) * (kv_elems as u64) * elem_size;
+
+        ctx.batch_dispatch(|enc| {
+            enc.copy_buffer_to_buffer(source.k.buffer(), 0, self.k.buffer(), 0, byte_size);
+            enc.copy_buffer_to_buffer(source.v.buffer(), 0, self.v.buffer(), 0, byte_size);
+            Ok(())
+        })?;
+
+        self.seq_len = prefix_len;
+        Ok(())
     }
 
     /// Clear the cache (reset sequence length).
     /// Does NOT deallocate buffers — memset to zero.
     /// Uses u32 zero fill for F16 storage, f32 zero fill for F32 storage.
-    pub fn clear(
-        &mut self,
-        ctx: &GpuContext,
-    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+    pub fn clear(&mut self, ctx: &GpuContext) -> Result<(), nexora_autograd::gpu::GpuError> {
         if self.f16_storage {
             ctx.fill_zero_u32(&self.k)?;
             ctx.fill_zero_u32(&self.v)?;
@@ -356,12 +407,39 @@ impl GpuKVCache {
     ) -> Self {
         let entries = if let Ok(ctx) = nexora_autograd::gpu::GpuContext::global() {
             (0..num_layers)
-                .filter_map(|_| GpuKVCacheEntry::new(&ctx, num_kv_heads, head_dim, max_seq_len, false).ok())
+                .filter_map(|_| {
+                    GpuKVCacheEntry::new(&ctx, num_kv_heads, head_dim, max_seq_len, false).ok()
+                })
                 .collect()
         } else {
             Vec::new()
         };
         Self { entries }
+    }
+}
+
+    /// Copy the first `prefix_len` K/V positions from `source` into this cache.
+    /// Both caches must have the same number of layers.
+    /// Delegates to [`GpuKVCacheEntry::copy_prefix_from`] per layer.
+    pub fn copy_prefix_from(
+        &mut self,
+        source: &GpuKVCache,
+        prefix_len: usize,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        assert_eq!(
+            self.entries.len(),
+            source.entries.len(),
+            "copy_prefix_from: layer count mismatch {} vs {}",
+            self.entries.len(),
+            source.entries.len()
+        );
+        let ctx = nexora_autograd::gpu::GpuContext::global().map_err(|_| {
+            nexora_autograd::gpu::GpuError::ContextLost("GpuContext not available".into())
+        })?;
+        for (dst_entry, src_entry) in self.entries.iter_mut().zip(source.entries.iter()) {
+            dst_entry.copy_prefix_from(&ctx, src_entry, prefix_len)?;
+        }
+        Ok(())
     }
 }
 

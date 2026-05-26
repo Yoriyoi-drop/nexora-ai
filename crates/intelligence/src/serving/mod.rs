@@ -126,7 +126,10 @@ pub struct ModelServer {
 
 impl ModelServer {
     pub fn new(config: ServingConfig, backend: Arc<dyn InferenceBackend>) -> Self {
-        Self { config, inference: backend }
+        Self {
+            config,
+            inference: backend,
+        }
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -180,15 +183,24 @@ async fn infer_handler(
     Json(req): Json<InferenceRequest>,
 ) -> Result<Json<InferenceResponse>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many concurrent requests".to_string(),
+        )
     })?;
-    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let backend = state.inference.clone();
     let timeout_ms = state.config.request_timeout_ms;
 
     if req.prompt.is_empty() {
-        state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        state
+            .server_state
+            .request_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         return Err((StatusCode::BAD_REQUEST, "Empty prompt".to_string()));
     }
 
@@ -201,7 +213,10 @@ async fn infer_handler(
             .await
             .map(|(text, tokens)| {
                 let ms = start.elapsed().as_millis() as u64;
-                info!("Inference for '{}' done in {}ms ({} tokens)", req.model_id, ms, tokens);
+                info!(
+                    "Inference for '{}' done in {}ms ({} tokens)",
+                    req.model_id, ms, tokens
+                );
                 Json(InferenceResponse {
                     generated_text: text,
                     tokens_generated: tokens,
@@ -211,10 +226,12 @@ async fn infer_handler(
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
     };
 
-    let result =
-        tokio::time::timeout(Duration::from_millis(timeout_ms), task).await;
+    let result = tokio::time::timeout(Duration::from_millis(timeout_ms), task).await;
 
-    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
         Ok(r) => r,
@@ -230,9 +247,15 @@ async fn openai_chat_handler(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let _permit = state.semaphore.acquire().await.map_err(|_| {
-        (StatusCode::SERVICE_UNAVAILABLE, "Too many concurrent requests".to_string())
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many concurrent requests".to_string(),
+        )
     })?;
-    state.server_state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let backend = state.inference.clone();
     let timeout_ms = state.config.request_timeout_ms;
@@ -275,8 +298,14 @@ async fn openai_chat_handler(
         .unwrap_or_default();
 
     if prompt.is_empty() {
-        state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        return Err((StatusCode::BAD_REQUEST, "No message content provided.".to_string()));
+        state
+            .server_state
+            .request_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "No message content provided.".to_string(),
+        ));
     }
 
     info!(
@@ -331,13 +360,19 @@ async fn openai_chat_handler(
     };
 
     let result = tokio::time::timeout(Duration::from_millis(timeout_ms), task).await;
-    state.server_state.request_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .server_state
+        .request_count
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
     match result {
         Ok(r) => r,
         Err(_) => {
             warn!("OpenAI endpoint timed out for model '{}'", model_id);
-            Err((StatusCode::REQUEST_TIMEOUT, "Inference timed out".to_string()))
+            Err((
+                StatusCode::REQUEST_TIMEOUT,
+                "Inference timed out".to_string(),
+            ))
         }
     }
 }

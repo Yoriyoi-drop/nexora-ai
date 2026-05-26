@@ -923,8 +923,6 @@ pub enum PolicyConstraintType {
     ResourcePolicy,
 }
 
-
-
 /// Resource Optimization Task Output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceOptimizationTaskOutput {
@@ -1612,7 +1610,11 @@ impl ResourceOptimizerAgent {
         let roi_calculation = RoiCalculation {
             investment_cost: 1000.0, // Implementation cost
             expected_savings_per_month: monthly_savings,
-            payback_period_months: if monthly_savings > 0.0 { 1000.0 / monthly_savings } else { f32::INFINITY },
+            payback_period_months: if monthly_savings > 0.0 {
+                1000.0 / monthly_savings
+            } else {
+                f32::INFINITY
+            },
             annual_roi_percentage: (monthly_savings * 365.0 / 30.0 / 1000.0) * 100.0,
         };
 

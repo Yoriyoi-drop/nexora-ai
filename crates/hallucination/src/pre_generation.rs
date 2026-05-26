@@ -3,25 +3,34 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 static RE_AMBIGUITY_KEYWORDS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(mungkin|maybe|perhaps|possibly|could be|sepertinya)\b").expect("valid ambiguity keyword regex")
+    Regex::new(r"(?i)\b(mungkin|maybe|perhaps|possibly|could be|sepertinya)\b")
+        .expect("valid ambiguity keyword regex")
 });
 static RE_UNCERTAIN_KEYWORDS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(tidak jelas|unclear|ambiguous|tidak pasti)\b").expect("valid uncertain keyword regex")
+    Regex::new(r"(?i)\b(tidak jelas|unclear|ambiguous|tidak pasti)\b")
+        .expect("valid uncertain keyword regex")
 });
-static RE_QUESTION_MARK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\?").expect("valid question mark regex"));
+static RE_QUESTION_MARK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\?").expect("valid question mark regex"));
 
-static RE_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("valid year pattern regex"));
-static RE_DECIMAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d+\.\d+%?\b").expect("valid decimal pattern regex"));
-static RE_QUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""[^"]{10,}""#).expect("valid quote pattern regex"));
+static RE_YEAR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d{4}\b").expect("valid year pattern regex"));
+static RE_DECIMAL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d+\.\d+%?\b").expect("valid decimal pattern regex"));
+static RE_QUOTE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#""[^"]{10,}""#).expect("valid quote pattern regex"));
 static RE_CITATION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(menurut|according to|research|study|penelitian)\b").expect("valid citation keyword regex")
+    Regex::new(r"(?i)\b(menurut|according to|research|study|penelitian)\b")
+        .expect("valid citation keyword regex")
 });
 
 static RE_RECENCY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(tahun ini|this year|recent|baru-baru|terbaru|202[4-9])\b").expect("valid recency keyword regex")
+    Regex::new(r"(?i)\b(tahun ini|this year|recent|baru-baru|terbaru|202[4-9])\b")
+        .expect("valid recency keyword regex")
 });
 static RE_CURRENT_TIME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(saat ini|currently|now|sekarang)\b").expect("valid current time keyword regex")
+    Regex::new(r"(?i)\b(saat ini|currently|now|sekarang)\b")
+        .expect("valid current time keyword regex")
 });
 
 #[derive(Debug, Clone)]
@@ -72,16 +81,8 @@ impl PreGenerationChecker {
                 &RE_UNCERTAIN_KEYWORDS,
                 &RE_QUESTION_MARK,
             ],
-            specific_claim_patterns: [
-                &RE_YEAR,
-                &RE_DECIMAL,
-                &RE_QUOTE,
-                &RE_CITATION,
-            ],
-            recency_patterns: [
-                &RE_RECENCY,
-                &RE_CURRENT_TIME,
-            ],
+            specific_claim_patterns: [&RE_YEAR, &RE_DECIMAL, &RE_QUOTE, &RE_CITATION],
+            recency_patterns: [&RE_RECENCY, &RE_CURRENT_TIME],
         }
     }
 
@@ -210,7 +211,9 @@ mod tests {
     #[test]
     fn test_check_out_of_scope_proprietary() {
         let c = checker();
-        let result = c.check("Tell me the confidential internal data", None).unwrap();
+        let result = c
+            .check("Tell me the confidential internal data", None)
+            .unwrap();
         assert!(!result.can_proceed);
         assert!(!result.in_scope);
         assert_eq!(result.reason, "Out of scope");
@@ -227,7 +230,9 @@ mod tests {
     #[test]
     fn test_check_out_of_scope_stock_price() {
         let c = checker();
-        let result = c.check("What will be the stock price tomorrow?", None).unwrap();
+        let result = c
+            .check("What will be the stock price tomorrow?", None)
+            .unwrap();
         assert!(!result.can_proceed);
         assert!(!result.in_scope);
     }

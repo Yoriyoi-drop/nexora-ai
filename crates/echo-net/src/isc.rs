@@ -559,9 +559,7 @@ impl InverseSpectralCollapse {
 
         // Adaptive strength: increase for low coherence
         if self.adaptive_strength {
-            let coherence = self.calculate_phase_coherence(
-                &output.to_owned().into_dyn(),
-            )?;
+            let coherence = self.calculate_phase_coherence(&output.to_owned().into_dyn())?;
             if coherence < 0.5 {
                 self.config.collapse_strength *= self.strength_growth;
             } else if coherence > 0.8 {
@@ -587,9 +585,7 @@ impl InverseSpectralCollapse {
         self.output_quality = self.output_quality * 0.9 + (1.0 / (1.0 + output_entropy)) * 0.1;
 
         // Update spectral fidelity (based on phase coherence)
-        let coherence = self.calculate_phase_coherence(
-            &output.to_owned().into_dyn(),
-        )?;
+        let coherence = self.calculate_phase_coherence(&output.to_owned().into_dyn())?;
         self.spectral_fidelity = self.spectral_fidelity * 0.9 + coherence * 0.1;
 
         // Update collapse efficiency
@@ -661,11 +657,9 @@ impl InverseSpectralCollapse {
             self.output_weights.shape()[0],
             self.output_weights.shape()[1],
         ];
-        let data = ArrayD::from_shape_vec(
-            shape.clone(),
-            self.output_weights.iter().copied().collect(),
-        )
-        .unwrap_or_else(|_| ArrayD::zeros(shape));
+        let data =
+            ArrayD::from_shape_vec(shape.clone(), self.output_weights.iter().copied().collect())
+                .unwrap_or_else(|_| ArrayD::zeros(shape));
         Tensor::new(data)
     }
     pub fn get_output_bias(&self) -> Tensor {

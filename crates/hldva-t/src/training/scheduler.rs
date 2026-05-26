@@ -43,7 +43,9 @@ impl TrainingScheduler {
 
     /// Get current learning rate
     pub fn get_learning_rate(&self) -> f32 {
-        self.config.lr_scheduler.get_learning_rate_at(self.current_step, self.config.initial_lr)
+        self.config
+            .lr_scheduler
+            .get_learning_rate_at(self.current_step, self.config.initial_lr)
     }
 
     /// Get current epoch
@@ -117,9 +119,7 @@ impl LRSchedulerType {
                 let decay_steps = step / step_size;
                 initial_lr * gamma.powi(decay_steps as i32)
             }
-            LRSchedulerType::Exponential { gamma } => {
-                initial_lr * gamma.powi(step as i32)
-            }
+            LRSchedulerType::Exponential { gamma } => initial_lr * gamma.powi(step as i32),
             LRSchedulerType::Cosine { t_max, eta_min } => {
                 let progress = (step % t_max) as f32 / *t_max as f32;
                 eta_min

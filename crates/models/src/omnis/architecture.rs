@@ -14,7 +14,9 @@ use std::collections::HashMap;
 /// SIMULATED — this is NOT a real neural network.
 /// Uses keyword matching and template responses, not tensor computation.
 /// Prefer `foundation::NxrOmnisModel` (CausalLM-backed) instead.
-#[deprecated(note = "Simulated architecture using keyword matching, not a real neural network. Use foundation::NxrOmnisModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "Simulated architecture using keyword matching, not a real neural network. Use foundation::NxrOmnisModel (CausalLM-backed) instead."
+)]
 pub struct OmnisArchitecture {
     /// Configuration
     config: OmnisConfig,

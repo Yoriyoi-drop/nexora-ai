@@ -99,7 +99,10 @@ impl TaskManager {
             )
         };
 
-        debug!("Executing task: id={}, strategy={:?}", task_id, self.strategy);
+        debug!(
+            "Executing task: id={}, strategy={:?}",
+            task_id, self.strategy
+        );
 
         let tid = task_id.to_string();
 
@@ -242,8 +245,7 @@ impl TaskManager {
     where
         F: Fn(String) -> String + Send + Sync + 'static,
     {
-        self.handlers
-            .insert(model.to_string(), Arc::new(handler));
+        self.handlers.insert(model.to_string(), Arc::new(handler));
         debug!("Handler registered for model: {}", model);
     }
 

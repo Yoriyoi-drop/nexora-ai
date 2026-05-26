@@ -1,16 +1,16 @@
 //! Arch Weaver Agent
-//! 
+//!
 //! Architecture analysis and design evaluation
 
-use std::collections::HashMap;
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use nexora_shared::{
-    base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
-};
 use super::code_sentinel::SeverityLevel;
 use super::debug_phantom::DetailedFinding;
+use async_trait::async_trait;
+use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
+    base_agent::{BaseAgent, BaseAgentConfig},
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Arch Weaver Agent - Architecture analysis and design evaluation
 #[derive(Debug, Clone)]
@@ -2311,15 +2311,13 @@ impl Default for ArchWeaverConfig {
                     target_value: 0.9,
                 },
             ],
-            design_principles: vec![
-                DesignPrinciple {
-                    principle_id: "solid_001".to_string(),
-                    principle_name: "Single Responsibility".to_string(),
-                    principle_description: "Each component should have one responsibility".to_string(),
-                    principle_category: PrincipleCategory::Structural,
-                    priority_level: 1,
-                },
-            ],
+            design_principles: vec![DesignPrinciple {
+                principle_id: "solid_001".to_string(),
+                principle_name: "Single Responsibility".to_string(),
+                principle_description: "Each component should have one responsibility".to_string(),
+                principle_category: PrincipleCategory::Structural,
+                priority_level: 1,
+            }],
         }
     }
 }
@@ -2516,34 +2514,46 @@ impl BaseAgent for ArchWeaverAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Perform structural analysis
         let structural_analysis_results = self.perform_structural_analysis(&input).await?;
-        
+
         // Perform behavioral analysis
         let behavioral_analysis_results = self.perform_behavioral_analysis(&input).await?;
-        
+
         // Perform interface analysis
         let interface_analysis_results = self.perform_interface_analysis(&input).await?;
-        
+
         // Perform data flow analysis
         let data_flow_analysis_results = self.perform_data_flow_analysis(&input).await?;
-        
+
         // Evaluate design quality
         let design_evaluation_results = self.evaluate_design_quality(&input).await?;
-        
+
         // Recognize patterns
         let pattern_recognition_results = self.recognize_patterns(&input).await?;
-        
+
         // Generate recommendations
-        let recommendations = self.generate_recommendations(&input, &structural_analysis_results, &behavioral_analysis_results, &interface_analysis_results, &data_flow_analysis_results, &design_evaluation_results, &pattern_recognition_results).await?;
-        
+        let recommendations = self
+            .generate_recommendations(
+                &input,
+                &structural_analysis_results,
+                &behavioral_analysis_results,
+                &interface_analysis_results,
+                &data_flow_analysis_results,
+                &design_evaluation_results,
+                &pattern_recognition_results,
+            )
+            .await?;
+
         // Generate compliance report
-        let compliance_report = self.generate_compliance_report(&input, &design_evaluation_results).await?;
-        
+        let compliance_report = self
+            .generate_compliance_report(&input, &design_evaluation_results)
+            .await?;
+
         // Build output
         let output = ArchWeaverTaskOutput {
             architecture_analysis_results: ArchitectureAnalysisResults {
@@ -2557,9 +2567,9 @@ impl BaseAgent for ArchWeaverAgent {
             recommendations,
             compliance_report,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -2572,21 +2582,25 @@ impl BaseAgent for ArchWeaverAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "architecture_analysis".to_string(),
-                description: "Architecture analysis and design evaluation".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["architecture_description".to_string(), "system_components".to_string()],
-                output_types: vec!["analysis_results".to_string(), "design_recommendations".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.85,
-                    avg_latency: 2000.0,
-                    resource_usage: 0.6,
-                    reliability: 0.90,
-                },
+        vec![AgentCapability {
+            name: "architecture_analysis".to_string(),
+            description: "Architecture analysis and design evaluation".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec![
+                "architecture_description".to_string(),
+                "system_components".to_string(),
+            ],
+            output_types: vec![
+                "analysis_results".to_string(),
+                "design_recommendations".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.85,
+                avg_latency: 2000.0,
+                resource_usage: 0.6,
+                reliability: 0.90,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -2628,39 +2642,52 @@ impl ArchWeaverAgent {
     fn validate_input(&self, input: &ArchWeaverTaskInput) -> AgentResult<()> {
         if input.architecture_description.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Architecture description cannot be empty".to_string()
+                "Architecture description cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Perform structural analysis
-    async fn perform_structural_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<StructuralAnalysisResults> {
+    async fn perform_structural_analysis(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<StructuralAnalysisResults> {
         let component_structure = ComponentStructure {
             component_hierarchy: ComponentHierarchy {
-                root_components: input.system_components.iter().map(|c| c.component_id.clone()).collect(),
-                hierarchy_levels: vec![
-                    HierarchyLevel {
-                        level_number: 1,
-                        components_at_level: input.system_components.iter().map(|c| c.component_id.clone()).collect(),
-                        level_description: "System components".to_string(),
-                    },
-                ],
+                root_components: input
+                    .system_components
+                    .iter()
+                    .map(|c| c.component_id.clone())
+                    .collect(),
+                hierarchy_levels: vec![HierarchyLevel {
+                    level_number: 1,
+                    components_at_level: input
+                        .system_components
+                        .iter()
+                        .map(|c| c.component_id.clone())
+                        .collect(),
+                    level_description: "System components".to_string(),
+                }],
                 hierarchy_depth: 1,
             },
             component_relationships: vec![],
             structure_quality_score: 0.8,
         };
-        
+
         let dependency_analysis = DependencyAnalysis {
             dependency_graph: DependencyGraph {
-                nodes: input.system_components.iter().map(|c| DependencyNode {
-                    node_id: c.component_id.clone(),
-                    node_name: c.component_name.clone(),
-                    node_type: format!("{:?}", c.component_type),
-                    node_properties: HashMap::new(),
-                }).collect(),
+                nodes: input
+                    .system_components
+                    .iter()
+                    .map(|c| DependencyNode {
+                        node_id: c.component_id.clone(),
+                        node_name: c.component_name.clone(),
+                        node_type: format!("{:?}", c.component_type),
+                        node_properties: HashMap::new(),
+                    })
+                    .collect(),
                 edges: vec![],
                 graph_metrics: GraphMetrics {
                     number_of_nodes: input.system_components.len() as u32,
@@ -2673,7 +2700,7 @@ impl ArchWeaverAgent {
             dependency_complexity: 0.5,
             dependency_stability: 0.8,
         };
-        
+
         let layer_analysis = LayerAnalysis {
             layer_structure: LayerStructure {
                 layers: vec![],
@@ -2688,7 +2715,7 @@ impl ArchWeaverAgent {
             layer_cohesion: 0.7,
             layer_coupling: 0.3,
         };
-        
+
         let modularity_assessment = ModularityAssessment {
             modularity_score: 0.75,
             cohesion_metrics: CohesionMetrics {
@@ -2710,7 +2737,7 @@ impl ArchWeaverAgent {
                 overall_encapsulation_score: 0.75,
             },
         };
-        
+
         Ok(StructuralAnalysisResults {
             component_structure,
             dependency_analysis,
@@ -2720,20 +2747,37 @@ impl ArchWeaverAgent {
     }
 
     /// Perform behavioral analysis
-    async fn perform_behavioral_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<BehavioralAnalysisResults> {
+    async fn perform_behavioral_analysis(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<BehavioralAnalysisResults> {
         let components = &input.system_components;
-        let total_interfaces: usize = components.iter().map(|c| c.component_interfaces.len()).sum();
-        let total_deps: usize = components.iter().map(|c| c.component_dependencies.len()).sum();
+        let total_interfaces: usize = components
+            .iter()
+            .map(|c| c.component_interfaces.len())
+            .sum();
+        let total_deps: usize = components
+            .iter()
+            .map(|c| c.component_dependencies.len())
+            .sum();
         let component_count = components.len() as f32;
 
-        let interaction_patterns: Vec<InteractionPattern> = components.iter()
-            .flat_map(|c| c.component_interfaces.iter().map(|iface| InteractionPattern {
-                pattern_id: format!("interact_{}_{}", c.component_id, iface.interface_id),
-                pattern_name: format!("{}/{}", c.component_name, iface.interface_name),
-                pattern_description: format!("Interaction via {} interface", iface.interface_name),
-                pattern_participants: vec![c.component_id.clone()],
-                pattern_sequence: vec![],
-            }))
+        let interaction_patterns: Vec<InteractionPattern> = components
+            .iter()
+            .flat_map(|c| {
+                c.component_interfaces
+                    .iter()
+                    .map(|iface| InteractionPattern {
+                        pattern_id: format!("interact_{}_{}", c.component_id, iface.interface_id),
+                        pattern_name: format!("{}/{}", c.component_name, iface.interface_name),
+                        pattern_description: format!(
+                            "Interaction via {} interface",
+                            iface.interface_name
+                        ),
+                        pattern_participants: vec![c.component_id.clone()],
+                        pattern_sequence: vec![],
+                    })
+            })
             .collect();
 
         let responsiveness_score = if component_count > 0.0 {
@@ -2742,7 +2786,9 @@ impl ArchWeaverAgent {
             0.7
         };
 
-        let predictability_score = ((total_interfaces as f32 / (component_count.max(1.0) * 2.0)).min(1.0) * 0.5 + 0.3).clamp(0.0, 1.0);
+        let predictability_score =
+            ((total_interfaces as f32 / (component_count.max(1.0) * 2.0)).min(1.0) * 0.5 + 0.3)
+                .clamp(0.0, 1.0);
         let robustness_score = if total_deps > 0 {
             let avg_deps = total_deps as f32 / component_count.max(1.0);
             (1.0 - (avg_deps / 5.0).min(1.0) * 0.4).clamp(0.0, 1.0)
@@ -2750,7 +2796,9 @@ impl ArchWeaverAgent {
             0.9
         };
         let adaptability_score = ((component_count / 10.0).min(1.0) * 0.3 + 0.3).clamp(0.0, 1.0);
-        let overall_behavioral_quality_score = (responsiveness_score + predictability_score + robustness_score + adaptability_score) / 4.0;
+        let overall_behavioral_quality_score =
+            (responsiveness_score + predictability_score + robustness_score + adaptability_score)
+                / 4.0;
 
         Ok(BehavioralAnalysisResults {
             interaction_patterns,
@@ -2785,14 +2833,25 @@ impl ArchWeaverAgent {
     }
 
     /// Perform interface analysis
-    async fn perform_interface_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<InterfaceAnalysisResults> {
+    async fn perform_interface_analysis(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<InterfaceAnalysisResults> {
         let components = &input.system_components;
-        let total_interfaces: usize = components.iter().map(|c| c.component_interfaces.len()).sum();
+        let total_interfaces: usize = components
+            .iter()
+            .map(|c| c.component_interfaces.len())
+            .sum();
         let component_count = components.len() as f32;
 
         let naming_consistency = if total_interfaces > 0 {
-            let unique_names: std::collections::HashSet<&str> = components.iter()
-                .flat_map(|c| c.component_interfaces.iter().map(|i| i.interface_name.as_str()))
+            let unique_names: std::collections::HashSet<&str> = components
+                .iter()
+                .flat_map(|c| {
+                    c.component_interfaces
+                        .iter()
+                        .map(|i| i.interface_name.as_str())
+                })
                 .collect();
             (unique_names.len() as f32 / total_interfaces.max(1) as f32).clamp(0.0, 1.0)
         } else {
@@ -2800,26 +2859,40 @@ impl ArchWeaverAgent {
         };
 
         let type_consistency: f32 = if total_interfaces > 0 {
-            let unique_types: std::collections::HashSet<String> = components.iter()
-                .flat_map(|c| c.component_interfaces.iter().map(|i| format!("{:?}", i.interface_type)))
+            let unique_types: std::collections::HashSet<String> = components
+                .iter()
+                .flat_map(|c| {
+                    c.component_interfaces
+                        .iter()
+                        .map(|i| format!("{:?}", i.interface_type))
+                })
                 .collect();
-            (1.0 - (unique_types.len() as f32 / total_interfaces.max(1) as f32).clamp(0.0, 1.0) * 0.5).clamp(0.0, 1.0)
+            (1.0 - (unique_types.len() as f32 / total_interfaces.max(1) as f32).clamp(0.0, 1.0)
+                * 0.5)
+                .clamp(0.0, 1.0)
         } else {
             0.7
         };
 
-        let completeness_score = (total_interfaces as f32 / (component_count * 3.0).max(1.0)).min(1.0);
+        let completeness_score =
+            (total_interfaces as f32 / (component_count * 3.0).max(1.0)).min(1.0);
 
         Ok(InterfaceAnalysisResults {
             interface_consistency: InterfaceConsistency {
                 naming_consistency_score: naming_consistency,
-                parameter_consistency_score: (type_consistency * 0.5 + naming_consistency * 0.5).clamp(0.0, 1.0),
+                parameter_consistency_score: (type_consistency * 0.5 + naming_consistency * 0.5)
+                    .clamp(0.0, 1.0),
                 return_type_consistency_score: naming_consistency,
                 overall_consistency_score: naming_consistency * 0.7 + type_consistency * 0.3,
             },
             interface_completeness: InterfaceCompleteness {
-                required_interfaces: components.iter()
-                    .flat_map(|c| c.component_interfaces.iter().map(|iface| format!("{}::{}", c.component_name, iface.interface_name)))
+                required_interfaces: components
+                    .iter()
+                    .flat_map(|c| {
+                        c.component_interfaces
+                            .iter()
+                            .map(|iface| format!("{}::{}", c.component_name, iface.interface_name))
+                    })
                     .collect(),
                 missing_interfaces: vec![],
                 redundant_interfaces: vec![],
@@ -2835,24 +2908,38 @@ impl ArchWeaverAgent {
                 documentation_completeness_score: (completeness_score * 0.8).clamp(0.0, 1.0),
                 documentation_accuracy_score: naming_consistency,
                 documentation_clarity_score: naming_consistency,
-                overall_documentation_score: (completeness_score * 0.4 + naming_consistency * 0.3 + naming_consistency * 0.3),
+                overall_documentation_score: (completeness_score * 0.4
+                    + naming_consistency * 0.3
+                    + naming_consistency * 0.3),
             },
         })
     }
 
     /// Perform data flow analysis
-    async fn perform_data_flow_analysis(&self, input: &ArchWeaverTaskInput) -> AgentResult<DataFlowAnalysisResults> {
+    async fn perform_data_flow_analysis(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<DataFlowAnalysisResults> {
         let components = &input.system_components;
-        let total_deps: usize = components.iter().map(|c| c.component_dependencies.len()).sum();
+        let total_deps: usize = components
+            .iter()
+            .map(|c| c.component_dependencies.len())
+            .sum();
         let component_count = components.len() as f32;
 
-        let data_flow_diagrams: Vec<DataFlowDiagram> = components.iter()
-            .flat_map(|c| c.component_dependencies.iter().map(|dep| DataFlowDiagram {
-                diagram_id: format!("df_{}_{}", c.component_id, dep.dependency_target),
-                diagram_name: format!("{} -> {}", c.component_name, dep.dependency_target),
-                diagram_description: format!("Data flow from {} to {}", c.component_name, dep.dependency_target),
-                data_flow_elements: vec![],
-            }))
+        let data_flow_diagrams: Vec<DataFlowDiagram> = components
+            .iter()
+            .flat_map(|c| {
+                c.component_dependencies.iter().map(|dep| DataFlowDiagram {
+                    diagram_id: format!("df_{}_{}", c.component_id, dep.dependency_target),
+                    diagram_name: format!("{} -> {}", c.component_name, dep.dependency_target),
+                    diagram_description: format!(
+                        "Data flow from {} to {}",
+                        c.component_name, dep.dependency_target
+                    ),
+                    data_flow_elements: vec![],
+                })
+            })
             .collect();
 
         let flow_efficiency: f32 = if total_deps > 0 {
@@ -2860,7 +2947,10 @@ impl ArchWeaverAgent {
         } else {
             0.9
         };
-        let flow_clarity: f32 = ((data_flow_diagrams.len() as f32 / (component_count * 2.0).max(1.0)).min(1.0) * 0.5 + 0.3).clamp(0.0, 1.0);
+        let flow_clarity: f32 =
+            ((data_flow_diagrams.len() as f32 / (component_count * 2.0).max(1.0)).min(1.0) * 0.5
+                + 0.3)
+                .clamp(0.0, 1.0);
         let main_score: f32 = ((component_count / 8.0).min(1.0) * 0.3 + 0.4).clamp(0.0, 1.0);
 
         Ok(DataFlowAnalysisResults {
@@ -2876,13 +2966,17 @@ impl ArchWeaverAgent {
                 data_protection_score: (flow_efficiency * 0.5 + 0.3).clamp(0.0, 1.0),
                 access_control_score: (flow_clarity * 0.5 + 0.3).clamp(0.0, 1.0),
                 data_integrity_score: (main_score * 0.6 + 0.3).clamp(0.0, 1.0),
-                overall_security_score: (flow_efficiency + flow_clarity + main_score) / 3.0 * 0.7 + 0.2,
+                overall_security_score: (flow_efficiency + flow_clarity + main_score) / 3.0 * 0.7
+                    + 0.2,
             },
         })
     }
 
     /// Evaluate design quality
-    async fn evaluate_design_quality(&self, input: &ArchWeaverTaskInput) -> AgentResult<DesignEvaluationResults> {
+    async fn evaluate_design_quality(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<DesignEvaluationResults> {
         let quality_attribute_scores = QualityAttributeScores {
             performance_score: 0.8,
             security_score: 0.7,
@@ -2892,7 +2986,7 @@ impl ArchWeaverAgent {
             usability_score: 0.7,
             interoperability_score: 0.6,
         };
-        
+
         let trade_off_analysis_results = TradeOffAnalysisResults {
             trade_off_matrix: TradeOffMatrix {
                 design_alternatives: vec!["Current Design".to_string()],
@@ -2911,22 +3005,23 @@ impl ArchWeaverAgent {
                 },
             },
         };
-        
+
         let compliance_checking_results = ComplianceCheckingResults {
             compliance_scores: HashMap::new(),
             compliance_violations: vec![],
             compliance_recommendations: vec![],
             overall_compliance_score: 0.8,
         };
-        
-        let overall_design_score = (quality_attribute_scores.performance_score + 
-                                     quality_attribute_scores.security_score + 
-                                     quality_attribute_scores.maintainability_score + 
-                                     quality_attribute_scores.scalability_score + 
-                                     quality_attribute_scores.reliability_score + 
-                                     quality_attribute_scores.usability_score + 
-                                     quality_attribute_scores.interoperability_score) / 8.0;
-        
+
+        let overall_design_score = (quality_attribute_scores.performance_score
+            + quality_attribute_scores.security_score
+            + quality_attribute_scores.maintainability_score
+            + quality_attribute_scores.scalability_score
+            + quality_attribute_scores.reliability_score
+            + quality_attribute_scores.usability_score
+            + quality_attribute_scores.interoperability_score)
+            / 8.0;
+
         Ok(DesignEvaluationResults {
             quality_attribute_scores,
             trade_off_analysis_results,
@@ -2936,18 +3031,32 @@ impl ArchWeaverAgent {
     }
 
     /// Recognize patterns
-    async fn recognize_patterns(&self, input: &ArchWeaverTaskInput) -> AgentResult<PatternRecognitionResults> {
+    async fn recognize_patterns(
+        &self,
+        input: &ArchWeaverTaskInput,
+    ) -> AgentResult<PatternRecognitionResults> {
         let components = &input.system_components;
         let mut detected_patterns = Vec::new();
         let mut recommendations = Vec::new();
         let mut gaps = Vec::new();
 
-        let has_gateway = components.iter().any(|c| matches!(c.component_type, ComponentType::Gateway));
-        let has_lb = components.iter().any(|c| matches!(c.component_type, ComponentType::LoadBalancer));
-        let has_cache = components.iter().any(|c| matches!(c.component_type, ComponentType::Cache));
-        let has_queue = components.iter().any(|c| matches!(c.component_type, ComponentType::Queue));
-        let has_db = components.iter().any(|c| matches!(c.component_type, ComponentType::Database));
-        let service_count = components.iter()
+        let has_gateway = components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Gateway));
+        let has_lb = components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::LoadBalancer));
+        let has_cache = components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Cache));
+        let has_queue = components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Queue));
+        let has_db = components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Database));
+        let service_count = components
+            .iter()
             .filter(|c| matches!(c.component_type, ComponentType::Service))
             .count();
 
@@ -2956,8 +3065,14 @@ impl ArchWeaverAgent {
                 pattern_id: "pattern_gateway".into(),
                 pattern_name: "Gateway/Proxy".into(),
                 pattern_type: PatternType::ArchitecturalPattern,
-                pattern_location: components.iter()
-                    .find(|c| matches!(c.component_type, ComponentType::Gateway | ComponentType::LoadBalancer))
+                pattern_location: components
+                    .iter()
+                    .find(|c| {
+                        matches!(
+                            c.component_type,
+                            ComponentType::Gateway | ComponentType::LoadBalancer
+                        )
+                    })
                     .map(|c| c.component_id.clone())
                     .unwrap_or_default(),
                 pattern_confidence: 0.85,
@@ -2969,7 +3084,8 @@ impl ArchWeaverAgent {
                 pattern_id: "pattern_cache".into(),
                 pattern_name: "Cache-Aside".into(),
                 pattern_type: PatternType::ArchitecturalPattern,
-                pattern_location: components.iter()
+                pattern_location: components
+                    .iter()
                     .find(|c| matches!(c.component_type, ComponentType::Cache))
                     .map(|c| c.component_id.clone())
                     .unwrap_or_default(),
@@ -2982,7 +3098,8 @@ impl ArchWeaverAgent {
                 pattern_id: "pattern_event_driven".into(),
                 pattern_name: "Event-Driven Architecture".into(),
                 pattern_type: PatternType::ArchitecturalPattern,
-                pattern_location: components.iter()
+                pattern_location: components
+                    .iter()
                     .find(|c| matches!(c.component_type, ComponentType::Queue))
                     .map(|c| c.component_id.clone())
                     .unwrap_or_default(),
@@ -2995,7 +3112,8 @@ impl ArchWeaverAgent {
                 pattern_id: "pattern_data_store".into(),
                 pattern_name: "Data Store".into(),
                 pattern_type: PatternType::ArchitecturalPattern,
-                pattern_location: components.iter()
+                pattern_location: components
+                    .iter()
                     .find(|c| matches!(c.component_type, ComponentType::Database))
                     .map(|c| c.component_id.clone())
                     .unwrap_or_default(),
@@ -3044,15 +3162,18 @@ impl ArchWeaverAgent {
     }
 
     /// Generate recommendations
-    async fn generate_recommendations(&self, input: &ArchWeaverTaskInput,
-                                       _structural_analysis: &StructuralAnalysisResults,
-                                       _behavioral_analysis: &BehavioralAnalysisResults,
-                                       _interface_analysis: &InterfaceAnalysisResults,
-                                       _data_flow_analysis: &DataFlowAnalysisResults,
-                                       design_evaluation: &DesignEvaluationResults,
-                                       _pattern_recognition: &PatternRecognitionResults) -> AgentResult<Vec<ArchitectureRecommendation>> {
+    async fn generate_recommendations(
+        &self,
+        input: &ArchWeaverTaskInput,
+        _structural_analysis: &StructuralAnalysisResults,
+        _behavioral_analysis: &BehavioralAnalysisResults,
+        _interface_analysis: &InterfaceAnalysisResults,
+        _data_flow_analysis: &DataFlowAnalysisResults,
+        design_evaluation: &DesignEvaluationResults,
+        _pattern_recognition: &PatternRecognitionResults,
+    ) -> AgentResult<Vec<ArchitectureRecommendation>> {
         let mut recommendations = Vec::new();
-        
+
         if design_evaluation.overall_design_score < 0.7 {
             recommendations.push(ArchitectureRecommendation {
                 recommendation_id: "rec_001".to_string(),
@@ -3060,10 +3181,13 @@ impl ArchWeaverAgent {
                 recommendation_description: "Improve overall design quality".to_string(),
                 recommendation_priority: 1,
                 implementation_effort: ImplementationEffort::Medium,
-                expected_benefits: vec!["Better maintainability".to_string(), "Improved performance".to_string()],
+                expected_benefits: vec![
+                    "Better maintainability".to_string(),
+                    "Improved performance".to_string(),
+                ],
             });
         }
-        
+
         if design_evaluation.quality_attribute_scores.performance_score < 0.6 {
             recommendations.push(ArchitectureRecommendation {
                 recommendation_id: "rec_002".to_string(),
@@ -3071,30 +3195,56 @@ impl ArchWeaverAgent {
                 recommendation_description: "Optimize system performance".to_string(),
                 recommendation_priority: 2,
                 implementation_effort: ImplementationEffort::High,
-                expected_benefits: vec!["Faster response times".to_string(), "Better throughput".to_string()],
+                expected_benefits: vec![
+                    "Faster response times".to_string(),
+                    "Better throughput".to_string(),
+                ],
             });
         }
-        
+
         Ok(recommendations)
     }
 
     /// Generate compliance report
-    async fn generate_compliance_report(&self, input: &ArchWeaverTaskInput,
-                                      design_evaluation: &DesignEvaluationResults) -> AgentResult<ComplianceReport> {
+    async fn generate_compliance_report(
+        &self,
+        input: &ArchWeaverTaskInput,
+        design_evaluation: &DesignEvaluationResults,
+    ) -> AgentResult<ComplianceReport> {
         let compliance_status = ComplianceStatus {
-            overall_compliance: design_evaluation.compliance_checking_results.overall_compliance_score,
-            standard_compliance: design_evaluation.compliance_checking_results.compliance_scores.clone(),
-            violations: design_evaluation.compliance_checking_results.compliance_violations.clone(),
-            recommendations: design_evaluation.compliance_checking_results.compliance_recommendations.clone(),
+            overall_compliance: design_evaluation
+                .compliance_checking_results
+                .overall_compliance_score,
+            standard_compliance: design_evaluation
+                .compliance_checking_results
+                .compliance_scores
+                .clone(),
+            violations: design_evaluation
+                .compliance_checking_results
+                .compliance_violations
+                .clone(),
+            recommendations: design_evaluation
+                .compliance_checking_results
+                .compliance_recommendations
+                .clone(),
         };
-        
+
         Ok(ComplianceReport {
             report_id: format!("report_{}", chrono::Utc::now().timestamp()),
-            report_title: format!("Architecture Compliance Report for {}", input.architecture_description),
-            executive_summary: format!("Overall compliance score: {:.2}", compliance_status.overall_compliance),
+            report_title: format!(
+                "Architecture Compliance Report for {}",
+                input.architecture_description
+            ),
+            executive_summary: format!(
+                "Overall compliance score: {:.2}",
+                compliance_status.overall_compliance
+            ),
             compliance_status,
             detailed_findings: vec![],
-            recommendations: design_evaluation.compliance_checking_results.compliance_recommendations.clone(),
+            recommendations: design_evaluation
+                .compliance_checking_results
+                .compliance_recommendations
+                .clone(),
         })
     }
 }
@@ -3114,21 +3264,23 @@ mod tests {
     async fn test_arch_weaver_task_processing() {
         let agent = ArchWeaverAgent::default();
         let input = ArchWeaverTaskInput {
-            architecture_description: "Microservices architecture for e-commerce platform".to_string(),
-            system_components: vec![
-                SystemComponent {
-                    component_id: "comp_001".to_string(),
-                    component_name: "User Service".to_string(),
-                    component_type: ComponentType::Service,
-                    component_description: "Handles user management".to_string(),
-                    component_interfaces: vec![],
-                    component_dependencies: vec![],
-                },
-            ],
+            architecture_description: "Microservices architecture for e-commerce platform"
+                .to_string(),
+            system_components: vec![SystemComponent {
+                component_id: "comp_001".to_string(),
+                component_name: "User Service".to_string(),
+                component_type: ComponentType::Service,
+                component_description: "Handles user management".to_string(),
+                component_interfaces: vec![],
+                component_dependencies: vec![],
+            }],
             architecture_diagrams: vec![],
             analysis_requirements: AnalysisRequirements {
                 analysis_scope: AnalysisScope::Comprehensive,
-                quality_attributes_to_evaluate: vec!["performance".to_string(), "security".to_string()],
+                quality_attributes_to_evaluate: vec![
+                    "performance".to_string(),
+                    "security".to_string(),
+                ],
                 compliance_standards_to_check: vec!["ISO27001".to_string()],
                 performance_requirements: PerformanceRequirements {
                     response_time_requirement: 1000.0,
@@ -3148,9 +3300,15 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
-        assert!(!output.architecture_analysis_results.structural_analysis_results.component_structure.component_hierarchy.root_components.is_empty());
+        assert!(!output
+            .architecture_analysis_results
+            .structural_analysis_results
+            .component_structure
+            .component_hierarchy
+            .root_components
+            .is_empty());
         assert!(output.design_evaluation_results.overall_design_score > 0.0);
         assert!(!output.recommendations.is_empty());
     }
@@ -3162,8 +3320,11 @@ mod tests {
             ..Default::default()
         };
         let agent = ArchWeaverAgent::new(config);
-        
-        assert!(matches!(agent.config.analysis_scope, AnalysisScope::SystemLevel));
+
+        assert!(matches!(
+            agent.config.analysis_scope,
+            AnalysisScope::SystemLevel
+        ));
     }
 
     #[test]
@@ -3176,7 +3337,7 @@ mod tests {
             ..Default::default()
         };
         let agent = ArchWeaverAgent::new(config);
-        
+
         assert_eq!(agent.config.architecture_frameworks.len(), 2);
     }
 }

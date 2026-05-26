@@ -182,13 +182,7 @@ mod tests {
             Uuid::new_v4(),
             tensor.clone(),
         );
-        let e2 = GraphEdge::new(
-            hidden_id,
-            Uuid::new_v4(),
-            output_id,
-            Uuid::new_v4(),
-            tensor,
-        );
+        let e2 = GraphEdge::new(hidden_id, Uuid::new_v4(), output_id, Uuid::new_v4(), tensor);
         let _ = g.add_edge(e1);
         let _ = g.add_edge(e2);
 
@@ -296,10 +290,18 @@ mod tests {
         let out_id = g.add_node(out);
         let tensor = crate::TensorDesc::new(vec![1, 64], crate::DType::F32);
         let _ = g.add_edge(GraphEdge::new(
-            inp_id, uuid::Uuid::new_v4(), mid_id, uuid::Uuid::new_v4(), tensor.clone(),
+            inp_id,
+            uuid::Uuid::new_v4(),
+            mid_id,
+            uuid::Uuid::new_v4(),
+            tensor.clone(),
         ));
         let _ = g.add_edge(GraphEdge::new(
-            mid_id, uuid::Uuid::new_v4(), out_id, uuid::Uuid::new_v4(), tensor,
+            mid_id,
+            uuid::Uuid::new_v4(),
+            out_id,
+            uuid::Uuid::new_v4(),
+            tensor,
         ));
         let (incoming, outgoing) = g.get_node_connections(&mid_id);
         assert_eq!(incoming.len(), 1);

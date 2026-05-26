@@ -72,7 +72,14 @@ mod tests {
 
     #[test]
     fn test_condition_range() {
-        let c = ConditionNode::new("range", ConditionType::Range { min: 0.0, max: 10.0 }, 0.0);
+        let c = ConditionNode::new(
+            "range",
+            ConditionType::Range {
+                min: 0.0,
+                max: 10.0,
+            },
+            0.0,
+        );
         assert!(c.evaluate(5.0));
         assert!(c.evaluate(0.0));
         assert!(c.evaluate(10.0));

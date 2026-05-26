@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 use tracing::warn;
 
-static RE_HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").expect("valid HTML tag regex"));
+static RE_HTML_TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]*>").expect("valid HTML tag regex"));
 
 static RE_DANGEROUS_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     let patterns: &[&str] = &[
@@ -60,13 +61,11 @@ static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     ];
     patterns
         .iter()
-        .filter_map(|(pattern, name)| {
-            match Regex::new(pattern) {
-                Ok(re) => Some(re),
-                Err(e) => {
-                    tracing::error!("Failed to compile regex '{}': {}", name, e);
-                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
-                }
+        .filter_map(|(pattern, name)| match Regex::new(pattern) {
+            Ok(re) => Some(re),
+            Err(e) => {
+                tracing::error!("Failed to compile regex '{}': {}", name, e);
+                Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
             }
         })
         .collect()
@@ -82,13 +81,11 @@ static COMMAND_INJECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     ];
     patterns
         .iter()
-        .filter_map(|(pattern, name)| {
-            match Regex::new(pattern) {
-                Ok(re) => Some(re),
-                Err(e) => {
-                    tracing::error!("Failed to compile regex '{}': {}", name, e);
-                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
-                }
+        .filter_map(|(pattern, name)| match Regex::new(pattern) {
+            Ok(re) => Some(re),
+            Err(e) => {
+                tracing::error!("Failed to compile regex '{}': {}", name, e);
+                Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
             }
         })
         .collect()
@@ -351,13 +348,7 @@ impl SecurityUtils {
         let content_lower = content.to_lowercase();
 
         // Check for actual secrets being disclosed (assignment patterns)
-        let assignment_patterns = [
-            "password=",
-            "password :",
-            "password:",
-            "passwd=",
-            "pwd=",
-        ];
+        let assignment_patterns = ["password=", "password :", "password:", "passwd=", "pwd="];
         if assignment_patterns
             .iter()
             .any(|p| content_lower.contains(p))
@@ -449,7 +440,8 @@ mod tests {
         assert!(SecurityUtils::verify_password("password", &hash).unwrap());
         assert!(!SecurityUtils::verify_password("wrong", &hash).unwrap());
 
-        let not_dangerous = SecurityUtils::is_dangerous_content("This mentions password in conversation");
+        let not_dangerous =
+            SecurityUtils::is_dangerous_content("This mentions password in conversation");
         assert!(!not_dangerous);
         let dangerous = SecurityUtils::is_dangerous_content("password=supersecret123");
         assert!(dangerous);

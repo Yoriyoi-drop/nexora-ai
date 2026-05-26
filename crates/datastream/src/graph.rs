@@ -163,10 +163,7 @@ impl ExecutionGraph {
                         if cycle_nodes.contains(&dep) {
                             if let Some(deg) = in_degree.get_mut(*node_id) {
                                 *deg = deg.saturating_sub(1);
-                                warn!(
-                                    "Breaking cycle: removing edge {} -> {}",
-                                    dep, node_id
-                                );
+                                warn!("Breaking cycle: removing edge {} -> {}", dep, node_id);
                                 if *deg == 0 {
                                     queue.push_back((*node_id).clone());
                                 }
@@ -275,9 +272,7 @@ impl ExecutionGraph {
                             .retry(|| {
                                 let filter = filter.clone();
                                 let sample = sample.clone();
-                                async move {
-                                    Ok(filter.filter(&*sample).await)
-                                }
+                                async move { Ok(filter.filter(&*sample).await) }
                             })
                             .await
                             .unwrap_or_else(|e| {
@@ -434,12 +429,16 @@ impl ExecutionGraph {
 
     pub async fn run_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
         let (cancel_tx, _) = tokio::sync::watch::channel(false);
-        let handles: Vec<_> = samples.into_iter().map(|sample| {
-            let cancel = cancel_tx.subscribe();
-            let this = self.clone();
-            tokio::spawn(async move { this.execute(sample, cancel).await })
-        }).collect();
-        futures::future::join_all(handles).await
+        let handles: Vec<_> = samples
+            .into_iter()
+            .map(|sample| {
+                let cancel = cancel_tx.subscribe();
+                let this = self.clone();
+                tokio::spawn(async move { this.execute(sample, cancel).await })
+            })
+            .collect();
+        futures::future::join_all(handles)
+            .await
             .into_iter()
             .filter_map(|r| r.ok())
             .collect()
@@ -494,7 +493,7 @@ impl ExecutionResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use async_trait::async_trait;
     use uuid::Uuid;
 
@@ -511,7 +510,9 @@ mod tests {
 
     #[async_trait]
     impl Filter for DummyFilter {
-        fn name(&self) -> &str { &self.name }
+        fn name(&self) -> &str {
+            &self.name
+        }
         async fn evaluate(&self, sample: &DataSample) -> FilterResult {
             FilterResult {
                 passed: self.always_pass,
@@ -615,7 +616,9 @@ mod tests {
         let result = g.execute(sample(), rx).await;
         assert!(!result.is_accepted());
         match result {
-            ExecutionResult::Rejected { ref filter_name, .. } => {
+            ExecutionResult::Rejected {
+                ref filter_name, ..
+            } => {
                 assert_eq!(filter_name, "fail");
             }
             _ => panic!("Expected Rejected"),

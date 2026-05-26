@@ -366,8 +366,9 @@ impl ContextAgent {
                     })
             })
             .await
-            .map_err(|e| {
-                AgentError::ProcessingError { operation: "fetch_wikipedia".to_string(), reason: format!("Wikipedia context fetch failed: {}", e) }
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "fetch_wikipedia".to_string(),
+                reason: format!("Wikipedia context fetch failed: {}", e),
             })?;
 
         let data: Value = response.json().await?;
@@ -389,8 +390,9 @@ impl ContextAgent {
     async fn fetch_news_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching news context via NewsAPI");
 
-        let api_key = std::env::var("NEWSAPI_KEY").map_err(|_| {
-            AgentError::ProcessingError { operation: "fetch_news".to_string(), reason: "External source news requires NEWSAPI_KEY environment variable".to_string() }
+        let api_key = std::env::var("NEWSAPI_KEY").map_err(|_| AgentError::ProcessingError {
+            operation: "fetch_news".to_string(),
+            reason: "External source news requires NEWSAPI_KEY environment variable".to_string(),
         })?;
 
         let api_key_clone = api_key.clone();
@@ -415,8 +417,9 @@ impl ContextAgent {
                 }
             })
             .await
-            .map_err(|e| {
-                AgentError::ProcessingError { operation: "fetch_news".to_string(), reason: format!("News context fetch failed: {}", e) }
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "fetch_news".to_string(),
+                reason: format!("News context fetch failed: {}", e),
             })?;
 
         let data: Value = response.json().await?;
@@ -494,9 +497,12 @@ impl ContextAgent {
     async fn fetch_stock_context(&self) -> Result<(Value, usize)> {
         debug!("Fetching stock context via Finnhub API");
 
-        let api_key = std::env::var("FINNHUB_API_KEY").map_err(|_| {
-            AgentError::ProcessingError { operation: "fetch_stock".to_string(), reason: "External source stock requires FINNHUB_API_KEY environment variable".to_string() }
-        })?;
+        let api_key =
+            std::env::var("FINNHUB_API_KEY").map_err(|_| AgentError::ProcessingError {
+                operation: "fetch_stock".to_string(),
+                reason: "External source stock requires FINNHUB_API_KEY environment variable"
+                    .to_string(),
+            })?;
 
         let api_key_clone = api_key.clone();
         let response = RetryConfig::new(3, 500)
@@ -520,8 +526,9 @@ impl ContextAgent {
                 }
             })
             .await
-            .map_err(|e| {
-                AgentError::ProcessingError { operation: "fetch_stock".to_string(), reason: format!("Stock context fetch failed: {}", e) }
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "fetch_stock".to_string(),
+                reason: format!("Stock context fetch failed: {}", e),
             })?;
 
         let data: Value = response.json().await?;
@@ -550,12 +557,21 @@ impl ContextAgent {
 
     /// Fetch user profile context from database
     async fn fetch_user_profile_context(&self) -> Result<(Value, usize)> {
-        Err(AgentError::ProcessingError { operation: "fetch_user_profile".to_string(), reason: "External source user_profile requires a configured user profile database service".to_string() })
+        Err(AgentError::ProcessingError {
+            operation: "fetch_user_profile".to_string(),
+            reason:
+                "External source user_profile requires a configured user profile database service"
+                    .to_string(),
+        })
     }
 
     /// Fetch context from knowledge base
     async fn fetch_knowledge_base_context(&self) -> Result<(Value, usize)> {
-        Err(AgentError::ProcessingError { operation: "fetch_knowledge_base".to_string(), reason: "External source knowledge_base requires a configured knowledge base service".to_string() })
+        Err(AgentError::ProcessingError {
+            operation: "fetch_knowledge_base".to_string(),
+            reason: "External source knowledge_base requires a configured knowledge base service"
+                .to_string(),
+        })
     }
 
     /// Fetch context from document storage via filesystem
@@ -564,19 +580,26 @@ impl ContextAgent {
 
         let docs_dir = std::path::Path::new("documents");
         if !docs_dir.exists() {
-            return Err(AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: "External source documents requires a 'documents/' directory with indexed files".to_string() });
+            return Err(AgentError::ProcessingError {
+                operation: "fetch_documents".to_string(),
+                reason:
+                    "External source documents requires a 'documents/' directory with indexed files"
+                        .to_string(),
+            });
         }
 
-        let entries = std::fs::read_dir(docs_dir).map_err(|e| {
-            AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: format!("Failed to read documents directory: {}", e) }
+        let entries = std::fs::read_dir(docs_dir).map_err(|e| AgentError::ProcessingError {
+            operation: "fetch_documents".to_string(),
+            reason: format!("Failed to read documents directory: {}", e),
         })?;
 
         let mut recent_files = Vec::with_capacity(10);
         let mut total_files = 0u64;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                AgentError::ProcessingError { operation: "fetch_documents".to_string(), reason: format!("Failed to read document entry: {}", e) }
+            let entry = entry.map_err(|e| AgentError::ProcessingError {
+                operation: "fetch_documents".to_string(),
+                reason: format!("Failed to read document entry: {}", e),
             })?;
             if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 total_files += 1;
@@ -606,11 +629,16 @@ impl ContextAgent {
 
         let log_dir = std::path::Path::new("logs");
         if !log_dir.exists() {
-            return Err(AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: "External source logs requires a 'logs/' directory with application logs".to_string() });
+            return Err(AgentError::ProcessingError {
+                operation: "fetch_logs".to_string(),
+                reason: "External source logs requires a 'logs/' directory with application logs"
+                    .to_string(),
+            });
         }
 
-        let entries = std::fs::read_dir(log_dir).map_err(|e| {
-            AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: format!("Failed to read logs directory: {}", e) }
+        let entries = std::fs::read_dir(log_dir).map_err(|e| AgentError::ProcessingError {
+            operation: "fetch_logs".to_string(),
+            reason: format!("Failed to read logs directory: {}", e),
         })?;
 
         let mut recent_errors = Vec::with_capacity(10);
@@ -618,8 +646,9 @@ impl ContextAgent {
         let mut latest_time = std::time::SystemTime::UNIX_EPOCH;
 
         for entry in entries {
-            let entry = entry.map_err(|e| {
-                AgentError::ProcessingError { operation: "fetch_logs".to_string(), reason: format!("Failed to read log entry: {}", e) }
+            let entry = entry.map_err(|e| AgentError::ProcessingError {
+                operation: "fetch_logs".to_string(),
+                reason: format!("Failed to read log entry: {}", e),
             })?;
 
             if let Ok(meta) = entry.metadata() {
@@ -840,7 +869,8 @@ impl ContextAgent {
                 // Implement time window filtering
                 debug!("Filtering context within {} hour time window", hours);
 
-                let cutoff_time = chrono::Utc::now() - chrono::Duration::hours(i64::try_from(*hours).unwrap_or(i64::MAX));
+                let cutoff_time = chrono::Utc::now()
+                    - chrono::Duration::hours(i64::try_from(*hours).unwrap_or(i64::MAX));
 
                 if let Value::Object(obj) = &context {
                     let mut filtered = serde_json::Map::new();
@@ -1131,9 +1161,15 @@ mod tests {
     fn test_context_agent_config_default() {
         let config = ContextAgentConfig::default();
         assert_eq!(config.max_context_length, 4096);
-        assert!(matches!(config.retention_policy, ContextRetentionPolicy::KeepAll));
+        assert!(matches!(
+            config.retention_policy,
+            ContextRetentionPolicy::KeepAll
+        ));
         assert_eq!(config.context_sources.len(), 4);
-        assert!(matches!(config.merge_strategy, ContextMergeStrategy::Concatenate));
+        assert!(matches!(
+            config.merge_strategy,
+            ContextMergeStrategy::Concatenate
+        ));
     }
 
     #[test]
@@ -1152,19 +1188,31 @@ mod tests {
         assert!(matches!(keep_all, ContextRetentionPolicy::KeepAll));
         assert!(matches!(keep_last, ContextRetentionPolicy::KeepLast(_)));
         assert!(matches!(time_window, ContextRetentionPolicy::TimeWindow(_)));
-        assert!(matches!(threshold, ContextRetentionPolicy::RelevanceThreshold(_)));
+        assert!(matches!(
+            threshold,
+            ContextRetentionPolicy::RelevanceThreshold(_)
+        ));
     }
 
     #[test]
     fn test_context_source_variants() {
         assert_eq!(ContextSource::Session, ContextSource::Session);
-        assert!(matches!(ContextSource::External("api".into()), ContextSource::External(_)));
+        assert!(matches!(
+            ContextSource::External("api".into()),
+            ContextSource::External(_)
+        ));
     }
 
     #[test]
     fn test_context_source_from_str() {
-        assert_eq!("Session".parse::<ContextSource>().unwrap(), ContextSource::Session);
-        assert_eq!("UserMemory".parse::<ContextSource>().unwrap(), ContextSource::UserMemory);
+        assert_eq!(
+            "Session".parse::<ContextSource>().unwrap(),
+            ContextSource::Session
+        );
+        assert_eq!(
+            "UserMemory".parse::<ContextSource>().unwrap(),
+            ContextSource::UserMemory
+        );
         assert!("Unknown".parse::<ContextSource>().is_err());
     }
 

@@ -1,14 +1,14 @@
 //! Code Sentinel Agent
-//! 
+//!
 //! Real-time code review and code quality enforcement
 
-use std::collections::HashMap;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use nexora_shared::{
+    agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
-    agent_types::{AgentStatus, AgentCapability, AgentMetrics, AgentResult},
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Code Sentinel Agent - Real-time code review and quality enforcement
 #[derive(Debug, Clone)]
@@ -2280,18 +2280,11 @@ impl Default for CodeSentinelConfig {
                         },
                         data_retention_policies: DataRetentionPolicies {
                             retention_periods: HashMap::new(),
-                            cleanup_requirements: vec![
-                                "Automatic cleanup".to_string(),
-                            ],
-                            audit_requirements: vec![
-                                "Access logging".to_string(),
-                            ],
+                            cleanup_requirements: vec!["Automatic cleanup".to_string()],
+                            audit_requirements: vec!["Access logging".to_string()],
                         },
                         data_access_controls: DataAccessControls {
-                            access_control_mechanisms: vec![
-                                "RBAC".to_string(),
-                                "ABAC".to_string(),
-                            ],
+                            access_control_mechanisms: vec!["RBAC".to_string(), "ABAC".to_string()],
                             permission_levels: vec![
                                 "read".to_string(),
                                 "write".to_string(),
@@ -2333,9 +2326,7 @@ impl Default for CodeSentinelConfig {
                             heap_usage_limits_mb: 960,
                             temporary_memory_limits_mb: 128,
                         },
-                        garbage_collection_requirements: vec![
-                            "Memory leak prevention".to_string(),
-                        ],
+                        garbage_collection_requirements: vec!["Memory leak prevention".to_string()],
                     },
                     resource_usage_limits: ResourceUsageLimits {
                         cpu_usage_limits: CpuUsageLimits {
@@ -2400,9 +2391,7 @@ impl Default for CodeSentinelConfig {
                         unit_test_requirements: UnitTestRequirements {
                             min_test_coverage: 0.8,
                             test_naming_conventions: NamingStyle::SnakeCase,
-                            test_structure_requirements: vec![
-                                "Arrange-Act-Assert".to_string(),
-                            ],
+                            test_structure_requirements: vec!["Arrange-Act-Assert".to_string()],
                             usage_guidelines: vec![
                                 "Minimal mocking".to_string(),
                                 "Interface-based mocking".to_string(),
@@ -2418,9 +2407,7 @@ impl Default for CodeSentinelConfig {
                                 test_data_cleanup: true,
                                 test_data_versioning: true,
                             },
-                            environment_requirements: vec![
-                                "Staging environment".to_string(),
-                            ],
+                            environment_requirements: vec!["Staging environment".to_string()],
                         },
                         test_coverage_requirements: TestCoverageRequirements {
                             statement_coverage: 0.8,
@@ -2492,18 +2479,16 @@ impl Default for CodeSentinelConfig {
                 },
             },
             review_policies: vec![],
-            language_support: vec![
-                ProgrammingLanguage {
-                    language_name: "Rust".to_string(),
-                    language_version: "1.70".to_string(),
-                    file_extensions: vec!["rs".to_string()],
-                    specific_rules: vec![],
-                    language_specific_features: vec![
-                        "Ownership system".to_string(),
-                        "Borrowing".to_string(),
-                    ],
-                },
-            ],
+            language_support: vec![ProgrammingLanguage {
+                language_name: "Rust".to_string(),
+                language_version: "1.70".to_string(),
+                file_extensions: vec!["rs".to_string()],
+                specific_rules: vec![],
+                language_specific_features: vec![
+                    "Ownership system".to_string(),
+                    "Borrowing".to_string(),
+                ],
+            }],
         }
     }
 }
@@ -2533,18 +2518,13 @@ impl Default for QualityEnforcement {
                     "Formatting issues".to_string(),
                     "Naming convention violations".to_string(),
                 ],
-                fix_strategies: vec![
-                    FixStrategy::AutomaticFix,
-                    FixStrategy::SuggestedFix,
-                ],
-                safety_checks: vec![
-                    SafetyCheck {
-                        check_id: "semantic_preservation".to_string(),
-                        check_description: "Ensure fix preserves semantics".to_string(),
-                        check_type: SafetyCheckType::SemanticPreservation,
-                        failure_action: FailureAction::RequireManualReview,
-                    },
-                ],
+                fix_strategies: vec![FixStrategy::AutomaticFix, FixStrategy::SuggestedFix],
+                safety_checks: vec![SafetyCheck {
+                    check_id: "semantic_preservation".to_string(),
+                    check_description: "Ensure fix preserves semantics".to_string(),
+                    check_type: SafetyCheckType::SemanticPreservation,
+                    failure_action: FailureAction::RequireManualReview,
+                }],
             },
             quality_gates: vec![],
         }
@@ -2600,37 +2580,51 @@ impl BaseAgent for CodeSentinelAgent {
 
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
         let start_time = std::time::Instant::now();
-        
+
         // Validate input
         self.validate_input(&input)?;
-        
+
         // Perform security analysis
         let security_analysis = self.perform_security_analysis(&input).await?;
-        
+
         // Perform performance analysis
         let performance_analysis = self.perform_performance_analysis(&input).await?;
-        
+
         // Perform maintainability analysis
         let maintainability_analysis = self.perform_maintainability_analysis(&input).await?;
-        
+
         // Perform architectural analysis
         let architectural_analysis = self.perform_architectural_analysis(&input).await?;
-        
+
         // Perform style analysis
         let style_analysis = self.perform_style_analysis(&input).await?;
-        
+
         // Perform documentation analysis
         let documentation_analysis = self.perform_documentation_analysis(&input).await?;
-        
+
         // Calculate quality metrics
-        let quality_metrics = CodeSentinelAgent::calculate_quality_metrics(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
-        
+        let quality_metrics = CodeSentinelAgent::calculate_quality_metrics(
+            &security_analysis,
+            &performance_analysis,
+            &maintainability_analysis,
+            &architectural_analysis,
+            &style_analysis,
+            &documentation_analysis,
+        );
+
         // Generate issues and suggestions
-        let (issues_found, suggestions) = CodeSentinelAgent::generate_issues_and_suggestions(&security_analysis, &performance_analysis, &maintainability_analysis, &architectural_analysis, &style_analysis, &documentation_analysis);
-        
+        let (issues_found, suggestions) = CodeSentinelAgent::generate_issues_and_suggestions(
+            &security_analysis,
+            &performance_analysis,
+            &maintainability_analysis,
+            &architectural_analysis,
+            &style_analysis,
+            &documentation_analysis,
+        );
+
         // Generate auto-fixes
         let auto_fixes_available = CodeSentinelAgent::generate_auto_fixes(&issues_found);
-        
+
         // Build output
         let output = CodeSentinelTaskOutput {
             analysis_results: AnalysisResults {
@@ -2646,9 +2640,9 @@ impl BaseAgent for CodeSentinelAgent {
             suggestions,
             auto_fixes_available,
         };
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         Ok(output)
     }
 
@@ -2661,21 +2655,22 @@ impl BaseAgent for CodeSentinelAgent {
     }
 
     fn get_capabilities(&self) -> Vec<AgentCapability> {
-        vec![
-            AgentCapability {
-                name: "code_review".to_string(),
-                description: "Real-time code review and quality enforcement".to_string(),
-                version: "1.0.0".to_string(),
-                input_types: vec!["source_code".to_string(), "file_path".to_string()],
-                output_types: vec!["analysis_results".to_string(), "quality_metrics".to_string()],
-                metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.92,
-                    avg_latency: 300.0,
-                    resource_usage: 0.6,
-                    reliability: 0.95,
-                },
+        vec![AgentCapability {
+            name: "code_review".to_string(),
+            description: "Real-time code review and quality enforcement".to_string(),
+            version: "1.0.0".to_string(),
+            input_types: vec!["source_code".to_string(), "file_path".to_string()],
+            output_types: vec![
+                "analysis_results".to_string(),
+                "quality_metrics".to_string(),
+            ],
+            metrics: nexora_shared::agent_types::CapabilityMetrics {
+                accuracy: 0.92,
+                avg_latency: 300.0,
+                resource_usage: 0.6,
+                reliability: 0.95,
             },
-        ]
+        }]
     }
 
     fn get_metrics(&self) -> AgentMetrics {
@@ -2717,41 +2712,42 @@ impl CodeSentinelAgent {
     fn validate_input(&self, input: &CodeSentinelTaskInput) -> AgentResult<()> {
         if input.source_code.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "Source code cannot be empty".to_string()
+                "Source code cannot be empty".to_string(),
             ));
         }
-        
+
         if input.file_path.is_empty() {
             return Err(nexora_shared::agent_types::AgentError::InvalidInput(
-                "File path cannot be empty".to_string()
+                "File path cannot be empty".to_string(),
             ));
         }
-        
+
         Ok(())
     }
 
     /// Perform security analysis
-    async fn perform_security_analysis(&self, input: &CodeSentinelTaskInput) -> AgentResult<SecurityAnalysisResult> {
-        let vulnerabilities_found = vec![
-            Vulnerability {
-                vulnerability_id: "vuln_001".to_string(),
-                vulnerability_type: "SQL Injection".to_string(),
-                severity_level: SeverityLevel::Critical,
-                description: "Potential SQL injection vulnerability".to_string(),
-                location: CodeLocation {
-                    file_path: input.file_path.clone(),
-                    line_number: 42,
-                    column_number: 15,
-                    function_name: Some("execute_query".to_string()),
-                    class_name: None,
-                },
-                cvss_score: Some(9.8),
-                fix_recommendation: "Use parameterized queries".to_string(),
+    async fn perform_security_analysis(
+        &self,
+        input: &CodeSentinelTaskInput,
+    ) -> AgentResult<SecurityAnalysisResult> {
+        let vulnerabilities_found = vec![Vulnerability {
+            vulnerability_id: "vuln_001".to_string(),
+            vulnerability_type: "SQL Injection".to_string(),
+            severity_level: SeverityLevel::Critical,
+            description: "Potential SQL injection vulnerability".to_string(),
+            location: CodeLocation {
+                file_path: input.file_path.clone(),
+                line_number: 42,
+                column_number: 15,
+                function_name: Some("execute_query".to_string()),
+                class_name: None,
             },
-        ];
-        
+            cvss_score: Some(9.8),
+            fix_recommendation: "Use parameterized queries".to_string(),
+        }];
+
         let security_score = 0.75;
-        
+
         Ok(SecurityAnalysisResult {
             vulnerabilities_found,
             security_score,
@@ -2765,33 +2761,34 @@ impl CodeSentinelAgent {
     }
 
     /// Perform performance analysis
-    async fn perform_performance_analysis(&self, input: &CodeSentinelTaskInput) -> AgentResult<PerformanceAnalysisResult> {
-        let performance_issues = vec![
-            PerformanceIssue {
-                issue_id: "perf_001".to_string(),
-                issue_type: PerformanceIssueType::HighTimeComplexity,
-                severity_level: SeverityLevel::High,
-                description: "O(n²) complexity detected".to_string(),
-                location: CodeLocation {
-                    file_path: input.file_path.clone(),
-                    line_number: 123,
-                    column_number: 8,
-                    function_name: Some("process_data".to_string()),
-                    class_name: None,
-                },
-                performance_impact: PerformanceImpact {
-                    execution_time_impact_ms: 1000,
-                    memory_usage_impact_mb: 50.0,
-                    cpu_usage_impact_percentage: 15.0,
-                    io_impact: IoImpact {
-                        file_operations: 0,
-                        network_operations: 0,
-                        database_operations: 100,
-                    },
+    async fn perform_performance_analysis(
+        &self,
+        input: &CodeSentinelTaskInput,
+    ) -> AgentResult<PerformanceAnalysisResult> {
+        let performance_issues = vec![PerformanceIssue {
+            issue_id: "perf_001".to_string(),
+            issue_type: PerformanceIssueType::HighTimeComplexity,
+            severity_level: SeverityLevel::High,
+            description: "O(n²) complexity detected".to_string(),
+            location: CodeLocation {
+                file_path: input.file_path.clone(),
+                line_number: 123,
+                column_number: 8,
+                function_name: Some("process_data".to_string()),
+                class_name: None,
+            },
+            performance_impact: PerformanceImpact {
+                execution_time_impact_ms: 1000,
+                memory_usage_impact_mb: 50.0,
+                cpu_usage_impact_percentage: 15.0,
+                io_impact: IoImpact {
+                    file_operations: 0,
+                    network_operations: 0,
+                    database_operations: 100,
                 },
             },
-        ];
-        
+        }];
+
         let complexity_analysis = ComplexityAnalysis {
             cyclomatic_complexity: 15,
             cognitive_complexity: 20,
@@ -2806,7 +2803,7 @@ impl CodeSentinelAgent {
             },
             maintainability_index: 65.0,
         };
-        
+
         Ok(PerformanceAnalysisResult {
             performance_issues,
             complexity_analysis,
@@ -2838,29 +2835,30 @@ impl CodeSentinelAgent {
     }
 
     /// Perform maintainability analysis
-    async fn perform_maintainability_analysis(&self, input: &CodeSentinelTaskInput) -> AgentResult<MaintainabilityAnalysisResult> {
-        let code_smells_detected = vec![
-            CodeSmellInstance {
-                smell_type: CodeSmell::LongMethod,
-                location: CodeLocation {
-                    file_path: input.file_path.clone(),
-                    line_number: 200,
-                    column_number: 1,
-                    function_name: Some("process_complex_data".to_string()),
-                    class_name: None,
-                },
-                severity_level: SeverityLevel::Medium,
-                description: "Method is too long and complex".to_string(),
-                refactoring_suggestion: "Extract smaller methods".to_string(),
+    async fn perform_maintainability_analysis(
+        &self,
+        input: &CodeSentinelTaskInput,
+    ) -> AgentResult<MaintainabilityAnalysisResult> {
+        let code_smells_detected = vec![CodeSmellInstance {
+            smell_type: CodeSmell::LongMethod,
+            location: CodeLocation {
+                file_path: input.file_path.clone(),
+                line_number: 200,
+                column_number: 1,
+                function_name: Some("process_complex_data".to_string()),
+                class_name: None,
             },
-        ];
-        
+            severity_level: SeverityLevel::Medium,
+            description: "Method is too long and complex".to_string(),
+            refactoring_suggestion: "Extract smaller methods".to_string(),
+        }];
+
         let duplication_analysis = DuplicationAnalysis {
             duplication_percentage: 0.05,
             duplicated_blocks: vec![],
             similarity_threshold: 0.8,
         };
-        
+
         let test_coverage_analysis = TestCoverageAnalysis {
             statement_coverage: 0.75,
             branch_coverage: 0.65,
@@ -2868,7 +2866,7 @@ impl CodeSentinelAgent {
             line_coverage: 0.72,
             uncovered_code: vec![],
         };
-        
+
         Ok(MaintainabilityAnalysisResult {
             code_smells_detected,
             duplication_analysis,
@@ -2887,7 +2885,10 @@ impl CodeSentinelAgent {
     }
 
     /// Perform architectural analysis
-    async fn perform_architectural_analysis(&self, input: &CodeSentinelTaskInput) -> AgentResult<ArchitecturalAnalysisResult> {
+    async fn perform_architectural_analysis(
+        &self,
+        input: &CodeSentinelTaskInput,
+    ) -> AgentResult<ArchitecturalAnalysisResult> {
         Ok(ArchitecturalAnalysisResult {
             design_patterns_detected: vec![],
             architectural_violations: vec![],
@@ -2914,24 +2915,25 @@ impl CodeSentinelAgent {
     }
 
     /// Perform style analysis
-    async fn perform_style_analysis(&self, input: &CodeSentinelTaskInput) -> AgentResult<StyleAnalysisResult> {
-        let style_violations = vec![
-            StyleViolation {
-                violation_id: "style_001".to_string(),
-                rule_violated: "line_length".to_string(),
-                description: "Line exceeds maximum length".to_string(),
-                location: CodeLocation {
-                    file_path: input.file_path.clone(),
-                    line_number: 85,
-                    column_number: 101,
-                    function_name: None,
-                    class_name: None,
-                },
-                severity_level: SeverityLevel::Warning,
-                auto_fix_available: true,
+    async fn perform_style_analysis(
+        &self,
+        input: &CodeSentinelTaskInput,
+    ) -> AgentResult<StyleAnalysisResult> {
+        let style_violations = vec![StyleViolation {
+            violation_id: "style_001".to_string(),
+            rule_violated: "line_length".to_string(),
+            description: "Line exceeds maximum length".to_string(),
+            location: CodeLocation {
+                file_path: input.file_path.clone(),
+                line_number: 85,
+                column_number: 101,
+                function_name: None,
+                class_name: None,
             },
-        ];
-        
+            severity_level: SeverityLevel::Warning,
+            auto_fix_available: true,
+        }];
+
         Ok(StyleAnalysisResult {
             style_violations,
             formatting_issues: vec![],
@@ -2941,7 +2943,10 @@ impl CodeSentinelAgent {
     }
 
     /// Perform documentation analysis
-    async fn perform_documentation_analysis(&self, _input: &CodeSentinelTaskInput) -> AgentResult<DocumentationAnalysisResult> {
+    async fn perform_documentation_analysis(
+        &self,
+        _input: &CodeSentinelTaskInput,
+    ) -> AgentResult<DocumentationAnalysisResult> {
         Ok(DocumentationAnalysisResult {
             documentation_coverage: 0.60,
             missing_documentation: vec![],
@@ -2955,26 +2960,38 @@ impl CodeSentinelAgent {
     }
 
     /// Calculate quality metrics
-    fn calculate_quality_metrics(security_analysis: &SecurityAnalysisResult,
-                               performance_analysis: &PerformanceAnalysisResult,
-                               maintainability_analysis: &MaintainabilityAnalysisResult,
-                               architectural_analysis: &ArchitecturalAnalysisResult,
-                               style_analysis: &StyleAnalysisResult,
-                               documentation_analysis: &DocumentationAnalysisResult) -> QualityMetrics {
+    fn calculate_quality_metrics(
+        security_analysis: &SecurityAnalysisResult,
+        performance_analysis: &PerformanceAnalysisResult,
+        maintainability_analysis: &MaintainabilityAnalysisResult,
+        architectural_analysis: &ArchitecturalAnalysisResult,
+        style_analysis: &StyleAnalysisResult,
+        documentation_analysis: &DocumentationAnalysisResult,
+    ) -> QualityMetrics {
         let security_score = security_analysis.security_score;
 
         let performance_score = {
             let complexity = &performance_analysis.complexity_analysis;
             let base = complexity.maintainability_index.clamp(0.0, 1.0);
-            let issue_penalty = (performance_analysis.performance_issues.len() as f32 * 0.05).min(0.3);
-            let optimization_bonus = (performance_analysis.optimization_opportunities.len() as f32 * 0.02).min(0.1);
+            let issue_penalty =
+                (performance_analysis.performance_issues.len() as f32 * 0.05).min(0.3);
+            let optimization_bonus =
+                (performance_analysis.optimization_opportunities.len() as f32 * 0.02).min(0.1);
             (base - issue_penalty + optimization_bonus).clamp(0.0, 1.0)
         };
 
         let maintainability_score = {
-            let base = maintainability_analysis.test_coverage_analysis.statement_coverage;
-            let smell_penalty = (maintainability_analysis.code_smells_detected.len() as f32 * 0.03).min(0.2);
-            let dup_penalty = (maintainability_analysis.duplication_analysis.duplication_percentage / 100.0 * 0.3).min(0.3);
+            let base = maintainability_analysis
+                .test_coverage_analysis
+                .statement_coverage;
+            let smell_penalty =
+                (maintainability_analysis.code_smells_detected.len() as f32 * 0.03).min(0.2);
+            let dup_penalty = (maintainability_analysis
+                .duplication_analysis
+                .duplication_percentage
+                / 100.0
+                * 0.3)
+                .min(0.3);
             (base - smell_penalty - dup_penalty).clamp(0.0, 1.0)
         };
 
@@ -2983,23 +3000,38 @@ impl CodeSentinelAgent {
             let coupling = &architectural_analysis.coupling_analysis.coupling_metrics;
             let node_count = dep.dependency_graph.nodes.len();
             let avg_stability: f32 = if node_count > 0 {
-                dep.dependency_graph.nodes.iter()
+                dep.dependency_graph
+                    .nodes
+                    .iter()
                     .map(|n| n.stability_score)
-                    .sum::<f32>() / node_count as f32
+                    .sum::<f32>()
+                    / node_count as f32
             } else {
                 0.7
             };
             let cycle_penalty = (dep.circular_dependencies.len() as f32 * 0.1).min(0.3);
             let unstable_penalty = (dep.unstable_dependencies.len() as f32 * 0.05).min(0.2);
             let coupling_score = 1.0 - coupling.instability.clamp(0.0, 1.0);
-            let violation_penalty = (architectural_analysis.architectural_violations.len() as f32 * 0.05).min(0.2);
-            (avg_stability * 0.3 + coupling_score * 0.3 - cycle_penalty - unstable_penalty - violation_penalty + 0.2).clamp(0.0, 1.0)
+            let violation_penalty =
+                (architectural_analysis.architectural_violations.len() as f32 * 0.05).min(0.2);
+            (avg_stability * 0.3 + coupling_score * 0.3
+                - cycle_penalty
+                - unstable_penalty
+                - violation_penalty
+                + 0.2)
+                .clamp(0.0, 1.0)
         };
 
         let style_score = style_analysis.style_compliance_score;
         let documentation_score = documentation_analysis.documentation_coverage;
 
-        let overall_quality_score = (security_score + performance_score + maintainability_score + architectural_score + style_score + documentation_score) / 6.0;
+        let overall_quality_score = (security_score
+            + performance_score
+            + maintainability_score
+            + architectural_score
+            + style_score
+            + documentation_score)
+            / 6.0;
 
         QualityMetrics {
             overall_quality_score,
@@ -3013,15 +3045,17 @@ impl CodeSentinelAgent {
     }
 
     /// Generate issues and suggestions
-    fn generate_issues_and_suggestions(security_analysis: &SecurityAnalysisResult,
-                                     performance_analysis: &PerformanceAnalysisResult,
-                                     maintainability_analysis: &MaintainabilityAnalysisResult,
-                                     architectural_analysis: &ArchitecturalAnalysisResult,
-                                     style_analysis: &StyleAnalysisResult,
-                                     _documentation_analysis: &DocumentationAnalysisResult) -> (Vec<CodeIssue>, Vec<CodeSuggestion>) {
+    fn generate_issues_and_suggestions(
+        security_analysis: &SecurityAnalysisResult,
+        performance_analysis: &PerformanceAnalysisResult,
+        maintainability_analysis: &MaintainabilityAnalysisResult,
+        architectural_analysis: &ArchitecturalAnalysisResult,
+        style_analysis: &StyleAnalysisResult,
+        _documentation_analysis: &DocumentationAnalysisResult,
+    ) -> (Vec<CodeIssue>, Vec<CodeSuggestion>) {
         let mut issues_found = Vec::new();
         let mut suggestions = Vec::new();
-        
+
         // Add security issues
         for vulnerability in &security_analysis.vulnerabilities_found {
             issues_found.push(CodeIssue {
@@ -3034,7 +3068,7 @@ impl CodeSentinelAgent {
                 fix_recommendation: vulnerability.fix_recommendation.clone(),
             });
         }
-        
+
         // Add performance issues
         for perf_issue in &performance_analysis.performance_issues {
             issues_found.push(CodeIssue {
@@ -3047,7 +3081,7 @@ impl CodeSentinelAgent {
                 fix_recommendation: "Optimize algorithm".to_string(),
             });
         }
-        
+
         // Add style issues
         for style_violation in &style_analysis.style_violations {
             issues_found.push(CodeIssue {
@@ -3060,7 +3094,7 @@ impl CodeSentinelAgent {
                 fix_recommendation: "Fix style violation".to_string(),
             });
         }
-        
+
         // Generate suggestions
         suggestions.push(CodeSuggestion {
             suggestion_id: "sugg_001".to_string(),
@@ -3087,16 +3121,18 @@ impl CodeSentinelAgent {
                 complexity_impact: ImpactLevel::Low,
             },
         });
-        
+
         (issues_found, suggestions)
     }
 
     /// Generate auto-fixes
     fn generate_auto_fixes(issues_found: &[CodeIssue]) -> Vec<AutoFix> {
         let mut auto_fixes = Vec::new();
-        
+
         for issue in issues_found {
-            if issue.category == IssueCategory::Style && issue.severity_level == SeverityLevel::Warning {
+            if issue.category == IssueCategory::Style
+                && issue.severity_level == SeverityLevel::Warning
+            {
                 auto_fixes.push(AutoFix {
                     fix_id: format!("fix_{}", issue.issue_id),
                     issue_id: issue.issue_id.clone(),
@@ -3108,7 +3144,7 @@ impl CodeSentinelAgent {
                 });
             }
         }
-        
+
         auto_fixes
     }
 }
@@ -3145,16 +3181,24 @@ mod tests {
 
         let result = agent.process(input).await;
         assert!(result.is_ok());
-        
+
         let output = result.unwrap();
-        assert!(!output.issues_found.is_empty() || output.quality_metrics.overall_quality_score > 0.0);
+        assert!(
+            !output.issues_found.is_empty() || output.quality_metrics.overall_quality_score > 0.0
+        );
     }
 
     #[test]
     fn test_code_quality_standards() {
         let standards = CodeSentinelConfig::default().code_quality_standards;
         assert_eq!(standards.complexity_limits.max_cyclomatic_complexity, 10);
-        assert_eq!(standards.style_guidelines.naming_conventions.variable_naming, NamingStyle::SnakeCase);
+        assert_eq!(
+            standards
+                .style_guidelines
+                .naming_conventions
+                .variable_naming,
+            NamingStyle::SnakeCase
+        );
     }
 
     #[test]
@@ -3164,7 +3208,10 @@ mod tests {
             ..Default::default()
         };
         let agent = CodeSentinelAgent::new(config);
-        
-        assert!(matches!(agent.config.analysis_depth, AnalysisDepth::SecurityAnalysis));
+
+        assert!(matches!(
+            agent.config.analysis_depth,
+            AnalysisDepth::SecurityAnalysis
+        ));
     }
 }

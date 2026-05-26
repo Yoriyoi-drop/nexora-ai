@@ -158,7 +158,12 @@ impl TextGenerator {
 
     /// Generate text via foundation model inference through the model registry.
     /// Routes to the active model (default: Omnis) with configured parameters.
-    async fn model_generate(&self, prompt: &str, max_tokens: usize, temperature: f32) -> NexoraResult<String> {
+    async fn model_generate(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> NexoraResult<String> {
         let model = self
             .registry
             .get_model(&self.active_model_id)
@@ -313,7 +318,10 @@ mod tests {
 
         let text = result.unwrap();
         assert!(!text.is_empty());
-        assert!(!text.contains("TODO:"), "Generated text should not contain TODO markers");
+        assert!(
+            !text.contains("TODO:"),
+            "Generated text should not contain TODO markers"
+        );
     }
 
     #[tokio::test]

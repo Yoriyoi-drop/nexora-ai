@@ -147,8 +147,8 @@ impl MultiHeadAttention {
         k: &Tensor,
         v: &Tensor,
     ) -> Option<Tensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use tracing::warn;
 
         let ctx = match GpuContext::global() {
@@ -180,30 +180,24 @@ impl MultiHeadAttention {
 
         // Upload full Q, K, V as [total_heads * seq_len, head_dim]
         let q_gpu = log_ok!(
-            GpuTensor::from_cpu(
-                &log_ok!(
-                    ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], q_data.to_vec()),
-                    "Shape error for Q"
-                )
-            ),
+            GpuTensor::from_cpu(&log_ok!(
+                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], q_data.to_vec()),
+                "Shape error for Q"
+            )),
             "GPU upload error for Q"
         );
         let k_gpu = log_ok!(
-            GpuTensor::from_cpu(
-                &log_ok!(
-                    ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], k_data.to_vec()),
-                    "Shape error for K"
-                )
-            ),
+            GpuTensor::from_cpu(&log_ok!(
+                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], k_data.to_vec()),
+                "Shape error for K"
+            )),
             "GPU upload error for K"
         );
         let v_gpu = log_ok!(
-            GpuTensor::from_cpu(
-                &log_ok!(
-                    ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], v_data.to_vec()),
-                    "Shape error for V"
-                )
-            ),
+            GpuTensor::from_cpu(&log_ok!(
+                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], v_data.to_vec()),
+                "Shape error for V"
+            )),
             "GPU upload error for V"
         );
 
@@ -218,49 +212,70 @@ impl MultiHeadAttention {
             let k_h = k_gpu.view_as(vec![seq_len, self.head_dim]);
             let v_h = v_gpu.view_as(vec![seq_len, self.head_dim]);
 
-            let kt_h = log_ok!(ctx.transpose(&k_h), format!("GPU transpose failed for head {head}"));
-            let mut scores_h = log_ok!(ctx.matmul(&q_h, &kt_h), format!("GPU matmul failed for head {head}"));
+            let kt_h = log_ok!(
+                ctx.transpose(&k_h),
+                format!("GPU transpose failed for head {head}")
+            );
+            let mut scores_h = log_ok!(
+                ctx.matmul(&q_h, &kt_h),
+                format!("GPU matmul failed for head {head}")
+            );
 
             let scale_gpu = log_ok!(
-                GpuTensor::from_cpu(
-                    &log_ok!(
-                        ArrayD::from_shape_vec(vec![1], vec![1.0 / scale]),
-                        "Shape error for scale"
-                    )
-                ),
+                GpuTensor::from_cpu(&log_ok!(
+                    ArrayD::from_shape_vec(vec![1], vec![1.0 / scale]),
+                    "Shape error for scale"
+                )),
                 "GPU upload error for scale"
             );
-            scores_h = log_ok!(ctx.mul(&scores_h, &scale_gpu), format!("GPU mul failed for head {head}"));
+            scores_h = log_ok!(
+                ctx.mul(&scores_h, &scale_gpu),
+                format!("GPU mul failed for head {head}")
+            );
 
             // Softmax on GPU (via element-wise ops)
-            let max_val = log_ok!(scores_h.max_element_gpu(), format!("GPU max_element failed for head {head}"));
+            let max_val = log_ok!(
+                scores_h.max_element_gpu(),
+                format!("GPU max_element failed for head {head}")
+            );
             let max_gpu = log_ok!(
-                GpuTensor::from_cpu(
-                    &log_ok!(
-                        ArrayD::from_shape_vec(vec![1], vec![max_val]),
-                        "Shape error for max"
-                    )
-                ),
+                GpuTensor::from_cpu(&log_ok!(
+                    ArrayD::from_shape_vec(vec![1], vec![max_val]),
+                    "Shape error for max"
+                )),
                 "GPU upload error for max"
             );
-            let shifted = log_ok!(ctx.sub(&scores_h, &max_gpu), format!("GPU sub failed for head {head}"));
+            let shifted = log_ok!(
+                ctx.sub(&scores_h, &max_gpu),
+                format!("GPU sub failed for head {head}")
+            );
             let exp_scores = log_ok!(ctx.exp(&shifted), format!("GPU exp failed for head {head}"));
-            let sum_exp = log_ok!(exp_scores.sum_gpu(), format!("GPU sum failed for head {head}"));
+            let sum_exp = log_ok!(
+                exp_scores.sum_gpu(),
+                format!("GPU sum failed for head {head}")
+            );
             let sum_gpu = log_ok!(
-                GpuTensor::from_cpu(
-                    &log_ok!(
-                        ArrayD::from_shape_vec(vec![1], vec![sum_exp]),
-                        "Shape error for sum"
-                    )
-                ),
+                GpuTensor::from_cpu(&log_ok!(
+                    ArrayD::from_shape_vec(vec![1], vec![sum_exp]),
+                    "Shape error for sum"
+                )),
                 "GPU upload error for sum"
             );
-            let softmax_scores = log_ok!(ctx.div(&exp_scores, &sum_gpu), format!("GPU div failed for head {head}"));
+            let softmax_scores = log_ok!(
+                ctx.div(&exp_scores, &sum_gpu),
+                format!("GPU div failed for head {head}")
+            );
 
             // attention = softmax(scores) @ V: [seq_len, head_dim]
-            let attn_h = log_ok!(ctx.matmul(&softmax_scores, &v_h), format!("GPU attention matmul failed for head {head}"));
+            let attn_h = log_ok!(
+                ctx.matmul(&softmax_scores, &v_h),
+                format!("GPU attention matmul failed for head {head}")
+            );
 
-            let attn_cpu = log_ok!(attn_h.to_cpu(), format!("GPU readback failed for head {head}"));
+            let attn_cpu = log_ok!(
+                attn_h.to_cpu(),
+                format!("GPU readback failed for head {head}")
+            );
             output.extend(attn_cpu.iter().copied());
         }
 
@@ -419,28 +434,32 @@ impl Linear {
     /// GPU-accelerated forward pass
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: &Tensor) -> Option<Tensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
         use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global().ok()?;
         let input_data = input.data();
 
         let input_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.in_features], input_data.to_vec()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![1, self.in_features], input_data.to_vec()).ok()?,
+        )
+        .ok()?;
 
         let w_data = self.weight.data();
         let w_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.out_features, self.in_features], w_data.to_vec()).ok()?
-        ).ok()?;
+            &ArrayD::from_shape_vec(vec![self.out_features, self.in_features], w_data.to_vec())
+                .ok()?,
+        )
+        .ok()?;
         let wt_gpu = ctx.transpose(&w_gpu).ok()?;
 
         let mut out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
 
         if let Some(ref bias) = self.bias {
             let bias_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![1, self.out_features], bias.data().to_vec()).ok()?
-            ).ok()?;
+                &ArrayD::from_shape_vec(vec![1, self.out_features], bias.data().to_vec()).ok()?,
+            )
+            .ok()?;
             out_gpu = ctx.add(&out_gpu, &bias_gpu).ok()?;
         }
 

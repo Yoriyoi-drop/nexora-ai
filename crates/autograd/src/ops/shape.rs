@@ -46,9 +46,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
         Box::new(|grad, saved| {
             let shape_data: Vec<f32> = saved[0].iter().copied().collect();
             let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
-            let reshaped = grad
-                .clone()
-                .into_shape(orig_shape.clone());
+            let reshaped = grad.clone().into_shape(orig_shape.clone());
             match reshaped {
                 Ok(t) => vec![t],
                 Err(e) => {
@@ -73,32 +71,32 @@ pub fn transpose(input: &Tensor) -> Tensor {
                             return Tensor::from_gpu(gpu_result, id, false);
                         }
                         let gpu_clone = gpu_result.clone();
-                            return Tensor::from_gpu_with_grad_fn(
-                                gpu_result,
-                                vec![input.clone()],
-                                vec![],
-                                vec![gpu_clone],
-                                Box::new(|grad, _| {
-                                    let grad_mat = match grad
-                                        .view()
-                                        .into_dimensionality::<ndarray::Ix2>()
-                                    {
-                                        Ok(m) => m,
-                                        Err(e) => {
-                                            tracing::error!("transpose backward: grad must be 2D: {e}");
-                                            return vec![ArrayD::zeros(vec![0])];
-                                        }
-                                    };
-                                    vec![grad_mat.t().to_owned().into_dyn()]
-                                }),
-                                Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                    ctx.transpose(grad_gpu)
-                                        .map(|t| vec![t])
-                                        .map_err(|e| format!("GPU transpose backward failed: {e}"))
-                                })),
-                            );
+                        return Tensor::from_gpu_with_grad_fn(
+                            gpu_result,
+                            vec![input.clone()],
+                            vec![],
+                            vec![gpu_clone],
+                            Box::new(|grad, _| {
+                                let grad_mat = match grad
+                                    .view()
+                                    .into_dimensionality::<ndarray::Ix2>()
+                                {
+                                    Ok(m) => m,
+                                    Err(e) => {
+                                        tracing::error!("transpose backward: grad must be 2D: {e}");
+                                        return vec![ArrayD::zeros(vec![0])];
+                                    }
+                                };
+                                vec![grad_mat.t().to_owned().into_dyn()]
+                            }),
+                            Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
+                                ctx.transpose(grad_gpu)
+                                    .map(|t| vec![t])
+                                    .map_err(|e| format!("GPU transpose backward failed: {e}"))
+                            })),
+                        );
                     }
-                    Err(e) => warn!("autograd shape backward failed: {e}")
+                    Err(e) => warn!("autograd shape backward failed: {e}"),
                 }
             }
         }
@@ -123,10 +121,7 @@ pub fn transpose(input: &Tensor) -> Tensor {
         vec![input.clone()],
         vec![],
         Box::new(|grad, _| {
-            let grad_mat = match grad
-                .view()
-                .into_dimensionality::<ndarray::Ix2>()
-            {
+            let grad_mat = match grad.view().into_dimensionality::<ndarray::Ix2>() {
                 Ok(m) => m,
                 Err(e) => {
                     tracing::error!("transpose backward: grad must be 2D: {e}");

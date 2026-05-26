@@ -2,14 +2,14 @@ use uuid::Uuid;
 
 use nexora_isolation::config::IsolationConfig;
 use nexora_isolation::firewall::FirewallAction;
-use nexora_isolation::killswitch::{KillTarget, KillTrigger, KillStatus};
-use nexora_isolation::multicluster::ScalingPolicy;
+use nexora_isolation::killswitch::{KillStatus, KillTarget, KillTrigger};
 use nexora_isolation::layer0_global::ClusterStatus;
 use nexora_isolation::layer1_mode::{ModeId, ModeKind, ModeStatus};
 use nexora_isolation::layer2_agent::{AgentRuntimeSpec, AgentType, PodStatus};
 use nexora_isolation::layer3_tool::{SandboxSpec, ToolKind, ToolStatus};
 use nexora_isolation::layer4_runtime::RuntimeIsolationSpec;
 use nexora_isolation::layer6_permission::{AgentRole, Capability};
+use nexora_isolation::multicluster::ScalingPolicy;
 use nexora_isolation::multicluster::{GlobalMultiClusterConfig, MultiClusterSystem};
 use nexora_isolation::quarantine::{QuarantineReason, QuarantineSeverity, QuarantineStatus};
 use nexora_isolation::IsolationOrchestrator;
@@ -71,12 +71,7 @@ fn test_full_isolation_pipeline() {
     // L3: Tool isolation — register tool, set access control, verify restriction
     {
         let mut tool = orch.tool.write();
-        let pod = tool.register_tool(
-            ToolKind::Python,
-            SandboxSpec::default_tool(),
-            false,
-            false,
-        );
+        let pod = tool.register_tool(ToolKind::Python, SandboxSpec::default_tool(), false, false);
         assert_eq!(pod.status, ToolStatus::Idle);
 
         tool.set_tool_allowed_commands(&ToolKind::Python, vec!["run".into()])
@@ -243,7 +238,11 @@ fn test_quarantine_malicious_pattern() {
     // Resolve quarantine — agent can pass checks again
     {
         let q_lock = &mut *orch.quarantine.write();
-        let active_ids: Vec<_> = q_lock.get_active_for_agent(src).iter().map(|q| q.id).collect();
+        let active_ids: Vec<_> = q_lock
+            .get_active_for_agent(src)
+            .iter()
+            .map(|q| q.id)
+            .collect();
         for id in active_ids {
             q_lock.resolve_quarantine(id).unwrap();
         }

@@ -7,7 +7,9 @@ use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;
 
 /// NXR-AXIOM Architecture Implementation
-#[deprecated(note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrAxiomModel (CausalLM-backed) instead.")]
+#[deprecated(
+    note = "This is a SIMULATED architecture using keyword matching, not a real neural network. Use foundation::NxrAxiomModel (CausalLM-backed) instead."
+)]
 pub struct AxiomArchitecture {
     /// Configuration
     config: AxiomConfig,
@@ -904,7 +906,11 @@ impl AxiomArchitecture {
         if self.proof_generation_system.generation_methods.is_empty() {
             return Err("At least one proof generation method required".into());
         }
-        if self.proof_verification_system.verification_methods.is_empty() {
+        if self
+            .proof_verification_system
+            .verification_methods
+            .is_empty()
+        {
             return Err("At least one proof verification method required".into());
         }
         if self.world_simulation_engine.simulation_models.is_empty() {
@@ -929,34 +935,104 @@ impl AxiomArchitecture {
         let word_count = words.len();
         reasoning_steps.push(format!("Tokenized input into {} words", word_count));
 
-        let logical_operators = ["if", "then", "and", "or", "not", "implies", "iff", "xor", "all", "exists", "for all", "there exists", "therefore", "because", "since", "unless", "but", "however", "conversely"];
-        let found_ops: Vec<&str> = logical_operators.iter().filter(|&&op| lower.contains(op)).copied().collect();
+        let logical_operators = [
+            "if",
+            "then",
+            "and",
+            "or",
+            "not",
+            "implies",
+            "iff",
+            "xor",
+            "all",
+            "exists",
+            "for all",
+            "there exists",
+            "therefore",
+            "because",
+            "since",
+            "unless",
+            "but",
+            "however",
+            "conversely",
+        ];
+        let found_ops: Vec<&str> = logical_operators
+            .iter()
+            .filter(|&&op| lower.contains(op))
+            .copied()
+            .collect();
         if found_ops.is_empty() {
-            reasoning_steps.push("No logical operators detected — treating as atomic proposition".to_string());
+            reasoning_steps
+                .push("No logical operators detected — treating as atomic proposition".to_string());
         } else {
-            reasoning_steps.push(format!("Detected logical operators: {}", found_ops.join(", ")));
+            reasoning_steps.push(format!(
+                "Detected logical operators: {}",
+                found_ops.join(", ")
+            ));
         }
 
-        let claim_count = words.iter().filter(|w| **w == "claim" || **w == "claims" || **w == "theorem" || **w == "lemma" || **w == "statement").count();
-        let premise_count = words.iter().filter(|w| **w == "premise" || **w == "premises" || **w == "given" || **w == "assume" || **w == "assumption" || **w == "axiom" || **w == "hypothesis").count();
-        let conclusion_count = words.iter().filter(|w| **w == "conclude" || **w == "conclusion" || **w == "therefore" || **w == "thus" || **w == "hence" || **w == "so").count();
+        let claim_count = words
+            .iter()
+            .filter(|w| {
+                **w == "claim"
+                    || **w == "claims"
+                    || **w == "theorem"
+                    || **w == "lemma"
+                    || **w == "statement"
+            })
+            .count();
+        let premise_count = words
+            .iter()
+            .filter(|w| {
+                **w == "premise"
+                    || **w == "premises"
+                    || **w == "given"
+                    || **w == "assume"
+                    || **w == "assumption"
+                    || **w == "axiom"
+                    || **w == "hypothesis"
+            })
+            .count();
+        let conclusion_count = words
+            .iter()
+            .filter(|w| {
+                **w == "conclude"
+                    || **w == "conclusion"
+                    || **w == "therefore"
+                    || **w == "thus"
+                    || **w == "hence"
+                    || **w == "so"
+            })
+            .count();
 
-        reasoning_steps.push(format!("Found {} claims, {} premises, {} conclusions", claim_count, premise_count, conclusion_count));
+        reasoning_steps.push(format!(
+            "Found {} claims, {} premises, {} conclusions",
+            claim_count, premise_count, conclusion_count
+        ));
 
         if premise_count > 0 {
-            reasoning_steps.push(format!("Applying forward chaining on {} premises", premise_count));
+            reasoning_steps.push(format!(
+                "Applying forward chaining on {} premises",
+                premise_count
+            ));
         }
         if claim_count > 0 {
             reasoning_steps.push(format!("Decomposing {} claims into sub-goals", claim_count));
         }
 
-        reasoning_steps.push(format!("Confidence: {:.2}", (word_count.min(100) as f64 / 100.0 + found_ops.len() as f64 * 0.1).min(1.0)));
+        reasoning_steps.push(format!(
+            "Confidence: {:.2}",
+            (word_count.min(100) as f64 / 100.0 + found_ops.len() as f64 * 0.1).min(1.0)
+        ));
 
         if conclusion_count > 0 {
             reasoning_steps.push("Deriving conclusions from premises".to_string());
         } else {
             reasoning_steps.push("No explicit conclusions found — cannot derive".to_string());
-            return Err(format!("Cannot derive conclusion from input: no conclusion markers found").into());
+            return Err(format!(
+                "Cannot derive conclusion from input: no conclusion markers found"
+            )
+            .into());
         }
 
         Ok(reasoning_steps)
@@ -968,27 +1044,56 @@ impl AxiomArchitecture {
         reasoning_steps.push(format!("Analyzing mathematical problem: {}", problem));
 
         let has_numbers = problem.chars().any(|c| c.is_ascii_digit());
-        let has_operators = problem.contains('+') || problem.contains('-') || problem.contains('*') || problem.contains('/') || problem.contains('=') || problem.contains('^') || problem.contains('%');
+        let has_operators = problem.contains('+')
+            || problem.contains('-')
+            || problem.contains('*')
+            || problem.contains('/')
+            || problem.contains('=')
+            || problem.contains('^')
+            || problem.contains('%');
         let has_equations = problem.contains('=');
 
         if has_numbers {
-            let nums: Vec<&str> = problem.split_whitespace().filter(|w| w.parse::<f64>().is_ok()).collect();
-            reasoning_steps.push(format!("Detected {} numeric literals: {}", nums.len(), nums.join(", ")));
+            let nums: Vec<&str> = problem
+                .split_whitespace()
+                .filter(|w| w.parse::<f64>().is_ok())
+                .collect();
+            reasoning_steps.push(format!(
+                "Detected {} numeric literals: {}",
+                nums.len(),
+                nums.join(", ")
+            ));
         } else {
             reasoning_steps.push("No numeric literals detected".to_string());
         }
 
         if has_operators {
-            let ops = problem.chars().filter(|c| "+-*/=^%".contains(*c)).collect::<String>();
+            let ops = problem
+                .chars()
+                .filter(|c| "+-*/=^%".contains(*c))
+                .collect::<String>();
             reasoning_steps.push(format!("Detected mathematical operators: {}", ops));
         }
 
         let lower = problem.to_lowercase();
-        if lower.contains("integral") || lower.contains("derivative") || lower.contains("limit") || lower.contains("differential") {
+        if lower.contains("integral")
+            || lower.contains("derivative")
+            || lower.contains("limit")
+            || lower.contains("differential")
+        {
             reasoning_steps.push("Identified domain: Calculus".to_string());
-        } else if lower.contains("matrix") || lower.contains("vector") || lower.contains("linear") || lower.contains("transform") {
+        } else if lower.contains("matrix")
+            || lower.contains("vector")
+            || lower.contains("linear")
+            || lower.contains("transform")
+        {
             reasoning_steps.push("Identified domain: Linear Algebra".to_string());
-        } else if lower.contains("prime") || lower.contains("divisor") || lower.contains("gcd") || lower.contains("modulo") || has_numbers && !has_operators {
+        } else if lower.contains("prime")
+            || lower.contains("divisor")
+            || lower.contains("gcd")
+            || lower.contains("modulo")
+            || has_numbers && !has_operators
+        {
             reasoning_steps.push("Identified domain: Number Theory".to_string());
         } else if has_equations && has_operators {
             reasoning_steps.push("Identified domain: Algebra".to_string());
@@ -1002,7 +1107,8 @@ impl AxiomArchitecture {
             reasoning_steps.push("Applying symbolic manipulation to isolate variables".to_string());
             reasoning_steps.push("Computing numerical solution".to_string());
         } else {
-            reasoning_steps.push("No equations detected — performing expression evaluation".to_string());
+            reasoning_steps
+                .push("No equations detected — performing expression evaluation".to_string());
         }
 
         Ok(reasoning_steps)
@@ -1017,8 +1123,12 @@ impl AxiomArchitecture {
         let lower = statement.to_lowercase();
         let mut steps = Vec::new();
 
-        let has_implication = lower.contains("if") && (lower.contains("then") || lower.contains("implies"));
-        let has_quantifier = lower.contains("all") || lower.contains("every") || lower.contains("exists") || lower.contains("some");
+        let has_implication =
+            lower.contains("if") && (lower.contains("then") || lower.contains("implies"));
+        let has_quantifier = lower.contains("all")
+            || lower.contains("every")
+            || lower.contains("exists")
+            || lower.contains("some");
         let has_negation = lower.contains("not") || lower.contains("never") || lower.contains("no");
 
         if has_implication {
@@ -1039,12 +1149,22 @@ impl AxiomArchitecture {
         }
 
         let words: Vec<&str> = statement.split_whitespace().collect();
-        steps.push(format!("Applying modus ponens on {} derived facts", words.len().max(1)));
+        steps.push(format!(
+            "Applying modus ponens on {} derived facts",
+            words.len().max(1)
+        ));
 
         for (i, token) in words.iter().enumerate() {
             if token.len() > 3 {
-                steps.push(format!("Step {}.{}: From '{}' deduce intermediate constraint", i + 1, token, token));
-                if i >= 4 { break; }
+                steps.push(format!(
+                    "Step {}.{}: From '{}' deduce intermediate constraint",
+                    i + 1,
+                    token,
+                    token
+                ));
+                if i >= 4 {
+                    break;
+                }
             }
         }
 

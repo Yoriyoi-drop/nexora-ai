@@ -16,14 +16,8 @@ pub struct MemoryQuarantine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QuarantineReason {
-    AnomalyDetected {
-        score: f64,
-        details: String,
-    },
-    SecurityViolation {
-        capability: String,
-        action: String,
-    },
+    AnomalyDetected { score: f64, details: String },
+    SecurityViolation { capability: String, action: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

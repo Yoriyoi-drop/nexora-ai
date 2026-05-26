@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::continuous_batching::ContinuousBatchingConfig;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
 use crate::prefix_cache::PrefixCache;
@@ -14,16 +15,16 @@ use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
 use crate::session::InferenceSession;
 use crate::streaming::StreamingEngine;
-use crate::continuous_batching::ContinuousBatchingConfig;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
+    SessionEntry,
 };
 use nexora_common::retry::RetryConfig;
 use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
-use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, TransformerConfig};
 #[cfg(feature = "gpu")]
 use nexora_transformer::GpuKVCache;
+use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, TransformerConfig};
 
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -126,11 +127,16 @@ impl InferenceEngine {
             (Arc::new(CausalLM::new(model_config.clone())), true)
         };
 
-        info!("CausalLM initialized with {} parameters", model.parameter_count());
+        info!(
+            "CausalLM initialized with {} parameters",
+            model.parameter_count()
+        );
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
-            scheduler: Arc::new(RwLock::new(RequestScheduler::new(config.max_concurrent_requests))),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new(
+                config.max_concurrent_requests,
+            ))),
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             model,
@@ -158,7 +164,7 @@ impl InferenceEngine {
 
     pub fn with_model(
         model: Arc<CausalLM>,
-    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+        tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
@@ -169,7 +175,9 @@ impl InferenceEngine {
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
-            scheduler: Arc::new(RwLock::new(RequestScheduler::new(config.max_concurrent_requests))),
+            scheduler: Arc::new(RwLock::new(RequestScheduler::new(
+                config.max_concurrent_requests,
+            ))),
             kv_cache: Arc::new(RwLock::new(KVCache::new())),
             session_manager: Arc::new(RwLock::new(HashMap::new())),
             model,
@@ -198,7 +206,8 @@ impl InferenceEngine {
         }
         if !self.model_ready {
             return Err(InferenceError::ModelNotLoaded(
-                "No checkpoint loaded — use with_model() or set checkpoint_path in InferenceConfig".to_string(),
+                "No checkpoint loaded — use with_model() or set checkpoint_path in InferenceConfig"
+                    .to_string(),
             ));
         }
         info!("Initializing inference engine");
@@ -308,13 +317,12 @@ impl InferenceEngine {
                     use std::fmt::Write;
                     let mut context = String::new();
                     for (i, r) in results.iter().take(3).enumerate() {
-                        if i > 0 { context.push('\n'); }
+                        if i > 0 {
+                            context.push('\n');
+                        }
                         let _ = write!(context, "- {}", r.value);
                     }
-                    format!(
-                        "Relevant context:\n{}\n\n---\n\n{}",
-                        context, prompt
-                    )
+                    format!("Relevant context:\n{}\n\n---\n\n{}", context, prompt)
                 }
                 _ => prompt,
             }
@@ -330,7 +338,10 @@ impl InferenceEngine {
                     t.encode(&augmented_prompt)
                 }
                 None => {
-                    warn!("No tokenizer configured for streaming request {}", request_id);
+                    warn!(
+                        "No tokenizer configured for streaming request {}",
+                        request_id
+                    );
                     return;
                 }
             };
@@ -371,41 +382,44 @@ impl InferenceEngine {
                     };
 
                     // Try GPU-native path first — no 128KB logits readback per token
-                    let (token_id, log_prob) =
-                        if let Some(tok) = ModelForward::forward_sample_gpu(
-                            model.as_ref(),
-                            input,
-                            &mut *kv_state,
-                            temperature,
-                            top_k,
-                            top_p,
-                            base_seed.wrapping_add(pos as u64),
-                        ) {
-                            (tok, 0.0f32)
-                        } else {
-                            let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
-                            let logits_slice = logits.as_slice().unwrap_or(&[]);
+                    let (token_id, log_prob) = if let Some(tok) = ModelForward::forward_sample_gpu(
+                        model.as_ref(),
+                        input,
+                        &mut *kv_state,
+                        temperature,
+                        top_k,
+                        top_p,
+                        base_seed.wrapping_add(pos as u64),
+                    ) {
+                        (tok, 0.0f32)
+                    } else {
+                        let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
+                        let logits_slice = logits.as_slice().unwrap_or(&[]);
 
-                            let tok = match sampler.sample(logits_slice) {
-                                Ok(idx) => idx as u32,
-                                Err(e) => {
-                                    warn!("Sampler failed, error: {:?}, falling back to argmax", e);
-                                    match logits
-                                        .iter()
-                                        .enumerate()
-                                        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                                    {
-                                        Some((i, _)) => i as u32,
-                                        None => {
-                                            warn!("Empty logits in streaming, using default token 1");
-                                            1
-                                        }
+                        let tok = match sampler.sample(logits_slice) {
+                            Ok(idx) => idx as u32,
+                            Err(e) => {
+                                warn!("Sampler failed, error: {:?}, falling back to argmax", e);
+                                match logits
+                                    .iter()
+                                    .enumerate()
+                                    .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                                {
+                                    Some((i, _)) => i as u32,
+                                    None => {
+                                        warn!("Empty logits in streaming, using default token 1");
+                                        1
                                     }
                                 }
-                            };
-                            let lp = logits.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
-                            (tok, lp)
+                            }
                         };
+                        let lp = logits
+                            .get(tok as usize)
+                            .copied()
+                            .map(|x| (x.max(1e-10)).ln())
+                            .unwrap_or(0.0);
+                        (tok, lp)
+                    };
 
                     let token_text = match &tokenizer {
                         Some(tok) => {
@@ -432,13 +446,21 @@ impl InferenceEngine {
                         break;
                     }
                 }
-            }).await;
+            })
+            .await;
 
             match gen_result {
                 Ok(()) => {}
                 Err(_elapsed) => {
-                    warn!("Streaming generation timed out after 60s for request {}", request_id);
-                    let _ = se_clone.write().await.push_tokens(stream_id, vec![], true).await;
+                    warn!(
+                        "Streaming generation timed out after 60s for request {}",
+                        request_id
+                    );
+                    let _ = se_clone
+                        .write()
+                        .await
+                        .push_tokens(stream_id, vec![], true)
+                        .await;
                 }
             }
 
@@ -452,7 +474,11 @@ impl InferenceEngine {
                         }
                         None => format!("[{} tokens generated]", generated_ids.len()),
                     };
-                    let _ = memory.lock().await.store_interaction(&augmented_prompt, &response_text).await;
+                    let _ = memory
+                        .lock()
+                        .await
+                        .store_interaction(&augmented_prompt, &response_text)
+                        .await;
                 }
             }
 
@@ -499,7 +525,11 @@ impl InferenceEngine {
         }
 
         let start = std::time::Instant::now();
-        let max_steps = requests.iter().map(|r| r.max_tokens as usize).max().unwrap_or(1024);
+        let max_steps = requests
+            .iter()
+            .map(|r| r.max_tokens as usize)
+            .max()
+            .unwrap_or(1024);
         let use_gpu = self.config.use_gpu;
 
         // Prepare per-sequence state
@@ -521,9 +551,10 @@ impl InferenceEngine {
         let mut sequences: Vec<SeqState> = Vec::with_capacity(requests.len());
 
         for req in &requests {
-            let prompt_ids = self.encode_prompt(&req.prompt).await.unwrap_or_else(|_| {
-                req.input_tokens.clone()
-            });
+            let prompt_ids = self
+                .encode_prompt(&req.prompt)
+                .await
+                .unwrap_or_else(|_| req.input_tokens.clone());
             let cache = model.reset_cache();
             sequences.push(SeqState {
                 request_id: req.request_id,
@@ -541,7 +572,8 @@ impl InferenceEngine {
 
         // BATTER STEP LOOP
         let completed = tokio::task::spawn_blocking(move || {
-            let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig::default());
+            let mut sampler =
+                crate::sampler::Sampler::new(crate::sampler::SamplingConfig::default());
             sampler.set_use_gpu(use_gpu);
 
             for _step in 0..max_steps {
@@ -561,10 +593,7 @@ impl InferenceEngine {
                     };
                     active_indices.push(i);
                     tokens.push(input);
-                    let cache = std::mem::replace(
-                        &mut seq.kv_cache,
-                        Vec::new(),
-                    );
+                    let cache = std::mem::replace(&mut seq.kv_cache, Vec::new());
                     seq_caches.push(nexora_transformer::CpuKVCache { entries: cache });
                 }
 
@@ -576,7 +605,8 @@ impl InferenceEngine {
                 let all_logits: Vec<Array1<f32>> = if seq_caches.len() > 1 {
                     #[cfg(feature = "gpu")]
                     if use_gpu {
-                        let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = seq_caches.iter_mut()
+                        let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = seq_caches
+                            .iter_mut()
                             .map(|c| std::mem::take(&mut c.entries))
                             .collect();
                         match model.forward_gpu_batched(&tokens, &mut vec_caches) {
@@ -587,29 +617,42 @@ impl InferenceEngine {
                                 logits
                             }
                             Err(e) => {
-                                crate::inference_trait::GPU_CPU_FALLBACKS.fetch_add(seq_caches.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                                tracing::warn!("Batched GPU forward failed: {e}, falling back to per-sequence");
+                                crate::inference_trait::GPU_CPU_FALLBACKS.fetch_add(
+                                    seq_caches.len() as u64,
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                                tracing::warn!(
+                                    "Batched GPU forward failed: {e}, falling back to per-sequence"
+                                );
                                 for (i, entries) in vec_caches.into_iter().enumerate() {
                                     seq_caches[i].entries = entries;
                                 }
-                                tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
-                                    model.forward(&[tok], cache).ok()
-                                }).collect()
+                                tokens
+                                    .iter()
+                                    .zip(seq_caches.iter_mut())
+                                    .filter_map(|(&tok, cache)| model.forward(&[tok], cache).ok())
+                                    .collect()
                             }
                         }
                     } else {
-                        tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
-                            model.forward(&[tok], cache).ok()
-                        }).collect()
+                        tokens
+                            .iter()
+                            .zip(seq_caches.iter_mut())
+                            .filter_map(|(&tok, cache)| model.forward(&[tok], cache).ok())
+                            .collect()
                     }
                     #[cfg(not(feature = "gpu"))]
-                    tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
-                        model.forward(&[tok], cache).ok()
-                    }).collect()
+                    tokens
+                        .iter()
+                        .zip(seq_caches.iter_mut())
+                        .filter_map(|(&tok, cache)| model.forward(&[tok], cache).ok())
+                        .collect()
                 } else {
-                    tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
-                        model.forward(&[tok], cache).ok()
-                    }).collect()
+                    tokens
+                        .iter()
+                        .zip(seq_caches.iter_mut())
+                        .filter_map(|(&tok, cache)| model.forward(&[tok], cache).ok())
+                        .collect()
                 };
 
                 // Restore caches and sample
@@ -630,12 +673,12 @@ impl InferenceEngine {
 
                     let token_id = match sampler.sample(logits_slice) {
                         Ok(idx) => idx as u32,
-                        Err(_) => {
-                            logits_slice.iter().enumerate()
-                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                                .map(|(i, _)| i as u32)
-                                .unwrap_or(0)
-                        }
+                        Err(_) => logits_slice
+                            .iter()
+                            .enumerate()
+                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                            .map(|(i, _)| i as u32)
+                            .unwrap_or(0),
                     };
 
                     seq.generated.push(token_id);
@@ -657,17 +700,24 @@ impl InferenceEngine {
             // Build responses
             let mut results = Vec::with_capacity(sequences.len());
             for mut seq in sequences {
-                let text: String = seq.generated.iter().map(|&id| {
-                    if let Some(ref tok) = tokenizer {
-                        let t = tok.blocking_lock();
-                        t.decode(&[id])
-                    } else {
-                        format!("[{}]", id)
-                    }
-                }).collect();
-                let tokens: Vec<GeneratedToken> = seq.generated.iter().enumerate().map(|(i, &id)| {
-                    GeneratedToken::new(id, format!("[{}]", id), 0.0, i)
-                }).collect();
+                let text: String = seq
+                    .generated
+                    .iter()
+                    .map(|&id| {
+                        if let Some(ref tok) = tokenizer {
+                            let t = tok.blocking_lock();
+                            t.decode(&[id])
+                        } else {
+                            format!("[{}]", id)
+                        }
+                    })
+                    .collect();
+                let tokens: Vec<GeneratedToken> = seq
+                    .generated
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &id)| GeneratedToken::new(id, format!("[{}]", id), 0.0, i))
+                    .collect();
                 results.push(InferenceResponse {
                     request_id: seq.request_id,
                     tokens,
@@ -679,16 +729,21 @@ impl InferenceEngine {
                 });
             }
             results
-        }).await.unwrap_or_else(|e| {
+        })
+        .await
+        .unwrap_or_else(|e| {
             tracing::error!("Continuous batching panicked: {:?}", e);
             Vec::new()
         });
 
         let elapsed = start.elapsed().as_millis() as u64;
-        completed.into_iter().map(|mut resp| {
-            resp.inference_time_ms = elapsed;
-            resp
-        }).collect()
+        completed
+            .into_iter()
+            .map(|mut resp| {
+                resp.inference_time_ms = elapsed;
+                resp
+            })
+            .collect()
     }
 
     /// Generate tokens for a single request.
@@ -697,7 +752,28 @@ impl InferenceEngine {
         let start = std::time::Instant::now();
         let mut response = InferenceResponse::new(request.request_id);
 
+        // Session tracking: get or create session if session_id provided
+        let session = if let Some(sid) = request.session_id {
+            Some(self.get_session(sid).await?)
+        } else {
+            None
+        };
+
         if request.prompt.is_empty() {
+            if let Some(ref s) = session {
+                let _ = s
+                    .add_entry(SessionEntry {
+                        entry_id: Uuid::new_v4(),
+                        request_id: request.request_id,
+                        timestamp: chrono::Utc::now(),
+                        prompt: String::new(),
+                        response: String::new(),
+                        tokens_generated: 0,
+                        processing_time_ms: start.elapsed().as_millis() as u64,
+                        metadata: HashMap::new(),
+                    })
+                    .await;
+            }
             return Ok(response
                 .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
                 .with_inference_time(start.elapsed().as_millis() as u64));
@@ -705,6 +781,7 @@ impl InferenceEngine {
 
         // Memory-based RAG: enrich prompt with relevant past context (no clone: move prompt)
         let prompt = request.prompt;
+        let original_prompt = prompt.clone();
         let augmented_prompt = if let Some(memory) = &self.memory {
             let mem = memory.lock().await;
             match mem.search(&prompt).await {
@@ -712,14 +789,16 @@ impl InferenceEngine {
                     use std::fmt::Write;
                     let mut context = String::new();
                     for (i, r) in results.iter().take(3).enumerate() {
-                        if i > 0 { context.push('\n'); }
+                        if i > 0 {
+                            context.push('\n');
+                        }
                         let _ = write!(context, "- {}", r.value);
                     }
-                    let augmented = format!(
-                        "Relevant context:\n{}\n\n---\n\n{}",
-                        context, prompt
+                    let augmented = format!("Relevant context:\n{}\n\n---\n\n{}", context, prompt);
+                    debug!(
+                        "Memory RAG: prepended {} context items to prompt",
+                        results.iter().take(3).count()
                     );
-                    debug!("Memory RAG: prepended {} context items to prompt", results.iter().take(3).count());
                     augmented
                 }
                 _ => prompt,
@@ -736,6 +815,13 @@ impl InferenceEngine {
         let prefix_len = prefix_match.prefix_len;
         let prefix_logits = prefix_match.cached_value;
         let prefix_kv_cache = prefix_match.cached_kv_cache;
+        if let Some(ref s) = session {
+            if prefix_len > 0 {
+                s.record_cache_hit().await;
+            } else {
+                s.record_cache_miss().await;
+            }
+        }
         if prefix_len > 0 {
             debug!(
                 "Prefix cache hit: {}/{} tokens matched, skipping prefill",
@@ -798,8 +884,12 @@ impl InferenceEngine {
 
             match result {
                 Ok((out_tokens, _out_cache)) if !out_tokens.is_empty() => {
-                    crate::inference_trait::GPU_RESIDENT_SUCCESSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    crate::inference_trait::GPU_TOKENS_GENERATED.fetch_add(out_tokens.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    crate::inference_trait::GPU_RESIDENT_SUCCESSES
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    crate::inference_trait::GPU_TOKENS_GENERATED.fetch_add(
+                        out_tokens.len() as u64,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     let mut finish_reason = FinishReason::Unknown;
                     for (i, &token_id) in out_tokens.iter().enumerate() {
                         let token_text: String = match &self.tokenizer {
@@ -810,9 +900,7 @@ impl InferenceEngine {
                             None => token_id_to_text_fallback(token_id),
                         };
                         let log_prob = 0.0;
-                        response.add_token(GeneratedToken::new(
-                            token_id, token_text, log_prob, i,
-                        ));
+                        response.add_token(GeneratedToken::new(token_id, token_text, log_prob, i));
                         if token_id == 0 || token_id == 2 {
                             finish_reason = FinishReason::EndOfSequence;
                             break;
@@ -826,11 +914,15 @@ impl InferenceEngine {
                     return Ok(response);
                 }
                 Ok((_, _)) => {
-                    crate::inference_trait::GPU_RESIDENT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    tracing::warn!("GPU-resident generation returned empty, falling back to per-token loop");
+                    crate::inference_trait::GPU_RESIDENT_FALLBACKS
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    tracing::warn!(
+                        "GPU-resident generation returned empty, falling back to per-token loop"
+                    );
                 }
                 Err(e) => {
-                    crate::inference_trait::GPU_RESIDENT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    crate::inference_trait::GPU_RESIDENT_FALLBACKS
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     tracing::error!("GPU-resident generation panicked: {:?}, falling back", e);
                 }
             }
@@ -842,25 +934,26 @@ impl InferenceEngine {
         let prompt_ids_for_loop = prompt_ids.clone();
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
         let include_kv_cache = true;
-        let (tokens, last_logits, timed_out, prefix_kv_cache) = tokio::task::spawn_blocking(move || {
-            run_generation_loop(
-                &model,
-                &prompt_ids_for_loop,
-                max_gen,
-                &mut sampler,
-                &mut *kv_state,
-                tokenizer.as_ref(),
-                prefix_len,
-                prefix_logits,
-                generation_timeout,
-                include_kv_cache,
-            )
-        })
-        .await
-        .map_err(|e| {
-            tracing::error!("Generation loop panicked: {:?}", e);
-            InferenceError::InternalError(format!("Generation loop panicked: {:?}", e))
-        })?;
+        let (tokens, last_logits, timed_out, prefix_kv_cache) =
+            tokio::task::spawn_blocking(move || {
+                run_generation_loop(
+                    &model,
+                    &prompt_ids_for_loop,
+                    max_gen,
+                    &mut sampler,
+                    &mut *kv_state,
+                    tokenizer.as_ref(),
+                    prefix_len,
+                    prefix_logits,
+                    generation_timeout,
+                    include_kv_cache,
+                )
+            })
+            .await
+            .map_err(|e| {
+                tracing::error!("Generation loop panicked: {:?}", e);
+                InferenceError::InternalError(format!("Generation loop panicked: {:?}", e))
+            })?;
 
         for token in tokens {
             response.add_token(token);
@@ -878,8 +971,14 @@ impl InferenceEngine {
         let mut full_seq = prompt_ids;
         full_seq.extend(&generated_ids);
         if !full_seq.is_empty() && !last_logits.is_empty() {
-            let kvcache = if prefix_kv_cache.is_empty() { None } else { Some(prefix_kv_cache) };
-            self.prefix_cache.insert_with_kvcache(&full_seq, last_logits, kvcache).await;
+            let kvcache = if prefix_kv_cache.is_empty() {
+                None
+            } else {
+                Some(prefix_kv_cache)
+            };
+            self.prefix_cache
+                .insert_with_kvcache(&full_seq, last_logits, kvcache)
+                .await;
         }
 
         debug!(
@@ -892,8 +991,31 @@ impl InferenceEngine {
             let mem = memory.lock().await;
             let response_text = response.text.clone();
             if !response_text.is_empty() {
-                let _ = mem.store_interaction(&augmented_prompt, &response_text).await;
+                let _ = mem
+                    .store_interaction(&augmented_prompt, &response_text)
+                    .await;
             }
+        }
+
+        // Finalize inference time before session entry
+        let inference_time = start.elapsed().as_millis() as u64;
+        let response = response.with_inference_time(inference_time);
+
+        // Record session entry for this inference request
+        if let Some(ref s) = session {
+            let tokens_generated = response.tokens.len();
+            let _ = s
+                .add_entry(SessionEntry {
+                    entry_id: Uuid::new_v4(),
+                    request_id: request.request_id,
+                    timestamp: chrono::Utc::now(),
+                    prompt: original_prompt.clone(),
+                    response: response.text.clone(),
+                    tokens_generated,
+                    processing_time_ms: inference_time,
+                    metadata: HashMap::new(),
+                })
+                .await;
         }
 
         Ok(response)
@@ -944,10 +1066,7 @@ impl InferenceEngine {
     }
 
     /// Create a new inference session for tracking generation state.
-    ///
-    /// TODO: Integrate session tracking into the generation loop (generate_internal).
-    /// Currently sessions are created but not used during inference.
-    /// This will enable per-session KV cache reuse and metrics tracking.
+    /// Called from generate_internal when a session_id is provided.
     pub async fn get_session(&self, session_id: Uuid) -> Result<Arc<InferenceSession>> {
         let mut sessions = self.session_manager.write().await;
         if sessions.len() >= self.config.max_concurrent_requests * 2 {
@@ -1003,7 +1122,13 @@ impl InferenceEngine {
         *self.state.write().await = EngineState::ShuttingDown;
 
         // Drain and await all active handles with a timeout
-        let handles: Vec<_> = self.active_requests.write().await.drain().map(|(_, h)| h).collect();
+        let handles: Vec<_> = self
+            .active_requests
+            .write()
+            .await
+            .drain()
+            .map(|(_, h)| h)
+            .collect();
         for h in handles {
             let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
         }
@@ -1111,21 +1236,19 @@ impl InferenceEngine {
 
                 match request {
                     Ok(Some(req)) => {
-                        scheduler
-                            .write()
-                            .await
-                            .add_to_batch_collector(&req)
-                            .await;
+                        scheduler.write().await.add_to_batch_collector(&req).await;
 
                         if let Some(batch) = scheduler.read().await.pop_batch().await {
-                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
+                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch)
+                                .await;
                         }
                     }
                     Ok(None) => break,
                     Err(elapsed) => {
                         tracing::debug!("Request poll timeout: {}", elapsed);
                         if let Some(batch) = scheduler.read().await.pop_batch().await {
-                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch).await;
+                            Self::spawn_batch_processor_inner(&engine, &active_requests, batch)
+                                .await;
                         }
                         continue;
                     }
@@ -1232,10 +1355,7 @@ impl InferenceEngine {
 
 fn token_id_to_text_fallback(token_id: u32) -> String {
     if token_id < 256 {
-        char::from_u32(token_id).map_or_else(
-            || format!("[{}]", token_id),
-            |c| c.to_string(),
-        )
+        char::from_u32(token_id).map_or_else(|| format!("[{}]", token_id), |c| c.to_string())
     } else {
         format!("[{}]", token_id)
     }
@@ -1264,7 +1384,11 @@ fn run_generation_loop(
     let vocab_size = model.config.vocab_size;
     let mut prefix_logits = prefix_logits;
     let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
-    let mut last_logits: Vec<f32> = if use_prefix { prefix_logits.clone() } else { Vec::with_capacity(vocab_size) };
+    let mut last_logits: Vec<f32> = if use_prefix {
+        prefix_logits.clone()
+    } else {
+        Vec::with_capacity(vocab_size)
+    };
 
     let base_seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1280,7 +1404,11 @@ fn run_generation_loop(
                 let arr = Array1::from_vec(std::mem::take(&mut prefix_logits));
                 let logits_slice = arr.as_slice().unwrap_or(&[]);
                 let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
-                let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                let lp = logits_slice
+                    .get(tok as usize)
+                    .copied()
+                    .map(|x| (x.max(1e-10)).ln())
+                    .unwrap_or(0.0);
                 token_id = tok;
                 log_prob = lp;
                 if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
@@ -1291,7 +1419,9 @@ fn run_generation_loop(
             } else {
                 let input = &prompt_ids[prefix_len..];
                 if let Some(tok) = ModelForward::forward_sample_gpu(
-                    model, input, kv_state,
+                    model,
+                    input,
+                    kv_state,
                     sampler.config().temperature,
                     sampler.config().top_k,
                     sampler.config().top_p,
@@ -1304,7 +1434,11 @@ fn run_generation_loop(
                     let arr = ModelForward::forward(model, input, kv_state);
                     let logits_slice = arr.as_slice().unwrap_or(&[]);
                     let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
-                    let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                    let lp = logits_slice
+                        .get(tok as usize)
+                        .copied()
+                        .map(|x| (x.max(1e-10)).ln())
+                        .unwrap_or(0.0);
                     token_id = tok;
                     log_prob = lp;
                     if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
@@ -1321,7 +1455,9 @@ fn run_generation_loop(
                 core::slice::from_ref(all_ids.last().unwrap_or(&0))
             };
             if let Some(tok) = ModelForward::forward_sample_gpu(
-                model, input, kv_state,
+                model,
+                input,
+                kv_state,
                 sampler.config().temperature,
                 sampler.config().top_k,
                 sampler.config().top_p,
@@ -1334,7 +1470,11 @@ fn run_generation_loop(
                 let arr = ModelForward::forward(model, input, kv_state);
                 let logits_slice = arr.as_slice().unwrap_or(&[]);
                 let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
-                let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                let lp = logits_slice
+                    .get(tok as usize)
+                    .copied()
+                    .map(|x| (x.max(1e-10)).ln())
+                    .unwrap_or(0.0);
                 token_id = tok;
                 log_prob = lp;
                 if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
@@ -1355,20 +1495,36 @@ fn run_generation_loop(
 
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
         if used_gpu {
-            crate::inference_trait::GPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            crate::inference_trait::GPU_TOKENS_GENERATED
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         } else {
-            crate::inference_trait::CPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            crate::inference_trait::CPU_TOKENS_GENERATED
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         all_ids.push(token_id);
 
         if token_id == 0 || start.elapsed() > generation_timeout {
             let timed_out = start.elapsed() > generation_timeout;
-            let kvcache = if include_kv_cache { kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default() } else { Vec::new() };
+            let kvcache = if include_kv_cache {
+                kv_state
+                    .as_cpu_entries()
+                    .map(|e| e.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             return (tokens, last_logits, timed_out, kvcache);
         }
     }
 
-    let kvcache = if include_kv_cache { kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default() } else { Vec::new() };
+    let kvcache = if include_kv_cache {
+        kv_state
+            .as_cpu_entries()
+            .map(|e| e.clone())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     (tokens, last_logits, false, kvcache)
 }
 
@@ -1403,7 +1559,10 @@ impl InferenceEngineHandle {
 
         if self.is_shutdown().await {
             if let Err(e) = self.scheduler.write().await.complete_batch(&batch).await {
-                warn!("Failed to complete batch {} during shutdown: {}", batch.batch_id, e);
+                warn!(
+                    "Failed to complete batch {} during shutdown: {}",
+                    batch.batch_id, e
+                );
             }
             return Ok(());
         }
@@ -1458,9 +1617,14 @@ impl InferenceEngineHandle {
                         t.encode(&breq.prompt)
                     }
                     None => {
-                        warn!("No tokenizer configured for batch request {}", breq.request_id);
+                        warn!(
+                            "No tokenizer configured for batch request {}",
+                            breq.request_id
+                        );
                         let err_resp = response
-                            .with_finish_reason(FinishReason::Error("No tokenizer configured".to_string()))
+                            .with_finish_reason(FinishReason::Error(
+                                "No tokenizer configured".to_string(),
+                            ))
                             .with_inference_time(start.elapsed().as_millis() as u64);
                         if let Err(e) = scheduler
                             .write()
@@ -1544,9 +1708,17 @@ impl InferenceEngineHandle {
                     Err(e) => {
                         error!("Batch generation loop panicked: {:?}", e);
                         let err_resp = response
-                            .with_finish_reason(FinishReason::Error(format!("Generation panicked: {:?}", e)))
+                            .with_finish_reason(FinishReason::Error(format!(
+                                "Generation panicked: {:?}",
+                                e
+                            )))
                             .with_inference_time(start.elapsed().as_millis() as u64);
-                        if let Err(e) = scheduler.write().await.send_response(breq.request_id, err_resp).await {
+                        if let Err(e) = scheduler
+                            .write()
+                            .await
+                            .send_response(breq.request_id, err_resp)
+                            .await
+                        {
                             warn!("Failed to send panic error response: {}", e);
                         }
                         return;
@@ -1580,10 +1752,7 @@ impl InferenceEngineHandle {
                     })
                     .await
                 {
-                    error!(
-                        "Failed to send batch response for {}: {}",
-                        rid, e
-                    );
+                    error!("Failed to send batch response for {}: {}", rid, e);
                 }
                 // Gempa 17: cleanup active request tracking after response sent
                 scheduler.write().await.complete_request(rid).await;
@@ -1598,7 +1767,13 @@ impl InferenceEngineHandle {
             }
         }
 
-        if let Err(e) = self.scheduler.write().await.complete_batch_id(batch_id).await {
+        if let Err(e) = self
+            .scheduler
+            .write()
+            .await
+            .complete_batch_id(batch_id)
+            .await
+        {
             error!("Failed to complete batch {}: {}", batch_id, e);
         }
         debug!("Batch {} completed", batch_id);

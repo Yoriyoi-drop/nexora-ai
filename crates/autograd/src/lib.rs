@@ -1,4 +1,3 @@
-
 pub mod broadcast;
 pub mod data_parallel;
 pub mod device;
@@ -14,9 +13,9 @@ pub mod gpu;
 #[cfg(feature = "gpu")]
 pub mod gpu_adam;
 #[cfg(feature = "gpu")]
-pub mod gpu_backward;
-#[cfg(feature = "gpu")]
 pub mod gpu_async;
+#[cfg(feature = "gpu")]
+pub mod gpu_backward;
 #[cfg(feature = "gpu")]
 pub mod gpu_batch;
 #[cfg(feature = "gpu")]
@@ -30,19 +29,19 @@ pub mod gpu_grad_clip;
 #[cfg(feature = "gpu")]
 pub use gpu_grad_clip::GpuGradClipResult;
 #[cfg(feature = "gpu")]
+pub mod gpu_bench;
+#[cfg(feature = "gpu")]
 pub mod gpu_kv_cache;
 #[cfg(feature = "gpu")]
 pub mod gpu_memory;
 #[cfg(feature = "gpu")]
 pub mod gpu_mixed;
 #[cfg(feature = "gpu")]
-pub mod gpu_bench;
-#[cfg(feature = "gpu")]
 pub mod gpu_profiler;
 #[cfg(feature = "gpu")]
-pub mod gpu_sedc;
-#[cfg(feature = "gpu")]
 pub mod gpu_sampler;
+#[cfg(feature = "gpu")]
+pub mod gpu_sedc;
 #[cfg(feature = "gpu")]
 pub mod persistent_cache;
 #[cfg(feature = "gpu")]
@@ -58,11 +57,11 @@ pub use mixed_precision::{DType, LossScaler};
 pub use ops::*;
 pub use tape::clear_tape;
 pub use tensor::Tensor;
+#[cfg(feature = "gpu")]
+pub use training_pipeline::compute_grad_norm_gpu;
 pub use training_pipeline::{
     compute_grad_norm, Checkpoint, TrainingLoop, TrainingLoopConfig, TrainingMetrics,
 };
-#[cfg(feature = "gpu")]
-pub use training_pipeline::compute_grad_norm_gpu;
 
 use ndarray::ArrayD;
 

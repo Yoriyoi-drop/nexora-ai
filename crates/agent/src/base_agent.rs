@@ -158,7 +158,10 @@ pub trait Agent: Send + Sync {
 
     /// Reset agent state (jika supported)
     async fn reset(&mut self) -> Result<()> {
-        Err(AgentError::ProcessingError { operation: "reset".to_string(), reason: "Reset not supported for this agent".to_string() })
+        Err(AgentError::ProcessingError {
+            operation: "reset".to_string(),
+            reason: "Reset not supported for this agent".to_string(),
+        })
     }
 }
 
@@ -314,7 +317,10 @@ mod tests {
     #[test]
     fn test_agent_status_variants() {
         assert_ne!(AgentStatus::Ready, AgentStatus::Initializing);
-        assert_eq!(AgentStatus::Error("msg".into()), AgentStatus::Error("msg".into()));
+        assert_eq!(
+            AgentStatus::Error("msg".into()),
+            AgentStatus::Error("msg".into())
+        );
         assert_ne!(AgentStatus::Shutdown, AgentStatus::ShuttingDown);
     }
 
@@ -383,7 +389,10 @@ mod tests {
         let req_id = Uuid::new_v4();
         let resp = AgentResponse::success(req_id, serde_json::json!(true), 5)
             .with_metadata("trace_id", serde_json::json!("abc"));
-        assert_eq!(resp.metadata.get("trace_id"), Some(&serde_json::json!("abc")));
+        assert_eq!(
+            resp.metadata.get("trace_id"),
+            Some(&serde_json::json!("abc"))
+        );
     }
 
     #[test]
@@ -405,8 +414,8 @@ mod tests {
 
     #[test]
     fn test_agent_context_with_parameter() {
-        let ctx = AgentContext::new(Uuid::new_v4())
-            .with_parameter("key", serde_json::json!("value"));
+        let ctx =
+            AgentContext::new(Uuid::new_v4()).with_parameter("key", serde_json::json!("value"));
         assert_eq!(ctx.parameters.get("key"), Some(&serde_json::json!("value")));
     }
 

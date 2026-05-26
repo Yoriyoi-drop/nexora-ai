@@ -466,11 +466,9 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError {
-                            operation: "validate".to_string(),
-                            reason: "content required".to_string(),
-                        }
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
                     })?;
 
                 let content_type = context
@@ -505,11 +503,9 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError {
-                            operation: "validate".to_string(),
-                            reason: "content required".to_string(),
-                        }
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
                     })?;
 
                 let is_valid = self.quick_validate(content).await?;
@@ -525,11 +521,9 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError {
-                            operation: "validate".to_string(),
-                            reason: "content required".to_string(),
-                        }
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
                     })?;
 
                 let metadata_value = serde_json::to_value(&context.metadata)?;
@@ -553,11 +547,9 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError {
-                            operation: "validate".to_string(),
-                            reason: "content required".to_string(),
-                        }
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
                     })?;
 
                 let issues = self.check_content_appropriateness(content).await?;
@@ -580,11 +572,9 @@ impl Agent for ValidationAgent {
                     .parameters
                     .get("content")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        AgentError::ProcessingError {
-                            operation: "validate".to_string(),
-                            reason: "content required".to_string(),
-                        }
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "content required".to_string(),
                     })?;
 
                 let issues = self.check_coherence(content).await?;
@@ -858,10 +848,22 @@ mod tests {
 
     #[test]
     fn test_validation_issue_type_variants() {
-        assert_eq!(ValidationIssueType::Hallucination, ValidationIssueType::Hallucination);
-        assert_eq!(ValidationIssueType::FactualError, ValidationIssueType::FactualError);
-        assert_eq!(ValidationIssueType::Incoherent, ValidationIssueType::Incoherent);
-        assert!(!matches!(ValidationIssueType::Custom("x".into()), ValidationIssueType::Hallucination));
+        assert_eq!(
+            ValidationIssueType::Hallucination,
+            ValidationIssueType::Hallucination
+        );
+        assert_eq!(
+            ValidationIssueType::FactualError,
+            ValidationIssueType::FactualError
+        );
+        assert_eq!(
+            ValidationIssueType::Incoherent,
+            ValidationIssueType::Incoherent
+        );
+        assert!(!matches!(
+            ValidationIssueType::Custom("x".into()),
+            ValidationIssueType::Hallucination
+        ));
     }
 
     #[test]
@@ -893,7 +895,10 @@ mod tests {
             location: None,
             suggested_fix: Some("Be more specific".into()),
         };
-        assert!(matches!(issue.issue_type, ValidationIssueType::Hallucination));
+        assert!(matches!(
+            issue.issue_type,
+            ValidationIssueType::Hallucination
+        ));
         assert_eq!(issue.severity, SeverityLevel::High);
         assert_eq!(issue.suggested_fix, Some("Be more specific".into()));
     }
@@ -954,7 +959,9 @@ mod tests {
     fn test_quick_validate_valid_content() {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
-        let result = futures::executor::block_on(agent.quick_validate("This is a reasonably long piece of valid content"));
+        let result = futures::executor::block_on(
+            agent.quick_validate("This is a reasonably long piece of valid content"),
+        );
         assert_eq!(result.unwrap(), true);
     }
 
@@ -962,7 +969,9 @@ mod tests {
     fn test_quick_validate_ai_disclaimer() {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
-        let result = futures::executor::block_on(agent.quick_validate("I don't know the answer to that question"));
+        let result = futures::executor::block_on(
+            agent.quick_validate("I don't know the answer to that question"),
+        );
         assert_eq!(result.unwrap(), false);
     }
 
@@ -972,7 +981,9 @@ mod tests {
         config.enable_hallucination_detection = false;
         let agent = ValidationAgent::new(config);
         let context = serde_json::json!({});
-        let issues = futures::executor::block_on(agent.detect_hallucinations("some content", &context)).unwrap();
+        let issues =
+            futures::executor::block_on(agent.detect_hallucinations("some content", &context))
+                .unwrap();
         assert!(issues.is_empty());
     }
 
@@ -981,9 +992,14 @@ mod tests {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
         let context = serde_json::json!({});
-        let issues = futures::executor::block_on(agent.detect_hallucinations("I think this might be the answer", &context)).unwrap();
+        let issues = futures::executor::block_on(
+            agent.detect_hallucinations("I think this might be the answer", &context),
+        )
+        .unwrap();
         assert!(!issues.is_empty());
-        assert!(issues.iter().any(|i| matches!(i.issue_type, ValidationIssueType::Hallucination)));
+        assert!(issues
+            .iter()
+            .any(|i| matches!(i.issue_type, ValidationIssueType::Hallucination)));
     }
 
     #[test]
@@ -991,7 +1007,9 @@ mod tests {
         let mut config = ValidationAgentConfig::default();
         config.enable_content_filtering = false;
         let agent = ValidationAgent::new(config);
-        let issues = futures::executor::block_on(agent.check_content_appropriateness("violent content")).unwrap();
+        let issues =
+            futures::executor::block_on(agent.check_content_appropriateness("violent content"))
+                .unwrap();
         assert!(issues.is_empty());
     }
 
@@ -999,7 +1017,10 @@ mod tests {
     fn test_check_content_appropriateness_finds_issues() {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
-        let issues = futures::executor::block_on(agent.check_content_appropriateness("this is violent and illegal")).unwrap();
+        let issues = futures::executor::block_on(
+            agent.check_content_appropriateness("this is violent and illegal"),
+        )
+        .unwrap();
         assert!(!issues.is_empty());
     }
 
@@ -1007,7 +1028,9 @@ mod tests {
     fn test_check_coherence_single_sentence() {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
-        let issues = futures::executor::block_on(agent.check_coherence("This is a single sentence.")).unwrap();
+        let issues =
+            futures::executor::block_on(agent.check_coherence("This is a single sentence."))
+                .unwrap();
         assert!(issues.is_empty());
     }
 
@@ -1015,7 +1038,10 @@ mod tests {
     fn test_check_coherence_no_issues() {
         let config = ValidationAgentConfig::default();
         let agent = ValidationAgent::new(config);
-        let issues = futures::executor::block_on(agent.check_coherence("This is good. And this is also good.")).unwrap();
+        let issues = futures::executor::block_on(
+            agent.check_coherence("This is good. And this is also good."),
+        )
+        .unwrap();
         assert!(issues.is_empty());
     }
 
@@ -1038,7 +1064,10 @@ mod tests {
     #[test]
     fn test_basic_content_validation_rule_valid() {
         let rule = BasicContentValidationRule;
-        let result = futures::executor::block_on(rule.validate("This is a valid long content string.", &serde_json::json!({})));
+        let result = futures::executor::block_on(rule.validate(
+            "This is a valid long content string.",
+            &serde_json::json!({}),
+        ));
         assert!(result.is_valid);
         assert!((result.confidence - 1.0).abs() < f64::EPSILON);
     }

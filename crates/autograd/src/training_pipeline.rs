@@ -33,8 +33,12 @@ pub struct GpuOptimizerState {
 #[cfg(feature = "gpu")]
 impl GpuOptimizerState {
     /// Create GPU-resident optimizer state from CPU state
-    pub fn from_cpu(cpu_state: &OptimizerState, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
-        let m = cpu_state.m
+    pub fn from_cpu(
+        cpu_state: &OptimizerState,
+        ctx: &GpuContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let m = cpu_state
+            .m
             .iter()
             .map(|arr| {
                 let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
@@ -42,7 +46,8 @@ impl GpuOptimizerState {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let v = cpu_state.v
+        let v = cpu_state
+            .v
             .iter()
             .map(|arr| {
                 let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
@@ -62,7 +67,9 @@ impl GpuOptimizerState {
         fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
             match t.to_cpu() {
                 Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                    tracing::warn!("GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter");
+                    tracing::warn!(
+                        "GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter"
+                    );
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
@@ -78,17 +85,24 @@ impl GpuOptimizerState {
     }
 
     /// Create GPU-resident optimizer state directly from Adam optimizer
-    pub fn from_adam_gpu(adam: &Adam, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_adam_gpu(
+        adam: &Adam,
+        ctx: &GpuContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let m = adam
             .m
             .iter()
-            .map(|arr| GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>))
+            .map(|arr| {
+                GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         let v = adam
             .v
             .iter()
-            .map(|arr| GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>))
+            .map(|arr| {
+                GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
@@ -177,8 +191,12 @@ pub struct GpuCheckpoint {
 #[cfg(feature = "gpu")]
 impl GpuCheckpoint {
     /// Create GPU-resident checkpoint from CPU checkpoint
-    pub fn from_cpu(cpu_ckpt: &Checkpoint, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
-        let model_params = cpu_ckpt.model_params
+    pub fn from_cpu(
+        cpu_ckpt: &Checkpoint,
+        ctx: &GpuContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let model_params = cpu_ckpt
+            .model_params
             .iter()
             .zip(&cpu_ckpt.model_shapes)
             .map(|(params, shape)| {
@@ -187,7 +205,8 @@ impl GpuCheckpoint {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let optimizer_state = cpu_ckpt.optimizer_state
+        let optimizer_state = cpu_ckpt
+            .optimizer_state
             .as_ref()
             .map(|opt| GpuOptimizerState::from_cpu(opt, ctx))
             .transpose()?;
@@ -208,7 +227,9 @@ impl GpuCheckpoint {
         fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
             match t.to_cpu() {
                 Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                    tracing::warn!("CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter");
+                    tracing::warn!(
+                        "CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter"
+                    );
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
@@ -221,17 +242,18 @@ impl GpuCheckpoint {
             epoch: self.epoch,
             best_val_loss: self.best_val_loss,
             loss_scaler_scale: self.loss_scaler_scale,
-            model_params: self.model_params.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
+            model_params: self
+                .model_params
+                .iter()
+                .map(|t| gpu_tensor_to_vec(t))
+                .collect(),
             model_shapes: self.model_shapes.clone(),
             optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
         }
     }
 
     /// Save GPU-resident checkpoint to disk (converts to CPU first)
-    pub fn save(
-        &self,
-        path: impl AsRef<Path>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
         let cpu_ckpt = self.to_cpu();
         let json = serde_json::to_string_pretty(&cpu_ckpt)?;
         std::fs::write(path, json)?;
@@ -239,7 +261,10 @@ impl GpuCheckpoint {
     }
 
     /// Load checkpoint from disk and convert to GPU-resident
-    pub fn load(path: impl AsRef<Path>, ctx: &GpuContext) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(
+        path: impl AsRef<Path>,
+        ctx: &GpuContext,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let json = std::fs::read_to_string(path)?;
         let cpu_ckpt: Checkpoint = serde_json::from_str(&json)?;
         Self::from_cpu(&cpu_ckpt, ctx)
@@ -251,7 +276,9 @@ impl GpuCheckpoint {
             if i < self.model_params.len() && i < self.model_shapes.len() {
                 match self.model_params[i].to_cpu() {
                     Ok(arr) => p.set_data(arr),
-                    Err(e) => tracing::warn!("CheckpointGpu::restore_params GPU readback failed for param {i}: {e}"),
+                    Err(e) => tracing::warn!(
+                        "CheckpointGpu::restore_params GPU readback failed for param {i}: {e}"
+                    ),
                 }
             }
         }
@@ -525,7 +552,13 @@ impl TrainingLoop {
 
     /// Call each optimizer step.
     /// Returns true if training should continue, false if stopped.
-    pub fn on_step(&mut self, loss: f64, lr: f32, grad_norm: f32, tokens_in_batch: usize) -> super::DLResult<bool> {
+    pub fn on_step(
+        &mut self,
+        loss: f64,
+        lr: f32,
+        grad_norm: f32,
+        tokens_in_batch: usize,
+    ) -> super::DLResult<bool> {
         self.step += 1;
         self.total_tokens += tokens_in_batch;
 
@@ -547,7 +580,12 @@ impl TrainingLoop {
                 .unwrap_or(loss);
             tracing::info!(
                 "[Step {}] loss={:.4} (avg={:.4}) lr={:.2e} grad_norm={:.4} tok/s={:.0}",
-                self.step, loss, avg, lr, grad_norm, throughput
+                self.step,
+                loss,
+                avg,
+                lr,
+                grad_norm,
+                throughput
             );
         }
 
@@ -561,10 +599,14 @@ impl TrainingLoop {
                     tracing::warn!("  Failed to create checkpoint dir: {}", e);
                 } else if self.params.is_some() && self.adam.is_some() {
                     let params = self.params.as_ref().ok_or_else(|| {
-                        super::DeepLearningError::Computation { reason: "params not initialized for checkpoint save".into() }
+                        super::DeepLearningError::Computation {
+                            reason: "params not initialized for checkpoint save".into(),
+                        }
                     })?;
                     let adam = self.adam.as_ref().ok_or_else(|| {
-                        super::DeepLearningError::Computation { reason: "adam not initialized for checkpoint save".into() }
+                        super::DeepLearningError::Computation {
+                            reason: "adam not initialized for checkpoint save".into(),
+                        }
                     })?;
                     match Checkpoint::save(
                         &path,
@@ -656,7 +698,9 @@ impl TrainingLoop {
             .unwrap_or(0.0);
         tracing::info!(
             "=== Epoch {} complete | avg_loss={:.4} | best_val={:?} ===",
-            self.epoch, avg, self.best_val_loss
+            self.epoch,
+            avg,
+            self.best_val_loss
         );
     }
 

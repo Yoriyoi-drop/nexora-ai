@@ -454,5 +454,3 @@ pub trait Inference {
 
     fn batch_infer(&self, inputs: Vec<Self::Input>) -> HLDVAResult<Vec<Self::Output>>;
 }
-
-

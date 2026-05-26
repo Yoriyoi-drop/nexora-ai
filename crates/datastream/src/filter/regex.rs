@@ -32,10 +32,13 @@ impl RegexFilter {
 
 fn default_block_patterns() -> Vec<Regex> {
     vec![
-        Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b").expect("valid regex: spam keywords"),
-        Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+").expect("valid regex: URL shorteners"),
+        Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b")
+            .expect("valid regex: spam keywords"),
+        Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+")
+            .expect("valid regex: URL shorteners"),
         Regex::new(r"(?m)^>{10,}").expect("valid regex: blockquote abuse"),
-        Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b").expect("valid regex: email pattern"),
+        Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b")
+            .expect("valid regex: email pattern"),
     ]
 }
 
@@ -94,7 +97,7 @@ impl Filter for RegexFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -125,20 +128,14 @@ mod tests {
 
     #[test]
     fn test_new_constructor_valid_regex() {
-        let f = RegexFilter::new(
-            vec!["spam".into()],
-            vec!["important".into()],
-        ).unwrap();
+        let f = RegexFilter::new(vec!["spam".into()], vec!["important".into()]).unwrap();
         assert_eq!(f.block_patterns.len(), 1);
         assert_eq!(f.require_patterns.len(), 1);
     }
 
     #[test]
     fn test_invalid_regex_returns_error() {
-        let result = RegexFilter::new(
-            vec!["[invalid".into()],
-            vec![],
-        );
+        let result = RegexFilter::new(vec!["[invalid".into()], vec![]);
         assert!(result.is_err());
     }
 

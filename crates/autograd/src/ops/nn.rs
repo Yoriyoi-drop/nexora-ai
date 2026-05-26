@@ -39,10 +39,18 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                     vec![],
                                     vec![gpu_saved],
                                     Box::new(move |grad, _saved| {
-                                        let soft = gpu_2d_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in softmax: {e}"); ndarray::ArrayD::zeros(gpu_2d_for_cpu.shape()) });
+                                        let soft = gpu_2d_for_cpu.to_cpu().unwrap_or_else(|e| {
+                                            tracing::warn!(
+                                                "GPU CPU-backward readback failed in softmax: {e}"
+                                            );
+                                            ndarray::ArrayD::zeros(gpu_2d_for_cpu.shape())
+                                        });
                                         let g_vec: Vec<f32> = grad.iter().copied().collect();
                                         let n = soft.len();
-                                        let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                        let batch = orig_shape
+                                            .iter()
+                                            .take(orig_shape.len() - 1)
+                                            .product::<usize>();
                                         let dim = orig_shape[orig_shape.len() - 1];
                                         let mut dx = vec![0.0f32; n];
                                         for b in 0..batch {
@@ -56,19 +64,24 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                                 dx[idx] = soft[idx] * (g_vec[idx] - sum_sg);
                                             }
                                         }
-                                        vec![ArrayD::from_shape_vec(orig_shape.clone(), dx).unwrap_or_else(|e| {
-                                            debug!("shape encoding failed (infallible): {e}");
-                                            ArrayD::zeros(vec![0])
-                                        })]
+                                        vec![ArrayD::from_shape_vec(orig_shape.clone(), dx)
+                                            .unwrap_or_else(|e| {
+                                                debug!("shape encoding failed (infallible): {e}");
+                                                ArrayD::zeros(vec![0])
+                                            })]
                                     }),
                                     Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                        let da = crate::gpu_backward::softmax_backward_last_dim(ctx, &saved_gpu[0], grad_gpu)
-                                            .map_err(|e| format!("softmax_backward: {e}"))?;
+                                        let da = crate::gpu_backward::softmax_backward_last_dim(
+                                            ctx,
+                                            &saved_gpu[0],
+                                            grad_gpu,
+                                        )
+                                        .map_err(|e| format!("softmax_backward: {e}"))?;
                                         Ok(vec![da])
                                     })),
                                 );
                             }
-                            Err(e) => warn!("autograd nn backward failed: {e}")
+                            Err(e) => warn!("autograd nn backward failed: {e}"),
                         }
                     }
                 }
@@ -107,11 +120,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
         }
     }
 
-    let result =
-        ArrayD::from_shape_vec(soft_shape.clone(), result_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let result = ArrayD::from_shape_vec(soft_shape.clone(), result_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -155,8 +167,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                     }
                 }
             }
-            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data)
-                .unwrap_or_else(|e| {
+            let dx = ArrayD::from_shape_vec(soft_shape.clone(), dx_data).unwrap_or_else(|e| {
                 debug!("shape encoding failed (infallible): {e}");
                 ArrayD::zeros(vec![0])
             });
@@ -178,7 +189,7 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                     if let Ok(ctx) = crate::gpu::GpuContext::global() {
                         // GPU: softmax(input) then ln = log_softmax
                         match ctx.softmax(&gpu_2d) {
-                                Ok(soft_2d) => {
+                            Ok(soft_2d) => {
                                 let gpu_soft_for_cpu = soft_2d.clone();
                                 match ctx.elementwise_unary(&soft_2d, crate::gpu::ElemOp::Ln) {
                                     Ok(gpu_result_2d) => {
@@ -195,7 +206,8 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                             let id = crate::tensor::next_tensor_id();
                                             return Tensor::from_gpu(gpu_result, id, false);
                                         }
-                                        let gpu_soft_saved = soft_2d.clone().reshape(orig_shape.clone());
+                                        let gpu_soft_saved =
+                                            soft_2d.clone().reshape(orig_shape.clone());
                                         let gpu_soft_saved = match gpu_soft_saved {
                                             Ok(r) => r,
                                             Err(e) => {
@@ -210,9 +222,14 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                             vec![gpu_soft_saved],
                                             Box::new(move |grad, _saved| {
                                                 let soft = gpu_soft_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in log_softmax: {e}"); ndarray::ArrayD::zeros(gpu_soft_for_cpu.shape()) });
-                                                let g_vec: Vec<f32> = grad.iter().copied().collect();
-                                                let s_vec: Vec<f32> = soft.iter().copied().collect();
-                                                let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                                let g_vec: Vec<f32> =
+                                                    grad.iter().copied().collect();
+                                                let s_vec: Vec<f32> =
+                                                    soft.iter().copied().collect();
+                                                let batch = orig_shape
+                                                    .iter()
+                                                    .take(orig_shape.len() - 1)
+                                                    .product::<usize>();
                                                 let dim = orig_shape[orig_shape.len() - 1];
                                                 let mut sum_g = vec![0.0f32; batch];
                                                 for b in 0..batch {
@@ -226,7 +243,8 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                                     let base = b * dim;
                                                     for j in 0..dim {
                                                         let idx = base + j;
-                                                        dx[idx] = g_vec[idx] - s_vec[idx] * sum_g[b];
+                                                        dx[idx] =
+                                                            g_vec[idx] - s_vec[idx] * sum_g[b];
                                                     }
                                                 }
                                                 vec![ArrayD::from_shape_vec(orig_shape.clone(), dx).unwrap_or_else(|e| {
@@ -238,29 +256,53 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                                 let soft = &saved_gpu[0];
                                                 let shape = soft.shape();
                                                 let last_dim = shape[shape.len() - 1];
-                                                let rest: usize = shape[..shape.len() - 1].iter().product();
+                                                let rest: usize =
+                                                    shape[..shape.len() - 1].iter().product();
                                                 let s_2d = soft.reshape(vec![rest, last_dim])
                                                     .map_err(|e| format!("log_softmax_backward reshape soft: {e}"))?;
-                                                let g_2d = grad_gpu.reshape(vec![rest, last_dim])
-                                                    .map_err(|e| format!("log_softmax_backward reshape grad: {e}"))?;
-                                                let ones_col = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(ndarray::IxDyn(&[last_dim, 1]), 1.0f32))
-                                                    .map_err(|e| format!("log_softmax_backward ones: {e}"))?;
-                                                let sum_g = ctx.matmul(&g_2d, &ones_col)
-                                                    .map_err(|e| format!("log_softmax_backward matmul: {e}"))?;
-                                                let soft_times_sum = ctx.mul(&s_2d, &sum_g)
-                                                    .map_err(|e| format!("log_softmax_backward mul: {e}"))?;
-                                                let dx_2d = ctx.sub(&g_2d, &soft_times_sum)
-                                                    .map_err(|e| format!("log_softmax_backward sub: {e}"))?;
-                                                let da = dx_2d.reshape(shape.to_vec())
-                                                    .map_err(|e| format!("log_softmax_backward reshape out: {e}"))?;
+                                                let g_2d = grad_gpu
+                                                    .reshape(vec![rest, last_dim])
+                                                    .map_err(|e| {
+                                                    format!(
+                                                        "log_softmax_backward reshape grad: {e}"
+                                                    )
+                                                })?;
+                                                let ones_col = crate::gpu::GpuTensor::from_cpu(
+                                                    &ndarray::ArrayD::from_elem(
+                                                        ndarray::IxDyn(&[last_dim, 1]),
+                                                        1.0f32,
+                                                    ),
+                                                )
+                                                .map_err(|e| {
+                                                    format!("log_softmax_backward ones: {e}")
+                                                })?;
+                                                let sum_g =
+                                                    ctx.matmul(&g_2d, &ones_col).map_err(|e| {
+                                                        format!("log_softmax_backward matmul: {e}")
+                                                    })?;
+                                                let soft_times_sum =
+                                                    ctx.mul(&s_2d, &sum_g).map_err(|e| {
+                                                        format!("log_softmax_backward mul: {e}")
+                                                    })?;
+                                                let dx_2d = ctx
+                                                    .sub(&g_2d, &soft_times_sum)
+                                                    .map_err(|e| {
+                                                        format!("log_softmax_backward sub: {e}")
+                                                    })?;
+                                                let da =
+                                                    dx_2d.reshape(shape.to_vec()).map_err(|e| {
+                                                        format!(
+                                                            "log_softmax_backward reshape out: {e}"
+                                                        )
+                                                    })?;
                                                 Ok(vec![da])
                                             })),
                                         );
                                     }
-                                    Err(e) => warn!("autograd nn backward failed: {e}")
+                                    Err(e) => warn!("autograd nn backward failed: {e}"),
                                 }
-                            },
-                            Err(e) => warn!("autograd nn backward failed: {e}")
+                            }
+                            Err(e) => warn!("autograd nn backward failed: {e}"),
                         }
                     }
                 }
@@ -308,11 +350,10 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
             }
         })
         .collect();
-    let mask_arr =
-        ArrayD::from_shape_vec(data.shape().to_vec(), mask).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let mask_arr = ArrayD::from_shape_vec(data.shape().to_vec(), mask).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
     let result = &data * &mask_arr;
 
     if !input.requires_grad() {
@@ -386,7 +427,9 @@ pub fn layer_norm_2d(
                                             }),
                                             ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr)
                                                 .unwrap_or_else(|e| {
-                                                    debug!("shape encoding failed (infallible): {e}");
+                                                    debug!(
+                                                        "shape encoding failed (infallible): {e}"
+                                                    );
                                                     ArrayD::zeros(vec![0])
                                                 }),
                                             ArrayD::from_elem(vec![1], n),
@@ -401,10 +444,12 @@ pub fn layer_norm_2d(
                                             let batch = x.shape()[0];
                                             let dim = x.shape()[1];
                                             let mut dx = grad.clone();
-                                            let gs: Vec<f32> = grad.as_slice()
+                                            let gs: Vec<f32> = grad
+                                                .as_slice()
                                                 .map(|s| s.to_vec())
                                                 .unwrap_or_else(|| grad.iter().copied().collect());
-                                            let xs: Vec<f32> = x.as_slice()
+                                            let xs: Vec<f32> = x
+                                                .as_slice()
                                                 .map(|s| s.to_vec())
                                                 .unwrap_or_else(|| x.iter().copied().collect());
                                             for b in 0..batch {
@@ -434,7 +479,8 @@ pub fn layer_norm_2d(
                                                     if let Some(slice) = inner.as_slice_mut() {
                                                         slice[idx] = dx_val;
                                                     } else {
-                                                        let mut v: Vec<f32> = inner.iter().copied().collect();
+                                                        let mut v: Vec<f32> =
+                                                            inner.iter().copied().collect();
                                                         v[idx] = dx_val;
                                                         let shape = inner.shape().to_vec();
                                                         inner = ArrayD::from_shape_vec(shape, v).unwrap_or_else(|e| {
@@ -454,13 +500,16 @@ pub fn layer_norm_2d(
                                             let bias_gpu = &saved_gpu[2];
                                             let (dx, dw, db) = layer_norm_backward_gpu(
                                                 ctx, input_gpu, weight_gpu, bias_gpu, grad_gpu, eps,
-                                            ).map_err(|e| format!("layer_norm gpu backward failed: {e}"))?;
+                                            )
+                                            .map_err(|e| {
+                                                format!("layer_norm gpu backward failed: {e}")
+                                            })?;
                                             // db is not needed by the op's output (only grad w.r.t dx matters for loss)
                                             Ok(vec![dx, dw, db])
                                         })),
                                     );
                                 }
-                                Err(e) => warn!("autograd nn backward failed: {e}")
+                                Err(e) => warn!("autograd nn backward failed: {e}"),
                             }
                         }
                     }
@@ -502,11 +551,10 @@ pub fn layer_norm_2d(
             result_data[i * last_dim + j] = (x - m) / s;
         }
     }
-    let mut normalized =
-        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let mut normalized = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if let Some(w) = weight {
         let w_data = w.data();
@@ -534,16 +582,14 @@ pub fn layer_norm_2d(
         inputs.push(b.clone());
     }
 
-    let mean_arr =
-        ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
-    let std_arr =
-        ArrayD::from_shape_vec(vec![shape[0]], std.clone()).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
+    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std.clone()).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
     let orig_data = data.clone();
 
     Tensor::with_grad_fn(
@@ -615,7 +661,8 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let t_storage = target.storage();
         if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_t)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                match ctx.elementwise_binary(gpu_in, gpu_t, crate::gpu::ElemOp::BinaryCrossEntropy) {
+                match ctx.elementwise_binary(gpu_in, gpu_t, crate::gpu::ElemOp::BinaryCrossEntropy)
+                {
                     Ok(gpu_result) => {
                         if !input.requires_grad() {
                             let id = crate::tensor::next_tensor_id();
@@ -632,61 +679,85 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                 let x = gpu_in_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in_for_cpu.shape()) });
                                 let t = gpu_t_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in binary_cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t_for_cpu.shape()) });
                                 let mut dx_data = vec![0.0f32; x.len()];
-                                for (i, (&g, (&xv, &tv))) in grad.iter().zip(x.iter().zip(t.iter())).enumerate() {
+                                for (i, (&g, (&xv, &tv))) in
+                                    grad.iter().zip(x.iter().zip(t.iter())).enumerate()
+                                {
                                     let p = xv.clamp(1e-7, 1.0 - 1e-7);
                                     dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
                                 }
                                 vec![ndarray::ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
                                     .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            })]
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    })]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
                                 let t = &saved_gpu[1];
                                 let shape = x.shape();
-                                let eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7))
-                                    .map_err(|e| format!("BCE backward: eps from_cpu failed: {e}"))?;
-                                let one_minus_eps = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7))
-                                    .map_err(|e| format!("BCE backward: 1-eps from_cpu failed: {e}"))?;
-                                let x_minus_eps = ctx.sub(x, &eps)
+                                let eps = crate::gpu::GpuTensor::from_cpu(
+                                    &ndarray::ArrayD::from_elem(shape.to_vec(), 1e-7),
+                                )
+                                .map_err(|e| format!("BCE backward: eps from_cpu failed: {e}"))?;
+                                let one_minus_eps = crate::gpu::GpuTensor::from_cpu(
+                                    &ndarray::ArrayD::from_elem(shape.to_vec(), 1.0 - 1e-7),
+                                )
+                                .map_err(|e| format!("BCE backward: 1-eps from_cpu failed: {e}"))?;
+                                let x_minus_eps = ctx
+                                    .sub(x, &eps)
                                     .map_err(|e| format!("BCE backward: sub failed: {e}"))?;
-                                let r = ctx.relu(&x_minus_eps)
+                                let r = ctx
+                                    .relu(&x_minus_eps)
                                     .map_err(|e| format!("BCE backward: relu failed: {e}"))?;
-                                let p = ctx.add(&r, &eps)
+                                let p = ctx
+                                    .add(&r, &eps)
                                     .map_err(|e| format!("BCE backward: add failed: {e}"))?;
-                                let diff = ctx.sub(&one_minus_eps, &p)
+                                let diff = ctx
+                                    .sub(&one_minus_eps, &p)
                                     .map_err(|e| format!("BCE backward: sub2 failed: {e}"))?;
-                                let r2 = ctx.relu(&diff)
+                                let r2 = ctx
+                                    .relu(&diff)
                                     .map_err(|e| format!("BCE backward: relu2 failed: {e}"))?;
-                                let p = ctx.sub(&one_minus_eps, &r2)
+                                let p = ctx
+                                    .sub(&one_minus_eps, &r2)
                                     .map_err(|e| format!("BCE backward: sub3 failed: {e}"))?;
-                                let p_minus_t = ctx.sub(&p, t)
+                                let p_minus_t = ctx
+                                    .sub(&p, t)
                                     .map_err(|e| format!("BCE backward: sub4 failed: {e}"))?;
-                                let num = ctx.mul(grad_gpu, &p_minus_t)
+                                let num = ctx
+                                    .mul(grad_gpu, &p_minus_t)
                                     .map_err(|e| format!("BCE backward: mul failed: {e}"))?;
-                                let ones = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1.0))
-                                    .map_err(|e| format!("BCE backward: ones from_cpu failed: {e}"))?;
-                                let one_minus_p = ctx.sub(&ones, &p)
+                                let ones = crate::gpu::GpuTensor::from_cpu(
+                                    &ndarray::ArrayD::from_elem(shape.to_vec(), 1.0),
+                                )
+                                .map_err(|e| format!("BCE backward: ones from_cpu failed: {e}"))?;
+                                let one_minus_p = ctx
+                                    .sub(&ones, &p)
                                     .map_err(|e| format!("BCE backward: sub5 failed: {e}"))?;
-                                let denom = ctx.mul(&p, &one_minus_p)
+                                let denom = ctx
+                                    .mul(&p, &one_minus_p)
                                     .map_err(|e| format!("BCE backward: mul2 failed: {e}"))?;
-                                let eps2 = crate::gpu::GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12))
-                                    .map_err(|e| format!("BCE backward: eps2 from_cpu failed: {e}"))?;
-                                let denom_minus_eps2 = ctx.sub(&denom, &eps2)
+                                let eps2 = crate::gpu::GpuTensor::from_cpu(
+                                    &ndarray::ArrayD::from_elem(shape.to_vec(), 1e-12),
+                                )
+                                .map_err(|e| format!("BCE backward: eps2 from_cpu failed: {e}"))?;
+                                let denom_minus_eps2 = ctx
+                                    .sub(&denom, &eps2)
                                     .map_err(|e| format!("BCE backward: sub6 failed: {e}"))?;
-                                let r3 = ctx.relu(&denom_minus_eps2)
+                                let r3 = ctx
+                                    .relu(&denom_minus_eps2)
                                     .map_err(|e| format!("BCE backward: relu3 failed: {e}"))?;
-                                let denom = ctx.add(&r3, &eps2)
+                                let denom = ctx
+                                    .add(&r3, &eps2)
                                     .map_err(|e| format!("BCE backward: add2 failed: {e}"))?;
-                                let result = ctx.div(&num, &denom)
+                                let result = ctx
+                                    .div(&num, &denom)
                                     .map_err(|e| format!("BCE backward: div failed: {e}"))?;
                                 Ok(vec![result])
                             })),
                         );
                     }
-                    Err(e) => warn!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}"),
                 }
             }
         }
@@ -700,11 +771,10 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let p = x.clamp(1e-7, 1.0 - 1e-7);
         loss_data[i] = -(t * p.ln() + (1.0 - t) * (1.0 - p).ln());
     }
-    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data)
-        .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if !input.requires_grad() {
         return Tensor::new(loss);
@@ -724,11 +794,12 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                 let p = xv.clamp(1e-7, 1.0 - 1e-7);
                 dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
             }
-            vec![ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            })]
+            vec![
+                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                    debug!("shape encoding failed (infallible): {e}");
+                    ArrayD::zeros(vec![0])
+                }),
+            ]
         }),
     )
 }
@@ -754,8 +825,18 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             vec![],
                             vec![gpu_in.clone(), gpu_t.clone()],
                             Box::new(move |grad, _saved| {
-                                let data = gpu_in_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_in_for_cpu.shape()) });
-                                let tgt = gpu_t_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in cross_entropy: {e}"); ndarray::ArrayD::zeros(gpu_t_for_cpu.shape()) });
+                                let data = gpu_in_for_cpu.to_cpu().unwrap_or_else(|e| {
+                                    tracing::warn!(
+                                        "GPU CPU-backward readback failed in cross_entropy: {e}"
+                                    );
+                                    ndarray::ArrayD::zeros(gpu_in_for_cpu.shape())
+                                });
+                                let tgt = gpu_t_for_cpu.to_cpu().unwrap_or_else(|e| {
+                                    tracing::warn!(
+                                        "GPU CPU-backward readback failed in cross_entropy: {e}"
+                                    );
+                                    ndarray::ArrayD::zeros(gpu_t_for_cpu.shape())
+                                });
                                 let batch = data.shape()[0];
                                 let classes = data.shape()[1];
                                 let mut lsm = vec![0.0f32; data.len()];
@@ -782,10 +863,11 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                                         dx[b * classes + c] = g * if c == t { p - 1.0 } else { p };
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx).unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                })]
+                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx)
+                                    .unwrap_or_else(|e| {
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    })]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 use crate::gpu_backward::cross_entropy_backward_gpu;
@@ -797,7 +879,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             })),
                         );
                     }
-                    Err(e) => warn!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}"),
                 }
             }
         }
@@ -839,26 +921,29 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
         }
         let t = tgt[b] as usize;
         if t >= classes {
-            tracing::warn!("cross_entropy: target index {} out of range [0, {})", t, classes);
+            tracing::warn!(
+                "cross_entropy: target index {} out of range [0, {})",
+                t,
+                classes
+            );
             loss_data[b] = 0.0;
             continue;
         }
         loss_data[b] = -lsm_data[b * classes + t];
     }
     let loss = ArrayD::from_shape_vec(vec![batch], loss_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if !input.requires_grad() {
         return Tensor::new(loss);
     }
 
-    let saved_lsm =
-        ArrayD::from_shape_vec(vec![batch, classes], lsm_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let saved_lsm = ArrayD::from_shape_vec(vec![batch, classes], lsm_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
     let saved_tgt = tgt.clone();
 
     Tensor::with_grad_fn(
@@ -874,7 +959,11 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
             for b in 0..batch {
                 let t = tgt_saved[b] as usize;
                 if t >= classes {
-                    tracing::warn!("cross_entropy backward: target index {} out of range [0, {})", t, classes);
+                    tracing::warn!(
+                        "cross_entropy backward: target index {} out of range [0, {})",
+                        t,
+                        classes
+                    );
                     continue;
                 }
                 let g = grad[b]; // upstream gradient per sample
@@ -884,11 +973,12 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                     dx_data[b * classes + c] = g * d;
                 }
             }
-            vec![ArrayD::from_shape_vec(vec![batch, classes], dx_data)
-                .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            })]
+            vec![
+                ArrayD::from_shape_vec(vec![batch, classes], dx_data).unwrap_or_else(|e| {
+                    debug!("shape encoding failed (infallible): {e}");
+                    ArrayD::zeros(vec![0])
+                }),
+            ]
         }),
     )
 }
@@ -921,14 +1011,23 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             vec![],
                             vec![gpu_ids.clone()],
                             Box::new(move |grad, _saved| {
-                                let ids_arr = gpu_ids_for_cpu.to_cpu().unwrap_or_else(|e| { tracing::warn!("GPU CPU-backward readback failed in embedding: {e}"); ndarray::ArrayD::zeros(gpu_ids_for_cpu.shape()) });
+                                let ids_arr = gpu_ids_for_cpu.to_cpu().unwrap_or_else(|e| {
+                                    tracing::warn!(
+                                        "GPU CPU-backward readback failed in embedding: {e}"
+                                    );
+                                    ndarray::ArrayD::zeros(gpu_ids_for_cpu.shape())
+                                });
                                 let d = grad.shape()[1];
                                 let vocab_size = w_shape[0];
                                 let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
                                 for i in 0..ids_arr.len() {
                                     let idx = ids_arr[i] as usize;
                                     if idx >= vocab_size {
-                                        tracing::warn!("embedding backward: index {} out of range [0, {})", idx, vocab_size);
+                                        tracing::warn!(
+                                            "embedding backward: index {} out of range [0, {})",
+                                            idx,
+                                            vocab_size
+                                        );
                                         continue;
                                     }
                                     for j in 0..d {
@@ -940,14 +1039,16 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 use crate::gpu_backward::embedding_backward_gpu;
                                 let ids_gpu = &saved_gpu[0];
-                                let (d_input, d_weight) = embedding_backward_gpu(
-                                    ctx, ids_gpu, grad_gpu, w_shape_gpu[0],
-                                ).map_err(|e| format!("embedding backward gpu failed: {e}"))?;
+                                let (d_input, d_weight) =
+                                    embedding_backward_gpu(ctx, ids_gpu, grad_gpu, w_shape_gpu[0])
+                                        .map_err(|e| {
+                                            format!("embedding backward gpu failed: {e}")
+                                        })?;
                                 Ok(vec![d_input, d_weight])
                             })),
                         );
                     }
-                    Err(e) => warn!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}"),
                 }
             }
         }
@@ -971,11 +1072,10 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
             result_data.push(w[[idx, d]]);
         }
     }
-    let result =
-        ArrayD::from_shape_vec(vec![seq_len, dim], result_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let result = ArrayD::from_shape_vec(vec![seq_len, dim], result_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if !weight.requires_grad() {
         return Tensor::new(result);
@@ -996,7 +1096,11 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
             for i in 0..ids_arr.len() {
                 let idx = ids_arr[i] as usize;
                 if idx >= vocab_size {
-                    tracing::warn!("embedding backward: index {} out of range [0, {})", idx, vocab_size);
+                    tracing::warn!(
+                        "embedding backward: index {} out of range [0, {})",
+                        idx,
+                        vocab_size
+                    );
                     continue;
                 }
                 for j in 0..d {
@@ -1064,10 +1168,12 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                             debug!("shape encoding failed (infallible): {e}");
                                             ArrayD::zeros(vec![0])
                                         }),
-                                    ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(|e| {
-                                        debug!("shape encoding failed (infallible): {e}");
-                                        ArrayD::zeros(vec![0])
-                                    }),
+                                    ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(
+                                        |e| {
+                                            debug!("shape encoding failed (infallible): {e}");
+                                            ArrayD::zeros(vec![0])
+                                        },
+                                    ),
                                 ]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
@@ -1076,12 +1182,13 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                 let weight_gpu = &saved_gpu[1];
                                 let (dx, dw) = rms_norm_backward_gpu(
                                     ctx, input_gpu, weight_gpu, grad_gpu, eps,
-                                ).map_err(|e| format!("rms_norm gpu backward failed: {e}"))?;
+                                )
+                                .map_err(|e| format!("rms_norm gpu backward failed: {e}"))?;
                                 Ok(vec![dx, dw])
                             })),
                         );
                     }
-                    Err(e) => warn!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}"),
                 }
             }
         }
@@ -1106,11 +1213,10 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             result_data[i * shape[1] + j] = data[[i, j]] / rms * w[[j]];
         }
     }
-    let result =
-        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     let requires_grad = input.requires_grad() || weight.requires_grad();
     if !requires_grad {
@@ -1168,15 +1274,14 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             }
 
             vec![
-                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
-                    .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
+                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                    debug!("shape encoding failed (infallible): {e}");
+                    ArrayD::zeros(vec![0])
+                }),
                 ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            }),
+                    debug!("shape encoding failed (infallible): {e}");
+                    ArrayD::zeros(vec![0])
+                }),
             ]
         }),
     )
@@ -1307,14 +1412,16 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                     let gq = &saved_gpu[0];
                                     let gk = &saved_gpu[1];
                                     let gv = &saved_gpu[2];
-                                    let (dq_gpu, dk_gpu, dv_gpu) = attention_backward_gpu(
-                                        ctx, gq, gk, gv, grad_gpu, scale,
-                                    ).map_err(|e| format!("fused attention backward gpu failed: {e}"))?;
+                                    let (dq_gpu, dk_gpu, dv_gpu) =
+                                        attention_backward_gpu(ctx, gq, gk, gv, grad_gpu, scale)
+                                            .map_err(|e| {
+                                                format!("fused attention backward gpu failed: {e}")
+                                            })?;
                                     Ok(vec![dq_gpu, dk_gpu, dv_gpu])
                                 })),
                             );
                         }
-                        Err(e) => warn!("autograd nn backward failed: {e}")
+                        Err(e) => warn!("autograd nn backward failed: {e}"),
                     }
                 }
             }
@@ -1433,15 +1540,16 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                                         dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx).unwrap_or_else(|e| {
-                                    debug!("shape encoding failed (infallible): {e}");
-                                    ArrayD::zeros(vec![0])
-                                })]
+                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx)
+                                    .unwrap_or_else(|e| {
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    })]
                             }),
                             None,
                         );
                     }
-                    Err(e) => warn!("autograd nn backward failed: {e}")
+                    Err(e) => warn!("autograd nn backward failed: {e}"),
                 }
             }
         }
@@ -1472,11 +1580,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
             result_data[i * seq_len + j] = 0.0;
         }
     }
-    let result =
-        ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            });
+    let result = ArrayD::from_shape_vec(shape.clone(), result_data).unwrap_or_else(|e| {
+        debug!("shape encoding failed (infallible): {e}");
+        ArrayD::zeros(vec![0])
+    });
 
     if !input.requires_grad() {
         return Tensor::new(result);
@@ -1501,11 +1608,12 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                     dx_data[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                 }
             }
-            vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data)
-                .unwrap_or_else(|e| {
-                debug!("shape encoding failed (infallible): {e}");
-                ArrayD::zeros(vec![0])
-            })]
+            vec![
+                ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                    debug!("shape encoding failed (infallible): {e}");
+                    ArrayD::zeros(vec![0])
+                }),
+            ]
         }),
     )
 }

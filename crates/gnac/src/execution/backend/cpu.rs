@@ -37,11 +37,12 @@ fn dispatch_op(
 ) -> DLResult<Vec<Tensor>> {
     let get_input = |idx: usize| -> DLResult<Tensor> {
         let name = &op.inputs[idx].name;
-        tensors.get(name).cloned().ok_or_else(|| {
-            crate::DeepLearningError::Computation {
+        tensors
+            .get(name)
+            .cloned()
+            .ok_or_else(|| crate::DeepLearningError::Computation {
                 reason: format!("Input '{}' not found for op {:?}", name, op.op_type),
-            }
-        })
+            })
     };
 
     match op.op_type {
@@ -97,9 +98,11 @@ fn dispatch_op(
             Ok(vec![ops::transpose(&a)])
         }
         IROpType::Concat => {
-            let input_refs: Vec<&Tensor> = op.inputs.iter().filter_map(|input| {
-                tensors.get(&input.name)
-            }).collect();
+            let input_refs: Vec<&Tensor> = op
+                .inputs
+                .iter()
+                .filter_map(|input| tensors.get(&input.name))
+                .collect();
             if input_refs.is_empty() {
                 return Err(crate::DeepLearningError::Computation {
                     reason: "Concat requires at least one input".to_string(),
@@ -134,7 +137,10 @@ fn dispatch_op(
             let k_shape = kernel_data.shape();
             if k_shape.len() != 4 {
                 return Err(crate::DeepLearningError::Computation {
-                    reason: format!("Conv2D kernel requires 4D [OC, IC, KH, KW], got {:?}", k_shape),
+                    reason: format!(
+                        "Conv2D kernel requires 4D [OC, IC, KH, KW], got {:?}",
+                        k_shape
+                    ),
                 });
             }
             let (oc, _ic, kh, kw) = (k_shape[0], k_shape[1], k_shape[2], k_shape[3]);
@@ -155,15 +161,21 @@ fn dispatch_op(
                                     for kw_idx in 0..kw {
                                         let ih = oh_idx * stride + kh_idx;
                                         let iw = ow_idx * stride + kw_idx;
-                                        if ih < padding || ih >= h + padding
-                                            || iw < padding || iw >= w + padding
+                                        if ih < padding
+                                            || ih >= h + padding
+                                            || iw < padding
+                                            || iw >= w + padding
                                         {
                                             continue;
                                         }
                                         let ih_clamped = ih.wrapping_sub(padding);
                                         let iw_clamped = iw.wrapping_sub(padding);
-                                        let i_idx = bn * c * h * w + ci * h * w + ih_clamped * w + iw_clamped;
-                                        let k_idx = co * c * kh * kw + ci * kh * kw + kh_idx * kw + kw_idx;
+                                        let i_idx = bn * c * h * w
+                                            + ci * h * w
+                                            + ih_clamped * w
+                                            + iw_clamped;
+                                        let k_idx =
+                                            co * c * kh * kw + ci * kh * kw + kh_idx * kw + kw_idx;
                                         if i_idx < i_slice.len() && k_idx < k_slice.len() {
                                             sum += i_slice[i_idx] * k_slice[k_idx];
                                         }
@@ -191,7 +203,11 @@ fn dispatch_op(
         IROpType::Split => {
             let a = get_input(0)?;
             let axis = op.attributes.get("axis").map(|&v| v as usize).unwrap_or(0);
-            let chunks = op.attributes.get("chunks").map(|&v| v as usize).unwrap_or(2);
+            let chunks = op
+                .attributes
+                .get("chunks")
+                .map(|&v| v as usize)
+                .unwrap_or(2);
             let data = a.data();
             let shape = data.shape().to_vec();
             if axis >= shape.len() {
@@ -203,7 +219,10 @@ fn dispatch_op(
             let chunk_size = dim_size / chunks;
             if chunk_size == 0 {
                 return Err(crate::DeepLearningError::Computation {
-                    reason: format!("Split chunk size 0 for axis {} dim {} chunks {}", axis, dim_size, chunks),
+                    reason: format!(
+                        "Split chunk size 0 for axis {} dim {} chunks {}",
+                        axis, dim_size, chunks
+                    ),
                 });
             }
             let flat = data.as_slice().unwrap_or(&[]);
@@ -212,7 +231,11 @@ fn dispatch_op(
             let mut results = Vec::with_capacity(chunks);
             for c in 0..chunks {
                 let start = c * chunk_size;
-                let end = if c == chunks - 1 { dim_size } else { (c + 1) * chunk_size };
+                let end = if c == chunks - 1 {
+                    dim_size
+                } else {
+                    (c + 1) * chunk_size
+                };
                 let count = end - start;
                 let chunk_size_total = count * inner;
                 let mut chunk_data = vec![0.0f32; outer_before * chunk_size_total];
@@ -227,14 +250,16 @@ fn dispatch_op(
                 }
                 let mut chunk_shape = shape.clone();
                 chunk_shape[axis] = count;
-                let arr = ndarray::ArrayD::from_shape_vec(chunk_shape, chunk_data)
-                    .map_err(|e| crate::DeepLearningError::Computation {
-                        reason: format!("Split shape mismatch: {}", e),
+                let arr =
+                    ndarray::ArrayD::from_shape_vec(chunk_shape, chunk_data).map_err(|e| {
+                        crate::DeepLearningError::Computation {
+                            reason: format!("Split shape mismatch: {}", e),
+                        }
                     })?;
                 results.push(Tensor::new(arr));
             }
             Ok(results)
-        },
+        }
         IROpType::Custom(_) => Err(crate::DeepLearningError::Computation {
             reason: format!("Custom op '{:?}' not available in CPU backend", op.op_type),
         }),

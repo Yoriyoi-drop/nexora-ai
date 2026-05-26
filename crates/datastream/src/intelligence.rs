@@ -173,7 +173,7 @@ pub struct IntelligenceReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample_with(domain: Domain, entropy: f64, quality: f64, text_len: usize) -> DataSample {

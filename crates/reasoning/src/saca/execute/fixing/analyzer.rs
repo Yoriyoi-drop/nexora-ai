@@ -192,7 +192,8 @@ impl ErrorAnalyzer {
                 if let Some(second_colon) = part[..colon_pos].rfind(':') {
                     let line_str = &part[second_colon + 1..colon_pos];
                     let col_str = &part[colon_pos + 1..];
-                    if let (Ok(ln), Ok(col)) = (line_str.parse::<usize>(), col_str.parse::<usize>()) {
+                    if let (Ok(ln), Ok(col)) = (line_str.parse::<usize>(), col_str.parse::<usize>())
+                    {
                         file_path = part[..second_colon].to_string();
                         line_number = ln;
                         column = col;
@@ -221,7 +222,8 @@ impl ErrorAnalyzer {
         }
 
         // Extract context: one line before and after the error description
-        let extracted_context = error_log.lines()
+        let extracted_context = error_log
+            .lines()
             .filter(|l| {
                 let tl = l.trim().to_lowercase();
                 !tl.is_empty()
@@ -235,15 +237,31 @@ impl ErrorAnalyzer {
             .join("; ");
 
         // Determine error category based on content
-        let error_category = if lower.contains("error[E") || lower.contains("compile") || lower.contains("syntax") {
+        let error_category = if lower.contains("error[E")
+            || lower.contains("compile")
+            || lower.contains("syntax")
+        {
             ErrorCategory::Compilation
-        } else if lower.contains("panic") || lower.contains("segfault") || lower.contains("signal") {
+        } else if lower.contains("panic") || lower.contains("segfault") || lower.contains("signal")
+        {
             ErrorCategory::Runtime
-        } else if lower.contains("logic") || lower.contains("assert") || lower.contains("invariant") || lower.contains("expectation") {
+        } else if lower.contains("logic")
+            || lower.contains("assert")
+            || lower.contains("invariant")
+            || lower.contains("expectation")
+        {
             ErrorCategory::Logic
-        } else if lower.contains("oom") || lower.contains("out of memory") || lower.contains("disk") || lower.contains("no such file") {
+        } else if lower.contains("oom")
+            || lower.contains("out of memory")
+            || lower.contains("disk")
+            || lower.contains("no such file")
+        {
             ErrorCategory::Resource
-        } else if lower.contains("deadlock") || lower.contains("race") || lower.contains("mutex") || lower.contains("poison") {
+        } else if lower.contains("deadlock")
+            || lower.contains("race")
+            || lower.contains("mutex")
+            || lower.contains("poison")
+        {
             ErrorCategory::Concurrency
         } else {
             ErrorCategory::Unknown
@@ -277,9 +295,9 @@ impl ErrorAnalyzer {
 
             // Determine which pattern set to use based on depth
             let max_patterns = match self.analysis_depth {
-                ErrorAnalysisDepth::Shallow => 4,         // syntax, type, unwrap, panic
-                ErrorAnalysisDepth::Medium => 8,          // + index, null, concurrency, memory
-                ErrorAnalysisDepth::Deep => 12,            // + IO, div0, overflow, serialization
+                ErrorAnalysisDepth::Shallow => 4, // syntax, type, unwrap, panic
+                ErrorAnalysisDepth::Medium => 8,  // + index, null, concurrency, memory
+                ErrorAnalysisDepth::Deep => 12,   // + IO, div0, overflow, serialization
                 ErrorAnalysisDepth::Comprehensive => PATTERNS.len(), // all
             };
 
@@ -291,7 +309,11 @@ impl ErrorAnalyzer {
                 let keyword_match: bool = pattern.keywords.iter().any(|kw| lower_log.contains(kw));
 
                 if keyword_match {
-                    let match_count = pattern.keywords.iter().filter(|kw| lower_log.contains(*kw)).count();
+                    let match_count = pattern
+                        .keywords
+                        .iter()
+                        .filter(|kw| lower_log.contains(*kw))
+                        .count();
                     let total_count = pattern.keywords.len();
                     let density = match_count as f32 / total_count as f32;
                     let confidence = (pattern.base_confidence * (0.5 + 0.5 * density)).min(0.99);
@@ -302,12 +324,17 @@ impl ErrorAnalyzer {
                     // Append context information for better fix strategies
                     let mut fix_strategy = pattern.fix_strategy.to_string();
                     if !parsed.extracted_context.is_empty() {
-                        fix_strategy.push_str(&format!(" | Context near error: {}", parsed.extracted_context));
+                        fix_strategy.push_str(&format!(
+                            " | Context near error: {}",
+                            parsed.extracted_context
+                        ));
                     }
                     analysis.fix_strategies.push(fix_strategy);
                     analysis.confidence_scores.push(confidence);
                     analysis.line_numbers.push(parsed.line_number);
-                    analysis.error_categories.push(format!("{:?}", parsed.error_category));
+                    analysis
+                        .error_categories
+                        .push(format!("{:?}", parsed.error_category));
                     matched = true;
 
                     // For deep+ analysis, break after first match; for comprehensive, continue scanning
@@ -318,11 +345,24 @@ impl ErrorAnalyzer {
             }
 
             // If no pattern matched, add a generic analysis entry with parsed info
-            if !matched && matches!(self.analysis_depth, ErrorAnalysisDepth::Deep | ErrorAnalysisDepth::Comprehensive) {
+            if !matched
+                && matches!(
+                    self.analysis_depth,
+                    ErrorAnalysisDepth::Deep | ErrorAnalysisDepth::Comprehensive
+                )
+            {
                 let category_str = format!("{:?}", parsed.error_category);
-                analysis.error_types.push(format!("{}({})", category_str, "UnknownError"));
-                analysis.root_causes.push(format!("Unrecognized error pattern at line {}: {}", parsed.line_number, parsed.extracted_context));
-                analysis.fix_strategies.push("Inspect error log context for clues; add structured error handling".to_string());
+                analysis
+                    .error_types
+                    .push(format!("{}({})", category_str, "UnknownError"));
+                analysis.root_causes.push(format!(
+                    "Unrecognized error pattern at line {}: {}",
+                    parsed.line_number, parsed.extracted_context
+                ));
+                analysis.fix_strategies.push(
+                    "Inspect error log context for clues; add structured error handling"
+                        .to_string(),
+                );
                 analysis.confidence_scores.push(0.3);
                 analysis.line_numbers.push(parsed.line_number);
                 analysis.error_categories.push(category_str);

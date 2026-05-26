@@ -19,7 +19,7 @@ impl SpectraIdentity {
             "Spectral Perception & Encoding for Creative Transcendence & Research Analytics - Creative multimodal synthesis specialist with advanced artistic and creative capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

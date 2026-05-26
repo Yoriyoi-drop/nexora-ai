@@ -95,7 +95,10 @@ impl MiniTokenizer {
         }
         let max_merges = num_merges.min(self.vocab_size.saturating_sub(256));
         for _ in 0..max_merges {
-            let best = pair_counts.iter().max_by_key(|&(_, &c)| c).map(|(k, _)| k.clone());
+            let best = pair_counts
+                .iter()
+                .max_by_key(|&(_, &c)| c)
+                .map(|(k, _)| k.clone());
             let Some((left, right)) = best else { break };
             let merged = format!("{}{}", left, right);
             let id = 256u32 + self.merges.len() as u32;
@@ -138,7 +141,9 @@ impl MiniTokenizer {
                         }
                     }
                     i = next[i];
-                    if i == usize::MAX { break; }
+                    if i == usize::MAX {
+                        break;
+                    }
                 }
                 match best_pos {
                     Some((i, j, merged)) => {
@@ -357,8 +362,13 @@ impl CausalLmModel {
         max_tokens: usize,
         temperature: f32,
     ) -> NxrModelResult<String> {
-        self.generate_text_with_gpu(prompt, max_tokens, temperature, self.use_gpu.load(Ordering::Relaxed))
-            .await
+        self.generate_text_with_gpu(
+            prompt,
+            max_tokens,
+            temperature,
+            self.use_gpu.load(Ordering::Relaxed),
+        )
+        .await
     }
 
     pub async fn generate_text_with_gpu(
@@ -378,16 +388,10 @@ impl CausalLmModel {
         let input_ids = tok.encode(prompt);
 
         let guard = self.model.read().await;
-        let m = guard.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model not loaded".to_string())
-        })?;
-        let (output_ids, _) = m.generate_with_gpu(
-            &input_ids,
-            max_tokens,
-            temperature,
-            50,
-            use_gpu,
-        );
+        let m = guard
+            .as_ref()
+            .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
+        let (output_ids, _) = m.generate_with_gpu(&input_ids, max_tokens, temperature, 50, use_gpu);
 
         let tokenizer = self.tokenizer.read().await;
         let tok = tokenizer
@@ -522,7 +526,10 @@ impl CausalLmModel {
                 && trainer.step > 0
             {
                 let val_metrics = trainer.evaluate_loss(&val_tokens, seq_length);
-                info!("  Validation | step {} | loss: {:.4} | perplexity: {:.2}", trainer.step, val_metrics.avg_loss, val_metrics.perplexity);
+                info!(
+                    "  Validation | step {} | loss: {:.4} | perplexity: {:.2}",
+                    trainer.step, val_metrics.avg_loss, val_metrics.perplexity
+                );
                 if val_metrics.avg_loss < best_val_loss {
                     best_val_loss = val_metrics.avg_loss;
                     early_stop_counter = 0;
@@ -908,23 +915,24 @@ impl NxrModel for CausalLmModel {
                 .filter_map(|i| {
                     let path = format!("/proc/driver/nvidia/gpus/{i}/status");
                     match std::fs::read_to_string(&path) {
-                        Ok(s) => {
-                            s.lines()
-                                .find(|l| l.contains("GPU Utilization"))
-                                .and_then(|l| {
-                                    l.split_whitespace()
-                                        .find(|w| w.ends_with('%'))
-                                        .and_then(|w| {
-                                            match w.trim_end_matches('%').parse::<f32>() {
-                                                Ok(val) => Some(val),
-                                                Err(e) => {
-                                                    tracing::warn!("Failed to parse GPU utilization '{}': {}", w.trim_end_matches('%'), e);
-                                                    None
-                                                }
-                                            }
-                                        })
-                                })
-                        }
+                        Ok(s) => s
+                            .lines()
+                            .find(|l| l.contains("GPU Utilization"))
+                            .and_then(|l| {
+                                l.split_whitespace().find(|w| w.ends_with('%')).and_then(
+                                    |w| match w.trim_end_matches('%').parse::<f32>() {
+                                        Ok(val) => Some(val),
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Failed to parse GPU utilization '{}': {}",
+                                                w.trim_end_matches('%'),
+                                                e
+                                            );
+                                            None
+                                        }
+                                    },
+                                )
+                            }),
                         Err(e) => {
                             tracing::warn!("Failed to read GPU status {}: {}", path, e);
                             None
@@ -981,7 +989,11 @@ impl CausalLmModel {
                 let elapsed = std::time::Instant::now();
                 let total = t.len() as u64;
                 let dur = elapsed.elapsed().as_millis() as u64;
-                let tp_s = if dur > 0 { total as f32 / (dur as f32 / 1000.0) } else { 0.0 };
+                let tp_s = if dur > 0 {
+                    total as f32 / (dur as f32 / 1000.0)
+                } else {
+                    0.0
+                };
                 return Ok(NxrOutput {
                     id: uuid::Uuid::new_v4(),
                     input_id: input.id,
@@ -1048,13 +1060,8 @@ impl CausalLmModel {
         let m = guard.as_ref().ok_or_else(|| {
             NxrModelError::NotInitialized("Model was reset before generation".to_string())
         })?;
-        let (output_ids, _cache) = m.generate_with_gpu(
-            &input_ids,
-            max_tokens,
-            temperature,
-            top_k,
-            use_gpu,
-        );
+        let (output_ids, _cache) =
+            m.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
 
         let elapsed = start.elapsed().as_millis() as u64;
         let generated_text = tok.decode(&output_ids);
@@ -1103,9 +1110,9 @@ impl CausalLmModel {
             InputData::Tokens(t) => {
                 let decoded = {
                     let tokenizer = self.tokenizer.read().await;
-                    let tok = tokenizer
-                        .as_ref()
-                        .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+                    let tok = tokenizer.as_ref().ok_or_else(|| {
+                        NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
+                    })?;
                     tok.decode(t)
                 };
                 callback(NxrStreamChunk {
@@ -1149,9 +1156,9 @@ impl CausalLmModel {
         };
         let model_arc = {
             let guard = self.model.read().await;
-            guard.clone().ok_or_else(|| {
-                NxrModelError::NotInitialized("Model not loaded".to_string())
-            })?
+            guard
+                .clone()
+                .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?
         };
         let callback = callback.clone();
         let input_id = input.id;
@@ -1402,7 +1409,7 @@ mod tests {
         let tok = MiniTokenizer::new(256);
         let ids = tok.encode("abc");
         assert_eq!(ids.first(), Some(&1)); // BOS
-        assert_eq!(ids.last(), Some(&2));  // EOS
+        assert_eq!(ids.last(), Some(&2)); // EOS
         assert_eq!(ids.len(), 5); // BOS + a + b + c + EOS
 
         let decoded = tok.decode(&ids);
@@ -1433,7 +1440,11 @@ mod tests {
     #[test]
     fn test_mini_tokenizer_train_bpe() {
         let mut tok = MiniTokenizer::new(260);
-        let texts = vec!["hello".to_string(), "help".to_string(), "helicopter".to_string()];
+        let texts = vec![
+            "hello".to_string(),
+            "help".to_string(),
+            "helicopter".to_string(),
+        ];
         tok.train_bpe(&texts, 2);
         assert!(tok.merges.len() <= 2);
         assert!(!tok.bpe_token_to_id.is_empty() || tok.merges.len() == 2);

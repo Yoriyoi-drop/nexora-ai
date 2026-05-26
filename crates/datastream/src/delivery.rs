@@ -73,7 +73,8 @@ impl TrainingDeliveryLayer {
                     self.write_arrow(&batch, &output_path, total).await?;
                 }
                 OutputFormat::TensorRecords => {
-                    self.write_tensor_records(&batch, &output_path, total).await?;
+                    self.write_tensor_records(&batch, &output_path, total)
+                        .await?;
                 }
             }
             total += batch_size as u64;
@@ -174,26 +175,39 @@ impl TrainingDeliveryLayer {
             )
         };
 
-        let id_array = StringArray::from(
-            batch.iter().map(|s| s.id.to_string()).collect::<Vec<_>>(),
-        );
-        let text_array = StringArray::from(
-            batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
-        );
+        let id_array =
+            StringArray::from(batch.iter().map(|s| s.id.to_string()).collect::<Vec<_>>());
+        let text_array =
+            StringArray::from(batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>());
         let source_name_array = StringArray::from(
-            batch.iter().map(|s| s.source.name.as_str()).collect::<Vec<_>>(),
+            batch
+                .iter()
+                .map(|s| s.source.name.as_str())
+                .collect::<Vec<_>>(),
         );
         let source_url_array = StringArray::from(
-            batch.iter().map(|s| s.source.url.as_deref().unwrap_or("")).collect::<Vec<_>>(),
+            batch
+                .iter()
+                .map(|s| s.source.url.as_deref().unwrap_or(""))
+                .collect::<Vec<_>>(),
         );
         let trust_score_array = Float64Array::from(
-            batch.iter().map(|s| s.source.trust_score).collect::<Vec<_>>(),
+            batch
+                .iter()
+                .map(|s| s.source.trust_score)
+                .collect::<Vec<_>>(),
         );
         let source_category_array = StringArray::from(
-            batch.iter().map(|s| format!("{:?}", s.source.category)).collect::<Vec<_>>(),
+            batch
+                .iter()
+                .map(|s| format!("{:?}", s.source.category))
+                .collect::<Vec<_>>(),
         );
         let score_array = Float64Array::from(
-            batch.iter().map(|s| s.score.unwrap_or(f64::NAN)).collect::<Vec<_>>(),
+            batch
+                .iter()
+                .map(|s| s.score.unwrap_or(f64::NAN))
+                .collect::<Vec<_>>(),
         );
 
         let record_batch = RecordBatch::try_new(
@@ -351,7 +365,7 @@ impl TrainingDeliveryLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -383,15 +397,13 @@ mod tests {
 
     #[test]
     fn test_with_format() {
-        let layer = TrainingDeliveryLayer::new()
-            .with_format(OutputFormat::RawText);
+        let layer = TrainingDeliveryLayer::new().with_format(OutputFormat::RawText);
         assert_eq!(layer.output_format, OutputFormat::RawText);
     }
 
     #[test]
     fn test_with_output_dir() {
-        let layer = TrainingDeliveryLayer::new()
-            .with_output_dir(PathBuf::from("/tmp/out"));
+        let layer = TrainingDeliveryLayer::new().with_output_dir(PathBuf::from("/tmp/out"));
         assert_eq!(layer.output_dir, PathBuf::from("/tmp/out"));
     }
 

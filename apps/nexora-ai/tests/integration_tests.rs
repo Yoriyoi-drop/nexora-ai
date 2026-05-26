@@ -97,7 +97,10 @@ async fn test_request_processing_integration() -> NexoraResult<()> {
     let input = "What is the capital of France?";
     let response = ai.process_request(input).await?;
 
-    assert!(!response.is_empty(), "Processed request should return content");
+    assert!(
+        !response.is_empty(),
+        "Processed request should return content"
+    );
 
     Ok(())
 }

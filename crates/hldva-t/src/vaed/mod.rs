@@ -556,8 +556,16 @@ impl Conv2D {
 
         let (height, width, channels) = (input_shape[0], input_shape[1], input_shape[2]);
 
-        let output_height = (height.saturating_add(2 * self.padding).saturating_sub(self.kernel_size)) / self.stride + 1;
-        let output_width = (width.saturating_add(2 * self.padding).saturating_sub(self.kernel_size)) / self.stride + 1;
+        let output_height = (height
+            .saturating_add(2 * self.padding)
+            .saturating_sub(self.kernel_size))
+            / self.stride
+            + 1;
+        let output_width = (width
+            .saturating_add(2 * self.padding)
+            .saturating_sub(self.kernel_size))
+            / self.stride
+            + 1;
 
         let input_data = input.data();
         let weight_data = self.weight.data();

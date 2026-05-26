@@ -150,8 +150,9 @@ impl DecodingStrategy for GreedyDecoding {
             let log_prob = self.compute_log_prob(next_logit, config);
             let selection_prob = log_prob.exp();
 
-            let token_id = u32::try_from(next_index)
-                .map_err(|e| InferenceError::DecodingError(format!("Invalid token index: {}", e)))?;
+            let token_id = u32::try_from(next_index).map_err(|e| {
+                InferenceError::DecodingError(format!("Invalid token index: {}", e))
+            })?;
             return Ok(TokenSelection {
                 token_id,
                 token_text: alloc_token_text(next_index),
@@ -330,11 +331,7 @@ impl DecodingStrategy for TemperatureSampling {
 impl TemperatureSampling {
     /// GPU-accelerated full sampling pipeline: softmax + top-k + top-p + sample
     /// Falls back to CPU seamlessly.
-    fn gpu_sample_full(
-        &self,
-        adjusted_logits: &[f32],
-        config: &DecodingConfig,
-    ) -> Result<usize> {
+    fn gpu_sample_full(&self, adjusted_logits: &[f32], config: &DecodingConfig) -> Result<usize> {
         #[cfg(feature = "gpu")]
         {
             use nexora_autograd::gpu::{GpuContext, GpuTensor};
@@ -360,7 +357,9 @@ impl TemperatureSampling {
                     Ok(out) => {
                         if let Ok(raw) = out.to_cpu_raw_bytes() {
                             if raw.len() >= 4 {
-                                return Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
+                                return Ok(
+                                    u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize
+                                );
                             }
                         }
                     }
@@ -700,7 +699,8 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
 }
 
 use std::sync::OnceLock;
-static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_tokenizer::BpeTokenizer>>> = OnceLock::new();
+static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_tokenizer::BpeTokenizer>>> =
+    OnceLock::new();
 
 /// Set the global tokenizer for use by `alloc_token_text`.
 /// Called once during engine initialization.

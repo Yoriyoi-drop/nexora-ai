@@ -23,8 +23,7 @@ impl Oracle7RuntimeAgent {
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|w| !w.is_empty())
             .collect();
-        let complexity =
-            (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
+        let complexity = (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
 
         Ok(format!(
             "[ORACLE-7] Decomposed problem via causal graph analysis:\n\

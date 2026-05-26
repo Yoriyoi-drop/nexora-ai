@@ -44,8 +44,8 @@ impl EchoNetInjector {
         let apss = AdaptivePhaseSeparationStabilizer::new(
             hidden_size,
             phase_separation_strength,
-            0.5,  // similarity_threshold
-            0.5,  // max_phase_adjustment
+            0.5, // similarity_threshold
+            0.5, // max_phase_adjustment
         )
         .map_err(|e| TransformerError::Implementation(format!("APSS init: {}", e)))?;
 
@@ -104,25 +104,20 @@ impl LayerInjector for EchoNetInjector {
         let mut frequency_data = vec![0.0_f32; seq_len * self.hidden_size];
 
         for tp in &self.buffer {
-            amplitude_data.extend_from_slice(
-                tp.hidden.as_slice()
-                    .ok_or_else(|| TransformerError::Implementation("hidden state not contiguous".into()))?
-            );
-            phase_data.extend_from_slice(
-                tp.phase.as_slice()
-                    .ok_or_else(|| TransformerError::Implementation("phase vector not contiguous".into()))?
-            );
+            amplitude_data.extend_from_slice(tp.hidden.as_slice().ok_or_else(|| {
+                TransformerError::Implementation("hidden state not contiguous".into())
+            })?);
+            phase_data.extend_from_slice(tp.phase.as_slice().ok_or_else(|| {
+                TransformerError::Implementation("phase vector not contiguous".into())
+            })?);
         }
 
-        let amplitude =
-            ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], amplitude_data)
-                .map_err(|e| TransformerError::Implementation(format!("amplitude shape: {}", e)))?;
-        let phase =
-            ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], phase_data)
-                .map_err(|e| TransformerError::Implementation(format!("phase shape: {}", e)))?;
-        let frequency =
-            ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], frequency_data)
-                .map_err(|e| TransformerError::Implementation(format!("freq shape: {}", e)))?;
+        let amplitude = ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], amplitude_data)
+            .map_err(|e| TransformerError::Implementation(format!("amplitude shape: {}", e)))?;
+        let phase = ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], phase_data)
+            .map_err(|e| TransformerError::Implementation(format!("phase shape: {}", e)))?;
+        let frequency = ArrayD::from_shape_vec(vec![seq_len, self.hidden_size], frequency_data)
+            .map_err(|e| TransformerError::Implementation(format!("freq shape: {}", e)))?;
 
         let embeddings = amplitude.clone();
         let mut wave = HolographicWave {

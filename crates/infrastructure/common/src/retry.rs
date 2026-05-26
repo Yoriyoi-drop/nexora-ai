@@ -59,11 +59,17 @@ impl RetryConfig {
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| unreachable!("retry loop always executes at least once because max_retries >= 0")))
+        Err(last_err.unwrap_or_else(|| {
+            unreachable!("retry loop always executes at least once because max_retries >= 0")
+        }))
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {
-        let multiplier = if attempt < 64 { 2u64.pow(attempt) } else { u64::MAX };
+        let multiplier = if attempt < 64 {
+            2u64.pow(attempt)
+        } else {
+            u64::MAX
+        };
         let delay = self.base_delay_ms.saturating_mul(multiplier);
         let delay = delay.min(self.max_delay_ms);
         if self.jitter {

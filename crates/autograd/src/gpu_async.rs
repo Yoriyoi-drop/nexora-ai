@@ -1,7 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 
 use crate::gpu::{readback_with_timeout, GpuContext, GpuDtype, GpuError, GpuTensor};
 
@@ -36,7 +35,10 @@ impl<T: Send + 'static> AsyncReadback<T> {
     pub fn recv(&self) -> Result<T, GpuError> {
         let deadline = std::time::Instant::now() + GPU_READBACK_TIMEOUT;
         loop {
-            match self.receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+            match self
+                .receiver
+                .recv_timeout(std::time::Duration::from_millis(100))
+            {
                 Ok(val) => return Ok(val),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if std::time::Instant::now() > deadline {
@@ -93,7 +95,8 @@ impl GpuContext {
             if let Ok(()) = result {
                 let slice = staging_clone.slice(..size_bytes);
                 let data = slice.get_mapped_range();
-                let floats: Vec<f32> = data.chunks_exact(4)
+                let floats: Vec<f32> = data
+                    .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
                 drop(data);
@@ -106,7 +109,10 @@ impl GpuContext {
         // Non-blocking poll — proses callback jika GPU sudah selesai
         let _ = self.device.poll(wgpu::PollType::Poll);
 
-        Ok(AsyncReadback { receiver: rx, ready })
+        Ok(AsyncReadback {
+            receiver: rx,
+            ready,
+        })
     }
 
     /// Proses callback async GPU tanpa blocking
@@ -138,7 +144,11 @@ impl GpuContext {
     /// Complete an async readback: register `map_async` on a staging buffer that was
     /// previously created via `create_readback_staging()` and submitted via `flush()`.
     /// Returns immediately — call `try_recv()` after polling to get the data.
-    pub fn complete_readback(&self, staging: &wgpu::Buffer, size_bytes: u64) -> AsyncReadback<Vec<f32>> {
+    pub fn complete_readback(
+        &self,
+        staging: &wgpu::Buffer,
+        size_bytes: u64,
+    ) -> AsyncReadback<Vec<f32>> {
         let (tx, rx) = mpsc::channel();
         let ready = Arc::new(AtomicBool::new(false));
         let ready_clone = ready.clone();
@@ -161,7 +171,10 @@ impl GpuContext {
 
         let _ = self.device.poll(wgpu::PollType::Poll);
 
-        AsyncReadback { receiver: rx, ready }
+        AsyncReadback {
+            receiver: rx,
+            ready,
+        }
     }
 
     /// Poll with a bounded timeout (nanoseconds). Non-blocking if timeout ≤ 0.

@@ -30,7 +30,7 @@ pub trait ParallelFilter: Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn dummy_sample() -> DataSample {
@@ -65,7 +65,9 @@ mod tests {
         struct DummyFilter;
         #[async_trait]
         impl Filter for DummyFilter {
-            fn name(&self) -> &str { "dummy" }
+            fn name(&self) -> &str {
+                "dummy"
+            }
             async fn evaluate(&self, _: &DataSample) -> FilterResult {
                 FilterResult {
                     passed: true,

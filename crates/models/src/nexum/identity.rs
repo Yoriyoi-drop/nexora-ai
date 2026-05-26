@@ -19,7 +19,7 @@ impl NexumIdentity {
             "Networked EXpert Unified Mediator - Multi-agent orchestration and alignment coordination specialist with advanced consensus building and conflict resolution capabilities.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

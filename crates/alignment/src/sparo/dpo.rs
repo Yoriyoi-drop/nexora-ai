@@ -255,10 +255,16 @@ impl DpoTrainer {
             for pair in pairs {
                 let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
                 self.model.apply_gradient(
-                    &pair.prompt, &pair.chosen, grad_chosen, self.learning_rate,
+                    &pair.prompt,
+                    &pair.chosen,
+                    grad_chosen,
+                    self.learning_rate,
                 )?;
                 self.model.apply_gradient(
-                    &pair.prompt, &pair.rejected, grad_rejected, self.learning_rate,
+                    &pair.prompt,
+                    &pair.rejected,
+                    grad_rejected,
+                    self.learning_rate,
                 )?;
             }
 

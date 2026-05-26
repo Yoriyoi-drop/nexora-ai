@@ -31,8 +31,8 @@ use nexora_shared::{
 };
 
 use self::{
-    agents::SwiftAgents, capabilities::SwiftCapabilities,
-    config::SwiftConfig, identity::SwiftIdentity,
+    agents::SwiftAgents, capabilities::SwiftCapabilities, config::SwiftConfig,
+    identity::SwiftIdentity,
 };
 
 #[cfg(feature = "simulated-models")]
@@ -135,7 +135,9 @@ impl NxrSwiftModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -258,13 +260,20 @@ impl NxrSwiftModel {
 
 const SWIFT_SYSTEM_PROMPT: &str = "You are NXR-SWIFT (Sub-millisecond Weighted Inference & Fast Thought) [NXR-08 EDGE], optimized for rapid response and real-time processing. Capabilities: fast inference, low-latency responses, real-time data processing, workflow automation, and efficient edge deployment. Prioritize concise, accurate, and fast answers.";
 
-fn augment_swift_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_swift_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", SWIFT_SYSTEM_PROMPT, text));
+    augmented.data =
+        nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", SWIFT_SYSTEM_PROMPT, text));
     Ok(augmented)
 }
 

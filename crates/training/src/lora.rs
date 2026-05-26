@@ -246,10 +246,7 @@ impl LoRAModel {
         Ok(())
     }
 
-    pub fn load_adapter(
-        &mut self,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_adapter(&mut self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let loaded = nexora_transformer::safetensors::load_safetensors(path)?;
         for layer_pair in self.layers.chunks_mut(2) {
             if layer_pair.len() < 2 {

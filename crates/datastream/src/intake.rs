@@ -53,11 +53,9 @@ impl StreamIntakeEngine {
 
         let handle = tokio::spawn(async move {
             let __permit = _permit;
-            let read_result = tokio::time::timeout(
-                Duration::from_secs(60),
-                tokio::fs::read_to_string(&path),
-            )
-            .await;
+            let read_result =
+                tokio::time::timeout(Duration::from_secs(60), tokio::fs::read_to_string(&path))
+                    .await;
 
             let content = match read_result {
                 Ok(Ok(c)) => c,
@@ -258,7 +256,10 @@ pub struct BatchedReceiver {
 
 impl BatchedReceiver {
     pub fn new(rx: mpsc::Receiver<Vec<DataSample>>, handle: JoinHandle<()>) -> Self {
-        Self { rx, handle: Some(handle) }
+        Self {
+            rx,
+            handle: Some(handle),
+        }
     }
 }
 

@@ -553,7 +553,8 @@ impl MetricsCollector {
         let mut new_alerts = Vec::with_capacity(5);
 
         let mut should_alert = |alert_type: &str| -> bool {
-            let within_cooldown = last_alert_time.get(alert_type)
+            let within_cooldown = last_alert_time
+                .get(alert_type)
                 .map(|last| (now - *last).num_seconds() < self.alert_cooldown.as_secs() as i64)
                 .unwrap_or(false);
             if within_cooldown {
@@ -587,7 +588,9 @@ impl MetricsCollector {
         }
 
         // Check latency
-        if metrics.performance.avg_latency_ms > thresholds.max_latency_ms && should_alert("avg_latency_ms") {
+        if metrics.performance.avg_latency_ms > thresholds.max_latency_ms
+            && should_alert("avg_latency_ms")
+        {
             new_alerts.push(MetricAlert {
                 id: Uuid::new_v4(),
                 alert_type: AlertType::LatencyHigh,
@@ -609,7 +612,9 @@ impl MetricsCollector {
         }
 
         // Check CPU usage
-        if metrics.resources.cpu_usage_percent > thresholds.max_cpu_usage_percent && should_alert("cpu_usage_percent") {
+        if metrics.resources.cpu_usage_percent > thresholds.max_cpu_usage_percent
+            && should_alert("cpu_usage_percent")
+        {
             new_alerts.push(MetricAlert {
                 id: Uuid::new_v4(),
                 alert_type: AlertType::CpuHigh,

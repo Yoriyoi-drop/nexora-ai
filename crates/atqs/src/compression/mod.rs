@@ -8,10 +8,8 @@ pub use adaptive_rank::*;
 pub use quantum_sparse::*;
 pub use sparse_augmentation::*;
 
-use crate::core::tensor_ops::{
-    tucker_decompose, TensorCompressor, ATQSCompressor,
-};
 use crate::core::tensor_ops::TensorDecomposition;
+use crate::core::tensor_ops::{tucker_decompose, ATQSCompressor, TensorCompressor};
 use ndarray::ArrayD;
 use std::sync::Arc;
 
@@ -111,9 +109,7 @@ impl AtqsCompression {
                         let factors: usize = t.factors.iter().map(|f| f.len()).sum();
                         core + factors
                     }
-                    TensorDecomposition::TensorTrain(tt) => {
-                        tt.cores.iter().map(|c| c.len()).sum()
-                    }
+                    TensorDecomposition::TensorTrain(tt) => tt.cores.iter().map(|c| c.len()).sum(),
                 }
             }
         };

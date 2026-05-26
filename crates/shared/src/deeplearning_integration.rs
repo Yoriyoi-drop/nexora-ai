@@ -668,16 +668,14 @@ mod tests {
     #[tokio::test]
     async fn test_deep_learning_engine_creation() {
         let config = DeepLearningConfig::star_x();
-        let engine = DeepLearningEngine::new(config)
-            .expect("StarX engine creation should succeed");
+        let engine = DeepLearningEngine::new(config).expect("StarX engine creation should succeed");
         assert_eq!(engine.config().architecture, DLArchitecture::StarX);
     }
 
     #[tokio::test]
     async fn test_text_processing() {
         let config = DeepLearningConfig::star_x();
-        let engine = DeepLearningEngine::new(config)
-            .expect("StarX engine creation should succeed");
+        let engine = DeepLearningEngine::new(config).expect("StarX engine creation should succeed");
         let result = engine.process_text("test input").await;
         assert!(result.is_ok());
     }

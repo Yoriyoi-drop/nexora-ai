@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
-use tracing::trace;
 use tokio::time::{interval, sleep};
+use tracing::trace;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -25,7 +25,11 @@ pub struct MultiClusterSystem {
 }
 
 impl MultiClusterSystem {
-    fn new_internal(regions: HashMap<String, RegionalCluster>, global_config: GlobalMultiClusterConfig, sync_status: ClusterSyncStatus) -> Self {
+    fn new_internal(
+        regions: HashMap<String, RegionalCluster>,
+        global_config: GlobalMultiClusterConfig,
+        sync_status: ClusterSyncStatus,
+    ) -> Self {
         Self {
             regions,
             global_config,
@@ -225,7 +229,9 @@ impl MultiClusterSystem {
             .get_mut(region_name)
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
 
-        if u32::try_from(region.mode_clusters.len()).unwrap_or(u32::MAX) >= self.global_config.max_mode_clusters_per_region {
+        if u32::try_from(region.mode_clusters.len()).unwrap_or(u32::MAX)
+            >= self.global_config.max_mode_clusters_per_region
+        {
             return Err(MultiClusterError::MaxModeClustersReached(
                 region_name.to_string(),
             ));
@@ -260,7 +266,9 @@ impl MultiClusterSystem {
             .get_mut(&mode_id.0)
             .ok_or(MultiClusterError::ModeClusterNotFound(mode_id.clone()))?;
 
-        if u32::try_from(mode.agent_clusters.len()).unwrap_or(u32::MAX) >= self.global_config.max_agent_clusters_per_mode {
+        if u32::try_from(mode.agent_clusters.len()).unwrap_or(u32::MAX)
+            >= self.global_config.max_agent_clusters_per_mode
+        {
             return Err(MultiClusterError::MaxAgentClustersReached(mode_id.clone()));
         }
 
@@ -352,7 +360,9 @@ impl MultiClusterSystem {
             started_at: chrono::Utc::now(),
         };
 
-        if u32::try_from(vm.execution_threads.len()).unwrap_or(u32::MAX) >= self.global_config.max_threads_per_vm {
+        if u32::try_from(vm.execution_threads.len()).unwrap_or(u32::MAX)
+            >= self.global_config.max_threads_per_vm
+        {
             return Err(MultiClusterError::MaxThreadsReached(vm.id));
         }
 
@@ -469,7 +479,8 @@ impl MultiClusterSystem {
         let mut synced_count = 0;
         let mut failed_count = 0;
 
-        let active_regions: Vec<String> = self.regions
+        let active_regions: Vec<String> = self
+            .regions
             .iter()
             .filter(|(_, r)| r.status == RegionalStatus::Active)
             .map(|(name, _)| name.clone())
@@ -483,7 +494,9 @@ impl MultiClusterSystem {
                 }
                 Err(e) => {
                     failed_count += 1;
-                    self.sync_status.sync_errors.push(format!("{}: {}", region_name, e));
+                    self.sync_status
+                        .sync_errors
+                        .push(format!("{}: {}", region_name, e));
                 }
             }
         }
@@ -508,7 +521,9 @@ impl MultiClusterSystem {
             .ok_or(MultiClusterError::RegionNotFound(region_name.to_string()))?;
 
         if region.status != RegionalStatus::Active {
-            return Err(MultiClusterError::RegionNotAvailable(region_name.to_string()));
+            return Err(MultiClusterError::RegionNotAvailable(
+                region_name.to_string(),
+            ));
         }
 
         debug!("Syncing region: {}", region_name);
@@ -516,14 +531,25 @@ impl MultiClusterSystem {
         // Remove from pending sync tracking
         self.sync_status.pending_sync.retain(|r| r != region_name);
 
-        if !self.sync_status.synced_regions.contains(&region_name.to_string()) {
-            self.sync_status.synced_regions.push(region_name.to_string());
+        if !self
+            .sync_status
+            .synced_regions
+            .contains(&region_name.to_string())
+        {
+            self.sync_status
+                .synced_regions
+                .push(region_name.to_string());
         }
 
-        info!("Region {} synced successfully ({} mode clusters, {} agent clusters)",
+        info!(
+            "Region {} synced successfully ({} mode clusters, {} agent clusters)",
             region_name,
             region.mode_clusters.len(),
-            region.mode_clusters.values().map(|m| m.agent_clusters.len()).sum::<usize>(),
+            region
+                .mode_clusters
+                .values()
+                .map(|m| m.agent_clusters.len())
+                .sum::<usize>(),
         );
 
         Ok(())
@@ -562,7 +588,10 @@ impl MultiClusterSystem {
                     for name in &sync_regions {
                         trace!("Cross-region sync: {}", name);
                     }
-                    trace!("Cross-region sync cycle done for {} regions", sync_regions.len());
+                    trace!(
+                        "Cross-region sync cycle done for {} regions",
+                        sync_regions.len()
+                    );
                 }
             });
             if let Ok(mut handles) = self.background_handles.lock() {
@@ -570,21 +599,30 @@ impl MultiClusterSystem {
             }
         }
 
-        info!("Multi-cluster orchestration started ({} regions)", region_names.len());
+        info!(
+            "Multi-cluster orchestration started ({} regions)",
+            region_names.len()
+        );
         Ok(())
     }
 
     /// Handle region failure with automatic failover
-    pub async fn handle_region_failure(&mut self, failed_region: &str) -> Result<FailoverResult, MultiClusterError> {
+    pub async fn handle_region_failure(
+        &mut self,
+        failed_region: &str,
+    ) -> Result<FailoverResult, MultiClusterError> {
         warn!("Region failure detected: {}", failed_region);
 
-        let region = self.regions.get_mut(failed_region)
+        let region = self
+            .regions
+            .get_mut(failed_region)
             .ok_or(MultiClusterError::RegionNotFound(failed_region.to_string()))?;
 
         region.status = RegionalStatus::Offline;
 
         // Find alternative regions for failover
-        let alternatives: Vec<String> = self.regions
+        let alternatives: Vec<String> = self
+            .regions
             .iter()
             .filter(|(name, r)| *name != failed_region && r.status == RegionalStatus::Active)
             .map(|(name, _)| name.clone())

@@ -813,7 +813,12 @@ mod tests {
     #[test]
     fn test_kmeans_on_rows_trivial() {
         let c = ResonanceClusterer::new(cfg());
-        let rows = vec![vec![1.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0], vec![0.0, 1.0]];
+        let rows = vec![
+            vec![1.0, 0.0],
+            vec![1.0, 0.0],
+            vec![0.0, 1.0],
+            vec![0.0, 1.0],
+        ];
         let assignments = c.kmeans_on_rows(&rows, 2, 10).unwrap();
         assert_eq!(assignments.len(), 4);
     }

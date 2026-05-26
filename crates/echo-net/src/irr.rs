@@ -203,10 +203,7 @@ impl IterativeResonanceReasoner {
 
     /// Initialize query from input
     fn initialize_query(&self, input: &ArrayD<f32>) -> DLResult<ArrayD<f32>> {
-        let input_view: Array2<f32> = input
-            .view()
-            .into_dimensionality()?
-            .to_owned();
+        let input_view: Array2<f32> = input.view().into_dimensionality()?.to_owned();
         let query = input_view.dot(&self.query_weights.t());
 
         // Apply non-linearity
@@ -286,10 +283,7 @@ impl IterativeResonanceReasoner {
         resonance: &ArrayD<f32>,
     ) -> DLResult<ArrayD<f32>> {
         // Apply refinement transformation
-        let resonance_view: Array2<f32> = resonance
-            .view()
-            .into_dimensionality()?
-            .to_owned();
+        let resonance_view: Array2<f32> = resonance.view().into_dimensionality()?.to_owned();
         let refined = resonance_view.dot(&self.refinement_weights.t());
 
         // Apply tanh activation
@@ -409,10 +403,7 @@ impl IterativeResonanceReasoner {
         }
 
         // Apply final transformation
-        let output_view: Array2<f32> = final_output
-            .view()
-            .into_dimensionality()?
-            .to_owned();
+        let output_view: Array2<f32> = final_output.view().into_dimensionality()?.to_owned();
         let transformed = output_view.dot(&self.output_weights.t());
         let activated = transformed.mapv(|x| x.tanh());
 

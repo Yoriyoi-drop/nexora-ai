@@ -336,9 +336,11 @@ impl TokenLoop {
             };
 
             let logits_slice: Vec<f32> = logits.into_raw_vec();
-            let token_selection =
-                self.decoding_strategy
-                    .select_token(&logits_slice, &decoding_config, &decoding_context)?;
+            let token_selection = self.decoding_strategy.select_token(
+                &logits_slice,
+                &decoding_config,
+                &decoding_context,
+            )?;
 
             if self.config.enable_token_validation {
                 if !self.validate_token(&token_selection).await? {

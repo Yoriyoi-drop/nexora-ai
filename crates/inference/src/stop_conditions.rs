@@ -2,9 +2,9 @@
 //!
 //! Stop conditions untuk inference generation.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::cell::RefCell;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
@@ -316,14 +316,20 @@ impl StopConditions {
 
         // Compare n-grams by token ID to avoid string allocation
         for i in 0..=(tokens.len() - ngram_size * max_repetitions as usize) {
-            let first_ngram: Vec<u32> = tokens[i..i + ngram_size].iter().map(|t| t.token_id).collect();
+            let first_ngram: Vec<u32> = tokens[i..i + ngram_size]
+                .iter()
+                .map(|t| t.token_id)
+                .collect();
             let mut consecutive_count = 1;
 
             for j in (i + ngram_size..tokens.len()).step_by(ngram_size) {
                 if j + ngram_size > tokens.len() {
                     break;
                 }
-                let match_ngram: Vec<u32> = tokens[j..j + ngram_size].iter().map(|t| t.token_id).collect();
+                let match_ngram: Vec<u32> = tokens[j..j + ngram_size]
+                    .iter()
+                    .map(|t| t.token_id)
+                    .collect();
                 if match_ngram == first_ngram {
                     consecutive_count += 1;
                 } else {

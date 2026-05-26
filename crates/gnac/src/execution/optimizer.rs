@@ -131,7 +131,7 @@ impl GraphOptimizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution::{GraphIR, IROperation, IRValue, ExecutionBackend};
+    use crate::execution::{ExecutionBackend, GraphIR, IROperation, IRValue};
 
     fn simple_ir() -> GraphIR {
         GraphIR::new("test", ExecutionBackend::CPU)
@@ -160,13 +160,21 @@ mod tests {
             id: uuid::Uuid::new_v4(),
             op_type: IROpType::Relu,
             inputs: vec![],
-            outputs: vec![IRValue { name: "a".into(), shape: vec![1], is_tensor: true }],
+            outputs: vec![IRValue {
+                name: "a".into(),
+                shape: vec![1],
+                is_tensor: true,
+            }],
             attributes: std::collections::HashMap::new(),
         });
         ir.operations.push(IROperation {
             id: uuid::Uuid::new_v4(),
             op_type: IROpType::MatMul,
-            inputs: vec![IRValue { name: "a".into(), shape: vec![1], is_tensor: true }],
+            inputs: vec![IRValue {
+                name: "a".into(),
+                shape: vec![1],
+                is_tensor: true,
+            }],
             outputs: vec![],
             attributes: std::collections::HashMap::new(),
         });
@@ -182,7 +190,11 @@ mod tests {
             id: uuid::Uuid::new_v4(),
             op_type: IROpType::Input,
             inputs: vec![],
-            outputs: vec![IRValue { name: "in".into(), shape: vec![1], is_tensor: true }],
+            outputs: vec![IRValue {
+                name: "in".into(),
+                shape: vec![1],
+                is_tensor: true,
+            }],
             attributes: std::collections::HashMap::new(),
         });
         // Dead node (output not used)
@@ -190,7 +202,11 @@ mod tests {
             id: uuid::Uuid::new_v4(),
             op_type: IROpType::MatMul,
             inputs: vec![],
-            outputs: vec![IRValue { name: "dead".into(), shape: vec![1], is_tensor: true }],
+            outputs: vec![IRValue {
+                name: "dead".into(),
+                shape: vec![1],
+                is_tensor: true,
+            }],
             attributes: std::collections::HashMap::new(),
         });
         let cleaned = opt.eliminate_dead_nodes(&ir);

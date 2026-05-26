@@ -124,7 +124,9 @@ impl GpuLossScaler {
 
 // ─── Pipeline compilation ──────────────────────────────────────────────────────
 
-pub fn compile_f32_to_f16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_f32_to_f16_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "f32_to_f16",
         &[
@@ -136,7 +138,9 @@ pub fn compile_f32_to_f16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::Compute
     )
 }
 
-pub fn compile_f16_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_f16_to_f32_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "f16_to_f32",
         &[
@@ -148,7 +152,9 @@ pub fn compile_f16_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::Compute
     )
 }
 
-pub fn compile_f32_to_bf16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_f32_to_bf16_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "f32_to_bf16",
         &[
@@ -160,7 +166,9 @@ pub fn compile_f32_to_bf16_pipeline(ctx: &mut GpuContext) -> Result<wgpu::Comput
     )
 }
 
-pub fn compile_bf16_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_bf16_to_f32_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "bf16_to_f32",
         &[
@@ -270,7 +278,9 @@ pub fn dispatch_f32_to_f16(
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("mixed_out"),
         size: out_size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
@@ -314,7 +324,9 @@ pub fn dispatch_f16_to_f32(
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("mixed_out"),
         size: out_size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
@@ -374,7 +386,6 @@ pub fn dispatch_scale_inplace(
     Ok(())
 }
 
-
 /// Unscale in-place: tensor[i] = tensor[i] / scale
 pub fn dispatch_unscale_inplace(
     ctx: &GpuContext,
@@ -410,7 +421,9 @@ pub fn dispatch_unscale_inplace(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Compile packed F32→F16 pipeline (2 f16 per u32 output element).
-pub fn compile_f32_to_f16_packed_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_f32_to_f16_packed_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "f32_to_f16_packed",
         &[
@@ -423,7 +436,9 @@ pub fn compile_f32_to_f16_packed_pipeline(ctx: &mut GpuContext) -> Result<wgpu::
 }
 
 /// Compile packed F16→F32 pipeline (reads 2 f16 per u32, writes 2 f32).
-pub fn compile_f16_packed_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+pub fn compile_f16_packed_to_f32_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, GpuError> {
     ctx.compile_pipeline_cached(
         "f16_packed_to_f32",
         &[
@@ -450,7 +465,9 @@ pub fn dispatch_f32_to_f16_packed(
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("f16_packed_out"),
         size: out_bytes,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 
@@ -494,7 +511,9 @@ pub fn dispatch_f16_packed_to_f32(
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("f16_packed_to_f32_out"),
         size: out_bytes,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
 

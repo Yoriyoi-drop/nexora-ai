@@ -58,13 +58,17 @@ mod tests {
 
     #[test]
     fn test_validation_error_display() {
-        let err = ValidationError { message: "test error".to_string() };
+        let err = ValidationError {
+            message: "test error".to_string(),
+        };
         assert_eq!(format!("{}", err), "Validation error: test error");
     }
 
     #[test]
     fn test_validation_error_impl_error() {
-        let err = ValidationError { message: "test".to_string() };
+        let err = ValidationError {
+            message: "test".to_string(),
+        };
         let _: &dyn std::error::Error = &err;
     }
 

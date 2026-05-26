@@ -95,25 +95,41 @@ mod tests {
 
     #[test]
     fn test_port_descriptor_scalar() {
-        let p = PortDescriptor::new("s", PortDirection::Input, TensorDesc::new(vec![], DType::F32));
+        let p = PortDescriptor::new(
+            "s",
+            PortDirection::Input,
+            TensorDesc::new(vec![], DType::F32),
+        );
         assert_eq!(p.visual_type, PortVisualType::Scalar);
     }
 
     #[test]
     fn test_port_descriptor_1d() {
-        let p = PortDescriptor::new("v", PortDirection::Input, TensorDesc::new(vec![10], DType::F32));
+        let p = PortDescriptor::new(
+            "v",
+            PortDirection::Input,
+            TensorDesc::new(vec![10], DType::F32),
+        );
         assert_eq!(p.visual_type, PortVisualType::Vector1D);
     }
 
     #[test]
     fn test_port_descriptor_3d() {
-        let p = PortDescriptor::new("t", PortDirection::Input, TensorDesc::new(vec![1, 64, 64], DType::F32));
+        let p = PortDescriptor::new(
+            "t",
+            PortDirection::Input,
+            TensorDesc::new(vec![1, 64, 64], DType::F32),
+        );
         assert_eq!(p.visual_type, PortVisualType::Tensor3D);
     }
 
     #[test]
     fn test_port_descriptor_sequence() {
-        let p = PortDescriptor::new("seq", PortDirection::Input, TensorDesc::new(vec![4, 3, 224, 224], DType::F32));
+        let p = PortDescriptor::new(
+            "seq",
+            PortDirection::Input,
+            TensorDesc::new(vec![4, 3, 224, 224], DType::F32),
+        );
         assert_eq!(p.visual_type, PortVisualType::SequenceTensor);
     }
 
@@ -133,7 +149,11 @@ mod tests {
 
     #[test]
     fn test_port_incompatible_shape() {
-        let inp = PortDescriptor::new("in", PortDirection::Input, TensorDesc::new(vec![1, 64], DType::F32));
+        let inp = PortDescriptor::new(
+            "in",
+            PortDirection::Input,
+            TensorDesc::new(vec![1, 64], DType::F32),
+        );
         let out = PortDescriptor::new(
             "out",
             PortDirection::Output,

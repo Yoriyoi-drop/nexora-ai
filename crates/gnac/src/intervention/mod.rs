@@ -13,8 +13,8 @@ pub use detector::*;
 
 #[cfg(test)]
 mod tests {
-    use super::detector::*;
     use super::assistant::*;
+    use super::detector::*;
 
     #[test]
     fn test_anomaly_type_debug() {
@@ -32,7 +32,10 @@ mod tests {
         };
         let advice = DiagnosticAssistant::analyze(&anomaly);
         assert!(advice.explanation.contains("Gradients have grown"));
-        assert_eq!(advice.auto_fix, Some("Apply gradient clipping (max_norm=1.0)".to_string()));
+        assert_eq!(
+            advice.auto_fix,
+            Some("Apply gradient clipping (max_norm=1.0)".to_string())
+        );
         assert_eq!(advice.guided_tuning.len(), 2);
     }
 

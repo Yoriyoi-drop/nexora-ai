@@ -232,9 +232,7 @@ impl SecurityGuardianAgent {
         let output = self.process(task_input).await?;
         Ok(format!(
             "threat: {}, vulnerabilities: {:?}, score: {:.2}",
-            output.threat_assessment,
-            output.detected_vulnerabilities,
-            output.security_score
+            output.threat_assessment, output.detected_vulnerabilities, output.security_score
         ))
     }
 

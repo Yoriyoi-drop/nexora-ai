@@ -201,10 +201,12 @@ impl LifecycleManager {
             let agent_status = self.agent_status.read().await;
             if let Some(status) = agent_status.get(&agent_id) {
                 if status.restart_count >= self.config.max_restart_attempts {
-                    return Err(AgentError::LifecycleError { reason: format!(
-                        "Agent {} exceeded maximum restart attempts ({})",
-                        agent_id, self.config.max_restart_attempts
-                    ) });
+                    return Err(AgentError::LifecycleError {
+                        reason: format!(
+                            "Agent {} exceeded maximum restart attempts ({})",
+                            agent_id, self.config.max_restart_attempts
+                        ),
+                    });
                 }
             }
         }
@@ -380,9 +382,7 @@ impl LifecycleManager {
     }
 
     /// Get event subscriber
-    pub async fn get_event_subscriber(
-        &self,
-    ) -> Option<mpsc::Receiver<AgentLifecycleEvent>> {
+    pub async fn get_event_subscriber(&self) -> Option<mpsc::Receiver<AgentLifecycleEvent>> {
         // Implement proper subscription mechanism
         let (tx, rx) = mpsc::channel(1024);
 
@@ -499,9 +499,18 @@ mod tests {
     fn test_agent_lifecycle_event_variants() {
         let agent_id = Uuid::new_v4();
         let now = Utc::now();
-        let init = AgentLifecycleEvent::Initializing { agent_id, timestamp: now };
-        let ready = AgentLifecycleEvent::Ready { agent_id, timestamp: now };
-        let shutdown = AgentLifecycleEvent::Shutdown { agent_id, timestamp: now };
+        let init = AgentLifecycleEvent::Initializing {
+            agent_id,
+            timestamp: now,
+        };
+        let ready = AgentLifecycleEvent::Ready {
+            agent_id,
+            timestamp: now,
+        };
+        let shutdown = AgentLifecycleEvent::Shutdown {
+            agent_id,
+            timestamp: now,
+        };
         assert!(matches!(init, AgentLifecycleEvent::Initializing { .. }));
         assert!(matches!(ready, AgentLifecycleEvent::Ready { .. }));
         assert!(matches!(shutdown, AgentLifecycleEvent::Shutdown { .. }));

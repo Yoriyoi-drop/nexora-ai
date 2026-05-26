@@ -111,7 +111,7 @@ impl Filter for TokenFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DataSample, SampleStats, SourceInfo, SourceCategory};
+    use crate::types::{DataSample, SampleStats, SourceCategory, SourceInfo};
     use uuid::Uuid;
 
     fn sample(text: &str) -> DataSample {
@@ -152,13 +152,17 @@ mod tests {
     #[test]
     fn test_blocked_tokens_detected() {
         let f = TokenFilter::default();
-        assert!(f.has_blocked_tokens("some text with <|endoftext|>").is_some());
+        assert!(f
+            .has_blocked_tokens("some text with <|endoftext|>")
+            .is_some());
     }
 
     #[test]
     fn test_no_blocked_tokens() {
         let f = TokenFilter::default();
-        assert!(f.has_blocked_tokens("clean text without special tokens").is_none());
+        assert!(f
+            .has_blocked_tokens("clean text without special tokens")
+            .is_none());
     }
 
     #[tokio::test]
@@ -173,7 +177,10 @@ mod tests {
     #[tokio::test]
     async fn test_sufficient_tokens_passes() {
         let f = TokenFilter::default();
-        let text = (0..50).map(|i| format!("word{}", i)).collect::<Vec<_>>().join(" ");
+        let text = (0..50)
+            .map(|i| format!("word{}", i))
+            .collect::<Vec<_>>()
+            .join(" ");
         let s = sample(&text);
         let result = f.evaluate(&s).await;
         assert!(result.passed);

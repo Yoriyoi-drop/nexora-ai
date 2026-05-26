@@ -4,10 +4,10 @@
 
 use async_trait::async_trait;
 use futures;
+use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -529,7 +529,10 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("model_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "model_id required".to_string() })?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "model_id required".to_string(),
+                    })?;
 
                 let config = context
                     .parameters
@@ -553,16 +556,25 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("session_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "session_id required".to_string() })?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "session_id required".to_string(),
+                    })?;
 
-                let session_id = Uuid::parse_str(session_id_str)
-                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid session_id".to_string() })?;
+                let session_id =
+                    Uuid::parse_str(session_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid session_id".to_string(),
+                    })?;
 
                 let prompt = context
                     .parameters
                     .get("prompt")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "prompt required".to_string() })?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "prompt required".to_string(),
+                    })?;
 
                 let max_tokens = context
                     .parameters
@@ -586,10 +598,16 @@ impl Agent for InferenceAgent {
                     .parameters
                     .get("session_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| AgentError::ProcessingError { operation: "validate".to_string(), reason: "session_id required".to_string() })?;
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "session_id required".to_string(),
+                    })?;
 
-                let session_id = Uuid::parse_str(session_id_str)
-                    .map_err(|_| AgentError::ProcessingError { operation: "parse".to_string(), reason: "Invalid session_id".to_string() })?;
+                let session_id =
+                    Uuid::parse_str(session_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid session_id".to_string(),
+                    })?;
 
                 self.stop_inference_session(session_id).await?;
 
@@ -745,13 +763,34 @@ mod tests {
 
     #[test]
     fn test_inference_session_status_variants() {
-        assert!(matches!(InferenceSessionStatus::Initializing, InferenceSessionStatus::Initializing));
-        assert!(matches!(InferenceSessionStatus::Ready, InferenceSessionStatus::Ready));
-        assert!(matches!(InferenceSessionStatus::Running, InferenceSessionStatus::Running));
-        assert!(matches!(InferenceSessionStatus::Completed, InferenceSessionStatus::Completed));
-        assert!(matches!(InferenceSessionStatus::Failed("".into()), InferenceSessionStatus::Failed(_)));
-        assert!(matches!(InferenceSessionStatus::Timeout, InferenceSessionStatus::Timeout));
-        assert!(matches!(InferenceSessionStatus::Cancelled, InferenceSessionStatus::Cancelled));
+        assert!(matches!(
+            InferenceSessionStatus::Initializing,
+            InferenceSessionStatus::Initializing
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Ready,
+            InferenceSessionStatus::Ready
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Running,
+            InferenceSessionStatus::Running
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Completed,
+            InferenceSessionStatus::Completed
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Failed("".into()),
+            InferenceSessionStatus::Failed(_)
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Timeout,
+            InferenceSessionStatus::Timeout
+        ));
+        assert!(matches!(
+            InferenceSessionStatus::Cancelled,
+            InferenceSessionStatus::Cancelled
+        ));
     }
 
     #[test]

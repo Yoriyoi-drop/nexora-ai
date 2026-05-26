@@ -393,14 +393,16 @@ mod tests {
         );
         assert_eq!(pod.status, ToolStatus::Idle);
 
-        let result = layer.request_execution(ToolExecutionRequest {
-            agent_id: Uuid::new_v4(),
-            tool_kind: ToolKind::Python,
-            command: "run".into(),
-            args: vec!["script.py".into()],
-            timeout_seconds: None,
-            env_vars: HashMap::new(),
-        }).await;
+        let result = layer
+            .request_execution(ToolExecutionRequest {
+                agent_id: Uuid::new_v4(),
+                tool_kind: ToolKind::Python,
+                command: "run".into(),
+                args: vec!["script.py".into()],
+                timeout_seconds: None,
+                env_vars: HashMap::new(),
+            })
+            .await;
         assert!(result.is_ok());
     }
 
@@ -408,14 +410,16 @@ mod tests {
     async fn test_denied_tool() {
         let mut layer = ToolIsolationLayer::new(vec![ToolKind::Browser]);
         layer.register_tool(ToolKind::Shell, SandboxSpec::default_tool(), false, false);
-        let result = layer.request_execution(ToolExecutionRequest {
-            agent_id: Uuid::new_v4(),
-            tool_kind: ToolKind::Shell,
-            command: "rm".into(),
-            args: vec!["-rf".into(), "/".into()],
-            timeout_seconds: None,
-            env_vars: HashMap::new(),
-        }).await;
+        let result = layer
+            .request_execution(ToolExecutionRequest {
+                agent_id: Uuid::new_v4(),
+                tool_kind: ToolKind::Shell,
+                command: "rm".into(),
+                args: vec!["-rf".into(), "/".into()],
+                timeout_seconds: None,
+                env_vars: HashMap::new(),
+            })
+            .await;
         assert!(result.is_err());
     }
 }

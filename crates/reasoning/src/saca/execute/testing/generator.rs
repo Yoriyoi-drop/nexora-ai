@@ -54,9 +54,17 @@ impl SignatureInfo {
 
         for ch in implementation.chars() {
             match ch {
-                '(' if !in_params => { in_params = true; paren_depth = 1; }
-                '(' if in_params => { paren_depth += 1; }
-                ')' if in_params && paren_depth > 1 => { paren_depth -= 1; current_param.push(ch); }
+                '(' if !in_params => {
+                    in_params = true;
+                    paren_depth = 1;
+                }
+                '(' if in_params => {
+                    paren_depth += 1;
+                }
+                ')' if in_params && paren_depth > 1 => {
+                    paren_depth -= 1;
+                    current_param.push(ch);
+                }
                 ')' if in_params => {
                     if !current_param.trim().is_empty() {
                         params.push(current_param.trim().to_string());
@@ -67,7 +75,9 @@ impl SignatureInfo {
                     params.push(current_param.trim().to_string());
                     current_param.clear();
                 }
-                _ if in_params && paren_depth >= 1 => { current_param.push(ch); }
+                _ if in_params && paren_depth >= 1 => {
+                    current_param.push(ch);
+                }
                 _ => {}
             }
         }
@@ -88,7 +98,13 @@ impl SignatureInfo {
                 if ptype.contains("string") || ptype.contains("&str") {
                     info.has_string_param = true;
                 }
-                if ptype.contains("i32") || ptype.contains("i64") || ptype.contains("usize") || ptype.contains("u32") || ptype.contains("u64") || ptype.contains("isize") {
+                if ptype.contains("i32")
+                    || ptype.contains("i64")
+                    || ptype.contains("usize")
+                    || ptype.contains("u32")
+                    || ptype.contains("u64")
+                    || ptype.contains("isize")
+                {
                     info.has_int_param = true;
                 }
                 if ptype.contains("f32") || ptype.contains("f64") {
@@ -114,9 +130,15 @@ impl SignatureInfo {
         if let Some(ret_idx) = lower.find("-> ") {
             let after_ret = lower[ret_idx + 3..].trim();
             // Extract return type (up to '{' or 'where' or ';')
-            let ret_type = after_ret.split(|c: char| c == '{' || c == ';')
-                .next().unwrap_or("").trim()
-                .split("where").next().unwrap_or("").trim();
+            let ret_type = after_ret
+                .split(|c: char| c == '{' || c == ';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .split("where")
+                .next()
+                .unwrap_or("")
+                .trim();
             info.output_type = ret_type.to_string();
 
             info.is_result = ret_type.starts_with("result<")
@@ -129,13 +151,23 @@ impl SignatureInfo {
                 || ret_type.starts_with("option<");
             info.is_vec = ret_type.starts_with("vec<")
                 || ret_type.starts_with("std::vec::")
-                || ret_type.contains("vec<") || ret_type.contains("> vec");
+                || ret_type.contains("vec<")
+                || ret_type.contains("> vec");
             info.is_bool = ret_type == "bool";
-            info.is_int = ret_type == "i32" || ret_type == "i64" || ret_type == "usize"
-                || ret_type == "u32" || ret_type == "u64" || ret_type == "isize"
-                || ret_type == "i8" || ret_type == "u8" || ret_type == "i16" || ret_type == "u16";
+            info.is_int = ret_type == "i32"
+                || ret_type == "i64"
+                || ret_type == "usize"
+                || ret_type == "u32"
+                || ret_type == "u64"
+                || ret_type == "isize"
+                || ret_type == "i8"
+                || ret_type == "u8"
+                || ret_type == "i16"
+                || ret_type == "u16";
             info.is_float = ret_type == "f32" || ret_type == "f64";
-            info.is_string = ret_type.contains("string") || ret_type.contains("&str") || ret_type.contains("string");
+            info.is_string = ret_type.contains("string")
+                || ret_type.contains("&str")
+                || ret_type.contains("string");
         }
 
         info
@@ -165,12 +197,12 @@ impl TestGenerator {
         let is_filter = fn_name.contains("filter")
             || fn_name.contains("select")
             || lower.contains("filter predicate");
-        let is_map = fn_name.contains("map")
-            || fn_name.contains("transform")
-            || fn_name.contains("convert");
+        let is_map =
+            fn_name.contains("map") || fn_name.contains("transform") || fn_name.contains("convert");
         let is_parse = fn_name.contains("parse")
             || fn_name.contains("tokenize")
-            || lower.contains("parser") || lower.contains("lexer");
+            || lower.contains("parser")
+            || lower.contains("lexer");
         let is_validate = fn_name.contains("validate")
             || fn_name.contains("check")
             || fn_name.contains("verify")
@@ -233,14 +265,28 @@ impl TestGenerator {
                 id: format!("{}_empty_input", sig.name),
                 description: "Handle empty collection input".to_string(),
                 input: "vec![]".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, ""),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.0,
+                    "",
+                ),
                 test_type: TestType::EdgeCase,
             });
             tests.push(TestCase {
                 id: format!("{}_single_element", sig.name),
                 description: "Handle single element collection".to_string(),
                 input: "vec![1]".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 1, 1.0, "single"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    1,
+                    1.0,
+                    "single",
+                ),
                 test_type: TestType::EdgeCase,
             });
         }
@@ -250,14 +296,28 @@ impl TestGenerator {
                 id: format!("{}_empty_string", sig.name),
                 description: "Handle empty string input".to_string(),
                 input: "\"\"".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, ""),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.0,
+                    "",
+                ),
                 test_type: TestType::EdgeCase,
             });
             tests.push(TestCase {
                 id: format!("{}_unicode_string", sig.name),
                 description: "Handle unicode/UTF-8 string".to_string(),
                 input: "\"héllo wörld 🚀\"".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "processed_unicode"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.0,
+                    "processed_unicode",
+                ),
                 test_type: TestType::EdgeCase,
             });
         }
@@ -267,21 +327,42 @@ impl TestGenerator {
                 id: format!("{}_zero_value", sig.name),
                 description: "Handle zero input value".to_string(),
                 input: "0".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "zero"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.0,
+                    "zero",
+                ),
                 test_type: TestType::EdgeCase,
             });
             tests.push(TestCase {
                 id: format!("{}_negative_value", sig.name),
                 description: "Handle negative input".to_string(),
                 input: "-1".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, -1, -1.0, "negative"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    -1,
+                    -1.0,
+                    "negative",
+                ),
                 test_type: TestType::EdgeCase,
             });
             tests.push(TestCase {
                 id: format!("{}_max_boundary", sig.name),
                 description: "Handle maximum boundary input".to_string(),
                 input: "usize::MAX".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.0, "boundary"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.0,
+                    "boundary",
+                ),
                 test_type: TestType::EdgeCase,
             });
         }
@@ -291,7 +372,14 @@ impl TestGenerator {
                 id: format!("{}_float_precision", sig.name),
                 description: "Handle floating point precision".to_string(),
                 input: "0.1 + 0.2".to_string(),
-                expected_output: self.default_output(sig.is_result, sig.is_option, sig.is_vec, 0, 0.30000000000000004_f64, "precision"),
+                expected_output: self.default_output(
+                    sig.is_result,
+                    sig.is_option,
+                    sig.is_vec,
+                    0,
+                    0.30000000000000004_f64,
+                    "precision",
+                ),
                 test_type: TestType::EdgeCase,
             });
         }
@@ -317,7 +405,10 @@ impl TestGenerator {
         if is_sort_search || name.contains("filter") || name.contains("normalize") {
             tests.push(TestCase {
                 id: format!("{}_idempotent", name),
-                description: format!("Property: {} should be idempotent (apply twice = same as once)", name),
+                description: format!(
+                    "Property: {} should be idempotent (apply twice = same as once)",
+                    name
+                ),
                 input: "fn_property_idempotent".to_string(),
                 expected_output: "self_equal".to_string(),
                 test_type: TestType::Unit,
@@ -347,7 +438,10 @@ impl TestGenerator {
         // Property: large input doesn't crash (stress test)
         tests.push(TestCase {
             id: format!("{}_large_input_stress", name),
-            description: format!("Stress property: {} handles large input without panic", name),
+            description: format!(
+                "Stress property: {} handles large input without panic",
+                name
+            ),
             input: "(0..10000).collect::<Vec<_>>()".to_string(),
             expected_output: "no_panic".to_string(),
             test_type: TestType::Performance,
@@ -356,7 +450,11 @@ impl TestGenerator {
 
     fn add_sort_tests(&self, tests: &mut Vec<TestCase>, returns_result: bool) {
         let ok = |v: &str| -> String {
-            if returns_result { format!("Ok({})", v) } else { v.to_string() }
+            if returns_result {
+                format!("Ok({})", v)
+            } else {
+                v.to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -396,7 +494,8 @@ impl TestGenerator {
             },
             TestCase {
                 id: "sort_stability".to_string(),
-                description: "Verify stable sort preserves original order of equal elements".to_string(),
+                description: "Verify stable sort preserves original order of equal elements"
+                    .to_string(),
                 input: "vec![(2, 'b'), (1, 'a'), (2, 'a')]".to_string(),
                 expected_output: ok("vec![(1, 'a'), (2, 'b'), (2, 'a')]"),
                 test_type: TestType::Unit,
@@ -404,16 +503,29 @@ impl TestGenerator {
         ]);
     }
 
-    fn add_search_tests(&self, tests: &mut Vec<TestCase>, returns_option: bool, returns_result: bool) {
+    fn add_search_tests(
+        &self,
+        tests: &mut Vec<TestCase>,
+        returns_option: bool,
+        returns_result: bool,
+    ) {
         let found = |i: &str| -> String {
-            if returns_option { format!("Some({})", i) }
-            else if returns_result { format!("Ok({})", i) }
-            else { i.to_string() }
+            if returns_option {
+                format!("Some({})", i)
+            } else if returns_result {
+                format!("Ok({})", i)
+            } else {
+                i.to_string()
+            }
         };
         let not_found = || -> String {
-            if returns_option { "None".to_string() }
-            else if returns_result { "Err(...)".to_string() }
-            else { "-1".to_string() }
+            if returns_option {
+                "None".to_string()
+            } else if returns_result {
+                "Err(...)".to_string()
+            } else {
+                "-1".to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -529,10 +641,18 @@ impl TestGenerator {
 
     fn add_parse_tests(&self, tests: &mut Vec<TestCase>, returns_result: bool) {
         let ok_out = |v: &str| -> String {
-            if returns_result { format!("Ok({})", v) } else { v.to_string() }
+            if returns_result {
+                format!("Ok({})", v)
+            } else {
+                v.to_string()
+            }
         };
         let err_out = || -> String {
-            if returns_result { "Err(...)".to_string() } else { "None".to_string() }
+            if returns_result {
+                "Err(...)".to_string()
+            } else {
+                "None".to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -566,12 +686,29 @@ impl TestGenerator {
         ]);
     }
 
-    fn add_validate_tests(&self, tests: &mut Vec<TestCase>, returns_result: bool, returns_bool: bool) {
+    fn add_validate_tests(
+        &self,
+        tests: &mut Vec<TestCase>,
+        returns_result: bool,
+        returns_bool: bool,
+    ) {
         let pass = || -> String {
-            if returns_result { "Ok(())".to_string() } else if returns_bool { "true".to_string() } else { "pass".to_string() }
+            if returns_result {
+                "Ok(())".to_string()
+            } else if returns_bool {
+                "true".to_string()
+            } else {
+                "pass".to_string()
+            }
         };
         let fail = || -> String {
-            if returns_result { "Err(...)".to_string() } else if returns_bool { "false".to_string() } else { "fail".to_string() }
+            if returns_result {
+                "Err(...)".to_string()
+            } else if returns_bool {
+                "false".to_string()
+            } else {
+                "fail".to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -598,16 +735,29 @@ impl TestGenerator {
         ]);
     }
 
-    fn add_aggregate_tests(&self, tests: &mut Vec<TestCase>, returns_int: bool, returns_float: bool) {
+    fn add_aggregate_tests(
+        &self,
+        tests: &mut Vec<TestCase>,
+        returns_int: bool,
+        returns_float: bool,
+    ) {
         let out = |v: &str| -> String {
-            if returns_int || returns_float { v.to_string() } else { format!("\"{}\"", v) }
+            if returns_int || returns_float {
+                v.to_string()
+            } else {
+                format!("\"{}\"", v)
+            }
         };
         tests.extend(vec![
             TestCase {
                 id: "aggregate_empty".to_string(),
                 description: "Aggregate empty collection".to_string(),
                 input: "vec![]".to_string(),
-                expected_output: if returns_int { "0".to_string() } else { "0.0".to_string() },
+                expected_output: if returns_int {
+                    "0".to_string()
+                } else {
+                    "0.0".to_string()
+                },
                 test_type: TestType::EdgeCase,
             },
             TestCase {
@@ -636,10 +786,18 @@ impl TestGenerator {
 
     fn add_io_tests(&self, tests: &mut Vec<TestCase>, returns_result: bool) {
         let ok_out = |v: &str| -> String {
-            if returns_result { format!("Ok({})", v) } else { v.to_string() }
+            if returns_result {
+                format!("Ok({})", v)
+            } else {
+                v.to_string()
+            }
         };
         let err_out = || -> String {
-            if returns_result { "Err(...)".to_string() } else { "None".to_string() }
+            if returns_result {
+                "Err(...)".to_string()
+            } else {
+                "None".to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -676,18 +834,30 @@ impl TestGenerator {
         returns_string: bool,
     ) {
         let default_ok = || -> String {
-            if returns_option { "Some(value)".to_string() }
-            else if returns_result { "Ok(value)".to_string() }
-            else if returns_bool { "true".to_string() }
-            else if returns_string { "\"result\"".to_string() }
-            else if returns_vec { "vec![...]".to_string() }
-            else { "value".to_string() }
+            if returns_option {
+                "Some(value)".to_string()
+            } else if returns_result {
+                "Ok(value)".to_string()
+            } else if returns_bool {
+                "true".to_string()
+            } else if returns_string {
+                "\"result\"".to_string()
+            } else if returns_vec {
+                "vec![...]".to_string()
+            } else {
+                "value".to_string()
+            }
         };
         let default_err = || -> String {
-            if returns_option { "None".to_string() }
-            else if returns_result { "Err(...)".to_string() }
-            else if returns_bool { "false".to_string() }
-            else { "error".to_string() }
+            if returns_option {
+                "None".to_string()
+            } else if returns_result {
+                "Err(...)".to_string()
+            } else if returns_bool {
+                "false".to_string()
+            } else {
+                "error".to_string()
+            }
         };
         tests.extend(vec![
             TestCase {
@@ -721,11 +891,24 @@ impl TestGenerator {
         ]);
     }
 
-    fn default_output(&self, returns_result: bool, returns_option: bool, returns_vec: bool, _int_val: i32, _float_val: f64, _desc: &str) -> String {
-        if returns_option { "None".to_string() }
-        else if returns_result { "Err(...)".to_string() }
-        else if returns_vec { "vec![]".to_string() }
-        else { "default".to_string() }
+    fn default_output(
+        &self,
+        returns_result: bool,
+        returns_option: bool,
+        returns_vec: bool,
+        _int_val: i32,
+        _float_val: f64,
+        _desc: &str,
+    ) -> String {
+        if returns_option {
+            "None".to_string()
+        } else if returns_result {
+            "Err(...)".to_string()
+        } else if returns_vec {
+            "vec![]".to_string()
+        } else {
+            "default".to_string()
+        }
     }
 }
 

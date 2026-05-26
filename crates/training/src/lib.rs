@@ -7,19 +7,19 @@ use std::sync::Arc;
 use ndarray::ArrayD;
 use nexora_autograd::compute_grad_norm;
 #[cfg(feature = "gpu")]
+use nexora_autograd::device::Storage;
+#[cfg(feature = "gpu")]
 use nexora_autograd::gpu_grad_clip::GpuGradClipResult;
 use nexora_autograd::ops::cross_entropy_loss;
-#[cfg(feature = "gpu")]
-use nexora_autograd::device::Storage;
 #[cfg(feature = "gpu")]
 use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
 use tracing::{info, warn};
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
-#[cfg(feature = "gpu")]
 use nexora_autograd::data_parallel::gpu_allreduce_gradients;
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::{GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu_adam::GpuAdam;
 #[cfg(feature = "gpu")]
@@ -209,7 +209,9 @@ impl Trainer {
                                 p.set_device(Device::Gpu(0));
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to move parameter to GPU: {e}, falling back to CPU");
+                                tracing::warn!(
+                                    "Failed to move parameter to GPU: {e}, falling back to CPU"
+                                );
                                 gpu_ok = false;
                                 break;
                             }
@@ -221,7 +223,9 @@ impl Trainer {
                             .filter_map(|p| match p.storage() {
                                 nexora_autograd::Storage::Gpu(g) => Some(g),
                                 _ => {
-                                    tracing::warn!("Non-GPU tensor in GPU training optimizer setup — skipping");
+                                    tracing::warn!(
+                                        "Non-GPU tensor in GPU training optimizer setup — skipping"
+                                    );
                                     None
                                 }
                             })
@@ -236,7 +240,9 @@ impl Trainer {
                                 true
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to create GpuAdam optimizer: {e}, falling back to CPU");
+                                tracing::warn!(
+                                    "Failed to create GpuAdam optimizer: {e}, falling back to CPU"
+                                );
                                 false
                             }
                         };
@@ -250,7 +256,9 @@ impl Trainer {
                                 true
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to create GPU input buffer: {e}, falling back to CPU");
+                                tracing::warn!(
+                                    "Failed to create GPU input buffer: {e}, falling back to CPU"
+                                );
                                 false
                             }
                         };
@@ -263,13 +271,18 @@ impl Trainer {
                                 true
                             }
                             Err(e) => {
-                                tracing::warn!("Failed to create GPU target buffer: {e}, falling back to CPU");
+                                tracing::warn!(
+                                    "Failed to create GPU target buffer: {e}, falling back to CPU"
+                                );
                                 false
                             }
                         };
                     }
                     if gpu_ok {
-                        self.gpu_staging = Some(GpuStagingPool::new(ctx, (self.config.seq_length * 4) as u64));
+                        self.gpu_staging = Some(GpuStagingPool::new(
+                            ctx,
+                            (self.config.seq_length * 4) as u64,
+                        ));
                         self.trainable = Some(trainable);
                         return;
                     }
@@ -533,7 +546,8 @@ impl Trainer {
     pub fn sync_weights(&mut self) -> anyhow::Result<()> {
         if let Some(ref trainable) = self.trainable {
             let mut model_clone = self.model.clone();
-            trainable.sync_to_inference(&mut model_clone)
+            trainable
+                .sync_to_inference(&mut model_clone)
                 .map_err(|e| anyhow::anyhow!("sync_to_inference failed: {}", e))?;
             self.model = model_clone;
         }
@@ -555,7 +569,9 @@ impl Trainer {
 
         #[cfg(feature = "gpu")]
         if self.gpu_optimizer.is_some() && GpuContext::global().is_ok() {
-            if let (Some(gpu_in), Some(gpu_tgt)) = (self.gpu_input_buf.as_ref(), self.gpu_target_buf.as_ref()) {
+            if let (Some(gpu_in), Some(gpu_tgt)) =
+                (self.gpu_input_buf.as_ref(), self.gpu_target_buf.as_ref())
+            {
                 return evaluate_loss_gpu(trainable, sequences, seq_length, gpu_in, gpu_tgt);
             }
             tracing::warn!("GPU buffers not initialized, falling back to CPU evaluation");
@@ -720,8 +736,10 @@ fn train_batch_gpu(
     // ── Zero-copy upload into pre-allocated buffers ──
     let input_f32: Vec<f32> = tokens[..seq].iter().map(|&t| t as f32).collect();
     let target_f32: Vec<f32> = targets[..seq].iter().map(|&t| t as f32).collect();
-    ctx.queue.write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
-    ctx.queue.write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
+    ctx.queue
+        .write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
+    ctx.queue
+        .write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
 
     let input_t = Tensor::from_gpu(
         input_buffer.view_as(vec![seq]),
@@ -801,7 +819,9 @@ fn train_batch_gpu(
                     match GpuTensor::from_cpu(&arr) {
                         Ok(g) => grad_tensors.push(g),
                         Err(e) => {
-                            tracing::warn!("Failed to upload fallback gradient to GPU: {e}, skipping GPU step");
+                            tracing::warn!(
+                                "Failed to upload fallback gradient to GPU: {e}, skipping GPU step"
+                            );
                             gpu_ok = false;
                             break;
                         }
@@ -826,11 +846,12 @@ fn train_batch_gpu(
         // Matikan internal clipping di GpuAdam (sekarang dilakukan secara eksternal)
         let internal_max_norm = gpu_opt.max_grad_norm.take();
         let clip_result = if let Some(max_norm) = internal_max_norm.or(config.max_grad_norm) {
-            ctx.clip_gradients_gpu(&grad_refs, max_norm).unwrap_or(GpuGradClipResult {
-                was_clipped: false,
-                scale_factor: 1.0,
-                norm: 0.0,
-            })
+            ctx.clip_gradients_gpu(&grad_refs, max_norm)
+                .unwrap_or(GpuGradClipResult {
+                    was_clipped: false,
+                    scale_factor: 1.0,
+                    norm: 0.0,
+                })
         } else {
             GpuGradClipResult {
                 was_clipped: false,
@@ -900,7 +921,11 @@ fn evaluate_loss_gpu(
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::warn!("GpuContext unavailable for evaluate_loss_gpu: {e}, returning zero");
-            return EvalMetrics { avg_loss: 0.0, perplexity: 0.0, total_tokens: 0 };
+            return EvalMetrics {
+                avg_loss: 0.0,
+                perplexity: 0.0,
+                total_tokens: 0,
+            };
         }
     };
     let mut total_loss = 0.0f64;
@@ -918,8 +943,10 @@ fn evaluate_loss_gpu(
 
             let input_f32: Vec<f32> = chunk[..seq].iter().map(|&t| t as f32).collect();
             let target_f32: Vec<f32> = chunk[1..].iter().map(|&t| t as f32).collect();
-            ctx.queue.write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
-            ctx.queue.write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
+            ctx.queue
+                .write_buffer(input_buffer.buffer(), 0, bytemuck::cast_slice(&input_f32));
+            ctx.queue
+                .write_buffer(target_buffer.buffer(), 0, bytemuck::cast_slice(&target_f32));
 
             let input_t = Tensor::from_gpu(
                 input_buffer.view_as(vec![seq]),
@@ -963,8 +990,16 @@ fn evaluate_loss_gpu(
     clear_tape();
 
     EvalMetrics {
-        avg_loss: if total_tokens > 0 { total_loss / total_tokens as f64 } else { 0.0 },
-        perplexity: if total_tokens > 0 { (total_loss / total_tokens as f64).exp() } else { 0.0 },
+        avg_loss: if total_tokens > 0 {
+            total_loss / total_tokens as f64
+        } else {
+            0.0
+        },
+        perplexity: if total_tokens > 0 {
+            (total_loss / total_tokens as f64).exp()
+        } else {
+            0.0
+        },
         total_tokens,
     }
 }

@@ -354,10 +354,7 @@ mod tests {
     #[test]
     fn test_kv_cache_append_mismatched() -> DLResult<()> {
         let mut cache = KVCache::new(1024, 128, 8);
-        let result = cache.append(
-            Array1::zeros(64),
-            Array1::zeros(64),
-        );
+        let result = cache.append(Array1::zeros(64), Array1::zeros(64));
         assert!(result.is_err());
         Ok(())
     }
@@ -426,10 +423,7 @@ mod tests {
     #[test]
     fn test_kv_cache_append_wrong_kv_size() -> DLResult<()> {
         let mut cache = KVCache::new(1024, 128, 8);
-        let result = cache.append(
-            Array1::zeros(2048),
-            Array1::zeros(2048),
-        );
+        let result = cache.append(Array1::zeros(2048), Array1::zeros(2048));
         assert!(result.is_err());
         Ok(())
     }
@@ -451,9 +445,13 @@ mod tests {
     fn test_kv_cache_is_full() {
         let mut cache = KVCache::new(2, 128, 8);
         assert!(!cache.is_full());
-        cache.append(Array1::zeros(1024), Array1::zeros(1024)).unwrap();
+        cache
+            .append(Array1::zeros(1024), Array1::zeros(1024))
+            .unwrap();
         assert!(!cache.is_full());
-        cache.append(Array1::zeros(1024), Array1::zeros(1024)).unwrap();
+        cache
+            .append(Array1::zeros(1024), Array1::zeros(1024))
+            .unwrap();
         assert!(cache.is_full());
     }
 }

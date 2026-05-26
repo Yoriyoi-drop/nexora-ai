@@ -265,9 +265,12 @@ impl AgentState {
     {
         let (old_data, new_data) = {
             let mut session_states = self.session_states.write().await;
-            let session_state = session_states.get_mut(&session_id).ok_or_else(|| {
-                AgentError::StateError { reason: format!("Session {} not found", session_id) }
-            })?;
+            let session_state =
+                session_states
+                    .get_mut(&session_id)
+                    .ok_or_else(|| AgentError::StateError {
+                        reason: format!("Session {} not found", session_id),
+                    })?;
             let old_data = session_state.data.clone();
             updater(session_state);
             session_state.last_activity = Utc::now();
@@ -275,7 +278,8 @@ impl AgentState {
             (old_data, new_data)
         };
 
-        self.emit_session_state_changes(session_id, &old_data, &new_data).await;
+        self.emit_session_state_changes(session_id, &old_data, &new_data)
+            .await;
 
         Ok(())
     }
@@ -363,9 +367,12 @@ impl AgentState {
     {
         let (old_shared_data, new_shared_data) = {
             let mut agent_states = self.agent_states.write().await;
-            let agent_state = agent_states.get_mut(&agent_id).ok_or_else(|| {
-                AgentError::StateError { reason: format!("Agent {} not found", agent_id) }
-            })?;
+            let agent_state =
+                agent_states
+                    .get_mut(&agent_id)
+                    .ok_or_else(|| AgentError::StateError {
+                        reason: format!("Agent {} not found", agent_id),
+                    })?;
             let old_shared_data = agent_state.shared_data.clone();
             updater(agent_state);
             agent_state.last_updated = Utc::now();
@@ -693,12 +700,17 @@ mod tests {
         let registered = StateChangeEvent::AgentRegistered { agent_id };
         assert!(matches!(created, StateChangeEvent::SessionCreated { .. }));
         assert!(matches!(closed, StateChangeEvent::SessionClosed { .. }));
-        assert!(matches!(registered, StateChangeEvent::AgentRegistered { .. }));
+        assert!(matches!(
+            registered,
+            StateChangeEvent::AgentRegistered { .. }
+        ));
     }
 
     #[test]
     fn test_state_change_event_clone_debug() {
-        let event = StateChangeEvent::SessionCreated { session_id: Uuid::new_v4() };
+        let event = StateChangeEvent::SessionCreated {
+            session_id: Uuid::new_v4(),
+        };
         let cloned = event.clone();
         assert_eq!(format!("{:?}", event), format!("{:?}", cloned));
     }
@@ -715,7 +727,10 @@ mod tests {
     #[tokio::test]
     async fn test_agent_state_global_config() {
         let state = AgentState::new();
-        state.set_global_config("key".into(), serde_json::json!("val")).await.unwrap();
+        state
+            .set_global_config("key".into(), serde_json::json!("val"))
+            .await
+            .unwrap();
         let val = state.get_global_config("key").await;
         assert_eq!(val, Some(serde_json::json!("val")));
     }
@@ -723,9 +738,15 @@ mod tests {
     #[tokio::test]
     async fn test_agent_state_global_counter() {
         let state = AgentState::new();
-        let val = state.increment_global_counter("requests".into(), 1).await.unwrap();
+        let val = state
+            .increment_global_counter("requests".into(), 1)
+            .await
+            .unwrap();
         assert_eq!(val, 1);
-        let val = state.increment_global_counter("requests".into(), 5).await.unwrap();
+        let val = state
+            .increment_global_counter("requests".into(), 5)
+            .await
+            .unwrap();
         assert_eq!(val, 6);
     }
 

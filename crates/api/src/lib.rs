@@ -320,7 +320,10 @@ impl RateLimiter {
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
 
-        let window_duration = self.limits.read().await
+        let window_duration = self
+            .limits
+            .read()
+            .await
             .get(key)
             .map(|l| l.window_seconds)
             .unwrap_or(60);

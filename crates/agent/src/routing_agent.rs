@@ -302,16 +302,15 @@ impl RoutingAgent {
                     .collect();
 
                 if !matching_specialists.is_empty() {
-                    let selected = if self.config.enable_load_balancing
-                        && matching_specialists.len() > 1
-                    {
-                        // Simple load balancing - select randomly
-                        let len = matching_specialists.len().max(1);
-                        let idx = (rand::random::<usize>() % len) as usize;
-                        vec![matching_specialists[idx].clone()]
-                    } else {
-                        vec![matching_specialists[0].clone()]
-                    };
+                    let selected =
+                        if self.config.enable_load_balancing && matching_specialists.len() > 1 {
+                            // Simple load balancing - select randomly
+                            let len = matching_specialists.len().max(1);
+                            let idx = (rand::random::<usize>() % len) as usize;
+                            vec![matching_specialists[idx].clone()]
+                        } else {
+                            vec![matching_specialists[0].clone()]
+                        };
 
                     Ok(RoutingActionResult {
                         specialists: selected,
@@ -648,7 +647,10 @@ mod tests {
         let content = RoutingCondition::ContentType("json".into());
         assert!(matches!(intent, RoutingCondition::IntentMatch(_)));
         assert!(matches!(pattern, RoutingCondition::PatternMatch(_)));
-        assert!(matches!(capability, RoutingCondition::RequiresCapability(_)));
+        assert!(matches!(
+            capability,
+            RoutingCondition::RequiresCapability(_)
+        ));
         assert!(matches!(content, RoutingCondition::ContentType(_)));
     }
 

@@ -24,7 +24,10 @@ fn with_retry<T, F: Fn() -> std::io::Result<T>>(f: F) -> std::io::Result<T> {
         }
     }
     Err(last_err.unwrap_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "retry loop exhausted without error")
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "retry loop exhausted without error",
+        )
     }))
 }
 
@@ -54,7 +57,8 @@ impl PipelineDiskCache {
 
     /// Full path for a given cache key.
     fn cache_path(&self, key: u64) -> PathBuf {
-        self.cache_dir.join(format!("pipeline_v{CACHE_VERSION}_{:016x}.bin", key))
+        self.cache_dir
+            .join(format!("pipeline_v{CACHE_VERSION}_{:016x}.bin", key))
     }
 
     /// Load cached pipeline data from disk.

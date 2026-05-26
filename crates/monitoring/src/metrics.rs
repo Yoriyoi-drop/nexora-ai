@@ -28,8 +28,7 @@ impl MetricsCollector {
     pub fn new() -> Result<Self, prometheus::Error> {
         let registry = Registry::new();
 
-        let request_counter =
-            Counter::new("nexora_requests_total", "Total requests")?;
+        let request_counter = Counter::new("nexora_requests_total", "Total requests")?;
         let request_failures = Counter::new("nexora_request_failures_total", "Failed requests")?;
         let request_latency = Histogram::with_opts(
             HistogramOpts::new(
@@ -44,19 +43,47 @@ impl MetricsCollector {
         let memory_usage = Gauge::new("nexora_memory_usage_bytes", "Memory usage in bytes")?;
         let cpu_usage = Gauge::new("nexora_cpu_usage_ratio", "CPU usage (0-1)")?;
         let queue_depth = Gauge::new("nexora_queue_depth", "Current queue depth")?;
-        let gpu_forward_errors = Counter::new("nexora_gpu_forward_errors_total", "Total GPU forward failures")?;
-        let gpu_cpu_fallbacks = Counter::new("nexora_gpu_cpu_fallbacks_total", "Total GPU→CPU fallback events")?;
-        let gpu_resident_successes = Counter::new("nexora_gpu_resident_successes_total", "GPU-resident generation successes")?;
-        let gpu_resident_fallbacks = Counter::new("nexora_gpu_resident_fallbacks_total", "GPU-resident generation fallbacks")?;
-        let gpu_tokens = Counter::new("nexora_gpu_tokens_total", "Total tokens generated via GPU path")?;
-        let cpu_tokens = Counter::new("nexora_cpu_tokens_total", "Total tokens generated via CPU path")?;
+        let gpu_forward_errors = Counter::new(
+            "nexora_gpu_forward_errors_total",
+            "Total GPU forward failures",
+        )?;
+        let gpu_cpu_fallbacks = Counter::new(
+            "nexora_gpu_cpu_fallbacks_total",
+            "Total GPU→CPU fallback events",
+        )?;
+        let gpu_resident_successes = Counter::new(
+            "nexora_gpu_resident_successes_total",
+            "GPU-resident generation successes",
+        )?;
+        let gpu_resident_fallbacks = Counter::new(
+            "nexora_gpu_resident_fallbacks_total",
+            "GPU-resident generation fallbacks",
+        )?;
+        let gpu_tokens = Counter::new(
+            "nexora_gpu_tokens_total",
+            "Total tokens generated via GPU path",
+        )?;
+        let cpu_tokens = Counter::new(
+            "nexora_cpu_tokens_total",
+            "Total tokens generated via CPU path",
+        )?;
         let gpu_alive = Gauge::new("nexora_gpu_alive", "GPU device health (1=alive, 0=dead)")?;
         let gpu_memory_bytes = Gauge::new("nexora_gpu_memory_bytes", "GPU memory usage in bytes")?;
-        let gpu_memory_percent = Gauge::new("nexora_gpu_memory_percent", "GPU memory usage percent")?;
+        let gpu_memory_percent =
+            Gauge::new("nexora_gpu_memory_percent", "GPU memory usage percent")?;
         let cache_hit_ratio = Gauge::new("nexora_cache_hit_ratio", "Prefix cache hit ratio (0-1)")?;
-        let gpu_math_fallbacks = Counter::new("nexora_gpu_math_fallbacks_total", "Total GPU math fallback events")?;
-        let inference_queue_depth = Gauge::new("nexora_inference_queue_depth", "Inference engine queue depth")?;
-        let throughput_tokens = Counter::new("nexora_throughput_tokens_total", "Total tokens generated (all paths)")?;
+        let gpu_math_fallbacks = Counter::new(
+            "nexora_gpu_math_fallbacks_total",
+            "Total GPU math fallback events",
+        )?;
+        let inference_queue_depth = Gauge::new(
+            "nexora_inference_queue_depth",
+            "Inference engine queue depth",
+        )?;
+        let throughput_tokens = Counter::new(
+            "nexora_throughput_tokens_total",
+            "Total tokens generated (all paths)",
+        )?;
 
         registry.register(Box::new(request_counter.clone()))?;
         registry.register(Box::new(request_failures.clone()))?;

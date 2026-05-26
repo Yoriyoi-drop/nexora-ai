@@ -51,7 +51,11 @@ impl AdaptiveSchedulerNode {
             SchedulerType::ReduceOnPlateau { patience, factor } => {
                 if self.metrics.len() > patience {
                     let recent = &self.metrics[self.metrics.len() - patience - 1..];
-                    let improving = recent.first().map(|first| recent.last().map(|last| last < first)).flatten().unwrap_or(false);
+                    let improving = recent
+                        .first()
+                        .map(|first| recent.last().map(|last| last < first))
+                        .flatten()
+                        .unwrap_or(false);
                     if !improving {
                         self.current_lr * factor
                     } else {
@@ -97,11 +101,8 @@ mod tests {
 
     #[test]
     fn test_exponential_decay() {
-        let mut s = AdaptiveSchedulerNode::new(
-            "s",
-            1.0,
-            SchedulerType::ExponentialDecay { gamma: 0.5 },
-        );
+        let mut s =
+            AdaptiveSchedulerNode::new("s", 1.0, SchedulerType::ExponentialDecay { gamma: 0.5 });
         let lr = s.step(1, None);
         assert!((lr - 0.5).abs() < 1e-5);
     }

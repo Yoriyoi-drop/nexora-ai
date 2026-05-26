@@ -243,7 +243,10 @@ impl SystemMonitor {
         let min_memory_required = 100 * 1024 * 1024;
         let process_count = system.processes().len();
         if available_memory < min_memory_required {
-            warn!("agent health: low memory ({} bytes available)", available_memory);
+            warn!(
+                "agent health: low memory ({} bytes available)",
+                available_memory
+            );
         }
         if process_count == 0 {
             warn!("agent health: no processes detected");
@@ -254,7 +257,10 @@ impl SystemMonitor {
     async fn api_health_check_with_system(&self, _system: &System) -> NexoraResult<bool> {
         let load_average = sysinfo::System::load_average();
         if load_average.one >= 10.0 {
-            warn!("api health: load average too high ({:.2})", load_average.one);
+            warn!(
+                "api health: load average too high ({:.2})",
+                load_average.one
+            );
         }
         let model_ids = nexora_foundation::shared::model_identity::NxrModelId::all();
         Ok(load_average.one < 10.0 && !model_ids.is_empty())
@@ -341,17 +347,19 @@ impl SystemMonitor {
     /// Get system load average (1, 5, 15 min), or `None` if unavailable
     async fn get_load_average(&self) -> Option<(f64, f64, f64)> {
         if let Some(load) = tokio::task::spawn_blocking(|| {
-            std::fs::read_to_string("/proc/loadavg").ok().and_then(|load_str| {
-                let parts: Vec<&str> = load_str.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    let load1: f64 = parts[0].parse().ok()?;
-                    let load5: f64 = parts[1].parse().ok()?;
-                    let load15: f64 = parts[2].parse().ok()?;
-                    Some((load1, load5, load15))
-                } else {
-                    None
-                }
-            })
+            std::fs::read_to_string("/proc/loadavg")
+                .ok()
+                .and_then(|load_str| {
+                    let parts: Vec<&str> = load_str.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        let load1: f64 = parts[0].parse().ok()?;
+                        let load5: f64 = parts[1].parse().ok()?;
+                        let load15: f64 = parts[2].parse().ok()?;
+                        Some((load1, load5, load15))
+                    } else {
+                        None
+                    }
+                })
         })
         .await
         .unwrap_or(None)
@@ -448,12 +456,15 @@ impl SystemMonitor {
             .await?;
 
         // Get actual active connections count
-        let active_connections = self.get_active_connections_with_system(&system).await.unwrap_or(0);
+        let active_connections = self
+            .get_active_connections_with_system(&system)
+            .await
+            .unwrap_or(0);
 
         // GPU health metrics
         let gpu_available = nexora_deeplearning::gpu::GpuContext::is_available();
-        let gpu_fallback_count =
-            nexora_transformer::model::GPU_FALLBACK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+        let gpu_fallback_count = nexora_transformer::model::GPU_FALLBACK_COUNT
+            .load(std::sync::atomic::Ordering::Relaxed);
         let gpu_matmul_fallbacks =
             nexora_deeplearning::autograd::ops::matmul::gpu_matmul_fallback_count();
 

@@ -105,8 +105,11 @@ impl KVCache {
     }
 
     pub async fn initialize(&self) -> Result<(), anyhow::Error> {
-        tracing::info!("KVCache initialized with max_entries={}, ttl={:?}",
-            self.max_entries, self.ttl);
+        tracing::info!(
+            "KVCache initialized with max_entries={}, ttl={:?}",
+            self.max_entries,
+            self.ttl
+        );
         Ok(())
     }
 
@@ -122,7 +125,9 @@ impl KVCache {
         let mut store = self.store.write().await;
         let mut entry = store.entries.remove(&hash)?;
         if entry.created_at.elapsed() > self.ttl {
-            store.lru_order.remove(&(entry.last_access.load(Ordering::Relaxed), hash));
+            store
+                .lru_order
+                .remove(&(entry.last_access.load(Ordering::Relaxed), hash));
             self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
             self.stats_misses.fetch_add(1, Ordering::Relaxed);
             return None;
@@ -167,7 +172,9 @@ impl KVCache {
             match lru_key {
                 Some(k) => {
                     if let Some(removed) = store.entries.remove(&k) {
-                        store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), k));
+                        store
+                            .lru_order
+                            .remove(&(removed.last_access.load(Ordering::Relaxed), k));
                         let freed =
                             removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                         self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
@@ -193,8 +200,10 @@ impl KVCache {
             },
         );
         self.cache_size_count.fetch_add(1, Ordering::Relaxed);
-        self.total_memory_used.fetch_add(entry_size, Ordering::Relaxed);
-        self.estimated_memory.fetch_add(entry_size, Ordering::Relaxed);
+        self.total_memory_used
+            .fetch_add(entry_size, Ordering::Relaxed);
+        self.estimated_memory
+            .fetch_add(entry_size, Ordering::Relaxed);
 
         drop(store);
         self.maybe_cleanup().await;
@@ -220,9 +229,10 @@ impl KVCache {
         let hash = self.hash_key(key);
         let mut store = self.store.write().await;
         if let Some(removed) = store.entries.remove(&hash) {
-            store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), hash));
-            let freed =
-                removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+            store
+                .lru_order
+                .remove(&(removed.last_access.load(Ordering::Relaxed), hash));
+            let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
             self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
             self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
             self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
@@ -235,21 +245,24 @@ impl KVCache {
     pub async fn evict_expired(&self) -> usize {
         let mut store = self.store.write().await;
         let before = store.entries.len();
-        let evicted_entries: Vec<u64> = store.entries
+        let evicted_entries: Vec<u64> = store
+            .entries
             .iter()
             .filter(|(_, e)| e.created_at.elapsed() > self.ttl)
             .map(|(k, _)| *k)
             .collect();
         for k in &evicted_entries {
             if let Some(removed) = store.entries.remove(k) {
-                store.lru_order.remove(&(removed.last_access.load(Ordering::Relaxed), *k));
-                let freed =
-                    removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                store
+                    .lru_order
+                    .remove(&(removed.last_access.load(Ordering::Relaxed), *k));
+                let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                 self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
                 self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
             }
         }
-        self.cache_size_count.fetch_sub(evicted_entries.len(), Ordering::Relaxed);
+        self.cache_size_count
+            .fetch_sub(evicted_entries.len(), Ordering::Relaxed);
         let evicted = evicted_entries.len();
         self.stats_ttl_evictions
             .fetch_add(evicted, Ordering::Relaxed);
@@ -392,7 +405,7 @@ mod tests {
         }
         for h in handles {
             match h.await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => tracing::error!("KV cache worker panicked: {:?}", e),
             }
         }

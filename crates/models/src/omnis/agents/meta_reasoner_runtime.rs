@@ -23,8 +23,7 @@ impl MetaReasonerRuntimeAgent {
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|w| !w.is_empty())
             .collect();
-        let complexity =
-            (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
+        let complexity = (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
         let pathway_count = (complexity / 10.0).ceil() as usize;
         let confidence = (0.5 + (complexity / 200.0)).min(0.98);
 
@@ -52,8 +51,7 @@ impl MetaReasonerRuntimeAgent {
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|w| !w.is_empty())
             .collect();
-        let complexity =
-            (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
+        let complexity = (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
         let confidence = (0.5 + (complexity / 200.0)).min(0.98);
 
         Ok(MetaReasoningState {
@@ -97,8 +95,7 @@ impl MetaReasonerRuntimeAgent {
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|w| !w.is_empty())
             .collect();
-        let complexity =
-            (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
+        let complexity = (unique_terms.len() as f64 / word_count.max(1) as f64 * 100.0).min(100.0);
 
         Ok(vec![
             format!(

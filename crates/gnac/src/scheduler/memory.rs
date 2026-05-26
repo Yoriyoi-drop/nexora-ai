@@ -47,12 +47,20 @@ impl MemoryCheckpointer {
                 // Suggest activation size based on node type if metadata is zero
                 if node.metadata.activation_size == 0 {
                     let suggested = match node.node_type {
-                        crate::NodeType::Conv2D | crate::NodeType::Conv1D | crate::NodeType::Conv3D => 4 * 1024 * 1024,
-                        crate::NodeType::SelfAttention | crate::NodeType::MultiHeadAttention | crate::NodeType::FlashAttention => 2 * 1024 * 1024,
+                        crate::NodeType::Conv2D
+                        | crate::NodeType::Conv1D
+                        | crate::NodeType::Conv3D => 4 * 1024 * 1024,
+                        crate::NodeType::SelfAttention
+                        | crate::NodeType::MultiHeadAttention
+                        | crate::NodeType::FlashAttention => 2 * 1024 * 1024,
                         crate::NodeType::Linear | crate::NodeType::MatMul => 512 * 1024,
-                        crate::NodeType::LayerNorm | crate::NodeType::RMSNorm | crate::NodeType::BatchNorm => 256 * 1024,
+                        crate::NodeType::LayerNorm
+                        | crate::NodeType::RMSNorm
+                        | crate::NodeType::BatchNorm => 256 * 1024,
                         crate::NodeType::Embedding => 8 * 1024 * 1024,
-                        crate::NodeType::MambaBlock | crate::NodeType::StateSpaceModel => 4 * 1024 * 1024,
+                        crate::NodeType::MambaBlock | crate::NodeType::StateSpaceModel => {
+                            4 * 1024 * 1024
+                        }
                         _ => 1024 * 1024,
                     };
                     self.activation_sizes.insert(*node_id, suggested);
@@ -122,10 +130,7 @@ impl MemoryCheckpointer {
             .get(target_node)
             .copied()
             .unwrap_or(1024 * 1024);
-        let recomputed = vec![
-            (recomputed_size % 256) as u8;
-            target_size
-        ];
+        let recomputed = vec![(recomputed_size % 256) as u8; target_size];
         Some(recomputed)
     }
 
@@ -158,10 +163,17 @@ impl MemoryCheckpointer {
 pub fn node_type_compute_cost(node_type: &crate::NodeType) -> usize {
     match node_type {
         crate::NodeType::Conv2D | crate::NodeType::Conv1D | crate::NodeType::Conv3D => 500_000,
-        crate::NodeType::SelfAttention | crate::NodeType::MultiHeadAttention | crate::NodeType::FlashAttention => 300_000,
+        crate::NodeType::SelfAttention
+        | crate::NodeType::MultiHeadAttention
+        | crate::NodeType::FlashAttention => 300_000,
         crate::NodeType::Linear | crate::NodeType::MatMul => 200_000,
-        crate::NodeType::LayerNorm | crate::NodeType::RMSNorm | crate::NodeType::BatchNorm => 50_000,
-        crate::NodeType::ReLU | crate::NodeType::GELU | crate::NodeType::Sigmoid | crate::NodeType::Tanh => 10_000,
+        crate::NodeType::LayerNorm | crate::NodeType::RMSNorm | crate::NodeType::BatchNorm => {
+            50_000
+        }
+        crate::NodeType::ReLU
+        | crate::NodeType::GELU
+        | crate::NodeType::Sigmoid
+        | crate::NodeType::Tanh => 10_000,
         crate::NodeType::Softmax => 20_000,
         crate::NodeType::Embedding => 100_000,
         crate::NodeType::MambaBlock | crate::NodeType::StateSpaceModel => 400_000,

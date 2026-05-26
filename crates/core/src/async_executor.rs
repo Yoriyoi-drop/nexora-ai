@@ -540,9 +540,7 @@ impl AsyncTaskExecutor {
                 } else if result.error.as_deref() == Some("Task execution timed out") {
                     task_info.status = TaskStatus::Timeout;
                 } else {
-                    task_info.status = TaskStatus::Failed(
-                        result.error.clone().unwrap_or_default(),
-                    );
+                    task_info.status = TaskStatus::Failed(result.error.clone().unwrap_or_default());
                 }
             }
             active.remove(&result.task_id);

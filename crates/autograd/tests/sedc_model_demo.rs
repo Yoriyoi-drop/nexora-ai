@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn demo_sedc_on_omnis_weights() {
-        use nexora_autograd::gpu_sedc::{SedcConfig, SedcCompressor};
+        use nexora_autograd::gpu_sedc::{SedcCompressor, SedcConfig};
 
         let shapes = omnis_shapes();
         let config = SedcConfig {
@@ -55,13 +55,19 @@ mod tests {
         println!("\n═══════════════════════════════════════════════════════════════");
         println!("  SEDC Compression Demo — NXR Model Weights");
         println!("═══════════════════════════════════════════════════════════════");
-        println!("  Config: alpha={}, oversamples={}, power_iters={}, tolerance={}",
-            config.alpha, config.oversamples, config.power_iters, config.tolerance);
-        println!("  VET gamma={}, EGSS kappa={}, ARQ bits={}, REC lambda={}",
-            config.vet_gamma, config.sparsity_kappa, config.arq_bits, config.rec_lambda);
+        println!(
+            "  Config: alpha={}, oversamples={}, power_iters={}, tolerance={}",
+            config.alpha, config.oversamples, config.power_iters, config.tolerance
+        );
+        println!(
+            "  VET gamma={}, EGSS kappa={}, ARQ bits={}, REC lambda={}",
+            config.vet_gamma, config.sparsity_kappa, config.arq_bits, config.rec_lambda
+        );
         println!("───────────────────────────────────────────────────────────────");
-        println!("  {:<22} {:<10} {:<10} {:<10} {:<10} {:<8} {:<8}",
-            "Layer", "Shape", "Orig P.", "Rank", "Comp P.", "Ratio", "Sparsity");
+        println!(
+            "  {:<22} {:<10} {:<10} {:<10} {:<10} {:<8} {:<8}",
+            "Layer", "Shape", "Orig P.", "Rank", "Comp P.", "Ratio", "Sparsity"
+        );
         println!("───────────────────────────────────────────────────────────────");
 
         let compressor = SedcCompressor::new(config);
@@ -101,8 +107,11 @@ mod tests {
             total_sparsity += result.sparsity;
             count += 1;
 
-            println!("  {:<22} {:>4}×{:<4} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}  err={:.4}",
-                name, m, n,
+            println!(
+                "  {:<22} {:>4}×{:<4} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}  err={:.4}",
+                name,
+                m,
+                n,
                 original_params,
                 result.rank,
                 compressed_params,
@@ -118,13 +127,19 @@ mod tests {
             let total_ratio = total_orig as f32 / total_comp.max(1) as f32;
 
             println!("───────────────────────────────────────────────────────────────");
-            println!("  {:<22} {:<10} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}",
-                "TOTAL", "", total_orig, "", total_comp, total_ratio, avg_sparsity);
+            println!(
+                "  {:<22} {:<10} {:<10} {:<10} {:<10.2}× {:<8.2} sp={:<6.2}",
+                "TOTAL", "", total_orig, "", total_comp, total_ratio, avg_sparsity
+            );
             println!("  Avg relative error: {:.4}", avg_error);
             println!("  Avg sparsity: {:.2}", avg_sparsity);
             println!("═══════════════════════════════════════════════════════════════\n");
 
-            assert!(total_ratio >= 1.0, "SEDC should compress, got ratio {:.2}", total_ratio);
+            assert!(
+                total_ratio >= 1.0,
+                "SEDC should compress, got ratio {:.2}",
+                total_ratio
+            );
         } else {
             println!("  No layers compressed (GPU may not be available)");
             println!("═══════════════════════════════════════════════════════════════\n");
@@ -133,7 +148,7 @@ mod tests {
 
     #[test]
     fn demo_sedc_full_model_pipeline() {
-        use nexora_autograd::gpu_sedc::{SedcConfig, SedcCompressor};
+        use nexora_autograd::gpu_sedc::{SedcCompressor, SedcConfig};
 
         let config = SedcConfig {
             tolerance: 0.15,
@@ -142,14 +157,22 @@ mod tests {
         let compressor = SedcCompressor::new(config);
 
         let names = &[
-            "attention.wq", "attention.wo", "ffn.w1", "ffn.w2",
-            "attention.wk", "attention.wv", "ffn.w3",
+            "attention.wq",
+            "attention.wo",
+            "ffn.w1",
+            "ffn.w2",
+            "attention.wk",
+            "attention.wv",
+            "ffn.w3",
         ];
-        let weights: Vec<Array2<f32>> = names.iter().map(|&_| {
-            let m = 256;
-            let n = 256;
-            low_rank_matrix(m, n, 32)
-        }).collect();
+        let weights: Vec<Array2<f32>> = names
+            .iter()
+            .map(|&_| {
+                let m = 256;
+                let n = 256;
+                low_rank_matrix(m, n, 32)
+            })
+            .collect();
         let fuse_pairs = vec![(0, 16), (2, 16)];
 
         println!("\n═══════════════════════════════════════════════════════════════");
@@ -163,7 +186,10 @@ mod tests {
                 println!("  Mean sparsity: {:.2}", model.report.mean_sparsity);
                 println!("  Fused pairs: {}", model.fused_pairs.len());
                 println!("  Layers compressed: {}", model.weights.len());
-                assert!(model.report.total_ratio >= 0.5, "model compression ratio should be reasonable");
+                assert!(
+                    model.report.total_ratio >= 0.5,
+                    "model compression ratio should be reasonable"
+                );
             }
             Err(e) => {
                 println!("  Model compression skipped: {}", e);

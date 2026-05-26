@@ -346,7 +346,9 @@ fn compute_weight_gradients(
              Finite-difference gradient computation requires {} forward passes. \
              This will be extremely slow. Returning zero gradients as a safe fallback. \
              Consider using backpropagation via compute_gradients() instead.",
-            layer_idx, num_params, num_params * 2
+            layer_idx,
+            num_params,
+            num_params * 2
         );
         return Ok(Array::zeros(weights.shape()));
     }

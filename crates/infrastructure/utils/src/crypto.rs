@@ -70,9 +70,8 @@ impl CryptoUtils {
     pub fn generate_uuid_v5(namespace: &str, name: &str) -> Result<String> {
         use uuid::Uuid;
 
-        let ns = Uuid::parse_str(namespace).unwrap_or_else(|_| {
-            Uuid::new_v5(&Uuid::nil(), namespace.as_bytes())
-        });
+        let ns = Uuid::parse_str(namespace)
+            .unwrap_or_else(|_| Uuid::new_v5(&Uuid::nil(), namespace.as_bytes()));
         let uuid = Uuid::new_v5(&ns, name.as_bytes());
         Ok(uuid.to_string())
     }
@@ -163,10 +162,14 @@ impl CryptoUtils {
         if parts.len() < 5 || parts[1] != "pbkdf2-sha256" {
             return Ok(false);
         }
-        let iterations: u32 = parts[2].parse().map_err(|e| anyhow::anyhow!("Invalid iterations: {}", e))?;
-        let salt = general_purpose::STANDARD.decode(parts[3])
+        let iterations: u32 = parts[2]
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid iterations: {}", e))?;
+        let salt = general_purpose::STANDARD
+            .decode(parts[3])
             .map_err(|e| anyhow::anyhow!("Invalid salt: {}", e))?;
-        let stored_hash = general_purpose::STANDARD.decode(parts[4])
+        let stored_hash = general_purpose::STANDARD
+            .decode(parts[4])
             .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
         let mut computed = vec![0u8; stored_hash.len()];
         pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), &salt, iterations, &mut computed);

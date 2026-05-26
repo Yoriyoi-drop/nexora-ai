@@ -595,12 +595,12 @@ impl NexumArchitecture {
                 .contains_key(agent_id);
 
             let (success, result_data) = if agent_present {
-                (true, format!("Agent {} completed task {}", agent_id, task.id))
-            } else {
                 (
-                    false,
-                    format!("Agent {} not found in registry", agent_id),
+                    true,
+                    format!("Agent {} completed task {}", agent_id, task.id),
                 )
+            } else {
+                (false, format!("Agent {} not found in registry", agent_id))
             };
 
             let elapsed = task_start.elapsed().as_millis() as u64;

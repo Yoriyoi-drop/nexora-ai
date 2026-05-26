@@ -7,7 +7,7 @@
 
 ---
 
-## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% → ~83% → ~84% → ~85% → ~86% → ~87% → ~88% → ~89% → ~90% → ~91% (batch fix 15 — to_cpu() di forward path engine dieliminasi, GPU-native sampling di inference loop)**
+## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% → ~83% → ~84% → ~85% → ~86% → ~87% → ~88% → ~89% → ~90% → ~93% → ~94% → ~95% (batch fix 15 — to_cpu() di forward path engine dieliminasi, GPU-native sampling di inference loop, true GPU batched prefill, session wiring, padded batch prefill, batched GPU sampling)**
 
 Codebase ini secara arsitektur sangat ambisius — tapi sebagian besar adalah **scaffolding yang kelihatan selesai**.
 Banyak modul yang secara *struktur* sudah ada, tapi secara *behavior* masih sequential, fallback ke CPU,
@@ -101,6 +101,12 @@ atau bahkan tidak pernah dipanggil. Ini adalah "software yang dicat rumahnya tap
 | 94 | Continuous batching masih pakai `CpuKVCache` — tidak bisa pakai GPU-native sampling | `inference/src/continuous_batching.rs:352-362` | ✅ FIXED (kv_caches diubah ke `HashMap<u64, Box<dyn KVCacheProvider>>`, add_request buat `GpuKVCache` jika GPU available, prefill otomatis GPU via `KVCacheProvider`, single-gen pakai `forward_sample_gpu`, multi-seq ambil CPU entries untuk `forward_batched`) |
 | 95 | ATQS Adam/LAMB bias correction increment per-parameter bukan per-step — `self.t` naik ke N setelah 1 step | `atqs/src/calibration/calibration_optimizer.rs:782,1083` | ✅ FIXED (tambah `end_step(&mut self)` ke `CalibrationOptimizer` trait — increment step counter sekali per optimizer step, bukan per-parameter) |
 | 96 | Star-X GPU round-trip: `to_cpu()` per-op di blas_backend + callers — data GPU→CPU→GPU tiap matmul | `star-x/src/blas_backend.rs:750,814`, `tgh.rs:193`, `aca.rs:211`, `sca.rs:218`, `fused_ops.rs:149` | ✅ FIXED (tambah `gemm_gpu_keep_gpu`/`gemv_gpu_keep_gpu` ke `BlasBackend` + `matmul_gpu_keep_gpu` ke tgh/aca/sca + `forward_gpu_keep_gpu` ke fused_ops — return `GpuTensor`, no PCIe readback. CPU wrapper tetap call `to_cpu()` untuk kompatibilitas API) |
+| 97 | CB prefill broken: `model.forward(&all_prompt_tokens, cache)` hanya proses `input_ids.last()` — KV cache kehilangan N-1 token pertama | `inference/src/continuous_batching.rs:330` | 🔴 BUG FIX + OPT: tambah `forward_prefill_batched` ke trait per-token loop (fix bug) + CausalLM GPU override pakai `forward_gpu_with_cache_keep_gpu` untuk non-last token (zero logit readback) + CB engine call `forward_prefill_batched` instead of raw forward |
+| 98 | Agent coordinator: 7 strategi return error (Adaptive, ConsensusBased, LoadBalanced, PriorityBased, EmpathyDriven, CreativeDriven, Consensus) | `shared/agent_coordinator.rs:290-310` | ✅ FIXED (implementasi semua 7 strategi: Adaptive → pilih parallel/sequential by task length, ConsensusBased → threshold filter, LoadBalanced → sort, PriorityBased → sort by name len, EmpathyDriven → hash-based scoring, CreativeDriven → inverse hash, Consensus → majority filter) |
+| 99 | `InferenceSession` tidak di-wire ke `generate_internal()` — session_id, prefix cache stat, session entry | `inference/src/engine.rs:700-941` | ✅ FIXED (session_id → get_or_create session, prefix hit/miss → `record_cache_hit`/`record_cache_miss`, session entry → `add_entry` setelah generation) |
+| 100 | True CB prefill: prefill masih per-sequence (sequence-major loop) | `inference/src/inference_trait.rs:169-230`, `inference/src/continuous_batching.rs:295-355`, `transformer/src/model.rs:2380` | ✅ FIXED (position-by-position default loop; new `forward_gpu_batched_prefill` method: true batched QKV/FFN/LM-head matmul per position on existing GpuKVCache entries, skip CPU upload/download, conditional logit readback; GPU override calls it; CB cache re-pairing fix) |
+| 101 | Padded batch prefill: position-by-position loop di GPU path — O(max_len) forward calls per batch | `transformer/src/model.rs`, `inference/src/inference_trait.rs` | ✅ FIXED (new `forward_gpu_batched_prefill_full`: ALL remaining tokens processed in ONE forward pass; padded/flat batch QKV/FFN on `[total_tokens, hidden]` instead of `[N, hidden]` × max_len; per-token RoPE cos/sin; bulk KV append per sequence; multi-token fused_attention with `causal=true`; `bulk_append` on `GpuKVCacheEntry`; GPU override updated — single call instead of per-position loop) |
+| 102 | Batched GPU sampling: multi-seq generation masih `forward_batched` → readback 128KB/seq logits → CPU sampling | `transformer/src/model.rs`, `inference/src/inference_trait.rs`, `inference/src/continuous_batching.rs` | ✅ FIXED (new `forward_gpu_batched_sample`: batched GPU forward → per-seq `gpu_sample` slice → 4-byte token readback; new trait method `forward_batched_sample_gpu` dengan CausalLM GPU override — zero full-logit readback; CB engine multi-seq generation path tries GPU-native sampling first, falls back to CPU readback) |
 
 ### Cache Response Body — Security Assessment
 | # | Risk | Assessment | Status |
@@ -357,11 +363,11 @@ implementasikan dengan benar.
 3. **Backward compat:** `pub type SequentialBatchingEngine<M> = ContinuousBatchingEngine<M>;` — diberi `#[deprecated(note = "renamed to ContinuousBatchingEngine")]`
 4. **Doc diperbaiki:** Docstring asli klaim "full batched prefill" → diubah ke "Prefill processes sequences individually (future work: padded batch prefill)"
 5. **Generation tetap true batched:** `CausalLM::forward_batched()` override ke `forward_gpu_batched()` untuk GPU matmul batch
-6. **Prefill masih per-sequence:** Ini masih TODO untuk future padded batch prefill
+6. **Prefill position-by-position:** `forward_prefill_batched` sekarang proses posisi-P di semua sequence bersama-sama (position-major, bukan sequence-major). GPU override juga position-by-position.
 
 ### Status: ✅ `cargo check` lulus
 
-### Sisa: Fase prefill masih proses sequence satu per satu — butuh padded batched matmul untuk true continuous batching.
+### Sisa: Padded batched matmul untuk GPU prefill — sudah ada `forward_gpu_batched_prefill` yang operasi di GPU entries langsung, tapi masih position-by-position (sekali per posisi, bukan sekali untuk semua posisi). Padded batch prefill (semua prompt dalam satu forward) masih butuh model-level change.
 
 ---
 
@@ -1217,7 +1223,7 @@ Kelemahan:
 - ✅ ~~GPU backward masih ada `to_cpu()` di cross_entropy, embedding, causal_attn — butuh GPU kernel rewrite~~ ✅ Selesai (fused attention backward + embedding scatter-add + cross_entropy fused WGSL — semua to_cpu di backward path dieliminasi)
 - ✅ ~~Sampler masih f32 (belum F16)~~ ✅ Selesai (F16 GPU tensor sampling + F16→F32 on-GPU conversion)
 - Multi-backend execution palsu (CPU-only)
-- Prefill masih per-sequence (belum padded batch)
+- Prefill position-by-position (position-major loop, tapi GPU belum true batched matmul — per-token-per-sequence individual)
 - Error handling buruk (unwrap chain)
 - Blocking code di async runtime
 

@@ -505,7 +505,11 @@ impl Metric for CLIPScoreMetric {
                 return Ok(0.0);
             }
             let mean_activation: f32 = data.iter().sum::<f32>() / data.len() as f32;
-            let variance: f32 = data.iter().map(|x| (x - mean_activation).powi(2)).sum::<f32>() / data.len() as f32;
+            let variance: f32 = data
+                .iter()
+                .map(|x| (x - mean_activation).powi(2))
+                .sum::<f32>()
+                / data.len() as f32;
             Ok((mean_activation.abs() + variance.sqrt()) / 2.0)
         }
     }

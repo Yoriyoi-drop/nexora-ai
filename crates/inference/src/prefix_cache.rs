@@ -100,14 +100,24 @@ impl PrefixCache {
         self.insert_with_kvcache(tokens, value, None).await;
     }
 
-    pub async fn insert_with_kvcache(&self, tokens: &[u32], value: Vec<f32>, kvcache: Option<Vec<KVCacheEntry>>) {
+    pub async fn insert_with_kvcache(
+        &self,
+        tokens: &[u32],
+        value: Vec<f32>,
+        kvcache: Option<Vec<KVCacheEntry>>,
+    ) {
         if tokens.is_empty() {
             return;
         }
 
-        let kv_size = kvcache.as_ref().map(|kv| {
-            kv.iter().map(|e| (e.k.len() + e.v.len()) * std::mem::size_of::<f32>()).sum::<usize>()
-        }).unwrap_or(0);
+        let kv_size = kvcache
+            .as_ref()
+            .map(|kv| {
+                kv.iter()
+                    .map(|e| (e.k.len() + e.v.len()) * std::mem::size_of::<f32>())
+                    .sum::<usize>()
+            })
+            .unwrap_or(0);
         let value_size = value.len() * std::mem::size_of::<f32>() + kv_size;
         let entry_size = tokens.len() * std::mem::size_of::<u32>() + value_size + 64;
         if entry_size > self.config.max_cache_size / 1024 {
@@ -127,7 +137,10 @@ impl PrefixCache {
                 let current = match nodes.get(&current_id) {
                     Some(n) => n,
                     None => {
-                        warn!("prefix_cache: node {} missing during insert — aborting", current_id);
+                        warn!(
+                            "prefix_cache: node {} missing during insert — aborting",
+                            current_id
+                        );
                         return;
                     }
                 };
@@ -141,7 +154,10 @@ impl PrefixCache {
                         child.access_count += 1;
                         child.last_access = Instant::now();
                     } else {
-                        warn!("prefix_cache: child node {} missing after lookup", current_id);
+                        warn!(
+                            "prefix_cache: child node {} missing after lookup",
+                            current_id
+                        );
                         return;
                     }
                 }
@@ -157,7 +173,10 @@ impl PrefixCache {
                     if let Some(parent) = nodes.get_mut(&current_id) {
                         parent.children.insert(token as u64, new_id);
                     } else {
-                        warn!("prefix_cache: parent node {} missing during new child insert", current_id);
+                        warn!(
+                            "prefix_cache: parent node {} missing during new child insert",
+                            current_id
+                        );
                         return;
                     }
                     nodes.insert(new_id, new_node);
@@ -213,13 +232,19 @@ impl PrefixCache {
             match nodes.get(&last_cached_id) {
                 Some(n) => (
                     n.value.clone().unwrap_or_else(|| {
-                        warn!("prefix_cache: hit node {} has no cached value", last_cached_id);
+                        warn!(
+                            "prefix_cache: hit node {} has no cached value",
+                            last_cached_id
+                        );
                         Vec::new()
                     }),
                     n.kvcache.clone().unwrap_or_default(),
                 ),
                 None => {
-                    warn!("prefix_cache: hit node {} not found in cache", last_cached_id);
+                    warn!(
+                        "prefix_cache: hit node {} not found in cache",
+                        last_cached_id
+                    );
                     (Vec::new(), Vec::new())
                 }
             }

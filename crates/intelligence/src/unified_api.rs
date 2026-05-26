@@ -4,7 +4,6 @@
 //! in the Nexora ecosystem through a single factory interface.
 
 use async_trait::async_trait;
-use tracing::warn;
 use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 use nexora_foundation::multimodal::caffeine::{
     types::MultiModalInputs, types::TextInput, Caffeine, CaffeineConfig,
@@ -16,6 +15,7 @@ use nexora_foundation::reasoning::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 
 /// Unified model interface that combines all AI frameworks
 #[async_trait]
@@ -312,7 +312,8 @@ struct MultimodalSacaModel {
 
 impl MultimodalSacaModel {
     async fn new() -> Self {
-        let saca = init_saca_with_extensions(None, Some(CaffeineConfig::medium_model()), None).await;
+        let saca =
+            init_saca_with_extensions(None, Some(CaffeineConfig::medium_model()), None).await;
         MultimodalSacaModel { saca }
     }
 
@@ -365,7 +366,8 @@ impl ExpertSacaModel {
             None,
             None,
             Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
-        ).await;
+        )
+        .await;
         ExpertSacaModel { saca }
     }
 
@@ -418,7 +420,8 @@ impl FullIntegrationModel {
             Some(ATQSConfig::default()),
             Some(CaffeineConfig::medium_model()),
             Some(super::serving::unified_api::HasMoeFfnConfig::medium_model()),
-        ).await;
+        )
+        .await;
         FullIntegrationModel { saca }
     }
 

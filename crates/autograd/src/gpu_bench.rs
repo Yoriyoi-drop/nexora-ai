@@ -3,7 +3,10 @@
 #[cfg(feature = "gpu")]
 /// Benchmark: GPU gradient clipping vs legacy CPU readback approach.
 /// Returns (gpu_clip_us, legacy_clip_us, improvement_factor).
-pub fn benchmark_gradient_clip(grad_tensor_count: usize, elements_per_tensor: usize) -> Result<(f64, f64, f64), String> {
+pub fn benchmark_gradient_clip(
+    grad_tensor_count: usize,
+    elements_per_tensor: usize,
+) -> Result<(f64, f64, f64), String> {
     use std::time::Instant;
 
     let ctx = match crate::gpu::GpuContext::global() {
@@ -20,8 +23,10 @@ pub fn benchmark_gradient_clip(grad_tensor_count: usize, elements_per_tensor: us
             .collect::<Vec<_>>();
         let arr = ArrayD::from_shape_vec(vec![elements_per_tensor], data)
             .map_err(|e| format!("benchmark shape error: {e}"))?;
-        grad_tensors.push(crate::gpu::GpuTensor::from_cpu(&arr)
-            .map_err(|e| format!("benchmark gpu transfer error: {e}"))?);
+        grad_tensors.push(
+            crate::gpu::GpuTensor::from_cpu(&arr)
+                .map_err(|e| format!("benchmark gpu transfer error: {e}"))?,
+        );
     }
     let grad_refs: Vec<&crate::gpu::GpuTensor> = grad_tensors.iter().collect();
 

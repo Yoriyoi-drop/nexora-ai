@@ -66,16 +66,14 @@ static NESTED_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(").expect("valid nested-loop regex")
 });
 
-static PYTHON_STRING_CONCAT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"\w+\s*\+=\s*["']"#).expect("valid Python string concat regex")
-});
+static PYTHON_STRING_CONCAT_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"\w+\s*\+=\s*["']"#).expect("valid Python string concat regex"));
 
 static C_MALLOC_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\bmalloc\s*\(").expect("valid malloc regex"));
 
 static BLOCKING_IO_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(")
-        .expect("valid blocking I/O regex")
+    Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(").expect("valid blocking I/O regex")
 });
 
 static INEFFICIENT_SORT_REGEX: Lazy<Regex> = Lazy::new(|| {

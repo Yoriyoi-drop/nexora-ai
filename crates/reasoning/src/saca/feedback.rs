@@ -444,8 +444,10 @@ impl PatternAnalyzer {
         }
 
         let recent = history.iter().rev().take(self.window_size);
-        let mut issue_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let mut suggestion_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut issue_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut suggestion_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
 
         for (_session_id, feedbacks) in recent {
             for fb in feedbacks {
@@ -461,12 +463,18 @@ impl PatternAnalyzer {
         let mut patterns = Vec::new();
         for (issue, count) in &issue_counts {
             if *count >= self.min_frequency {
-                patterns.push(format!("Recurring issue: '{}' reported {} times across sessions", issue, count));
+                patterns.push(format!(
+                    "Recurring issue: '{}' reported {} times across sessions",
+                    issue, count
+                ));
             }
         }
         for (suggestion, count) in &suggestion_counts {
             if *count >= self.min_frequency {
-                patterns.push(format!("Repeated suggestion: '{}' proposed {} times", suggestion, count));
+                patterns.push(format!(
+                    "Repeated suggestion: '{}' proposed {} times",
+                    suggestion, count
+                ));
             }
         }
         patterns.sort();

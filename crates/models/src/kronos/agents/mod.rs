@@ -36,6 +36,9 @@ impl KronosAgents {
     }
 
     pub async fn analyze_temporal(&self, input: &str) -> NxrModelResult<String> {
-        Ok(format!("[KRONOS] Temporal analysis: input contains {} tokens, temporal context mapped", input.split_whitespace().count()))
+        Ok(format!(
+            "[KRONOS] Temporal analysis: input contains {} tokens, temporal context mapped",
+            input.split_whitespace().count()
+        ))
     }
 }

@@ -335,13 +335,13 @@ impl InferenceRuntime {
 
         // Update throughput
         let now = Utc::now();
-        let duration = match now
-            .signed_duration_since(metrics.last_updated)
-            .to_std()
-        {
+        let duration = match now.signed_duration_since(metrics.last_updated).to_std() {
             Ok(d) => Some(d),
             Err(e) => {
-                warn!("Failed to compute duration since last metrics update: {}", e);
+                warn!(
+                    "Failed to compute duration since last metrics update: {}",
+                    e
+                );
                 None
             }
         };
@@ -494,7 +494,10 @@ impl InferenceRuntime {
                             }
 
                             // Aggregate interval metrics and reset counters
-                            if let Err(e) = runtime.aggregate_and_reset_counters(new_requests, new_tokens).await {
+                            if let Err(e) = runtime
+                                .aggregate_and_reset_counters(new_requests, new_tokens)
+                                .await
+                            {
                                 warn!("Failed to aggregate and reset counters: {}", e);
                             }
 
@@ -516,7 +519,11 @@ impl InferenceRuntime {
     }
 
     /// Aggregate interval metrics and reset counters for accurate long-term tracking
-    async fn aggregate_and_reset_counters(&self, interval_requests: u64, interval_tokens: u64) -> Result<()> {
+    async fn aggregate_and_reset_counters(
+        &self,
+        interval_requests: u64,
+        interval_tokens: u64,
+    ) -> Result<()> {
         let mut metrics = self.performance_metrics.write().await;
 
         // Store interval-based metrics (could be stored in a separate history)
@@ -693,32 +700,26 @@ impl InferenceRuntime {
             Ok(num_cpus::get())
         })
         .await
-        .map_err(|e| {
-            InferenceError::InternalError(format!("Thread count read failed: {}", e))
-        })?
+        .map_err(|e| InferenceError::InternalError(format!("Thread count read failed: {}", e)))?
     }
 
     async fn get_open_file_count(&self) -> Result<usize> {
-        tokio::task::spawn_blocking(|| {
-            match std::fs::read_dir("/proc/self/fd") {
-                Ok(entries) => Ok(entries.count()),
-                Err(_) => {
-                    debug!("Cannot read /proc/self/fd, using fallback");
-                    Ok(0)
-                }
+        tokio::task::spawn_blocking(|| match std::fs::read_dir("/proc/self/fd") {
+            Ok(entries) => Ok(entries.count()),
+            Err(_) => {
+                debug!("Cannot read /proc/self/fd, using fallback");
+                Ok(0)
             }
         })
         .await
-        .map_err(|e| {
-            InferenceError::InternalError(format!("Open file count read failed: {}", e))
-        })?
+        .map_err(|e| InferenceError::InternalError(format!("Open file count read failed: {}", e)))?
     }
 
     async fn get_network_io_bytes(&self) -> Result<u64> {
         // Try to get network I/O from /proc/net/dev
-        let content = tokio::task::spawn_blocking(|| {
-            std::fs::read_to_string("/proc/net/dev")
-        }).await.map_err(|e| InferenceError::InternalError(format!("spawn_blocking: {}", e)))?;
+        let content = tokio::task::spawn_blocking(|| std::fs::read_to_string("/proc/net/dev"))
+            .await
+            .map_err(|e| InferenceError::InternalError(format!("spawn_blocking: {}", e)))?;
         match content {
             Ok(content) => {
                 let mut total_bytes = 0u64;
@@ -743,25 +744,21 @@ impl InferenceRuntime {
     }
 
     async fn get_disk_io_bytes(&self) -> Result<u64> {
-        tokio::task::spawn_blocking(|| {
-            match ProcProcess::myself() {
-                Ok(process) => {
-                    if let Ok(io) = process.io() {
-                        Ok(io.read_bytes + io.write_bytes)
-                    } else {
-                        Ok(0)
-                    }
-                }
-                Err(_) => {
-                    debug!("Cannot read disk I/O stats");
+        tokio::task::spawn_blocking(|| match ProcProcess::myself() {
+            Ok(process) => {
+                if let Ok(io) = process.io() {
+                    Ok(io.read_bytes + io.write_bytes)
+                } else {
                     Ok(0)
                 }
             }
+            Err(_) => {
+                debug!("Cannot read disk I/O stats");
+                Ok(0)
+            }
         })
         .await
-        .map_err(|e| {
-            InferenceError::InternalError(format!("Disk I/O read failed: {}", e))
-        })?
+        .map_err(|e| InferenceError::InternalError(format!("Disk I/O read failed: {}", e)))?
     }
 
     async fn set_cpu_affinity(&self, affinity: &[usize]) -> Result<()> {
@@ -774,7 +771,8 @@ impl InferenceRuntime {
             // SAFETY: `cpu_set_t` is a C struct that can be safely zero-initialized.
             // `MaybeUninit::zeroed().assume_init()` is valid because `cpu_set_t` is
             // a plain-old-data type with no invalid bit patterns.
-            let mut cpu_set: libc::cpu_set_t = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
+            let mut cpu_set: libc::cpu_set_t =
+                unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
             let max_cpu = libc::CPU_SETSIZE as usize;
             for &cpu in affinity {
                 if cpu < max_cpu {
@@ -827,8 +825,7 @@ pub async fn read_gpu_memory() -> Result<(u64, f64)> {
                         if let Ok(memory_info) = device.memory_info() {
                             let total_memory = memory_info.total;
                             let used_memory = memory_info.used;
-                            let usage_percent =
-                                (used_memory as f64 / total_memory as f64) * 100.0;
+                            let usage_percent = (used_memory as f64 / total_memory as f64) * 100.0;
                             return Ok((used_memory, usage_percent));
                         }
                     }

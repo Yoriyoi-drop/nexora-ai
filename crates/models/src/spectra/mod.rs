@@ -251,7 +251,9 @@ impl NxrSpectraModel {
             capabilities,
             components: FoundationComponents::new(),
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -397,13 +399,22 @@ pub struct CreativeAnalysis {
 
 const SPECTRA_SYSTEM_PROMPT: &str = "You are NXR-SPECTRA (Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture) [NXR-04 PRO]. Specialties: creative writing, visual art analysis, music theory, cross-modal synthesis, storytelling, poetry, and creative ideation across all domains. Respond with imagination, artistic insight, and creative flair.";
 
-fn augment_spectra_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_spectra_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", SPECTRA_SYSTEM_PROMPT, text));
+    augmented.data = nexora_shared::base_model::InputData::Text(format!(
+        "{}\n\n{}",
+        SPECTRA_SYSTEM_PROMPT, text
+    ));
     Ok(augmented)
 }
 

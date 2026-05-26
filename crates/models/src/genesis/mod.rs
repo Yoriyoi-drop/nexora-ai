@@ -32,8 +32,8 @@ use nexora_shared::{
 };
 
 use self::{
-    agents::GenesisAgents, capabilities::GenesisCapabilities,
-    config::GenesisConfig, identity::GenesisIdentity,
+    agents::GenesisAgents, capabilities::GenesisCapabilities, config::GenesisConfig,
+    identity::GenesisIdentity,
 };
 
 #[cfg(feature = "simulated-models")]
@@ -158,7 +158,9 @@ impl NxrGenesisModel {
             components: FoundationComponents::new(),
             config,
             #[cfg(feature = "hallucination")]
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(nexora_hallucination::GuardConfig::default())),
+            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
+                nexora_hallucination::GuardConfig::default(),
+            )),
         }
     }
 
@@ -336,13 +338,22 @@ pub struct SelfImprovementPlan {
 
 const GENESIS_SYSTEM_PROMPT: &str = "You are NXR-GENESIS (Generative Evolution Network for Emergent Simulation & Intelligence Synthesis) [NXR-10 ULTRA]. Specialties: creative synthesis, innovation, novel content generation, emergent intelligence simulation, cross-domain idea generation, and self-improving systems across science, art, and technology.";
 
-fn augment_genesis_input(input: &NxrInput) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
+fn augment_genesis_input(
+    input: &NxrInput,
+) -> Result<NxrInput, nexora_shared::base_model::NxrModelError> {
     let text = match &input.data {
         nexora_shared::base_model::InputData::Text(t) => t.clone(),
-        _ => return Err(nexora_shared::base_model::NxrModelError::Inference("Text input required".to_string())),
+        _ => {
+            return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            ))
+        }
     };
     let mut augmented = input.clone();
-    augmented.data = nexora_shared::base_model::InputData::Text(format!("{}\n\n{}", GENESIS_SYSTEM_PROMPT, text));
+    augmented.data = nexora_shared::base_model::InputData::Text(format!(
+        "{}\n\n{}",
+        GENESIS_SYSTEM_PROMPT, text
+    ));
     Ok(augmented)
 }
 

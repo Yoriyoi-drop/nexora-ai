@@ -328,17 +328,22 @@ impl GpuContext {
         });
 
         // Use adaptive tile size based on matrix dimensions
-        let tile_size = self.caps.adaptive_fused_tile_size(m as usize, n as usize, k as usize);
+        let tile_size = self
+            .caps
+            .adaptive_fused_tile_size(m as usize, n as usize, k as usize);
         let wgx = (n + tile_size - 1) / tile_size; // cols → x
         let wgy = (m + tile_size - 1) / tile_size; // rows → y
         let elapsed = self.dispatch_profiled(pipeline, &bg, (wgx, wgy, 1));
 
-        Ok((GpuTensor {
-            shape: vec![a_shape[0], b_shape[1]],
-            buffer: out,
-            dtype: GpuDtype::F32,
-            device_id: 0,
-        }, elapsed))
+        Ok((
+            GpuTensor {
+                shape: vec![a_shape[0], b_shape[1]],
+                buffer: out,
+                dtype: GpuDtype::F32,
+                device_id: 0,
+            },
+            elapsed,
+        ))
     }
 
     // ─── Public API ────────────────────────────────────────────────────────────
@@ -450,10 +455,7 @@ impl GpuContext {
 
     /// Online stable softmax — single dispatch, avoids 2-pass bandwidth overhead.
     /// `out[r, c] = softmax(inp[r, :])[c]`
-    pub fn fused_softmax_online(
-        &self,
-        inp: &GpuTensor,
-    ) -> Result<GpuTensor, GpuError> {
+    pub fn fused_softmax_online(&self, inp: &GpuTensor) -> Result<GpuTensor, GpuError> {
         let shape = inp.shape();
         if shape.len() < 2 {
             return Err(GpuError::ShapeMismatch("softmax needs ≥2D tensor".into()));

@@ -2,7 +2,9 @@ use crate::gpu::{GpuContext, GpuTensor};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub fn compile_nan_check_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+pub fn compile_nan_check_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
     ctx.compile_pipeline_cached(
         "nan_check",
         &[
@@ -14,7 +16,9 @@ pub fn compile_nan_check_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputeP
     )
 }
 
-pub fn compile_nan_check_reduce_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+pub fn compile_nan_check_reduce_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
     ctx.compile_pipeline_cached(
         "nan_check_reduce",
         &[
@@ -27,7 +31,9 @@ pub fn compile_nan_check_reduce_pipeline(ctx: &mut GpuContext) -> Result<wgpu::C
     )
 }
 
-pub fn compile_nan_check_final_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
+pub fn compile_nan_check_final_pipeline(
+    ctx: &mut GpuContext,
+) -> Result<wgpu::ComputePipeline, crate::gpu::GpuError> {
     ctx.compile_pipeline_cached(
         "nan_check_final",
         &[crate::gpu::storage_binding(0, false)],
@@ -282,7 +288,12 @@ impl GpuNanDetector {
         Ok(())
     }
 
-    pub fn check(&mut self, ctx: &mut GpuContext, tensor: &GpuTensor, label: &str) -> Result<bool, crate::gpu::GpuError> {
+    pub fn check(
+        &mut self,
+        ctx: &mut GpuContext,
+        tensor: &GpuTensor,
+        label: &str,
+    ) -> Result<bool, crate::gpu::GpuError> {
         if !self.enabled {
             return Ok(false);
         }
@@ -300,9 +311,10 @@ impl GpuNanDetector {
                 tensor.shape()
             );
             if self.abort_on_nan {
-                return Err(crate::gpu::GpuError::Unsupported(
-                    format!("GPU NaN detected in '{}' — aborting", label)
-                ));
+                return Err(crate::gpu::GpuError::Unsupported(format!(
+                    "GPU NaN detected in '{}' — aborting",
+                    label
+                )));
             }
         }
         Ok(has_nan)

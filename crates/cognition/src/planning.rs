@@ -59,7 +59,12 @@ fn categorize_action(action: &str) -> ActionCategory {
         ActionCategory::Research
     } else if lower.contains("analys") || lower.contains("evaluat") || lower.contains("assess") {
         ActionCategory::Analysis
-    } else if lower.contains("develop") || lower.contains("implement") || lower.contains("build") || lower.contains("create") || lower.contains("code") {
+    } else if lower.contains("develop")
+        || lower.contains("implement")
+        || lower.contains("build")
+        || lower.contains("create")
+        || lower.contains("code")
+    {
         ActionCategory::Development
     } else if lower.contains("test") || lower.contains("verif") || lower.contains("validat") {
         ActionCategory::Testing
@@ -120,8 +125,11 @@ fn decompose_goal(goal: &str, context: &serde_json::Value) -> Vec<String> {
 
     // Split by common list markers and sentence boundaries
     for raw in goal.split(['.', '!', '\n', ';']) {
-        let phrase = raw.trim()
-            .trim_matches(|c: char| c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.' || c == ')')
+        let phrase = raw
+            .trim()
+            .trim_matches(|c: char| {
+                c == '-' || c == '*' || c == '•' || c.is_ascii_digit() || c == '.' || c == ')'
+            })
             .trim();
         if phrase.len() > 5 {
             actions.push(phrase.to_string());
@@ -130,7 +138,11 @@ fn decompose_goal(goal: &str, context: &serde_json::Value) -> Vec<String> {
 
     // If goal is a single sentence, add standard software-delivery phases
     if actions.len() <= 1 {
-        let base = if actions.is_empty() { goal.trim().to_string() } else { actions[0].clone() };
+        let base = if actions.is_empty() {
+            goal.trim().to_string()
+        } else {
+            actions[0].clone()
+        };
         actions = vec![
             format!("Research and gather requirements for: {}", base),
             format!("Analyse feasibility and design for: {}", base),
@@ -147,10 +159,7 @@ fn decompose_goal(goal: &str, context: &serde_json::Value) -> Vec<String> {
 // ─── Topological sort ─────────────────────────────────────────────────────────
 
 /// Returns `Some(sorted_indices)` in topological order, or `None` if a cycle is detected.
-fn topological_sort(
-    n: usize,
-    adj: &HashMap<usize, Vec<usize>>,
-) -> Option<Vec<usize>> {
+fn topological_sort(n: usize, adj: &HashMap<usize, Vec<usize>>) -> Option<Vec<usize>> {
     let mut in_degree = vec![0usize; n];
     for targets in adj.values() {
         for &t in targets {
@@ -170,7 +179,11 @@ fn topological_sort(
             }
         }
     }
-    if order.len() == n { Some(order) } else { None }
+    if order.len() == n {
+        Some(order)
+    } else {
+        None
+    }
 }
 
 // ─── HierarchicalPlanner ──────────────────────────────────────────────────────
@@ -205,7 +218,8 @@ impl PlanningStrategy for HierarchicalPlanner {
 
         // Assign IDs and build steps (without dependencies yet)
         let step_ids: Vec<Uuid> = (0..n).map(|_| Uuid::new_v4()).collect();
-        let categories: Vec<ActionCategory> = actions.iter().map(|a| categorize_action(a)).collect();
+        let categories: Vec<ActionCategory> =
+            actions.iter().map(|a| categorize_action(a)).collect();
 
         // Build dependency adjacency list: edge src→dst means dst depends on src
         let mut adj: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -245,7 +259,11 @@ impl PlanningStrategy for HierarchicalPlanner {
             .collect();
 
         // Critical-path duration: topological layers (parallel steps share max)
-        let total_duration = steps.iter().map(|s| s.estimated_duration_ms).max().unwrap_or(0)
+        let total_duration = steps
+            .iter()
+            .map(|s| s.estimated_duration_ms)
+            .max()
+            .unwrap_or(0)
             + steps.iter().map(|s| s.estimated_duration_ms).sum::<u64>() / n.max(1) as u64;
 
         Ok(Plan {
@@ -408,7 +426,10 @@ mod tests {
     #[tokio::test]
     async fn test_empty_goal_errors() {
         let planner = HierarchicalPlanner::new();
-        assert!(planner.create_plan("  ", serde_json::Value::Null).await.is_err());
+        assert!(planner
+            .create_plan("  ", serde_json::Value::Null)
+            .await
+            .is_err());
     }
 
     #[tokio::test]

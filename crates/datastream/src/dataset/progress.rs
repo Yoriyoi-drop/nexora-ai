@@ -179,12 +179,10 @@ impl StreamingStats {
 
     pub fn detect_bottleneck(&self) -> Option<String> {
         if self.gpu_starvation {
-            return Some(
-                format!(
-                    "GPU STARVATION: data pipeline too slow (wait ratio {:.1}%)",
-                    self.gpu_wait_ratio * 100.0
-                ),
-            );
+            return Some(format!(
+                "GPU STARVATION: data pipeline too slow (wait ratio {:.1}%)",
+                self.gpu_wait_ratio * 100.0
+            ));
         }
         if self.queue_depth == 0 && self.read_speed < 1000.0 {
             return Some("DATA BOTTLENECK: read speed too low".into());

@@ -19,7 +19,7 @@ impl CipherIdentity {
             "Cybersecurity Intelligence & Penetration Hardening Evaluation Responder - Specialized offensive and defensive cybersecurity model for vulnerability analysis, penetration testing, and security protocol design.".to_string(),
         )
         .with_parameters(0) // not loaded; real count from CausalLM config
-        .with_context_window(0) ;// not loaded
+        .with_context_window(0) ; // not loaded
 
         Self { meta }
     }

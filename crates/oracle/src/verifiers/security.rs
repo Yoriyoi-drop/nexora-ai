@@ -15,14 +15,19 @@ static COMMAND_INJECTION_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"exec\s*\(").expect("valid command injection regex"));
 static HARDCODED_PASSWORD_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)password\s*=").expect("valid password assignment regex"));
-static BUFFER_OVERFLOW_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(strcpy|strcat|gets|sprintf)\s*\(").expect("valid unsafe string op regex"));
-static XSS_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(innerHTML|document\.write|eval\s*\()\s*\+").expect("valid XSS regex"));
-static PATH_TRAVERSAL_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(\.\.\/|\.\.\\|\/etc\/passwd|\/etc\/shadow)").expect("valid path traversal regex"));
-static INSECURE_RANDOM_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)(rand|random|Math\.random)\s*\(").expect("valid insecure random regex"));
+static BUFFER_OVERFLOW_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(strcpy|strcat|gets|sprintf)\s*\(").expect("valid unsafe string op regex")
+});
+static XSS_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(innerHTML|document\.write|eval\s*\()\s*\+").expect("valid XSS regex")
+});
+static PATH_TRAVERSAL_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(\.\.\/|\.\.\\|\/etc\/passwd|\/etc\/shadow)")
+        .expect("valid path traversal regex")
+});
+static INSECURE_RANDOM_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(rand|random|Math\.random)\s*\(").expect("valid insecure random regex")
+});
 static WEAK_CRYPTO_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)(md5|sha1|des|rc4)\s*\(").expect("valid weak crypto regex"));
 

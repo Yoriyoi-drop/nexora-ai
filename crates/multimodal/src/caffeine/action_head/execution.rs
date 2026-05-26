@@ -12,18 +12,15 @@ use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
 
-static RE_URL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"https?://[^\s"'<>(){}|\\^`[\]]+"#).expect("valid URL regex")
-});
+static RE_URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"https?://[^\s"'<>(){}|\\^`[\]]+"#).expect("valid URL regex"));
 static RE_EMAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"#).expect("valid email regex")
 });
-static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\+?[\d\-\(\)\s]{7,20}"#).expect("valid phone regex")
-});
-static RE_URL_SIMPLE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"https?://[^\s]+"#).expect("valid URL simple regex")
-});
+static RE_PHONE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\+?[\d\-\(\)\s]{7,20}"#).expect("valid phone regex"));
+static RE_URL_SIMPLE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"https?://[^\s]+"#).expect("valid URL simple regex"));
 
 /// Mesin eksekusi untuk menjalankan tindakan
 pub struct ExecutionEngine {
@@ -242,7 +239,7 @@ impl ActionHandler for ClickHandler {
                     x, y
                 );
                 Err(crate::caffeine::error::CaffeineError::action_head(
-                    "Click action requires xdotool which is not installed on this system"
+                    "Click action requires xdotool which is not installed on this system",
                 ))
             }
             Err(e) => {
@@ -296,10 +293,7 @@ impl ActionHandler for TypeHandler {
             .await
         {
             Ok(o) if o.status.success() => {
-                info!(
-                    "Teks diketik melalui xdotool ({} karakter)",
-                    text.len()
-                );
+                info!("Teks diketik melalui xdotool ({} karakter)", text.len());
                 Ok(ExecutionResult::Success)
             }
             Ok(o) => {
@@ -315,7 +309,7 @@ impl ActionHandler for TypeHandler {
                     text.len()
                 );
                 Err(crate::caffeine::error::CaffeineError::action_head(
-                    "Type action requires xdotool which is not installed on this system"
+                    "Type action requires xdotool which is not installed on this system",
                 ))
             }
             Err(e) => {
@@ -394,7 +388,7 @@ impl ActionHandler for ScrollHandler {
                     direction, scroll_distance
                 );
                 Err(crate::caffeine::error::CaffeineError::action_head(
-                    "Scroll action requires xdotool which is not installed on this system"
+                    "Scroll action requires xdotool which is not installed on this system",
                 ))
             }
             Err(e) => {
@@ -483,10 +477,7 @@ impl ActionHandler for DragHandler {
                     }
                     Ok(o2) => {
                         let stderr = String::from_utf8_lossy(&o2.stderr);
-                        error!(
-                            "xdotool gagal saat mouseup/mousemove: {}",
-                            stderr
-                        );
+                        error!("xdotool gagal saat mouseup/mousemove: {}", stderr);
                         Err(crate::caffeine::error::CaffeineError::action_head(
                             &format!("xdotool gagal saat drag: {}", stderr),
                         ))
@@ -497,7 +488,7 @@ impl ActionHandler for DragHandler {
                             start_x, start_y, end_x, end_y
                         );
                         Err(crate::caffeine::error::CaffeineError::action_head(
-                            "Drag action requires xdotool which is not installed on this system"
+                            "Drag action requires xdotool which is not installed on this system",
                         ))
                     }
                     Err(e2) => {
@@ -519,7 +510,7 @@ impl ActionHandler for DragHandler {
                     start_x, start_y, end_x, end_y
                 );
                 Err(crate::caffeine::error::CaffeineError::action_head(
-                    "Drag action requires xdotool which is not installed on this system"
+                    "Drag action requires xdotool which is not installed on this system",
                 ))
             }
             Err(e) => {
@@ -603,11 +594,7 @@ impl ActionHandler for NavigateHandler {
 
         info!("Mencoba navigasi ke '{}'", destination);
 
-        match Command::new("xdg-open")
-            .arg(destination)
-            .output()
-            .await
-        {
+        match Command::new("xdg-open").arg(destination).output().await {
             Ok(o) if o.status.success() => {
                 info!("Navigasi ke '{}' berhasil", destination);
                 Ok(ExecutionResult::Success)
@@ -676,32 +663,54 @@ impl ActionHandler for ExtractHandler {
             .unwrap_or("");
 
         let extracted = match target {
-            "url" | "URL" => {
-                RE_URL.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
-            }
-            "email" => {
-                RE_EMAIL.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
-            }
-            "phone" => {
-                RE_PHONE.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
-            }
+            "url" | "URL" => RE_URL
+                .find_iter(content)
+                .map(|m| m.as_str().to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            "email" => RE_EMAIL
+                .find_iter(content)
+                .map(|m| m.as_str().to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            "phone" => RE_PHONE
+                .find_iter(content)
+                .map(|m| m.as_str().to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
             "custom" => {
-                let pattern = action.parameters.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+                let pattern = action
+                    .parameters
+                    .get("pattern")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if pattern.is_empty() {
-                    return Err(crate::caffeine::error::CaffeineError::action_head("Custom extraction requires a 'pattern' parameter"));
+                    return Err(crate::caffeine::error::CaffeineError::action_head(
+                        "Custom extraction requires a 'pattern' parameter",
+                    ));
                 }
                 let re = match Regex::new(pattern) {
                     Ok(r) => r,
-                    Err(e) => return Err(crate::caffeine::error::CaffeineError::action_head(
-                        &format!("Invalid regex pattern: {}", e),
-                    )),
+                    Err(e) => {
+                        return Err(crate::caffeine::error::CaffeineError::action_head(
+                            &format!("Invalid regex pattern: {}", e),
+                        ))
+                    }
                 };
-                re.find_iter(content).map(|m| m.as_str().to_string()).collect::<Vec<_>>().join("\n")
+                re.find_iter(content)
+                    .map(|m| m.as_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
             _ => content.to_string(),
         };
 
-        info!("Extracted {} bytes using target '{}' method '{}'", extracted.len(), target, method);
+        info!(
+            "Extracted {} bytes using target '{}' method '{}'",
+            extracted.len(),
+            target,
+            method
+        );
         Ok(ExecutionResult::Success)
     }
 
@@ -742,13 +751,36 @@ impl ActionHandler for AnalyzeHandler {
 
         let result = match analysis_type {
             "sentiment" => {
-                let positive_words = ["good", "great", "excellent", "amazing", "wonderful", "love", "beautiful", "fantastic", "happy", "awesome"];
-                let negative_words = ["bad", "terrible", "awful", "horrible", "hate", "ugly", "poor", "worst", "sad", "angry"];
+                let positive_words = [
+                    "good",
+                    "great",
+                    "excellent",
+                    "amazing",
+                    "wonderful",
+                    "love",
+                    "beautiful",
+                    "fantastic",
+                    "happy",
+                    "awesome",
+                ];
+                let negative_words = [
+                    "bad", "terrible", "awful", "horrible", "hate", "ugly", "poor", "worst", "sad",
+                    "angry",
+                ];
                 let lower = text.to_lowercase();
                 let pos_count = positive_words.iter().filter(|w| lower.contains(*w)).count();
                 let neg_count = negative_words.iter().filter(|w| lower.contains(*w)).count();
-                let sentiment = if pos_count > neg_count { "positive" } else if neg_count > pos_count { "negative" } else { "neutral" };
-                format!("sentiment: {} (positive: {}, negative: {})", sentiment, pos_count, neg_count)
+                let sentiment = if pos_count > neg_count {
+                    "positive"
+                } else if neg_count > pos_count {
+                    "negative"
+                } else {
+                    "neutral"
+                };
+                format!(
+                    "sentiment: {} (positive: {}, negative: {})",
+                    sentiment, pos_count, neg_count
+                )
             }
             "entities" => {
                 let mut entities = Vec::new();
@@ -770,20 +802,28 @@ impl ActionHandler for AnalyzeHandler {
                 format!("length: {} chars, {} words", char_count, word_count)
             }
             "keywords" => {
-                let mut freq: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+                let mut freq: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
                 for word in text.split_whitespace() {
-                    let clean = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                    let clean = word
+                        .trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_lowercase();
                     if clean.len() > 2 {
                         *freq.entry(clean).or_default() += 1;
                     }
                 }
                 let mut words: Vec<(String, usize)> = freq.into_iter().collect();
                 words.sort_by(|a, b| b.1.cmp(&a.1));
-                let top5: Vec<String> = words.into_iter().take(5).map(|(w, c)| format!("{}:{}", w, c)).collect();
+                let top5: Vec<String> = words
+                    .into_iter()
+                    .take(5)
+                    .map(|(w, c)| format!("{}:{}", w, c))
+                    .collect();
                 format!("keywords: {}", top5.join(", "))
             }
             "summary" => {
-                let sentences: Vec<&str> = text.split(|c: char| c == '.' || c == '!' || c == '?')
+                let sentences: Vec<&str> = text
+                    .split(|c: char| c == '.' || c == '!' || c == '?')
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
                     .collect();
@@ -802,7 +842,10 @@ impl ActionHandler for AnalyzeHandler {
             _ => {
                 let char_count = text.chars().count();
                 let word_count = text.split_whitespace().count();
-                format!("general analysis: {} chars, {} words", char_count, word_count)
+                format!(
+                    "general analysis: {} chars, {} words",
+                    char_count, word_count
+                )
             }
         };
 

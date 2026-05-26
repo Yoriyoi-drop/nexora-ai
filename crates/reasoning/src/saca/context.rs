@@ -556,11 +556,7 @@ impl ContextEngine {
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| s.len() > 2)
             .collect();
-        keywords.extend(
-            desc_lower
-                .split_whitespace()
-                .filter(|s| s.len() > 3),
-        );
+        keywords.extend(desc_lower.split_whitespace().filter(|s| s.len() > 3));
 
         // Search for existing functions that overlap with this module's purpose
         let similar_functions: Vec<String> = context
@@ -965,7 +961,8 @@ mod tests {
             }
         "#;
 
-        let analysis = analyzer.analyze(content, "test.rs")
+        let analysis = analyzer
+            .analyze(content, "test.rs")
             .expect("Code analysis failed");
         assert_eq!(analysis.functions.len(), 1);
         assert_eq!(analysis.functions[0], "hello_world");

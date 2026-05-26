@@ -4,11 +4,11 @@
 #[cfg(feature = "gpu")]
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
     use ndarray::ArrayD;
     use nexora_autograd::gpu::{GpuContext, GpuTensor};
     use nexora_autograd::ops::matmul::matmul;
     use nexora_autograd::tensor::Tensor;
+    use std::time::{Duration, Instant};
 
     // ── Professional Benchmark Harness ─────────────────────────────────────────────
 
@@ -337,13 +337,15 @@ mod tests {
             let ga = GpuTensor::from_cpu(&a_data).unwrap();
             let gb = GpuTensor::from_cpu(&b_data).unwrap();
 
-            let stats = harness.run(|| {
-                // Kernel dispatch phase only - no readback
-                for _ in 0..iterations {
-                    let _ = ctx.matmul(&ga, &gb).unwrap();
-                }
-                Ok::<(), ()>(())
-            }).unwrap();
+            let stats = harness
+                .run(|| {
+                    // Kernel dispatch phase only - no readback
+                    for _ in 0..iterations {
+                        let _ = ctx.matmul(&ga, &gb).unwrap();
+                    }
+                    Ok::<(), ()>(())
+                })
+                .unwrap();
 
             // Fix: median is time for ALL iterations, need to divide by iterations
             let ops_per_iter = 2.0 * (n as f64).powi(3);
@@ -386,13 +388,15 @@ mod tests {
                 _ => 1,
             };
 
-            let stats = harness.run(|| {
-                // Use GPU timestamp query for accurate kernel timing
-                for _ in 0..iterations {
-                    let _ = ctx.matmul_with_timestamp(&ga, &gb).unwrap();
-                }
-                Ok::<(), ()>(())
-            }).unwrap();
+            let stats = harness
+                .run(|| {
+                    // Use GPU timestamp query for accurate kernel timing
+                    for _ in 0..iterations {
+                        let _ = ctx.matmul_with_timestamp(&ga, &gb).unwrap();
+                    }
+                    Ok::<(), ()>(())
+                })
+                .unwrap();
 
             // Fix: median is time for ALL iterations, need to divide by iterations
             let ops_per_iter = 2.0 * (n as f64).powi(3);
@@ -432,12 +436,16 @@ mod tests {
                 _ => 1,
             };
 
-            let stats = harness.run(|| {
-                // Use batch dispatch with single timestamp query
-                // Note: matmul_batch_with_timestamp now requires &mut self
-                let _ = ctx.matmul_batch_with_timestamp(&ga, &gb, batch_size).unwrap();
-                Ok::<(), ()>(())
-            }).unwrap();
+            let stats = harness
+                .run(|| {
+                    // Use batch dispatch with single timestamp query
+                    // Note: matmul_batch_with_timestamp now requires &mut self
+                    let _ = ctx
+                        .matmul_batch_with_timestamp(&ga, &gb, batch_size)
+                        .unwrap();
+                    Ok::<(), ()>(())
+                })
+                .unwrap();
 
             // Fix: median is time for ALL iterations, need to divide by batch_size
             let ops_per_iter = 2.0 * (n as f64).powi(3);
@@ -480,11 +488,15 @@ mod tests {
                 _ => 1,
             };
 
-            let stats = harness.run(|| {
-                // Pure kernel dispatch, no readback, no validation
-                let _ = ctx.matmul_batch_with_timestamp(&ga, &gb, batch_size).unwrap();
-                Ok::<(), ()>(())
-            }).unwrap();
+            let stats = harness
+                .run(|| {
+                    // Pure kernel dispatch, no readback, no validation
+                    let _ = ctx
+                        .matmul_batch_with_timestamp(&ga, &gb, batch_size)
+                        .unwrap();
+                    Ok::<(), ()>(())
+                })
+                .unwrap();
 
             // Fix: median is time for ALL iterations, need to divide by batch_size
             let ops_per_iter = 2.0 * (n as f64).powi(3);
@@ -514,29 +526,33 @@ mod tests {
                 _ => 1,
             };
 
-            let stats = harness.run(|| {
-                for _ in 0..iterations {
-                    let a_data =
-                        ArrayD::from_shape_vec(vec![n, n], (0..n * n).map(|i| (i % 100) as f32).collect())
-                            .unwrap();
-                    let b_data = ArrayD::from_shape_vec(
-                        vec![n, n],
-                        (0..n * n).map(|i| ((i * 3) % 100) as f32).collect(),
-                    )
-                    .unwrap();
+            let stats = harness
+                .run(|| {
+                    for _ in 0..iterations {
+                        let a_data = ArrayD::from_shape_vec(
+                            vec![n, n],
+                            (0..n * n).map(|i| (i % 100) as f32).collect(),
+                        )
+                        .unwrap();
+                        let b_data = ArrayD::from_shape_vec(
+                            vec![n, n],
+                            (0..n * n).map(|i| ((i * 3) % 100) as f32).collect(),
+                        )
+                        .unwrap();
 
-                    // Upload
-                    let ga = GpuTensor::from_cpu(&a_data).unwrap();
-                    let gb = GpuTensor::from_cpu(&b_data).unwrap();
+                        // Upload
+                        let ga = GpuTensor::from_cpu(&a_data).unwrap();
+                        let gb = GpuTensor::from_cpu(&b_data).unwrap();
 
-                    // Compute
-                    let gc = ctx.matmul(&ga, &gb).unwrap();
+                        // Compute
+                        let gc = ctx.matmul(&ga, &gb).unwrap();
 
-                    // Readback
-                    let _ = gc.to_cpu().unwrap();
-                }
-                Ok::<(), ()>(())
-            }).unwrap();
+                        // Readback
+                        let _ = gc.to_cpu().unwrap();
+                    }
+                    Ok::<(), ()>(())
+                })
+                .unwrap();
 
             // Fix: median is time for ALL iterations, need to divide by iterations
             let ops_per_iter = 2.0 * (n as f64).powi(3);
@@ -649,16 +665,12 @@ mod tests {
         let ctx = GpuContext::init().expect("GPU context init failed");
 
         // A[4,8] @ B[8,4] + bias[4] — small, verify numerics
-        let a_data = ArrayD::from_shape_vec(
-            vec![4, 8],
-            (0..32).map(|i| (i as f32) * 0.1).collect(),
-        )
-        .unwrap();
-        let b_data = ArrayD::from_shape_vec(
-            vec![8, 4],
-            (0..32).map(|i| (i as f32) * 0.05).collect(),
-        )
-        .unwrap();
+        let a_data =
+            ArrayD::from_shape_vec(vec![4, 8], (0..32).map(|i| (i as f32) * 0.1).collect())
+                .unwrap();
+        let b_data =
+            ArrayD::from_shape_vec(vec![8, 4], (0..32).map(|i| (i as f32) * 0.05).collect())
+                .unwrap();
         let bias_data = ArrayD::from_shape_vec(vec![4], vec![0.1, 0.2, 0.3, 0.4]).unwrap();
 
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
@@ -690,8 +702,13 @@ mod tests {
         let ctx = GpuContext::init().expect("GPU context init failed");
 
         // Use non-trivial input that won't result in all zeros
-        let a = ArrayD::from_shape_vec(vec![2, 4], vec![1.0f32, 2.0, 0.5, -0.5, 2.0, 1.0, 0.1, -0.1]).unwrap();
-        let b = ArrayD::from_shape_vec(vec![4, 2], vec![1.0f32, 0.5, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0]).unwrap();
+        let a = ArrayD::from_shape_vec(
+            vec![2, 4],
+            vec![1.0f32, 2.0, 0.5, -0.5, 2.0, 1.0, 0.1, -0.1],
+        )
+        .unwrap();
+        let b = ArrayD::from_shape_vec(vec![4, 2], vec![1.0f32, 0.5, 0.5, 1.0, 1.0, 0.5, 0.5, 1.0])
+            .unwrap();
         let bias = ArrayD::from_shape_vec(vec![2], vec![0.1f32, 0.2]).unwrap();
 
         let ga = GpuTensor::from_cpu(&a).unwrap();
@@ -715,14 +732,18 @@ mod tests {
 
         for (m, k, n) in sizes {
             let a_data = ArrayD::from_shape_vec(
-                vec![m, k], (0..m * k).map(|i| (i % 100) as f32 * 0.01).collect(),
-            ).unwrap();
+                vec![m, k],
+                (0..m * k).map(|i| (i % 100) as f32 * 0.01).collect(),
+            )
+            .unwrap();
             let b_data = ArrayD::from_shape_vec(
-                vec![k, n], (0..k * n).map(|i| (i % 100) as f32 * 0.01).collect(),
-            ).unwrap();
-            let bias_data = ArrayD::from_shape_vec(
-                vec![n], (0..n).map(|i| i as f32 * 0.001).collect(),
-            ).unwrap();
+                vec![k, n],
+                (0..k * n).map(|i| (i % 100) as f32 * 0.01).collect(),
+            )
+            .unwrap();
+            let bias_data =
+                ArrayD::from_shape_vec(vec![n], (0..n).map(|i| i as f32 * 0.001).collect())
+                    .unwrap();
 
             let ga = GpuTensor::from_cpu(&a_data).unwrap();
             let gb = GpuTensor::from_cpu(&b_data).unwrap();
@@ -777,11 +798,8 @@ mod tests {
             (0..k * n).map(|i| (i % 100) as f32 * 0.01).collect(),
         )
         .unwrap();
-        let bias_data = ArrayD::from_shape_vec(
-            vec![n],
-            (0..n).map(|i| i as f32 * 0.001).collect(),
-        )
-        .unwrap();
+        let bias_data =
+            ArrayD::from_shape_vec(vec![n], (0..n).map(|i| i as f32 * 0.001).collect()).unwrap();
 
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
@@ -823,11 +841,8 @@ mod tests {
             (0..k * n).map(|i| (i % 100) as f32 * 0.01).collect(),
         )
         .unwrap();
-        let bias_data = ArrayD::from_shape_vec(
-            vec![n],
-            (0..n).map(|i| i as f32 * 0.001).collect(),
-        )
-        .unwrap();
+        let bias_data =
+            ArrayD::from_shape_vec(vec![n], (0..n).map(|i| i as f32 * 0.001).collect()).unwrap();
 
         let ga = GpuTensor::from_cpu(&a_data).unwrap();
         let gb = GpuTensor::from_cpu(&b_data).unwrap();
@@ -840,9 +855,7 @@ mod tests {
 
         assert_eq!(cpu.shape(), &[m, n]);
         assert!(cpu[[0, 0]].is_finite(), "output must be finite");
-        println!(
-            "fused_matmul_bias_gelu large path [1024x1024] elapsed={elapsed:?}"
-        );
+        println!("fused_matmul_bias_gelu large path [1024x1024] elapsed={elapsed:?}");
     }
 
     #[test]
@@ -872,7 +885,10 @@ mod tests {
         for row in 0..4usize {
             for col in 0..8usize {
                 let diff = (cpu[[row, col]] - ref_cpu[[row, col]]).abs();
-                assert!(diff < 1e-4, "online vs ref softmax [{row},{col}] diff={diff}");
+                assert!(
+                    diff < 1e-4,
+                    "online vs ref softmax [{row},{col}] diff={diff}"
+                );
             }
         }
         println!("fused_online_softmax OK — rows sum to 1.0 and match reference");
@@ -905,7 +921,11 @@ mod tests {
         let mut batch = ctx.begin_batch();
         ctx.batch_enqueue_fill_zero(&mut batch, &a).unwrap();
         ctx.batch_enqueue_fill_zero(&mut batch, &b).unwrap();
-        assert_eq!(batch.op_count(), 2, "batch should track 2 dispatches before submit");
+        assert_eq!(
+            batch.op_count(),
+            2,
+            "batch should track 2 dispatches before submit"
+        );
         let ops = batch.submit();
         assert_eq!(ops, 2, "submit should report 2 dispatches");
         ctx.sync();

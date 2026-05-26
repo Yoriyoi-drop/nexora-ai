@@ -321,7 +321,10 @@ impl HebbianMemory {
 
         tracing::debug!(
             "Added memory {}: type={:?}, relevance={:.3}, emotional={:.3}",
-            memory_id, memory_type, initial_relevance, initial_emotional_salience
+            memory_id,
+            memory_type,
+            initial_relevance,
+            initial_emotional_salience
         );
 
         Ok(memory_id)
@@ -335,7 +338,8 @@ impl HebbianMemory {
 
             tracing::debug!(
                 "Activated memory {} with boost {:.3}",
-                memory_id, activation_boost
+                memory_id,
+                activation_boost
             );
         } else {
             return Err(anyhow::anyhow!("Memory {} not found", memory_id));
@@ -396,7 +400,8 @@ impl HebbianMemory {
 
         tracing::debug!(
             "Advanced time by {:.3} to {:.3}",
-            time_delta, self.current_time
+            time_delta,
+            self.current_time
         );
     }
 
@@ -508,7 +513,8 @@ impl HebbianMemory {
         if pruned_count > 0 {
             tracing::debug!(
                 "Pruned {} memories below threshold {:.3}",
-                pruned_count, threshold
+                pruned_count,
+                threshold
             );
         }
 

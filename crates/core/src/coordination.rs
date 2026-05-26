@@ -70,11 +70,7 @@ impl ModelExecutor for SimpleModel {
     async fn execute(&self, input: &str, context: &str) -> CoreResult<String> {
         let word_count = input.split_whitespace().count().max(1);
         let char_count = input.len().max(1);
-        let intent_names: Vec<&str> = self
-            .supported_intents
-            .iter()
-            .map(|i| i.name())
-            .collect();
+        let intent_names: Vec<&str> = self.supported_intents.iter().map(|i| i.name()).collect();
 
         let context_signal: f32 = context
             .split_whitespace()
@@ -97,11 +93,17 @@ impl ModelExecutor for SimpleModel {
             ),
             (_, _, true) => format!(
                 "[{}] query:{}w intent:{} ctx:{:.2}",
-                self.name, word_count, intent_names.join(","), context_signal
+                self.name,
+                word_count,
+                intent_names.join(","),
+                context_signal
             ),
             _ => format!(
                 "[{}] gen:{}ch intent:{} ctx:{:.2}",
-                self.name, char_count, intent_names.join(","), context_signal
+                self.name,
+                char_count,
+                intent_names.join(","),
+                context_signal
             ),
         };
 

@@ -160,9 +160,11 @@ pub fn gpu_allreduce_gradients(
         mapped_at_creation: false,
     });
 
-    let mut enc = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("dp_allreduce_copy"),
-    });
+    let mut enc = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dp_allreduce_copy"),
+        });
     for (i, g) in grad_tensors.iter().enumerate() {
         let offset = (i * numel * 4) as u64;
         enc.copy_buffer_to_buffer(g.buffer(), 0, &flat_buffer, offset, (numel * 4) as u64);
@@ -191,9 +193,11 @@ pub fn gpu_allreduce_gradients(
     ctx.gradient_allreduce(&flat_tensor, &out_tensor, n as u32)?;
 
     // Copy averaged gradients back to each replica
-    let mut cb = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("dp_allreduce_copy_back"),
-    });
+    let mut cb = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("dp_allreduce_copy_back"),
+        });
     for g in grad_tensors {
         cb.copy_buffer_to_buffer(&out_tensor.buffer(), 0, g.buffer(), 0, (numel * 4) as u64);
     }

@@ -408,17 +408,36 @@ impl Default for InnovationConfig {
 
 #[derive(Debug)]
 pub enum ConfigValidationError {
-    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
-    EmptyField { field: String },
-    UnsupportedValue { field: String, value: String },
+    OutOfRange {
+        field: String,
+        min: f64,
+        max: f64,
+        actual: f64,
+    },
+    EmptyField {
+        field: String,
+    },
+    UnsupportedValue {
+        field: String,
+        value: String,
+    },
     MissingField(String),
 }
 
 impl std::fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigValidationError::OutOfRange { field, min, max, actual } => {
-                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            ConfigValidationError::OutOfRange {
+                field,
+                min,
+                max,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{} must be between {} and {}, got {}",
+                    field, min, max, actual
+                )
             }
             ConfigValidationError::EmptyField { field } => {
                 write!(f, "{} must not be empty", field)
@@ -439,13 +458,16 @@ impl SpectraConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate().map_err(|e| ConfigValidationError::MissingField(e))?;
+        self.base
+            .validate()
+            .map_err(|e| ConfigValidationError::MissingField(e))?;
 
         // Validate creative configuration
         if !(0.0..=1.0).contains(&self.creative.originality_weight) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "originality_weight".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.creative.originality_weight as f64,
             });
         }
@@ -453,7 +475,8 @@ impl SpectraConfig {
         if !(0.0..=1.0).contains(&self.creative.innovation_threshold) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "innovation_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.creative.innovation_threshold as f64,
             });
         }
@@ -469,7 +492,8 @@ impl SpectraConfig {
         if self.style.style_synthesis_depth == 0 {
             return Err(ConfigValidationError::OutOfRange {
                 field: "style_synthesis_depth".to_string(),
-                min: 1.0, max: 255.0,
+                min: 1.0,
+                max: 255.0,
                 actual: self.style.style_synthesis_depth as f64,
             });
         }
@@ -478,7 +502,8 @@ impl SpectraConfig {
         if !(0.0..=1.0).contains(&self.innovation.novelty_threshold) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "novelty_threshold".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.innovation.novelty_threshold as f64,
             });
         }
@@ -718,10 +743,12 @@ impl SpectraConfig {
             "video" => Modality::Video,
             "3d" => Modality::ThreeD,
             "interactive" => Modality::Interactive,
-            _ => return Err(ConfigValidationError::UnsupportedValue {
-                field: "modality".to_string(),
-                value: modality.to_string(),
-            }),
+            _ => {
+                return Err(ConfigValidationError::UnsupportedValue {
+                    field: "modality".to_string(),
+                    value: modality.to_string(),
+                })
+            }
         };
 
         if !self

@@ -393,7 +393,10 @@ mod tests {
     #[test]
     fn test_resonance_mapper_new() {
         let mapper = ResonanceMapper::new(config());
-        assert!(matches!(mapper.projection_method, ProjectionMethod::LowRankEmbedding { rank: 32 }));
+        assert!(matches!(
+            mapper.projection_method,
+            ProjectionMethod::LowRankEmbedding { rank: 32 }
+        ));
     }
 
     #[test]
@@ -458,16 +461,25 @@ mod tests {
         let mapper = ResonanceMapper::new(config());
         let sigs = vec![
             NeuronSignature {
-                neuron_id: 0, information_distribution: Array1::from_vec(vec![0.5, 0.5]),
-                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 1.0, gradient_norm: 0.5,
+                neuron_id: 0,
+                information_distribution: Array1::from_vec(vec![0.5, 0.5]),
+                projection: Array1::from_vec(vec![1.0, 0.0]),
+                fisher_info: 1.0,
+                gradient_norm: 0.5,
             },
             NeuronSignature {
-                neuron_id: 1, information_distribution: Array1::from_vec(vec![0.5, 0.5]),
-                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 1.0, gradient_norm: 0.5,
+                neuron_id: 1,
+                information_distribution: Array1::from_vec(vec![0.5, 0.5]),
+                projection: Array1::from_vec(vec![1.0, 0.0]),
+                fisher_info: 1.0,
+                gradient_norm: 0.5,
             },
             NeuronSignature {
-                neuron_id: 2, information_distribution: Array1::from_vec(vec![1.0, 0.0]),
-                projection: Array1::from_vec(vec![0.0, 1.0]), fisher_info: 1.0, gradient_norm: 0.5,
+                neuron_id: 2,
+                information_distribution: Array1::from_vec(vec![1.0, 0.0]),
+                projection: Array1::from_vec(vec![0.0, 1.0]),
+                fisher_info: 1.0,
+                gradient_norm: 0.5,
             },
         ];
         let pairs = mapper.two_stage_filtering(&sigs).unwrap();
@@ -490,8 +502,11 @@ mod tests {
     fn test_compute_group_variance_single() {
         let mapper = ResonanceMapper::new(config());
         let sigs = vec![NeuronSignature {
-            neuron_id: 0, information_distribution: Array1::zeros(4),
-            projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+            neuron_id: 0,
+            information_distribution: Array1::zeros(4),
+            projection: Array1::from_vec(vec![1.0, 0.0]),
+            fisher_info: 0.0,
+            gradient_norm: 0.0,
         }];
         let v = mapper.compute_group_variance(&[0], &sigs);
         assert_eq!(v, 0.0);
@@ -502,12 +517,18 @@ mod tests {
         let mapper = ResonanceMapper::new(config());
         let sigs = vec![
             NeuronSignature {
-                neuron_id: 0, information_distribution: Array1::zeros(2),
-                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+                neuron_id: 0,
+                information_distribution: Array1::zeros(2),
+                projection: Array1::from_vec(vec![1.0, 0.0]),
+                fisher_info: 0.0,
+                gradient_norm: 0.0,
             },
             NeuronSignature {
-                neuron_id: 1, information_distribution: Array1::zeros(2),
-                projection: Array1::from_vec(vec![1.0, 0.0]), fisher_info: 0.0, gradient_norm: 0.0,
+                neuron_id: 1,
+                information_distribution: Array1::zeros(2),
+                projection: Array1::from_vec(vec![1.0, 0.0]),
+                fisher_info: 0.0,
+                gradient_norm: 0.0,
             },
         ];
         let v = mapper.compute_group_variance(&[0, 1], &sigs);
@@ -517,10 +538,16 @@ mod tests {
     #[test]
     fn test_check_stability_constraints_max_size() {
         let mapper = ResonanceMapper::new(config());
-        let sigs = vec![NeuronSignature {
-            neuron_id: 0, information_distribution: Array1::zeros(2),
-            projection: Array1::zeros(2), fisher_info: 0.0, gradient_norm: 0.0,
-        }; 9];
+        let sigs = vec![
+            NeuronSignature {
+                neuron_id: 0,
+                information_distribution: Array1::zeros(2),
+                projection: Array1::zeros(2),
+                fisher_info: 0.0,
+                gradient_norm: 0.0,
+            };
+            9
+        ];
         let result = mapper.check_stability_constraints(&[0, 1, 2, 3, 4, 5, 6, 7], 8, &sigs);
         assert!(!result);
     }

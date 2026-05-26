@@ -523,17 +523,38 @@ impl Default for CulturalConfig {
 
 #[derive(Debug)]
 pub enum ConfigValidationError {
-    OutOfRange { field: String, min: f64, max: f64, actual: f64 },
-    MustBePositive { field: String },
-    EmptyField { field: String },
-    UnsupportedValue { field: String, value: String },
+    OutOfRange {
+        field: String,
+        min: f64,
+        max: f64,
+        actual: f64,
+    },
+    MustBePositive {
+        field: String,
+    },
+    EmptyField {
+        field: String,
+    },
+    UnsupportedValue {
+        field: String,
+        value: String,
+    },
 }
 
 impl std::fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigValidationError::OutOfRange { field, min, max, actual } => {
-                write!(f, "{} must be between {} and {}, got {}", field, min, max, actual)
+            ConfigValidationError::OutOfRange {
+                field,
+                min,
+                max,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{} must be between {} and {}, got {}",
+                    field, min, max, actual
+                )
             }
             ConfigValidationError::MustBePositive { field } => {
                 write!(f, "{} must be > 0", field)
@@ -554,10 +575,12 @@ impl AetherConfig {
     /// Validate configuration
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
         // Validate base configuration
-        self.base.validate().map_err(|e| ConfigValidationError::UnsupportedValue {
-            field: "base".into(),
-            value: e,
-        })?;
+        self.base
+            .validate()
+            .map_err(|e| ConfigValidationError::UnsupportedValue {
+                field: "base".into(),
+                value: e,
+            })?;
 
         // Validate emotional configuration
         if self.emotional.empathy_depth == 0 {
@@ -569,7 +592,8 @@ impl AetherConfig {
         if !(0.0..=1.0).contains(&self.emotional.emotional_sensitivity) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "emotional_sensitivity".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.emotional.emotional_sensitivity as f64,
             });
         }
@@ -584,7 +608,8 @@ impl AetherConfig {
         if !(0.0..=1.0).contains(&self.psychological.cultural_sensitivity) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "cultural_sensitivity".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.psychological.cultural_sensitivity as f64,
             });
         }
@@ -593,7 +618,8 @@ impl AetherConfig {
         if !(0.0..=1.0).contains(&self.empathy.empathy_weight) {
             return Err(ConfigValidationError::OutOfRange {
                 field: "empathy_weight".to_string(),
-                min: 0.0, max: 1.0,
+                min: 0.0,
+                max: 1.0,
                 actual: self.empathy.empathy_weight as f64,
             });
         }

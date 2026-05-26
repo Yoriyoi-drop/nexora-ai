@@ -362,7 +362,9 @@ impl Trainable for HLDVAPipeline {
 
         // Compute additive checksum over pre-checksum bytes
         let pre_bytes = serde_json::to_vec(&payload)?;
-        let checksum: u64 = pre_bytes.iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
+        let checksum: u64 = pre_bytes
+            .iter()
+            .fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
         payload["checksum"] = serde_json::json!(checksum);
 
         let final_bytes = serde_json::to_vec_pretty(&payload)?;
@@ -401,9 +403,13 @@ impl Trainable for HLDVAPipeline {
             HLDVAError::Serialization("Checkpoint missing checksum field.".to_string())
         })?;
         let mut payload_no_cksum = payload.clone();
-        payload_no_cksum.as_object_mut().map(|m| m.remove("checksum"));
+        payload_no_cksum
+            .as_object_mut()
+            .map(|m| m.remove("checksum"));
         let verify_bytes = serde_json::to_vec(&payload_no_cksum)?;
-        let computed: u64 = verify_bytes.iter().fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
+        let computed: u64 = verify_bytes
+            .iter()
+            .fold(0u64, |acc, &b| acc.wrapping_add(b as u64));
         if computed != stored_checksum {
             return Err(HLDVAError::Serialization(format!(
                 "Checkpoint checksum mismatch: stored={}, computed={}. File may be corrupt.",
@@ -412,8 +418,9 @@ impl Trainable for HLDVAPipeline {
         }
 
         // Restore fields
-        self.config = serde_json::from_value(payload["config"].clone())
-            .map_err(|e| HLDVAError::Serialization(format!("Failed to deserialize config: {}", e)))?;
+        self.config = serde_json::from_value(payload["config"].clone()).map_err(|e| {
+            HLDVAError::Serialization(format!("Failed to deserialize config: {}", e))
+        })?;
         if let Some(device) = payload["device"].as_str() {
             self.device = device.to_string();
         }
@@ -421,7 +428,11 @@ impl Trainable for HLDVAPipeline {
             self.dtype = dtype.to_string();
         }
 
-        tracing::info!("Checkpoint loaded from {:?} (version={}, checksum=OK)", path, version);
+        tracing::info!(
+            "Checkpoint loaded from {:?} (version={}, checksum=OK)",
+            path,
+            version
+        );
         Ok(())
     }
 }
@@ -462,7 +473,10 @@ mod tests {
     fn test_hldva_pipeline_config() {
         let cfg = HLDVAConfig::default();
         let pipeline = HLDVAPipeline::new(cfg.clone()).unwrap();
-        assert_eq!(pipeline.config().training.batch_size, cfg.training.batch_size);
+        assert_eq!(
+            pipeline.config().training.batch_size,
+            cfg.training.batch_size
+        );
     }
 
     #[test]

@@ -10,10 +10,12 @@ static RE_LARGE_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b\d{2,}(\.\d+)?%?\b").expect("valid large number pattern regex")
 });
 static RE_CONTRADICTION_MARKER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b").expect("valid contradiction marker regex")
+    Regex::new(r"(?i)\b(namun|however|but|on the other hand|sebaliknya|di sisi lain)\b")
+        .expect("valid contradiction marker regex")
 });
 static RE_CONTRADICTION_KEYWORD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b").expect("valid contradiction keyword regex")
+    Regex::new(r"(?i)\b(bertentangan|contradict|contrary|sebaliknya)\b")
+        .expect("valid contradiction keyword regex")
 });
 
 #[derive(Debug, Clone)]
@@ -43,10 +45,7 @@ pub struct PostGenerationVerifier {
 impl PostGenerationVerifier {
     pub fn new(config: PostGenConfig) -> Self {
         Self {
-            contradiction_markers: [
-                &RE_CONTRADICTION_MARKER,
-                &RE_CONTRADICTION_KEYWORD,
-            ],
+            contradiction_markers: [&RE_CONTRADICTION_MARKER, &RE_CONTRADICTION_KEYWORD],
             config,
         }
     }
