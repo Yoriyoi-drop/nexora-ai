@@ -52,6 +52,8 @@ pub enum GpuError {
     ShapeMismatch(String),
     #[error("GPU operation timed out: {0}")]
     Timeout(String),
+    #[error("Dtype mismatch: {0}")]
+    Dtype(String),
     #[error("Conversion error: {0}")]
     Conversion(String),
     #[error("Lock error: {0}")]

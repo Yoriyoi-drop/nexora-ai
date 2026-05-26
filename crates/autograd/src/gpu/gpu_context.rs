@@ -319,6 +319,9 @@ impl GpuContext {
         if adapter_features.contains(wgpu::Features::SHADER_F64) {
             required_features |= wgpu::Features::SHADER_F64;
         }
+        if adapter_features.contains(wgpu::Features::PIPELINE_CACHE) {
+            required_features |= wgpu::Features::PIPELINE_CACHE;
+        }
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -364,29 +367,22 @@ impl GpuContext {
         };
         let disk_cache = crate::persistent_cache::PipelineDiskCache::new();
         let cached_data = disk_cache.load(cache_key);
-        let wgpu_cache = if let Some(ref data) = cached_data {
-            // SAFETY: `device.create_pipeline_cache` is unsafe because the provided
-            // `data` blob must have been produced by a previous `PipelineCache::get_data()`
-            // call on a compatible device (same GPU/driver/API version). Here `data`
-            // was loaded from disk via `PipelineDiskCache::load()`, which previously
-            // stored it via `PipelineCache::get_data()`, so the data is guaranteed to
-            // be a valid serialized cache blob for this device. Passing invalid data
-            // would at worst cause the driver to ignore the cache (silent fallback),
-            // not undefined behavior per the WebGPU spec.
-            Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                label: Some("nexora_persistent_cache"),
-                data: Some(data),
-                fallback: false,
-            }) })
+        let wgpu_cache = if device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+            if let Some(ref data) = cached_data {
+                Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                    label: Some("nexora_persistent_cache"),
+                    data: Some(data),
+                    fallback: false,
+                }) })
+            } else {
+                Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                    label: Some("nexora_persistent_cache"),
+                    data: None,
+                    fallback: false,
+                }) })
+            }
         } else {
-            // SAFETY: Creating a pipeline cache with `data: None` is always safe;
-            // the driver initializes an empty cache. The `unsafe` qualifier exists
-            // because the same function also accepts untrusted data in the other branch.
-            Some(unsafe { device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                label: Some("nexora_persistent_cache"),
-                data: None,
-                fallback: false,
-            }) })
+            None
         };
 
         // Create larger query set for ring buffer (e.g., 1000 timestamp pairs = 2000 queries)
@@ -455,6 +451,8 @@ impl GpuContext {
     fn compile_all_pipelines(&mut self) -> Result<(), GpuError> {
         let tile = self.caps.optimal_tile_size();
         self.compile_matmul_tiled(tile)?;
+        self.compile_matmul_int8_tiled(tile)?;
+        self.compile_matmul_int8_weight(tile)?;
         self.compile_elementwise()?;
         self.compile_reduce(ReduceOp::Sum)?;
         self.compile_reduce(ReduceOp::Max)?;
@@ -467,6 +465,7 @@ impl GpuContext {
         self.compile_transpose()?;
         self.compile_fused_attention()?;
         self.compile_fill_zero()?;
+        self.compile_fill_zero_u32()?;
         self.compile_scale_inplace()?;
         self.compile_elementwise_inplace()?;
         self.compile_causal_softmax()?;
@@ -476,6 +475,13 @@ impl GpuContext {
         self.compile_top_k_mask()?;
         self.compile_top_p_mask()?;
         self.compile_multinomial_sample()?;
+        // Mixed precision converters
+        use crate::gpu_mixed::{
+            compile_f32_to_f16_packed_pipeline,
+            compile_f16_packed_to_f32_pipeline,
+        };
+        compile_f32_to_f16_packed_pipeline(self)?;
+        compile_f16_packed_to_f32_pipeline(self)?;
         // Phase 2: Transformer ops (RoPE, repeat_heads)
         self.compile_rotary_embedding()?;
         self.compile_repeat_heads()?;
@@ -496,6 +502,15 @@ impl GpuContext {
             &[storage_binding(0, false)],
             std::borrow::Cow::Borrowed(FILL_ZERO_WGSL),
             "fill_zero_main",
+        )
+    }
+
+    fn compile_fill_zero_u32(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "fill_zero_u32",
+            &[storage_binding(0, false)],
+            std::borrow::Cow::Borrowed(FILL_ZERO_U32_WGSL),
+            "fill_zero_u32_main",
         )
     }
 
@@ -544,7 +559,7 @@ impl GpuContext {
                 uniform_binding(3),
             ],
             std::borrow::Cow::Borrowed(GRADIENT_CLIP_WGSL),
-            "gradient_clip_main",
+            "main",
         )
     }
 
@@ -604,6 +619,27 @@ impl GpuContext {
             }],
         });
         self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
+        Ok(())
+    }
+
+    /// Zero out a GPU buffer using u32 writes — works for any dtype.
+    /// Dispatches ceil(byte_size / 4 / 256) workgroups, each writes 0u per u32.
+    pub fn fill_zero_u32(&self, t: &GpuTensor) -> Result<(), GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("fill_zero_u32")
+            .ok_or_else(|| GpuError::Pipeline("fill_zero_u32 not compiled".into()))?;
+        let buf_size = t.buffer().size();
+        let u32_count = u32::try_from(buf_size / 4).unwrap_or(u32::MAX);
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fill_zero_u32_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: t.buffer().as_entire_binding(),
+            }],
+        });
+        self.dispatch(pipeline, &bg, ((u32_count + 255) / 256, 1, 1));
         Ok(())
     }
 
@@ -1014,7 +1050,9 @@ impl GpuContext {
         let rest: usize = shape[1..].iter().product();
         let slice_numel = (len as usize) * rest;
         let element_size = match tensor.dtype {
-            GpuDtype::F32 | GpuDtype::F16 | GpuDtype::Bf16 => 4, // all 4-byte for now
+            GpuDtype::F32 => 4,
+            GpuDtype::F16 | GpuDtype::Bf16 => 2,
+            GpuDtype::I8 => 1,
         };
         let byte_offset = (pos as usize) * dim0 /* actually per-row */;
         // Actual: each row has `rest` elements
@@ -1108,11 +1146,13 @@ impl GpuContext {
     ) -> Option<(f64, f64)> {
         let mapped = slice.get_mapped_range();
         if mapped.len() < 16 {
+            drop(mapped);
             readback_buffer.unmap();
             return None;
         }
         let first = u64::from_le_bytes(mapped[0..8].try_into().ok()?);
         let second = u64::from_le_bytes(mapped[8..16].try_into().ok()?);
+        drop(mapped);
         readback_buffer.unmap();
         Some((first as f64, second as f64))
     }
@@ -1768,8 +1808,279 @@ impl GpuContext {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  PHASE 1.3: ELEMENT-WISE + ACTIVATION
+    //  PHASE 1.2: INT8 QUANTIZED MATMUL
     // ═══════════════════════════════════════════════════════════════════════════
+
+    fn compile_matmul_int8_tiled(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_int8_tiled") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_INT8_TILED_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_int8_tiled",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            wgsl,
+            "matmul_int8_main",
+        )
+    }
+
+    /// Quantized matmul: A (int8 packed) × B (f32) → C (f32).
+    ///
+    /// `a` must have dtype `GpuDtype::I8`. Internally the int8 values are
+    /// unpacked, dequantized with `scale`, and accumulated in f32.
+    /// `b` must be f32.
+    pub fn matmul_int8(
+        &self,
+        a: &GpuTensor,
+        b: &GpuTensor,
+        scale: f32,
+    ) -> Result<GpuTensor, GpuError> {
+        if a.dtype() != GpuDtype::I8 {
+            return Err(GpuError::Dtype(format!(
+                "matmul_int8 expects I8 for A, got {:?}",
+                a.dtype()
+            )));
+        }
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+        if a_shape[1] != b_shape[0] {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+        let m_u32 =
+            u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 =
+            u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 =
+            u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 =
+            u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let dims_buf =
+            self.alloc_or_create_buffer(20, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
+        let mut uniform_bytes = Vec::with_capacity(20);
+        uniform_bytes.extend_from_slice(bytemuck::cast_slice(&dims_data));
+        uniform_bytes.extend_from_slice(bytemuck::bytes_of(&scale));
+        self.queue.write_buffer(&dims_buf, 0, &uniform_bytes);
+
+        let pipeline = self
+            .pipelines
+            .get("matmul_int8_tiled")
+            .ok_or_else(|| GpuError::Pipeline("matmul_int8_tiled not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("matmul_int8_tiled_bind_group"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dims_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let wgx = (m_u32 + tile_u32 - 1) / tile_u32;
+        let wgy = (n_u32 + tile_u32 - 1) / tile_u32;
+        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+
+        Ok(GpuTensor {
+            shape: vec![a_shape[0], b_shape[1]],
+            buffer: c_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PHASE 1.2b: INT8 WEIGHT MATMUL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    fn compile_matmul_int8_weight(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_int8_weight") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_INT8_WEIGHT_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_int8_weight",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            wgsl,
+            "matmul_int8_weight_main",
+        )
+    }
+
+    /// Quantized matmul: A (f32 activations) × B (packed int8 weights) → C (f32).
+    ///
+    /// `b` must have dtype `GpuDtype::I8` and shape [N, K] (ORIGINAL orientation —
+    /// NOT the conventional transposed layout). The shader reads B[j][k] and
+    /// computes C[i][j] = sum_k A[i][k] × dequantize(B[j][k]).
+    ///
+    /// This is designed for the model inference pattern `activation @ weight^T`
+    /// where the original weight matrix W[output_dim, hidden] is stored as int8
+    /// and the transpose is handled on-the-fly in the shader.
+    pub fn matmul_int8_weight(
+        &self,
+        a: &GpuTensor,
+        b: &GpuTensor,
+        scale: f32,
+    ) -> Result<GpuTensor, GpuError> {
+        if b.dtype() != GpuDtype::I8 {
+            return Err(GpuError::Dtype(format!(
+                "matmul_int8_weight expects I8 for B (weight), got {:?}",
+                b.dtype()
+            )));
+        }
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+        // A[M, K] × B[N, K] → Not standard. Check K matches: a_shape[1] == b_shape[1]
+        if a_shape[1] != b_shape[1] {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[0];
+        let m_u32 =
+            u32::try_from(m).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 =
+            u32::try_from(k).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 =
+            u32::try_from(n).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 =
+            u32::try_from(tile).map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let dims_buf =
+            self.alloc_or_create_buffer(20, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
+        let mut uniform_bytes = Vec::with_capacity(20);
+        uniform_bytes.extend_from_slice(bytemuck::cast_slice(&dims_data));
+        uniform_bytes.extend_from_slice(bytemuck::bytes_of(&scale));
+        self.queue.write_buffer(&dims_buf, 0, &uniform_bytes);
+
+        let pipeline = self
+            .pipelines
+            .get("matmul_int8_weight")
+            .ok_or_else(|| GpuError::Pipeline("matmul_int8_weight not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("matmul_int8_weight_bind_group"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dims_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let wgx = (m_u32 + tile_u32 - 1) / tile_u32;
+        let wgy = (n_u32 + tile_u32 - 1) / tile_u32;
+        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+
+        Ok(GpuTensor {
+            shape: vec![a_shape[0], b_shape[0]],
+            buffer: c_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PACKED F16 CONVERSION HELPERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Convert f32 tensor to packed F16 (2 f16 per u32). Returns tensor with GpuDtype::F16.
+    pub fn f32_to_f16_packed(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        use crate::gpu_mixed::dispatch_f32_to_f16_packed;
+        let pipeline = self
+            .pipelines
+            .get("f32_to_f16_packed")
+            .ok_or_else(|| GpuError::Pipeline("f32_to_f16_packed not compiled".into()))?;
+        dispatch_f32_to_f16_packed(self, &pipeline.pipeline, input)
+    }
+
+    /// Convert packed F16 tensor back to f32. Input must have dtype GpuDtype::F16.
+    pub fn f16_packed_to_f32(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        use crate::gpu_mixed::dispatch_f16_packed_to_f32;
+        if input.dtype() != GpuDtype::F16 {
+            return Err(GpuError::Dtype(format!(
+                "f16_packed_to_f32 expects F16 input, got {:?}",
+                input.dtype()
+            )));
+        }
+        let pipeline = self
+            .pipelines
+            .get("f16_packed_to_f32")
+            .ok_or_else(|| GpuError::Pipeline("f16_packed_to_f32 not compiled".into()))?;
+        dispatch_f16_packed_to_f32(self, &pipeline.pipeline, input)
+    }
 
     fn compile_elementwise(&mut self) -> Result<(), GpuError> {
         self.compile_pipeline(
@@ -3109,7 +3420,189 @@ fn matmul_tiled_main(@builtin(global_invocation_id) gid: vec3<u32>,
 }
 "#;
 
-// ── Phase 1.3: Element-wise + Activation ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PHASE 1.2: INT8 QUANTIZED MATMUL
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// A is packed int8 weights (4 values per u32), B is f32 activations.
+// Dequantization happens on-the-fly: int8 → f32 × scale.
+// Output C is f32.
+//
+// The shader uses the same tiled matmul structure as MATMUL_TILED_WGSL but
+// adds int8 unpacking for the A matrix. Only the weight matrix (A) is
+// quantized — B (activations) stays f32 for precision during training.
+
+const MATMUL_INT8_TILED_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+
+// A is packed as u32 — each u32 holds 4 int8 values (little-endian byte order).
+// B and C remain f32.
+@group(0) @binding(0) var<storage, read> a_packed: array<u32>;
+@group(0) @binding(1) var<storage, read> b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Uniforms {
+    M: u32,
+    K: u32,
+    N: u32,
+    Tile: u32,
+    scale: f32,
+};
+
+@group(0) @binding(3) var<uniform> uniforms: Uniforms;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn unpack_int8(packed: u32, byte_idx: u32) -> f32 {
+    let shift = byte_idx * 8u;
+    let byte = (packed >> shift) & 0xFFu;
+    var val = f32(byte);
+    if (byte > 127u) {
+        val = val - 256.0;
+    }
+    return val * uniforms.scale;
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_int8_main(@builtin(local_invocation_id) lid: vec3<u32>,
+                    @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (uniforms.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        // ── Load tile of A (packed int8 → f32) ──
+        let a_global_row = row;
+        let a_global_col = t * TILE_SIZE + lid.y;
+        if (a_global_row < uniforms.M && a_global_col < uniforms.K) {
+            let a_flat_idx = a_global_row * uniforms.K + a_global_col;
+            let packed_idx = a_flat_idx / 4u;
+            let byte_off = a_flat_idx % 4u;
+            tile_a[lid.x][lid.y] = unpack_int8(a_packed[packed_idx], byte_off);
+        } else {
+            tile_a[lid.x][lid.y] = 0.0;
+        }
+
+        // ── Load tile of B (f32) ──
+        let b_global_row = t * TILE_SIZE + lid.x;
+        let b_global_col = col;
+        if (b_global_row < uniforms.K && b_global_col < uniforms.N) {
+            tile_b[lid.x][lid.y] = b[b_global_row * uniforms.N + b_global_col];
+        } else {
+            tile_b[lid.x][lid.y] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        // ── Accumulate ──
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < uniforms.M && col < uniforms.N) {
+        c[row * uniforms.N + col] = sum;
+    }
+}
+"#;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PHASE 1.2b: INT8 WEIGHT MATMUL (activation f32 × packed int8 weight RHS)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// A is f32 activations [M, K], B is packed int8 weights [N, K] (ORIGINAL
+// orientation — NOT transposed!). The shader computes C = A × dequant(B)^T.
+//
+// Weight matrix W of shape [output_dim, hidden] is stored in its original
+// row-major layout. The shader reads B[j][k] = W[col][t*TILE + lid.x] and
+// accumulates C[i][j] = sum_k A[i][k] * dequant(W[j][k]).
+//
+// This avoids transposing the int8 data and matches the inference pattern:
+// activation(f32) @ weight^T.
+
+const MATMUL_INT8_WEIGHT_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+
+// A = f32 activations [M, K]; B = packed int8 weights [N, K] (NOT transposed); C = f32 output [M, N]
+@group(0) @binding(0) var<storage, read> a: array<f32>;
+@group(0) @binding(1) var<storage, read> b_packed: array<u32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Uniforms {
+    M: u32,
+    K: u32,
+    N: u32,
+    Tile: u32,
+    scale: f32,
+};
+
+@group(0) @binding(3) var<uniform> uniforms: Uniforms;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn unpack_int8_weight(packed: u32, byte_idx: u32) -> f32 {
+    let shift = byte_idx * 8u;
+    let byte = (packed >> shift) & 0xFFu;
+    var val = f32(byte);
+    if (byte > 127u) {
+        val = val - 256.0;
+    }
+    return val * uniforms.scale;
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_int8_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
+                           @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (uniforms.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        // ── Load tile of A (f32 activation) ──
+        let a_global_row = row;
+        let a_global_col = t * TILE_SIZE + lid.y;
+        if (a_global_row < uniforms.M && a_global_col < uniforms.K) {
+            tile_a[lid.x][lid.y] = a[a_global_row * uniforms.K + a_global_col];
+        } else {
+            tile_a[lid.x][lid.y] = 0.0;
+        }
+
+        // ── Load tile of B (packed int8 weight [N, K] — NOT transposed) ──
+        // B[j][k] = W[col][t*TILE + lid.x] — weight matrix in original orientation
+        let b_j = col;                                    // N dimension
+        let b_k = t * TILE_SIZE + lid.x;                  // K dimension
+        if (b_j < uniforms.N && b_k < uniforms.K) {
+            let b_flat_idx = b_j * uniforms.K + b_k;
+            let packed_idx = b_flat_idx / 4u;
+            let byte_off = b_flat_idx % 4u;
+            tile_b[lid.x][lid.y] = unpack_int8_weight(b_packed[packed_idx], byte_off);
+        } else {
+            tile_b[lid.x][lid.y] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        // ── Accumulate C[row][col] += sum_k A[row][k] * dequant(W[col][k]) ──
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < uniforms.M && col < uniforms.N) {
+        c[row * uniforms.N + col] = sum;
+    }
+}
+"#;
 
 const ELEMENTWISE_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> a: array<f32>;
@@ -3863,6 +4356,15 @@ const FILL_ZERO_WGSL: &str = r#"
 @compute @workgroup_size(256)
 fn fill_zero_main(@builtin(global_invocation_id) id: vec3<u32>) {
     buf[id.x] = 0.0;
+}
+"#;
+
+const FILL_ZERO_U32_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> buf: array<u32>;
+
+@compute @workgroup_size(256)
+fn fill_zero_u32_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    buf[id.x] = 0u;
 }
 "#;
 

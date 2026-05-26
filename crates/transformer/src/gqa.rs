@@ -8,6 +8,9 @@ use rayon::prelude::*;
 use super::rope::RoPE;
 
 #[cfg(feature = "gpu")]
+use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuTensor};
+
+#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct GqaGpuWeights {
     pub wq_t: nexora_autograd::gpu::GpuTensor,
@@ -19,43 +22,80 @@ pub(crate) struct GqaGpuWeights {
 /// GPU-resident KV cache entry.
 /// Stores K/V directly on GPU without CPU round-trip.
 /// Pre-allocated to max_seq_len with append via GPU buffer copy.
+/// Supports F16 packed storage (2 f16 per u32) when f16_storage=true.
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
 pub struct GpuKVCacheEntry {
-    pub k: nexora_autograd::gpu::GpuTensor, // [capacity, kv_heads, head_dim]
-    pub v: nexora_autograd::gpu::GpuTensor, // [capacity, kv_heads, head_dim]
+    pub k: GpuTensor, // [capacity, kv_heads, head_dim]
+    pub v: GpuTensor, // [capacity, kv_heads, head_dim]
     pub seq_len: usize,
     pub capacity: usize,
     pub kv_heads: usize,
     pub head_dim: usize,
+    pub f16_storage: bool,
 }
 
 #[cfg(feature = "gpu")]
 impl GpuKVCacheEntry {
     /// Allocate a new GPU KV cache entry with pre-allocated zero-filled buffers.
     pub fn new(
+        ctx: &GpuContext,
         kv_heads: usize,
         head_dim: usize,
         max_seq: usize,
+        use_f16: bool,
     ) -> Result<Self, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuTensor;
-        Ok(Self {
-            k: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
-            v: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
-            seq_len: 0,
-            capacity: max_seq,
-            kv_heads,
-            head_dim,
-        })
+        use nexora_autograd::gpu::GpuError;
+        if use_f16 {
+            let num_f16 = max_seq * kv_heads * head_dim;
+            let buf_size = ((num_f16 + 1) / 2 * 4) as u64;
+            let usage = wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC;
+            let k_buf = ctx.alloc_or_create_buffer(buf_size, usage);
+            let v_buf = ctx.alloc_or_create_buffer(buf_size, usage);
+            let k = GpuTensor::from_raw(
+                vec![max_seq, kv_heads, head_dim],
+                k_buf,
+                GpuDtype::F16,
+            );
+            let v = GpuTensor::from_raw(
+                vec![max_seq, kv_heads, head_dim],
+                v_buf,
+                GpuDtype::F16,
+            );
+            ctx.fill_zero_u32(&k)?;
+            ctx.fill_zero_u32(&v)?;
+            Ok(Self {
+                k,
+                v,
+                seq_len: 0,
+                capacity: max_seq,
+                kv_heads,
+                head_dim,
+                f16_storage: true,
+            })
+        } else {
+            Ok(Self {
+                k: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
+                v: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
+                seq_len: 0,
+                capacity: max_seq,
+                kv_heads,
+                head_dim,
+                f16_storage: false,
+            })
+        }
     }
 
     /// Append new K and V (each shape [1, kv_heads, head_dim]) to the GPU cache.
     /// Uses batch_dispatch for GPU-side buffer copy — no CPU round-trip.
+    /// When f16_storage=true, converts F32→packed F16 before storing.
     pub fn append(
         &mut self,
-        ctx: &nexora_autograd::gpu::GpuContext,
-        new_k: &nexora_autograd::gpu::GpuTensor,
-        new_v: &nexora_autograd::gpu::GpuTensor,
+        ctx: &GpuContext,
+        new_k: &GpuTensor,
+        new_v: &GpuTensor,
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
         if self.seq_len >= self.capacity {
             return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
@@ -64,16 +104,50 @@ impl GpuKVCacheEntry {
             )));
         }
         let kv_elems = self.kv_heads * self.head_dim;
-        let byte_size = (kv_elems * 4) as u64;
-        let offset = (self.seq_len * kv_elems * 4) as u64;
 
-        ctx.batch_dispatch(|enc| {
-            // Copy new K to cache at position seq_len
-            enc.copy_buffer_to_buffer(new_k.buffer(), 0, self.k.buffer(), offset, byte_size);
-            // Copy new V to cache at position seq_len
-            enc.copy_buffer_to_buffer(new_v.buffer(), 0, self.v.buffer(), offset, byte_size);
-            Ok(())
-        })?;
+        if self.f16_storage {
+            let pk = ctx.f32_to_f16_packed(new_k)?;
+            let pv = ctx.f32_to_f16_packed(new_v)?;
+            let byte_size = (kv_elems * 2) as u64;
+            let offset = (self.seq_len * kv_elems * 2) as u64;
+            ctx.batch_dispatch(|enc| {
+                enc.copy_buffer_to_buffer(
+                    pk.buffer(),
+                    0,
+                    self.k.buffer(),
+                    offset,
+                    byte_size,
+                );
+                enc.copy_buffer_to_buffer(
+                    pv.buffer(),
+                    0,
+                    self.v.buffer(),
+                    offset,
+                    byte_size,
+                );
+                Ok(())
+            })?;
+        } else {
+            let byte_size = (kv_elems * 4) as u64;
+            let offset = (self.seq_len * kv_elems * 4) as u64;
+            ctx.batch_dispatch(|enc| {
+                enc.copy_buffer_to_buffer(
+                    new_k.buffer(),
+                    0,
+                    self.k.buffer(),
+                    offset,
+                    byte_size,
+                );
+                enc.copy_buffer_to_buffer(
+                    new_v.buffer(),
+                    0,
+                    self.v.buffer(),
+                    offset,
+                    byte_size,
+                );
+                Ok(())
+            })?;
+        }
 
         self.seq_len += 1;
         Ok(())
@@ -81,46 +155,64 @@ impl GpuKVCacheEntry {
 
     /// Returns a view of K up to seq_len as [seq_len, kv_heads, head_dim].
     /// Zero-copy: shares the same wgpu::Buffer handle via reshape.
-    pub fn k_view(&self) -> nexora_autograd::gpu::GpuTensor {
+    pub fn k_view(&self) -> GpuTensor {
         self.k
             .view_as(vec![self.seq_len, self.kv_heads, self.head_dim])
     }
 
     /// Returns a view of V up to seq_len as [seq_len, kv_heads, head_dim].
     /// Zero-copy: shares the same wgpu::Buffer handle via reshape.
-    pub fn v_view(&self) -> nexora_autograd::gpu::GpuTensor {
+    pub fn v_view(&self) -> GpuTensor {
         self.v
             .view_as(vec![self.seq_len, self.kv_heads, self.head_dim])
     }
 
     /// Get K/V repeated to q_heads for fused_attention.
     /// Returns (k_repeated, v_repeated) as [q_heads, seq_len, head_dim] (head-major).
+    /// When f16_storage=true, upconverts packed F16→F32 before repeat.
     pub fn get_repeated_kv(
         &self,
-        ctx: &nexora_autograd::gpu::GpuContext,
+        ctx: &GpuContext,
         q_heads: u32,
     ) -> Result<
         (
-            nexora_autograd::gpu::GpuTensor,
-            nexora_autograd::gpu::GpuTensor,
+            GpuTensor,
+            GpuTensor,
         ),
         nexora_autograd::gpu::GpuError,
     > {
         let dim = self.head_dim as u32;
         let kv_heads = self.kv_heads as u32;
-        let k_repeated = ctx.repeat_heads(&self.k_view(), kv_heads, q_heads, dim)?;
-        let v_repeated = ctx.repeat_heads(&self.v_view(), kv_heads, q_heads, dim)?;
-        Ok((k_repeated, v_repeated))
+
+        if self.f16_storage {
+            let k_f32 = ctx.f16_packed_to_f32(&self.k_view())?;
+            let v_f32 = ctx.f16_packed_to_f32(&self.v_view())?;
+            let k_repeated = ctx.repeat_heads(&k_f32, kv_heads, q_heads, dim)?;
+            let v_repeated = ctx.repeat_heads(&v_f32, kv_heads, q_heads, dim)?;
+            Ok((k_repeated, v_repeated))
+        } else {
+            let k_repeated =
+                ctx.repeat_heads(&self.k_view(), kv_heads, q_heads, dim)?;
+            let v_repeated =
+                ctx.repeat_heads(&self.v_view(), kv_heads, q_heads, dim)?;
+            Ok((k_repeated, v_repeated))
+        }
     }
 
     /// Clear the cache (reset sequence length).
     /// Does NOT deallocate buffers — memset to zero.
+    /// Uses u32 zero fill for F16 storage, f32 zero fill for F32 storage.
     pub fn clear(
         &mut self,
-        ctx: &nexora_autograd::gpu::GpuContext,
+        ctx: &GpuContext,
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
-        ctx.fill_zero(&self.k)?;
-        ctx.fill_zero(&self.v)?;
+        if self.f16_storage {
+            ctx.fill_zero_u32(&self.k)?;
+            ctx.fill_zero_u32(&self.v)?;
+        } else {
+            ctx.fill_zero(&self.k)?;
+            ctx.fill_zero(&self.v)?;
+        }
         self.seq_len = 0;
         Ok(())
     }
@@ -129,7 +221,6 @@ impl GpuKVCacheEntry {
 #[cfg(feature = "gpu")]
 impl Clone for GpuKVCacheEntry {
     fn clone(&self) -> Self {
-        // Shallow clone — shares the same wgpu::Buffer handles
         Self {
             k: self.k.clone(),
             v: self.v.clone(),
@@ -137,6 +228,7 @@ impl Clone for GpuKVCacheEntry {
             capacity: self.capacity,
             kv_heads: self.kv_heads,
             head_dim: self.head_dim,
+            f16_storage: self.f16_storage,
         }
     }
 }
@@ -262,10 +354,9 @@ impl GpuKVCache {
         head_dim: usize,
         max_seq_len: usize,
     ) -> Self {
-        let ctx_ok = nexora_autograd::gpu::GpuContext::global().is_ok();
-        let entries = if ctx_ok {
+        let entries = if let Ok(ctx) = nexora_autograd::gpu::GpuContext::global() {
             (0..num_layers)
-                .filter_map(|_| GpuKVCacheEntry::new(num_kv_heads, head_dim, max_seq_len).ok())
+                .filter_map(|_| GpuKVCacheEntry::new(&ctx, num_kv_heads, head_dim, max_seq_len, false).ok())
                 .collect()
         } else {
             Vec::new()
@@ -902,9 +993,11 @@ impl GQA {
             let mut gpu_entry = match scratch_guard.take() {
                 Some(entry) => entry,
                 None => GpuKVCacheEntry::new(
+                    &ctx,
                     self.num_kv_heads,
                     self.head_dim,
                     4096.max(cpu_seq_len + 4096),
+                    false,
                 )?,
             };
 
@@ -915,8 +1008,13 @@ impl GQA {
                     ctx.fill_zero(&gpu_entry.k)?;
                     ctx.fill_zero(&gpu_entry.v)?;
                 } else {
-                    gpu_entry =
-                        GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, cpu_seq_len + 4096)?;
+                    gpu_entry = GpuKVCacheEntry::new(
+                        &ctx,
+                        self.num_kv_heads,
+                        self.head_dim,
+                        cpu_seq_len + 4096,
+                        false,
+                    )?;
                     let ce = &cache[layer_idx];
                     let seq = ce.seq_len();
                     let k_flat: Vec<f32> = ce.k.clone();
@@ -1237,9 +1335,11 @@ impl GQA {
             let mut gpu_entry = match scratch_guard.take() {
                 Some(entry) => entry,
                 None => GpuKVCacheEntry::new(
+                    &ctx,
                     self.num_kv_heads,
                     self.head_dim,
                     4096.max(cpu_seq_len + 4096),
+                    false,
                 )?,
             };
 
@@ -1250,8 +1350,13 @@ impl GQA {
                     ctx.fill_zero(&gpu_entry.k)?;
                     ctx.fill_zero(&gpu_entry.v)?;
                 } else {
-                    gpu_entry =
-                        GpuKVCacheEntry::new(self.num_kv_heads, self.head_dim, cpu_seq_len + 4096)?;
+                    gpu_entry = GpuKVCacheEntry::new(
+                        &ctx,
+                        self.num_kv_heads,
+                        self.head_dim,
+                        cpu_seq_len + 4096,
+                        false,
+                    )?;
                     let ce = &cache[layer_idx];
                     let seq = ce.seq_len();
                     let k_flat: Vec<f32> = ce.k.clone();

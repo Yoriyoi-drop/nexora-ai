@@ -249,14 +249,13 @@ struct Cfg { m: u32, n: u32, _pad0: u32, _pad1: u32, };
 var<workgroup> wg_reduce: array<f32, 256>;
 
 // Dot product of column a (offset_a*m) × column b (offset_b*m)
-fn dot_col(offset_a: u32, offset_b: u32) -> f32 {
-    let tid = u32(local_invocation_index);
+fn dot_col(offset_a: u32, offset_b: u32, tid: u32, gid_x: u32, wg_size: u32) -> f32 {
     let m = cfg.m;
     var sum = 0.0f;
-    var i = u32(global_invocation_id.x);
+    var i = gid_x;
     while (i < m) {
         sum += q[offset_a + i] * q[offset_b + i];
-        i += u32(gl_GlobalInvocationID.x);
+        i += wg_size;
     }
     wg_reduce[tid] = sum;
     workgroupBarrier();
@@ -271,36 +270,37 @@ fn dot_col(offset_a: u32, offset_b: u32) -> f32 {
 }
 
 @compute @workgroup_size(256)
-fn qr_main(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+fn qr_main(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
     let m = cfg.m;
     let n = cfg.n;
     let col = id.y;
     if (col >= n) { return; }
 
     let offset = col * m;
+    let wg_size = 256u;
 
     // Reorthogonalize against previous columns
     for (var j = 0u; j < col; j = j + 1u) {
         // Two reorthogonalization passes
-        for (var pass = 0u; pass < 2u; pass = pass + 1u) {
-            let dot_val = dot_col(offset, j * m);
-            let norm_sq = dot_col(j * m, j * m);
+        for (var p = 0u; p < 2u; p = p + 1u) {
+            let dot_val = dot_col(offset, j * m, tid, id.x, wg_size);
+            let norm_sq = dot_col(j * m, j * m, tid, id.x, wg_size);
             let coeff = select(0.0, dot_val / norm_sq, norm_sq > 1e-10f);
             var i = id.x;
             while (i < m) {
                 q[offset + i] = q[offset + i] - coeff * q[j * m + i];
-                i += u32(gl_GlobalInvocationID.x);
+                i += wg_size;
             }
             workgroupBarrier();
         }
     }
 
     // Normalize column
-    let norm = sqrt(dot_col(offset, offset));
+    let norm = sqrt(dot_col(offset, offset, tid, id.x, wg_size));
     var i = id.x;
     while (i < m) {
         q[offset + i] = select(q[offset + i], q[offset + i] / norm, norm > 1e-10f);
-        i += u32(gl_GlobalInvocationID.x);
+        i += wg_size;
     }
 }
 "#;

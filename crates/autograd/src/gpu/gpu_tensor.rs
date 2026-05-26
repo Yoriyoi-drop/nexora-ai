@@ -89,6 +89,41 @@ impl GpuTensor {
         )
     }
 
+    /// Create an int8 GpuTensor from pre-packed u32 data.
+    ///
+    /// `data` contains 4 signed int8 values packed per u32 element (little-endian).
+    /// `shape` is the logical shape in *int8 elements* (not packed elements).
+    /// The underlying buffer will have `(numel() + 3) / 4 * 4` bytes.
+    pub fn from_cpu_i8_packed(shape: Vec<usize>, packed_data: &[u32]) -> Result<Self, GpuError> {
+        let ctx = Self::ctx()?;
+        let expected_packed = (shape.iter().product::<usize>() + 3) / 4;
+        if packed_data.len() < expected_packed {
+            return Err(GpuError::Buffer(format!(
+                "from_cpu_i8_packed: expected at least {} packed u32s for shape {:?}, got {}",
+                expected_packed,
+                shape,
+                packed_data.len()
+            )));
+        }
+        let byte_size = expected_packed as u64 * 4;
+        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GpuTensor::from_cpu_i8_packed"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        ctx.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(&packed_data[..expected_packed]));
+        Ok(Self {
+            shape,
+            buffer,
+            dtype: GpuDtype::I8,
+            device_id: 0,
+        })
+    }
+
     /// Create a GpuTensor from raw components (buffer + shape).
     /// Useful for wrapping GPU buffers allocated externally.
     pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
@@ -175,20 +210,8 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
         ).buffer;
 
-        let staging = Self::alloc_staging(ctx, byte_size, false);
-        {
-            let mut view = staging.slice(..).get_mapped_range_mut();
-            view.copy_from_slice(&vec![0u8; byte_size as usize]);
-        }
-        staging.unmap();
-
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&staging, 0, &buffer, 0, byte_size);
-        ctx.queue.submit(Some(encoder.finish()));
-
-        Self::return_staging(ctx, staging, byte_size, false);
+        let tmp = Self { shape: shape.to_vec(), buffer: buffer.clone(), dtype: GpuDtype::F32, device_id: 0 };
+        ctx.fill_zero_u32(&tmp)?;
 
         Ok(Self {
             shape: shape.to_vec(),
@@ -329,6 +352,10 @@ impl GpuTensor {
 
     pub fn device_id(&self) -> usize {
         self.device_id
+    }
+
+    pub fn dtype(&self) -> GpuDtype {
+        self.dtype
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {

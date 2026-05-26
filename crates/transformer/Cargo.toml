@@ -15,7 +15,8 @@ parking_lot.workspace = true
 rayon.workspace = true
 nexora-autograd = { path = "../autograd" }
 wgpu = { version = "29", optional = true }
+half = { version = "2", optional = true }
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu", "dep:wgpu"]
+gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]

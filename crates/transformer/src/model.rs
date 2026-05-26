@@ -194,6 +194,9 @@ pub fn sample_token(logits: &Array1<f32>, temperature: f32, top_k: usize) -> u32
 pub(crate) struct GpuWeights {
     pub token_embedding: nexora_autograd::gpu::GpuTensor,
     pub lm_head_t: nexora_autograd::gpu::GpuTensor,
+    pub lm_head_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub lm_head_scale: f32,
+    pub lm_head_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub norm_weight: nexora_autograd::gpu::GpuTensor,
     pub block_weights: Vec<BlockGpuWeights>,
 }
@@ -210,6 +213,27 @@ pub(crate) struct BlockGpuWeights {
     pub w1_t: nexora_autograd::gpu::GpuTensor,
     pub w2_t: nexora_autograd::gpu::GpuTensor,
     pub w3_t: nexora_autograd::gpu::GpuTensor,
+    pub wq_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub scale_wq: f32,
+    pub scale_wk: f32,
+    pub scale_wv: f32,
+    pub scale_wo: f32,
+    pub scale_w1: f32,
+    pub scale_w2: f32,
+    pub scale_w3: f32,
+    pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
 }
 
 #[derive(Debug)]
@@ -229,6 +253,16 @@ pub struct CausalLM {
     /// When set, `forward()` will use the GPU-resident path and only read back
     /// the final logits, eliminating ~4×N_layers synchronous sync transfers.
     pub keep_on_gpu: bool,
+    /// If true, upload quantized (int8) weights for GPU matmul acceleration.
+    /// Weight matrices are quantized during `preupload_weights_gpu()` using
+    /// symmetric per-tensor int8 quantization. The int8 kernels dequantize
+    /// on-the-fly in the WGSL shader, reducing GPU memory bandwidth ~4×.
+    pub quantize_weights: bool,
+    /// If true, store weights as packed F16 (2 f16 per u32, 2× memory savings).
+    /// At the start of each forward pass, F16 weights are bulk-upconverted to
+    /// F32 temp buffers for matmul computation. Ignored when `quantize_weights`
+    /// is true (int8 takes priority).
+    pub use_half_precision: bool,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
@@ -250,6 +284,8 @@ impl Clone for CausalLM {
             precomputed_sin: self.precomputed_sin.clone(),
             injectors: Vec::new(),
             keep_on_gpu: self.keep_on_gpu,
+            quantize_weights: self.quantize_weights,
+            use_half_precision: self.use_half_precision,
         }
     }
 }
@@ -268,6 +304,8 @@ impl Clone for CausalLM {
             precomputed_sin: self.precomputed_sin.clone(),
             injectors: Vec::new(),
             keep_on_gpu: self.keep_on_gpu,
+            quantize_weights: self.quantize_weights,
+            use_half_precision: self.use_half_precision,
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
         }
@@ -324,6 +362,8 @@ impl CausalLM {
             precomputed_sin,
             injectors: Vec::new(),
             keep_on_gpu: true,
+            quantize_weights: false,
+            use_half_precision: false,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
@@ -689,14 +729,50 @@ impl CausalLM {
         Ok(model)
     }
 
+    /// Symmetric per-tensor int8 quantization.
+    /// Returns (packed u32 data, scale) where each u32 holds 4 int8 values
+    /// in little-endian byte order.
+    #[cfg(feature = "gpu")]
+    fn quantize_weight(weight: &Array2<f32>) -> (Vec<u32>, f32) {
+        let numel = weight.len();
+        let mut max_abs = 0.0f32;
+        for &v in weight.iter() {
+            max_abs = max_abs.max(v.abs());
+        }
+        if max_abs == 0.0 {
+            return (vec![0u32; (numel + 3) / 4], 0.0);
+        }
+        let scale = max_abs / 127.0f32;
+        let inv_scale = 1.0 / scale;
+
+        let mut packed = Vec::with_capacity((numel + 3) / 4);
+        let mut word: u32 = 0;
+        for (i, &v) in weight.iter().enumerate() {
+            let q = (v * inv_scale).round().clamp(-128.0, 127.0) as i32 as i8 as u8;
+            word |= (q as u32) << ((i % 4) * 8);
+            if i % 4 == 3 {
+                packed.push(word);
+                word = 0;
+            }
+        }
+        if numel % 4 != 0 {
+            packed.push(word);
+        }
+        (packed, scale)
+    }
+
     /// Pre-upload ALL model weights to GPU persistent buffer.
     /// Token embedding, lm_head (pre-transposed), norm weight, and per-block
     /// attention/FFN weights (all pre-transposed) are uploaded once and reused.
     /// Called once at the start of any GPU forward pass.
+    ///
+    /// If `self.quantize_weights` is true, also uploads int8 quantized variants
+    /// of weight matrices. The int8 kernels dequantize on-the-fly in the WGSL
+    /// shader, reducing GPU memory bandwidth ~4×.
     #[cfg(feature = "gpu")]
     pub fn preupload_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
         if self.gpu_weights.get().is_some() {
             return Ok(());
@@ -730,6 +806,14 @@ impl CausalLM {
         let lm_head_gpu = mk_gpu(&self.lm_head)?;
         let lm_head_t = ctx.transpose(&lm_head_gpu)?;
 
+        let (lm_head_i8, lm_head_scale) = if self.quantize_weights {
+            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+            let (packed, s) = Self::quantize_weight(&self.lm_head);
+            (Some(GpuTensor::from_cpu_i8_packed(shape, &packed)?), s)
+        } else {
+            (None, 0.0)
+        };
+
         let norm_weight = mk_gpu_1d(&self.norm.weight)?;
 
         let mut block_weights = Vec::with_capacity(self.blocks.len());
@@ -745,6 +829,65 @@ impl CausalLM {
             let w2 = mk_gpu(&block.ffn.w2)?;
             let w3 = mk_gpu(&block.ffn.w3)?;
 
+            let (wq_i8, scale_wq) = if self.quantize_weights {
+                let shape = vec![block.attention.wq.shape()[0], block.attention.wq.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.attention.wq);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (wk_i8, scale_wk) = if self.quantize_weights {
+                let shape = vec![block.attention.wk.shape()[0], block.attention.wk.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.attention.wk);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (wv_i8, scale_wv) = if self.quantize_weights {
+                let shape = vec![block.attention.wv.shape()[0], block.attention.wv.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.attention.wv);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (wo_i8, scale_wo) = if self.quantize_weights {
+                let shape = vec![block.attention.wo.shape()[0], block.attention.wo.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.attention.wo);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (w1_i8, scale_w1) = if self.quantize_weights {
+                let shape = vec![block.ffn.w1.shape()[0], block.ffn.w1.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.ffn.w1);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (w2_i8, scale_w2) = if self.quantize_weights {
+                let shape = vec![block.ffn.w2.shape()[0], block.ffn.w2.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.ffn.w2);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+            let (w3_i8, scale_w3) = if self.quantize_weights {
+                let shape = vec![block.ffn.w3.shape()[0], block.ffn.w3.shape()[1]];
+                let (p, s) = Self::quantize_weight(&block.ffn.w3);
+                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            } else {
+                (None, 0.0)
+            };
+
+            let use_f16 = self.use_half_precision && !self.quantize_weights;
+            let wq_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&wq)?) } else { None };
+            let wk_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&wk)?) } else { None };
+            let wv_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&wv)?) } else { None };
+            let wo_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&wo)?) } else { None };
+            let w1_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&w1)?) } else { None };
+            let w2_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&w2)?) } else { None };
+            let w3_f16 = if use_f16 { Some(ctx.f32_to_f16_packed(&w3)?) } else { None };
+
             block_weights.push(BlockGpuWeights {
                 attention_norm_weight,
                 ffn_norm_weight,
@@ -755,13 +898,43 @@ impl CausalLM {
                 w1_t: ctx.transpose(&w1)?,
                 w2_t: ctx.transpose(&w2)?,
                 w3_t: ctx.transpose(&w3)?,
+                wq_i8,
+                wk_i8,
+                wv_i8,
+                wo_i8,
+                w1_i8,
+                w2_i8,
+                w3_i8,
+                scale_wq,
+                scale_wk,
+                scale_wv,
+                scale_wo,
+                scale_w1,
+                scale_w2,
+                scale_w3,
+                wq_f16,
+                wk_f16,
+                wv_f16,
+                wo_f16,
+                w1_f16,
+                w2_f16,
+                w3_f16,
             });
         }
+
+        let lm_head_f16 = if self.use_half_precision && !self.quantize_weights {
+            Some(ctx.f32_to_f16_packed(&lm_head_gpu)?)
+        } else {
+            None
+        };
 
         self.gpu_weights
             .set(GpuWeights {
                 token_embedding,
                 lm_head_t,
+                lm_head_i8,
+                lm_head_scale,
+                lm_head_f16,
                 norm_weight,
                 block_weights,
             })
@@ -1076,7 +1249,7 @@ impl CausalLM {
         })?;
         if cache_guard.is_none() {
             let mut gpu_entries: Vec<super::gqa::GpuKVCacheEntry> = (0..num_layers)
-                .map(|_| super::gqa::GpuKVCacheEntry::new(n_kv_heads, head_dim, max_seq))
+                .map(|_| super::gqa::GpuKVCacheEntry::new(&ctx, n_kv_heads, head_dim, max_seq, self.use_half_precision))
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Upload existing CPU K/V to GPU (one-time O(seq_len) cost)
@@ -1138,12 +1311,13 @@ impl CausalLM {
         // the early return above prevents reaching here entirely.
         if needs_sync_back {
             let kv_elems = n_kv_heads * head_dim;
-            let token_bytes = (kv_elems * 4) as u64;
 
             for layer_idx in 0..num_layers {
                 let gpu_entry = &gpu_entries[layer_idx];
                 let last_idx = gpu_entry.seq_len.wrapping_sub(1);
-                let byte_off = (last_idx * kv_elems * 4) as u64;
+                let elem_size: u64 = if gpu_entry.f16_storage { 2 } else { 4 };
+                let byte_off = (last_idx * kv_elems) as u64 * elem_size;
+                let token_bytes = (kv_elems as u64) * elem_size;
 
                 let staging_k = ctx.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("kv_sync_back_k"),
@@ -1179,7 +1353,7 @@ impl CausalLM {
                 ctx.sync();
 
                 let read_back =
-                    |staging: &wgpu::Buffer| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
+                    |staging: &wgpu::Buffer, is_f16: bool| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
                         let slice = staging.slice(..);
                         let (tx, rx) = std::sync::mpsc::channel();
                         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -1200,16 +1374,26 @@ impl CausalLM {
                                 nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                             })?;
                         let mapped = slice.get_mapped_range();
-                        let out: Vec<f32> = mapped
-                            .chunks_exact(4)
-                            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                            .collect();
+                        let out: Vec<f32> = if is_f16 {
+                            mapped
+                                .chunks_exact(2)
+                                .map(|c| {
+                                    let bits = u16::from_ne_bytes([c[0], c[1]]);
+                                    half::f16::from_bits(bits).to_f32()
+                                })
+                                .collect()
+                        } else {
+                            mapped
+                                .chunks_exact(4)
+                                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect()
+                        };
                         staging.unmap();
                         Ok(out)
                     };
 
-                let new_k = read_back(&staging_k)?;
-                let new_v = read_back(&staging_v)?;
+                let new_k = read_back(&staging_k, gpu_entry.f16_storage)?;
+                let new_v = read_back(&staging_v, gpu_entry.f16_storage)?;
 
                 if layer_idx < cpu_entries.len() {
                     let cpu_entry = &mut cpu_entries[layer_idx];
@@ -1244,9 +1428,11 @@ impl CausalLM {
         let mut gpu_cache: Vec<super::gqa::GpuKVCacheEntry> = match (0..self.config.num_layers)
             .map(|_| {
                 super::gqa::GpuKVCacheEntry::new(
+                    &ctx,
                     self.config.num_kv_heads,
                     self.config.head_dim(),
                     self.config.max_seq_len,
+                    self.use_half_precision,
                 )
             })
             .collect::<Result<Vec<_>, _>>()
@@ -1334,6 +1520,11 @@ impl CausalLM {
         top_p: f32,
         seed: u64,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
+        use nexora_autograd::gpu::GpuContext;
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
+        };
         // Prefill: feed all prompt tokens through the GPU-forward path.
         // We still use the CPU forward for prefill (batched matmul isn't ready
         // for GPU-only KV cache). After prefill, switch to the GPU-resident loop.
@@ -1342,9 +1533,11 @@ impl CausalLM {
         let mut gpu_cache: Vec<super::gqa::GpuKVCacheEntry> = match (0..self.config.num_layers)
             .map(|_| {
                 super::gqa::GpuKVCacheEntry::new(
+                    &ctx,
                     self.config.num_kv_heads,
                     self.config.head_dim(),
                     self.config.max_seq_len,
+                    self.use_half_precision,
                 )
             })
             .collect()
@@ -1658,6 +1851,55 @@ impl CausalLM {
             )
         })?;
 
+        // ── 0a. Bulk upconvert F16 weights → f32 temps if configured ──
+        let f16_temps: Option<(Vec<[GpuTensor; 7]>, Option<GpuTensor>)> = if self.use_half_precision
+            && !self.quantize_weights
+        {
+            let mut block_temps: Vec<[GpuTensor; 7]> = Vec::with_capacity(num_layers);
+            for block_gw in &gw.block_weights {
+                let wq = ctx.f16_packed_to_f32(block_gw.wq_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight wq missing f16 variant".into(),
+                    )
+                })?)?;
+                let wk = ctx.f16_packed_to_f32(block_gw.wk_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight wk missing f16 variant".into(),
+                    )
+                })?)?;
+                let wv = ctx.f16_packed_to_f32(block_gw.wv_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight wv missing f16 variant".into(),
+                    )
+                })?)?;
+                let wo = ctx.f16_packed_to_f32(block_gw.wo_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight wo missing f16 variant".into(),
+                    )
+                })?)?;
+                let w1 = ctx.f16_packed_to_f32(block_gw.w1_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight w1 missing f16 variant".into(),
+                    )
+                })?)?;
+                let w2 = ctx.f16_packed_to_f32(block_gw.w2_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight w2 missing f16 variant".into(),
+                    )
+                })?)?;
+                let w3 = ctx.f16_packed_to_f32(block_gw.w3_f16.as_ref().ok_or_else(|| {
+                    nexora_autograd::gpu::GpuError::Unsupported(
+                        "use_half_precision: block weight w3 missing f16 variant".into(),
+                    )
+                })?)?;
+                block_temps.push([wq, wk, wv, wo, w1, w2, w3]);
+            }
+            let lm_head = gw.lm_head_f16.as_ref().map(|f16| ctx.f16_packed_to_f32(f16)).transpose()?;
+            Some((block_temps, lm_head))
+        } else {
+            None
+        };
+
         if batch_size == 0 {
             return Ok(Vec::new());
         }
@@ -1669,7 +1911,7 @@ impl CausalLM {
         let mut gpu_caches: Vec<Vec<GpuKVCacheEntry>> = (0..batch_size)
             .map(|_| {
                 (0..num_layers)
-                    .map(|_| GpuKVCacheEntry::new(n_kv_heads, head_dim, max_seq))
+                    .map(|_| GpuKVCacheEntry::new(&ctx, n_kv_heads, head_dim, max_seq, self.use_half_precision))
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1751,9 +1993,27 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             // Batched QKV projection: 3 matmuls with [batch_size, hidden_size]
-            let q_proj = ctx.matmul(&normed, &block_gw.wq_t)?;
-            let k_proj = ctx.matmul(&normed, &block_gw.wk_t)?;
-            let v_proj = ctx.matmul(&normed, &block_gw.wv_t)?;
+            let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.scale_wq)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&normed, &temps[layer_idx][0])?
+            } else {
+                ctx.matmul(&normed, &block_gw.wq_t)?
+            };
+            let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.scale_wk)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&normed, &temps[layer_idx][1])?
+            } else {
+                ctx.matmul(&normed, &block_gw.wk_t)?
+            };
+            let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.scale_wv)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&normed, &temps[layer_idx][2])?
+            } else {
+                ctx.matmul(&normed, &block_gw.wv_t)?
+            };
 
             // Batch-upload cos/sin for ALL sequences at once: [batch_size, half]
             let mut cos_flat = Vec::with_capacity(batch_size * half);
@@ -1895,23 +2155,51 @@ impl CausalLM {
             })?;
 
             // Batched output projection + residual
-            let attn_proj = ctx.matmul(&attn_concat, &block_gw.wo_t)?;
+            let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.scale_wo)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&attn_concat, &temps[layer_idx][3])?
+            } else {
+                ctx.matmul(&attn_concat, &block_gw.wo_t)?
+            };
             h = ctx.add(&h, &attn_proj)?;
 
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
-            let ffn_gate = ctx.matmul(&normed_ffn, &block_gw.w1_t)?;
-            let ffn_hidden = ctx.matmul(&normed_ffn, &block_gw.w3_t)?;
-            let ffn_out = ctx.matmul(
-                &ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?,
-                &block_gw.w2_t,
-            )?;
+            let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.scale_w1)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
+            } else {
+                ctx.matmul(&normed_ffn, &block_gw.w1_t)?
+            };
+            let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.scale_w3)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
+            } else {
+                ctx.matmul(&normed_ffn, &block_gw.w3_t)?
+            };
+            let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
+            let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.scale_w2)?
+            } else if let Some((ref temps, _)) = f16_temps {
+                ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
+            } else {
+                ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
+            };
             h = ctx.add(&h, &ffn_out)?;
         }
 
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
-        let logits = ctx.matmul(&h, &gw.lm_head_t)?;
+        let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scale)?
+        } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
+            ctx.matmul(&h, lm_head_f32)?
+        } else {
+            ctx.matmul(&h, &gw.lm_head_t)?
+        };
 
         // ── 4. SINGLE readback — split into per-sequence logits ──
         let logits_data: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
@@ -1930,8 +2218,9 @@ impl CausalLM {
                     continue;
                 }
                 let last_idx = gpu_entry.seq_len - 1;
-                let byte_off = (last_idx * kv_elems * 4) as u64;
-                let token_bytes = (kv_elems * 4) as u64;
+                let elem_size: u64 = if gpu_entry.f16_storage { 2 } else { 4 };
+                let byte_off = (last_idx * kv_elems) as u64 * elem_size;
+                let token_bytes = (kv_elems as u64) * elem_size;
 
                 let staging_k = ctx.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("batched_sync_k"),
@@ -1967,7 +2256,7 @@ impl CausalLM {
                 ctx.sync();
 
                 let read_back =
-                    |staging: &wgpu::Buffer| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
+                    |staging: &wgpu::Buffer, is_f16: bool| -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
                         let slice = staging.slice(..);
                         let (tx, rx) = std::sync::mpsc::channel();
                         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -1975,7 +2264,6 @@ impl CausalLM {
                         });
                         let deadline =
                             std::time::Instant::now() + std::time::Duration::from_secs(10);
-                        // Called from spawn_blocking — sync device.poll(Wait) is acceptable here
                         let map_result = loop {
                             ctx.device.poll(wgpu::PollType::Wait {
                                 submission_index: None,
@@ -1996,16 +2284,26 @@ impl CausalLM {
                             nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                         })?;
                         let mapped = slice.get_mapped_range();
-                        let out: Vec<f32> = mapped
-                            .chunks_exact(4)
-                            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                            .collect();
+                        let out: Vec<f32> = if is_f16 {
+                            mapped
+                                .chunks_exact(2)
+                                .map(|c| {
+                                    let bits = u16::from_ne_bytes([c[0], c[1]]);
+                                    half::f16::from_bits(bits).to_f32()
+                                })
+                                .collect()
+                        } else {
+                            mapped
+                                .chunks_exact(4)
+                                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect()
+                        };
                         staging.unmap();
                         Ok(out)
                     };
 
-                let new_k = read_back(&staging_k)?;
-                let new_v = read_back(&staging_v)?;
+                let new_k = read_back(&staging_k, gpu_entry.f16_storage)?;
+                let new_v = read_back(&staging_v, gpu_entry.f16_storage)?;
 
                 if layer_idx < cpu_cache.len() {
                     let entry = &mut cpu_cache[layer_idx];
@@ -2337,6 +2635,122 @@ mod tests {
         assert!(result.is_ok());
         if let Ok(logits) = result {
             assert_eq!(logits.len(), 100);
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_forward_gpu_int8_matches_cpu() {
+        use crate::GpuKVCacheEntry;
+        use nexora_autograd::gpu::GpuContext;
+
+        let _ctx = GpuContext::init().expect("GPU context init failed");
+
+        let model = small_model();
+        let mut cache = model.reset_cache();
+        let cpu_logits = model.forward(&[0, 1], &mut cache).unwrap();
+
+        let mut model_gpu = small_model();
+        model_gpu.quantize_weights = true;
+        let mut gpu_cache: Vec<GpuKVCacheEntry> = (0..model_gpu.config.num_layers)
+            .map(|_| {
+                GpuKVCacheEntry::new(
+                    &GpuContext::global().unwrap(),
+                    model_gpu.config.num_kv_heads,
+                    model_gpu.config.head_dim(),
+                    model_gpu.config.max_seq_len,
+                    false,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let gpu_logits = model_gpu.forward_gpu_with_cache(&[0, 1], &mut gpu_cache).unwrap();
+
+        assert_eq!(cpu_logits.len(), gpu_logits.len());
+        for (i, (c, g)) in cpu_logits.iter().zip(gpu_logits.iter()).enumerate() {
+            let diff = (c - g).abs();
+            assert!(
+                diff < 1.0,
+                "int8 logit mismatch at [{i}]: cpu={c} gpu={g} diff={diff}"
+            );
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_forward_gpu_f16_matches_cpu() {
+        use crate::GpuKVCacheEntry;
+        use nexora_autograd::gpu::GpuContext;
+
+        let _ctx = GpuContext::init().expect("GPU context init failed");
+
+        let model = small_model();
+        let mut cache = model.reset_cache();
+        let cpu_logits = model.forward(&[0, 1], &mut cache).unwrap();
+
+        let mut model_gpu = small_model();
+        model_gpu.use_half_precision = true;
+        let mut gpu_cache: Vec<GpuKVCacheEntry> = (0..model_gpu.config.num_layers)
+            .map(|_| {
+                GpuKVCacheEntry::new(
+                    &GpuContext::global().unwrap(),
+                    model_gpu.config.num_kv_heads,
+                    model_gpu.config.head_dim(),
+                    model_gpu.config.max_seq_len,
+                    true,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let gpu_logits = model_gpu.forward_gpu_with_cache(&[0, 1], &mut gpu_cache).unwrap();
+
+        assert_eq!(cpu_logits.len(), gpu_logits.len());
+        for (i, (c, g)) in cpu_logits.iter().zip(gpu_logits.iter()).enumerate() {
+            let diff = (c - g).abs();
+            assert!(
+                diff < 0.1,
+                "F16 logit mismatch at [{i}]: cpu={c} gpu={g} diff={diff}"
+            );
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn test_forward_gpu_f16_kv_cache_matches_cpu() {
+        use crate::GpuKVCacheEntry;
+        use nexora_autograd::gpu::GpuContext;
+
+        let _ctx = GpuContext::init().expect("GPU context init failed");
+
+        let model = small_model();
+        let mut cache = model.reset_cache();
+        let cpu_logits = model.forward(&[1, 2, 3], &mut cache).unwrap();
+
+        let mut model_gpu = small_model();
+        model_gpu.use_half_precision = true;
+        let mut gpu_cache: Vec<GpuKVCacheEntry> = (0..model_gpu.config.num_layers)
+            .map(|_| {
+                GpuKVCacheEntry::new(
+                    &GpuContext::global().unwrap(),
+                    model_gpu.config.num_kv_heads,
+                    model_gpu.config.head_dim(),
+                    model_gpu.config.max_seq_len,
+                    true,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Multi-token prefill (3 tokens)
+        let gpu_logits = model_gpu.forward_gpu_with_cache(&[1, 2, 3], &mut gpu_cache).unwrap();
+
+        assert_eq!(cpu_logits.len(), gpu_logits.len());
+        for (i, (c, g)) in cpu_logits.iter().zip(gpu_logits.iter()).enumerate() {
+            let diff = (c - g).abs();
+            assert!(
+                diff < 0.1,
+                "F16 KV cache logit mismatch at [{i}]: cpu={c} gpu={g} diff={diff}"
+            );
         }
     }
 

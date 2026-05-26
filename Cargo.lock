@@ -4069,6 +4069,7 @@ dependencies = [
 name = "nexora-transformer"
 version = "0.1.0"
 dependencies = [
+ "half",
  "ndarray 0.15.6",
  "nexora-autograd",
  "parking_lot",

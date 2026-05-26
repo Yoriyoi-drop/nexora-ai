@@ -105,10 +105,15 @@ impl GpuMemoryPool {
         self.stats.allocs += 1;
         self.stats.bytes_allocated += b_size;
 
+        let extra = if usage.contains(wgpu::BufferUsages::MAP_READ) || usage.contains(wgpu::BufferUsages::MAP_WRITE) {
+            wgpu::BufferUsages::empty()
+        } else {
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC
+        };
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: b_size,
-            usage: usage | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            usage: usage | extra,
             mapped_at_creation: false,
         });
 

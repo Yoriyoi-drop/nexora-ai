@@ -1,9 +1,7 @@
-//! WARNING: This module provides F16/BF16 conversion primitives but is NOT yet
-//! integrated into the inference pipeline. The inference engine currently uses
-//! fp32 throughout. Integration requires:
-//! 1. Converting transformer weights to F16 during GPU upload
-//! 2. Converting KV cache to F16 storage
-//! 3. Updating the sampler to handle F16 logits
+//! GPU packed F16 conversion primitives.
+//! Weight upload: f32→F16 packed di `preupload_weights_gpu()` (transformer crate).
+//! Inference: bulk upconvert F16→f32 temp di awal `forward_gpu_batched()`.
+//! TODO: F16 KV cache + F16 sampler untuk VRAM saving penuh.
 
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
@@ -374,7 +372,8 @@ pub fn dispatch_scale_inplace(
     Ok(())
 }
 
-/// Unscale all elements in-place: tensor[i] = tensor[i] / scale
+
+/// Unscale in-place: tensor[i] = tensor[i] / scale
 pub fn dispatch_unscale_inplace(
     ctx: &GpuContext,
     pipeline: &wgpu::ComputePipeline,
@@ -404,7 +403,201 @@ pub fn dispatch_unscale_inplace(
     Ok(())
 }
 
-// ─── WGSL Shaders ──────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PACKED F16: 2 f16 values per u32 (true 2× memory savings)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Compile packed F32→F16 pipeline (2 f16 per u32 output element).
+pub fn compile_f32_to_f16_packed_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "f32_to_f16_packed",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(F32_TO_F16_PACKED_WGSL),
+        "main",
+    )
+}
+
+/// Compile packed F16→F32 pipeline (reads 2 f16 per u32, writes 2 f32).
+pub fn compile_f16_packed_to_f32_pipeline(ctx: &mut GpuContext) -> Result<wgpu::ComputePipeline, GpuError> {
+    ctx.compile_pipeline_cached(
+        "f16_packed_to_f32",
+        &[
+            crate::gpu::storage_binding(0, true),
+            crate::gpu::storage_binding(1, false),
+        ],
+        std::borrow::Cow::Borrowed(F16_PACKED_TO_F32_WGSL),
+        "main",
+    )
+}
+
+/// Convert f32 buffer to packed f16 (2 f16 per u32).
+/// Output has `(numel + 1) / 2` u32 elements, dtype=GpuDtype::F16.
+pub fn dispatch_f32_to_f16_packed(
+    ctx: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
+    input: &GpuTensor,
+) -> Result<GpuTensor, GpuError> {
+    let numel = input.numel();
+    let shape = input.shape();
+    let packed_size = (numel + 1) / 2;
+    let out_bytes = packed_size as u64 * 4;
+
+    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("f16_packed_out"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("f32_to_f16_packed_bg"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input.buffer().as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: out_buf.as_entire_binding(),
+            },
+        ],
+    });
+
+    let wg = (packed_size as u32 + 255) / 256;
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f32_to_f16_packed");
+
+    Ok(GpuTensor {
+        shape,
+        buffer: out_buf,
+        dtype: GpuDtype::F16,
+        device_id: 0,
+    })
+}
+
+/// Convert packed f16 (2 per u32) back to f32.
+/// Output has `input.numel() * 2` f32 elements (but logical shape = input.shape).
+pub fn dispatch_f16_packed_to_f32(
+    ctx: &GpuContext,
+    pipeline: &wgpu::ComputePipeline,
+    input: &GpuTensor,
+) -> Result<GpuTensor, GpuError> {
+    let numel = input.numel(); // logical element count
+    let shape = input.shape();
+    let out_bytes = numel as u64 * 4;
+
+    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("f16_packed_to_f32_out"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("f16_packed_to_f32_bg"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: input.buffer().as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: out_buf.as_entire_binding(),
+            },
+        ],
+    });
+
+    let wg = (numel as u32 + 255) / 256;
+    dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f16_packed_to_f32");
+
+    Ok(GpuTensor {
+        shape,
+        buffer: out_buf,
+        dtype: GpuDtype::F32,
+        device_id: 0,
+    })
+}
+
+// ─── WGSL Shaders for Packed F16 ────────────────────────────────────────────────
+
+/// F32 → packed F16: converts 2 f32 elements per thread, packs into 1 u32.
+/// Each u32 output element contains: lower 16 bits = f16 value 0, upper 16 bits = f16 value 1.
+const F32_TO_F16_PACKED_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output: array<u32>;
+
+fn f32_to_f16_bits(val: f32) -> u32 {
+    let bits = bitcast<u32>(val);
+    let sign = (bits >> 16u) & 0x8000u;
+    var exp = (bits >> 23u) & 0xFFu;
+    var mant = bits & 0x7FFFFFu;
+
+    if (exp == 0u) { return sign; }
+    if (exp == 0xFFu) {
+        if (mant == 0u) { return sign | 0x7C00u; }
+        else { return sign | 0x7C00u | (mant >> 13u); }
+    }
+
+    let new_exp = exp - 127u + 15u;
+    if (new_exp >= 31u) { return sign | 0x7C00u; }
+    if (new_exp <= 0u) { return sign; }
+
+    return sign | (new_exp << 10u) | (mant >> 13u);
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    let n_f32 = arrayLength(&input);
+    let n_packed = (n_f32 + 1u) / 2u;
+    if (i >= n_packed) { return; }
+
+    let lo = f32_to_f16_bits(input[i * 2u]);
+    var hi = 0u;
+    if (i * 2u + 1u < n_f32) {
+        hi = f32_to_f16_bits(input[i * 2u + 1u]);
+    }
+    output[i] = lo | (hi << 16u);
+}
+"#;
+
+/// Packed F16 → F32: reads 1 u32, extracts 2 f16 values, writes 2 f32.
+/// Each thread handles 1 output f32 element (reads from packed u32 = input[i/2]).
+const F16_PACKED_TO_F32_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> input: array<u32>;
+@group(0) @binding(1) var<storage, read_write> output: array<f32>;
+
+fn f16_bits_to_f32(f16_bits: u32) -> f32 {
+    let sign = (f16_bits >> 15u) & 0x1u;
+    var exp = (f16_bits >> 10u) & 0x1Fu;
+    let mant = f16_bits & 0x3FFu;
+
+    var f32_bits: u32;
+    if (exp == 0u) {
+        f32_bits = sign << 31u;
+    } else if (exp == 31u) {
+        f32_bits = (u32(sign) << 31u) | (0xFFu << 23u) | (mant << 13u);
+    } else {
+        f32_bits = (u32(sign) << 31u) | ((exp - 15u + 127u) << 23u) | (mant << 13u);
+    }
+    return bitcast<f32>(f32_bits);
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    let n_f32 = arrayLength(&output);
+    if (i >= n_f32) { return; }
+
+    let packed = input[i / 2u];
+    let f16_bits = select(packed & 0xFFFFu, (packed >> 16u) & 0xFFFFu, i % 2u == 1u);
+    output[i] = f16_bits_to_f32(f16_bits);
+}
+"#;
 
 /// F32 → F16: pack each f32 into u16 via WGSL bitcast/truncation.
 /// WGSL doesn't have native f16 without `enable f16;` feature,
