@@ -47,12 +47,9 @@ impl IsolationOrchestrator {
         )));
 
         Self {
-            global: Arc::new(RwLock::new(
-                GlobalSystemIsolation::new(&config.global.cluster_name)
-                    .cluster()
-                    .read()
-                    .clone(),
-            )),
+            global: GlobalSystemIsolation::new(&config.global.cluster_name)
+                .cluster()
+                .clone(),
             mode: mode_layer,
             agent: Arc::new(RwLock::new(AgentIsolationLayer::new())),
             tool: Arc::new(RwLock::new(ToolIsolationLayer::new(

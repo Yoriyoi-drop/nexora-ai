@@ -225,10 +225,6 @@ mod tests {
         TransformerBlock::new(8, 4, 2, 4, 16, 1e-6)
     }
 
-    fn dummy_cos_sin() -> (Vec<f32>, Vec<f32>) {
-        (vec![0.0, 1.0], vec![1.0, 0.0]) // half=head_dim/2=2
-    }
-
     #[test]
     fn test_block_new_shapes() {
         let block = small_block();
@@ -247,7 +243,8 @@ mod tests {
             v: vec![],
             kv_dim: 8,
         }];
-        let (cos, sin) = dummy_cos_sin();
+        let cos = vec![0.0, 1.0];
+        let sin = vec![1.0, 0.0];
         let out = block.forward(&x, &mut cache, 0, &cos, &sin);
         assert_eq!(out.dim(), (1, 8));
         assert!(out.iter().all(|v| v.is_finite()));
@@ -273,7 +270,8 @@ mod tests {
             v: vec![],
             kv_dim: 8,
         }];
-        let (cos, sin) = dummy_cos_sin();
+        let cos = vec![0.0, 1.0];
+        let sin = vec![1.0, 0.0];
         let out = block.forward(&x, &mut cache, 0, &cos, &sin);
         assert_eq!(out.dim(), (2, 8));
     }
@@ -282,7 +280,8 @@ mod tests {
     fn test_block_forward_accumulates_cache() {
         let block = small_block();
         let mut cache: Vec<KVCacheEntry> = Vec::new();
-        let (cos, sin) = dummy_cos_sin();
+        let cos = vec![0.0, 1.0];
+        let sin = vec![1.0, 0.0];
 
         let x1 = array![[1.0; 8]];
         let _ = block.forward(&x1, &mut cache, 0, &cos, &sin);

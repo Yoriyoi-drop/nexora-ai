@@ -2,7 +2,7 @@
 //!
 //! Provides coordination functionality for multi-agent systems
 
-use super::agent_types::{AgentResult, CommunicationChannel, TaskRoutingRule};
+use super::agent_types::{AgentError, AgentResult, CommunicationChannel, TaskRoutingRule};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -278,20 +278,36 @@ pub struct CoordinationStrategyFactory;
 
 impl CoordinationStrategyFactory {
     /// Create strategy from enum
-    pub fn create_strategy(strategy: &CoordinationStrategy) -> Box<dyn CoordinationStrategyTrait> {
+    pub fn create_strategy(
+        strategy: &CoordinationStrategy,
+    ) -> AgentResult<Box<dyn CoordinationStrategyTrait>> {
         match strategy {
-            CoordinationStrategy::Sequential => Box::new(SequentialCoordinator),
-            CoordinationStrategy::Parallel => Box::new(ParallelCoordinator),
-            CoordinationStrategy::Hierarchical { hierarchy } => {
-                Box::new(HierarchicalCoordinator::new(hierarchy.clone()))
-            }
-            CoordinationStrategy::Adaptive => Box::new(SequentialCoordinator), // Fallback
-            CoordinationStrategy::ConsensusBased { .. } => Box::new(SequentialCoordinator), // Fallback
-            CoordinationStrategy::LoadBalanced => Box::new(ParallelCoordinator),
-            CoordinationStrategy::PriorityBased => Box::new(SequentialCoordinator),
-            CoordinationStrategy::EmpathyDriven { .. } => Box::new(SequentialCoordinator),
-            CoordinationStrategy::CreativeDriven { .. } => Box::new(ParallelCoordinator),
-            CoordinationStrategy::Consensus { .. } => Box::new(SequentialCoordinator),
+            CoordinationStrategy::Sequential => Ok(Box::new(SequentialCoordinator)),
+            CoordinationStrategy::Parallel => Ok(Box::new(ParallelCoordinator)),
+            CoordinationStrategy::Hierarchical { hierarchy } => Ok(Box::new(
+                HierarchicalCoordinator::new(hierarchy.clone()),
+            )),
+            CoordinationStrategy::Adaptive => Err(AgentError::ConfigurationError(
+                "Adaptive coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::ConsensusBased { .. } => Err(AgentError::ConfigurationError(
+                "ConsensusBased coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::LoadBalanced => Err(AgentError::ConfigurationError(
+                "LoadBalanced coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::PriorityBased => Err(AgentError::ConfigurationError(
+                "PriorityBased coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::EmpathyDriven { .. } => Err(AgentError::ConfigurationError(
+                "EmpathyDriven coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::CreativeDriven { .. } => Err(AgentError::ConfigurationError(
+                "CreativeDriven coordination strategy is not yet implemented".into(),
+            )),
+            CoordinationStrategy::Consensus { .. } => Err(AgentError::ConfigurationError(
+                "Consensus coordination strategy is not yet implemented".into(),
+            )),
         }
     }
 }

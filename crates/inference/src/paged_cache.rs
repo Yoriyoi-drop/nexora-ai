@@ -1,8 +1,7 @@
-//! NOTE: PagedAttention cache is a standalone implementation not yet integrated
-//! with the inference engine. The engine uses CpuKVCache/GpuKVCache instead.
-//! Integration requires wiring PagedCacheReader into the transformer forward pass.
-//!
 //! PagedAttention KV Cache — block-based key-value cache manager.
+//!
+//! Supports conversion to flat cache format via [`to_flat_cache`] for compatibility
+//! with the standard forward pass, and direct paged forward via `forward_paged`.
 //!
 //! Mengelola memory KV cache dalam blok-blok fixed-size untuk:
 //! - Menghindari fragmentasi memori (vs growable Vec per sequence)
@@ -204,7 +203,6 @@ impl BlockTable {
 ///
 /// Alokasi memori dalam fixed-size blocks, bukan growable Vec per sequence.
 /// Setiap sequence punya BlockTable yang memetakan logical → physical blocks.
-#[deprecated(note = "Use CpuKVCache/GpuKVCache instead - PagedAttention not yet integrated with inference engine")]
 pub struct PagedKVCache {
     config: PagedCacheConfig,
     /// Per-layer physical blocks

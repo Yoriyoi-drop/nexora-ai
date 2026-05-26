@@ -104,6 +104,17 @@ pub trait FoundationModel: Send + Sync {
 
     /// Create layer information (internal method)
     fn create_layer_info(&self) -> Vec<LayerInfo>;
+
+    /// Compute gradients using backpropagation.
+    /// Returns parameter_name → gradient array.
+    /// Default implementation errors — model types must override for efficient gradients.
+    fn compute_gradients(
+        &self,
+        _input: &ArrayD<f32>,
+        _target: &ArrayD<f32>,
+    ) -> Result<HashMap<String, ArrayD<f32>>, Box<dyn std::error::Error>> {
+        Err("compute_gradients not implemented for this model type, use finite-differences as fallback".into())
+    }
 }
 
 /// Basic foundation model implementation
@@ -437,6 +448,99 @@ impl FoundationModel for BasicFoundationModel {
             }
         }
         Ok(())
+    }
+
+    fn compute_gradients(
+        &self,
+        input: &ArrayD<f32>,
+        target: &ArrayD<f32>,
+    ) -> Result<HashMap<String, ArrayD<f32>>, Box<dyn std::error::Error>> {
+        let batch_size = input.shape()[0];
+
+        // Forward pass: store (layer_name, input_to_layer, pre_activation)
+        let mut layer_data: Vec<(String, ArrayD<f32>, ArrayD<f32>)> = Vec::new();
+        let mut current = input.clone();
+
+        for layer_name in &self.architecture {
+            if let Some(weights) = self.parameters.get(layer_name) {
+                let layer_input = current.clone();
+                let pre_act = self.apply_dense_layer(&current, weights)?;
+                layer_data.push((layer_name.clone(), layer_input, pre_act.clone()));
+
+                let is_final =
+                    layer_name == self.architecture.last().map(|s| s.as_str()).unwrap_or("");
+                if !is_final {
+                    current = pre_act.mapv(|x| x.max(0.0));
+                } else {
+                    current = pre_act;
+                }
+            } else {
+                return Err(format!("Layer '{}' not found in parameters", layer_name).into());
+            }
+        }
+
+        let output = &current;
+        let output_size = output.len();
+
+        // dL/doutput = 2 * (output - target) / output.len()  (MSE derivative)
+        let mut grad_output = ArrayD::zeros(output.shape());
+        for ((o, t), grad) in output.iter().zip(target.iter()).zip(grad_output.iter_mut()) {
+            *grad = 2.0 * (o - t) / output_size as f32;
+        }
+
+        let mut gradients = HashMap::new();
+        let mut grad_current = grad_output;
+
+        // Backprop in reverse order
+        for (layer_name, layer_input, pre_act) in layer_data.into_iter().rev() {
+            let weights = self
+                .parameters
+                .get(&layer_name)
+                .ok_or_else(|| format!("Layer '{}' not found in parameters", layer_name))?;
+            let weight_shape = weights.shape();
+            let output_features = weight_shape[0];
+            let input_features = weight_shape[1];
+
+            let is_final =
+                layer_name == self.architecture.last().map(|s| s.as_str()).unwrap_or("");
+
+            // ReLU backprop: dL/dpre = dL/doutput * (pre > 0)  (skip for final layer)
+            if !is_final {
+                for (grad, &pre_val) in grad_current.iter_mut().zip(pre_act.iter()) {
+                    if pre_val <= 0.0 {
+                        *grad = 0.0;
+                    }
+                }
+            }
+
+            // dL/dW[o,i] = sum_b grad_current[b,o] * layer_input[b,i]
+            let mut grad_w = ArrayD::zeros(vec![output_features, input_features]);
+            for o in 0..output_features {
+                for i in 0..input_features {
+                    let mut sum = 0.0;
+                    for b in 0..batch_size {
+                        sum += grad_current[[b, o]] * layer_input[[b, i]];
+                    }
+                    grad_w[[o, i]] = sum;
+                }
+            }
+            gradients.insert(layer_name, grad_w);
+
+            // Backprop through dense: dL/dinput[b,i] = sum_o grad_current[b,o] * weights[o,i]
+            let mut grad_input = ArrayD::zeros(vec![batch_size, input_features]);
+            for b in 0..batch_size {
+                for i in 0..input_features {
+                    let mut sum = 0.0;
+                    for o in 0..output_features {
+                        sum += grad_current[[b, o]] * weights[[o, i]];
+                    }
+                    grad_input[[b, i]] = sum;
+                }
+            }
+            grad_current = grad_input;
+        }
+
+        Ok(gradients)
     }
 
     fn get_state(&self) -> HashMap<String, ArrayD<f32>> {

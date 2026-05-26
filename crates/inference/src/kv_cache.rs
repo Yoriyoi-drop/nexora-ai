@@ -113,28 +113,29 @@ impl KVCache {
     pub async fn get(&self, key: &[u8]) -> Option<Vec<f32>> {
         let hash = self.hash_key(key);
         {
-            let mut store = self.store.write().await;
-            if let Some(entry) = store.entries.get(&hash) {
-                if entry.key == key {
-                    if entry.created_at.elapsed() > self.ttl {
-                        self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
-                        self.stats_misses.fetch_add(1, Ordering::Relaxed);
-                        return None;
-                    }
-                    let now = timestamp_nanos();
-                    let old_ts = entry.last_access.swap(now, Ordering::Relaxed);
-                    entry.access_count.fetch_add(1, Ordering::Relaxed);
-                    let value = entry.value.as_ref().clone();
-                    // Update LRU order
-                    store.lru_order.remove(&(old_ts, hash));
-                    store.lru_order.insert((now, hash));
-                    self.stats_hits.fetch_add(1, Ordering::Relaxed);
-                    return Some(value);
-                }
+            let store = self.store.read().await;
+            if !store.entries.get(&hash).map_or(false, |e| e.key == key) {
+                self.stats_misses.fetch_add(1, Ordering::Relaxed);
+                return None;
             }
         }
-        self.stats_misses.fetch_add(1, Ordering::Relaxed);
-        None
+        let mut store = self.store.write().await;
+        let mut entry = store.entries.remove(&hash)?;
+        if entry.created_at.elapsed() > self.ttl {
+            store.lru_order.remove(&(entry.last_access.load(Ordering::Relaxed), hash));
+            self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats_misses.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        let now = timestamp_nanos();
+        let old_ts = entry.last_access.swap(now, Ordering::Relaxed);
+        entry.access_count.fetch_add(1, Ordering::Relaxed);
+        let value = entry.value.as_ref().clone();
+        store.lru_order.remove(&(old_ts, hash));
+        store.lru_order.insert((now, hash));
+        store.entries.insert(hash, entry);
+        self.stats_hits.fetch_add(1, Ordering::Relaxed);
+        Some(value)
     }
 
     pub async fn insert(&self, key: Vec<u8>, value: Vec<f32>) {

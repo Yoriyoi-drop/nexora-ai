@@ -99,8 +99,9 @@ impl GpuContext {
             buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
             self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: None,
-            });
+                timeout: Some(Duration::from_secs(5)),
+            })
+            .map_err(|_| GpuError::Timeout("GPU poll timed out after 5s".into()))?;
 
             let result = self.read_timestamps_from_buffer(&buffer_slice, &readback_buffer);
             readback_buffer.destroy();
@@ -1217,10 +1218,12 @@ impl GpuContext {
 
         // Stage 3: GPU execute (using poll to wait for completion)
         let gpu_start = Instant::now();
-        self.device.poll(wgpu::PollType::Wait {
+        if self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
-        });
+            timeout: Some(Duration::from_secs(5)),
+        }).is_err() {
+            tracing::warn!("GPU poll timed out after 5s in dispatch_profiled_detailed");
+        }
         timing.gpu_execute = gpu_start.elapsed();
 
         timing.end_to_end = total_start.elapsed();
@@ -1356,10 +1359,12 @@ impl GpuContext {
             slice.map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-            self.device.poll(wgpu::PollType::Wait {
+            if self.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: None,
-            });
+                timeout: Some(Duration::from_secs(5)),
+            }).is_err() {
+                tracing::warn!("GPU poll timed out after 5s in dispatch_multi_ops, falling through to polling loop");
+            }
 
             loop {
                 match rx.try_recv() {

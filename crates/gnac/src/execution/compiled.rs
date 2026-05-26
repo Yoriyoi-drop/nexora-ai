@@ -49,12 +49,14 @@ impl CompiledExecutor {
         match self.backend {
             ExecutionBackend::CPU => CpuBackend::execute(ir, inputs),
             ExecutionBackend::CUDA => self.execute_cuda(ir, inputs),
-            _ => Err(crate::DeepLearningError::Computation {
-                reason: format!(
-                    "Backend '{:?}' not available — only CPU and CUDA backends are implemented. \
-                     Vulkan, TPU, and WebGPU require dedicated GPU runtime crates",
-                    self.backend
-                ),
+            ExecutionBackend::Vulkan => Err(crate::DeepLearningError::Computation {
+                reason: "Vulkan backend is not yet implemented".into(),
+            }),
+            ExecutionBackend::TPU => Err(crate::DeepLearningError::Computation {
+                reason: "TPU backend is not yet implemented".into(),
+            }),
+            ExecutionBackend::WebGPU => Err(crate::DeepLearningError::Computation {
+                reason: "WebGPU backend is not yet implemented".into(),
             }),
         }
     }

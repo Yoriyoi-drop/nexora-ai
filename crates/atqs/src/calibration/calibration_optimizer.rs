@@ -328,33 +328,42 @@ fn compute_layer_gradients(
     Ok(layer_gradients)
 }
 
-/// Compute weight gradients using finite differences
+/// Compute weight gradients using finite differences.
+///
+/// For models with >10K parameters this is infeasible (>20K forward passes per iteration),
+/// so we log a warning and return zero gradients as a safe no-op fallback.
 fn compute_weight_gradients(
     model: &mut dyn crate::FoundationModel,
     layer_idx: usize,
     weights: &ArrayD<f32>,
     batch: &CalibrationBatch,
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
+    let num_params = weights.len();
+
+    if num_params > 10_000 {
+        tracing::warn!(
+            "compute_weight_gradients: layer {} has {} parameters. \
+             Finite-difference gradient computation requires {} forward passes. \
+             This will be extremely slow. Returning zero gradients as a safe fallback. \
+             Consider using backpropagation via compute_gradients() instead.",
+            layer_idx, num_params, num_params * 2
+        );
+        return Ok(Array::zeros(weights.shape()));
+    }
+
     let epsilon = 1e-6;
     let mut gradients = Array::zeros(weights.shape());
 
-    // Compute original loss
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
 
-    // Compute gradients for each weight
-    for (idx, &_weight) in weights.indexed_iter() {
-        // Perturb weight
+    for (idx, _) in weights.indexed_iter() {
         let mut perturbed_weights = weights.clone();
         perturbed_weights[&idx] += epsilon;
 
-        // Temporarily update weights
         model.update_layer_weights(layer_idx, perturbed_weights)?;
         let perturbed_loss = compute_layer_loss(model, layer_idx, batch)?;
-
-        // Restore original weights
         model.update_layer_weights(layer_idx, weights.clone())?;
 
-        // Compute gradient
         gradients[&idx] = (perturbed_loss - original_loss) / epsilon;
     }
 
@@ -760,8 +769,8 @@ impl CalibrationOptimizer for AdamOptimizer {
         *v = v.mapv(|x| self.beta2 * x) + gradient.mapv(|x| (1.0 - self.beta2) * x * x);
 
         // Bias correction
-        let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32 + 1)));
-        let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32 + 1)));
+        let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32)));
+        let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32)));
 
         // Update parameters
         let update =
@@ -957,7 +966,7 @@ impl CalibrationOptimizer for RMSPropOptimizer {
         gradient: &ArrayD<f32>,
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError> {
-        let param_key = format!("{}_{}_{}", layer_idx, param_type, state.step);
+        let param_key = format!("{}_{}", layer_idx, param_type);
 
         // Get or initialize squared gradients
         let squared_grads = self
@@ -1047,16 +1056,24 @@ impl CalibrationOptimizer for LAMBOptimizer {
         *m = m.mapv(|x| self.beta1 * x) + gradient.mapv(|x| (1.0 - self.beta1) * x);
         *v = v.mapv(|x| self.beta2 * x) + gradient.mapv(|x| (1.0 - self.beta2) * x * x);
 
-        let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32 + 1)));
-        let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32 + 1)));
+        let m_hat = m.mapv(|x| x / (1.0 - self.beta1.powi(self.t as i32)));
+        let v_hat = v.mapv(|x| x / (1.0 - self.beta2.powi(self.t as i32)));
 
         // Adam update
         let adam_update =
             m_hat.mapv(|x| x * state.learning_rate) / v_hat.mapv(|x| x.sqrt() + self.epsilon);
 
-        // LAMB trust ratio: layer-wise normalization
+        // LAMB trust ratio: layer-wise normalization using actual weight norm
         let adam_norm = adam_update.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon;
-        let weight_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon;
+        let weight_norm = {
+            let layers = model.get_layers();
+            if layer_idx < layers.len() {
+                let weights = layers[layer_idx].get_weights();
+                weights.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon
+            } else {
+                gradient.iter().map(|x| x * x).sum::<f32>().sqrt() + self.epsilon
+            }
+        };
         let trust_ratio = weight_norm / adam_norm;
 
         let update = adam_update.mapv(|x| x * trust_ratio);

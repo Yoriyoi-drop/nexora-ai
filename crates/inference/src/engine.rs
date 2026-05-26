@@ -621,6 +621,11 @@ impl InferenceEngine {
             .unwrap_or(RequestStatus::Queued))
     }
 
+    /// Create a new inference session for tracking generation state.
+    ///
+    /// TODO: Integrate session tracking into the generation loop (generate_internal).
+    /// Currently sessions are created but not used during inference.
+    /// This will enable per-session KV cache reuse and metrics tracking.
     pub async fn get_session(&self, session_id: Uuid) -> Result<Arc<InferenceSession>> {
         let mut sessions = self.session_manager.write().await;
         if sessions.len() >= self.config.max_concurrent_requests * 2 {

@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
@@ -265,9 +265,7 @@ impl BatchProcessor {
                 }
             }
         });
-        if let Ok(mut tasks) = background_tasks.lock() {
-            tasks.push(handle);
-        }
+        background_tasks.lock().await.push(handle);
         Ok(())
     }
 
@@ -334,9 +332,7 @@ impl BatchProcessor {
             }
         });
 
-        if let Ok(mut tasks) = background_tasks.lock() {
-            tasks.push(handle);
-        }
+        background_tasks.lock().await.push(handle);
 
         Ok(())
     }
