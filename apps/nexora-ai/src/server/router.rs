@@ -22,6 +22,8 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     if let Err(e) = init_metrics() {
         tracing::warn!("Failed to initialize metrics collector: {}", e);
     }
+    // Start background metrics collector (GPU health, NVML, etc.) polling every 15s
+    crate::metrics::BackgroundMetricsCollector::new(15).start();
 
     let valid_keys: Arc<HashSet<String>> = Arc::new(config.api_keys.iter().cloned().collect());
     let enable_auth = config.enable_auth;

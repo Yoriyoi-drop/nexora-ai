@@ -271,7 +271,13 @@ impl RequestScheduler {
             }
         };
 
-        let queued_request = queue.remove(idx).expect("queue non-empty confirmed");
+        let queued_request = match queue.remove(idx) {
+            Some(r) => r,
+            None => {
+                tracing::warn!("scheduler: queue became empty between check and dequeue");
+                return Ok(None);
+            }
+        };
         self.stats.write().await.current_queue_length = queue.len();
         Ok(Some(queued_request))
     }

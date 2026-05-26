@@ -912,6 +912,66 @@ impl GpuContext {
         )
     }
 
+    /// GPU sampling from F16 input: converts F16→F32 on GPU, then runs standard
+    /// f32 sampling pipeline. Avoids CPU-side F16→F32 conversion and re-upload.
+    pub fn gpu_sample_f16(
+        &self,
+        logits_f16: &GpuTensor,
+        temperature: f32,
+        top_k: u32,
+        top_p: f32,
+        seed: u64,
+    ) -> Result<GpuTensor, GpuError> {
+        let logits_f32 = self.f16_packed_to_f32(logits_f16)?;
+        self.gpu_sample(&logits_f32, temperature, top_k, top_p, seed)
+    }
+
+    /// Batched GPU sampling: stack B logit vectors into [B, vocab] and sample
+    /// once on GPU via F16→F32 conversion. Returns one token ID per sequence.
+    /// All computation stays on GPU — only token IDs are read back.
+    pub fn gpu_sample_batched_f16(
+        &self,
+        batch_logits: &[&GpuTensor],
+        temperature: f32,
+        top_k: u32,
+        top_p: f32,
+        seed: u64,
+    ) -> Result<GpuTensor, GpuError> {
+        if batch_logits.is_empty() {
+            return Ok(GpuTensor { shape: vec![0], buffer: self.alloc_buffer(0, wgpu::BufferUsages::COPY_SRC).buffer, dtype: GpuDtype::F32, device_id: 0 });
+        }
+        // Convert each F16 tensor to F32 on GPU
+        let f32_tensors: Vec<GpuTensor> = batch_logits
+            .iter()
+            .map(|t| self.f16_packed_to_f32(t))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let batch = f32_tensors.len();
+        let vocab = f32_tensors[0].numel();
+        let total_elems = batch * vocab;
+
+        // Allocate contiguous [B, vocab] F32 buffer
+        let flat_buf = self.alloc_buffer(
+            (total_elems * 4) as u64,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        );
+        self.with_encoder(|enc| {
+            let mut offset: u64 = 0;
+            for t in &f32_tensors {
+                enc.copy_buffer_to_buffer(t.buffer(), 0, &flat_buf.buffer, offset, (vocab * 4) as u64);
+                offset += (vocab * 4) as u64;
+            }
+        });
+
+        let stacked = GpuTensor {
+            shape: vec![batch, vocab],
+            buffer: flat_buf.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        self.gpu_sample(&stacked, temperature, top_k, top_p, seed)
+    }
+
     // ── Singleton access ──────────────────────────────────────────────────────
 
     pub fn init() -> Result<&'static Self, GpuError> {
@@ -2278,15 +2338,10 @@ impl GpuContext {
     }
 
     /// GPU-side in-place add: a = a + b
-    /// Avoids CPU round-trip by computing the result on GPU and copying back
-    /// into `a`'s buffer. Used by the gradient accumulation engine to keep
-    /// gradients GPU-resident.
+    /// Uses buffer swap instead of copy-back to avoid extra allocation+copy.
     pub fn add_inplace(&self, a: &mut GpuTensor, b: &GpuTensor) -> Result<(), GpuError> {
         let result = self.add(&a.view_as(a.shape()), b)?;
-        let size = (a.numel() * 4) as u64;
-        self.with_encoder(|enc| {
-            enc.copy_buffer_to_buffer(result.buffer(), 0, &a.buffer, 0, size);
-        });
+        a.buffer = result.buffer;
         Ok(())
     }
 
@@ -3690,6 +3745,9 @@ fn elementwise_main(@builtin(global_invocation_id) id: vec3<u32>) {
         case 17: { // Swiglu — gate(a) * x(b)
             out[i] = (a_val * sigmoid_f32(a_val)) * b_val;
         }
+        case 18: { // Step — 1 if a > 0 else 0
+            out[i] = select(0.0, 1.0, a_val > 0.0);
+        }
         default: {
             out[i] = a_val;
         }
@@ -3739,6 +3797,9 @@ fn elementwise_inplace_main(@builtin(global_invocation_id) id: vec3<u32>) {
         case 14: { // LeakyRelu — use _pad0 reinterpreted as f32 for negative_slope
             let slope = bitcast<f32>(cfg._pad0);
             data[i] = select(x * slope, x, x > 0.0);
+        }
+        case 18: { // Step — 1 if x > 0 else 0
+            data[i] = select(0.0, 1.0, x > 0.0);
         }
         default: { data[i] = x; }
     }

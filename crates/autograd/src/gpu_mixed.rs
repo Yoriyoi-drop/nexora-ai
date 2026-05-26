@@ -1,7 +1,9 @@
 //! GPU packed F16 conversion primitives.
 //! Weight upload: f32→F16 packed di `preupload_weights_gpu()` (transformer crate).
 //! Inference: bulk upconvert F16→f32 temp di awal `forward_gpu_batched()`.
-//! TODO: F16 KV cache + F16 sampler untuk VRAM saving penuh.
+//! ✅ F16 KV cache: `GpuKVCacheEntry.f16_storage` — packed F16 append/read/clear.
+//! ✅ F16 Sampler: `GpuContext::gpu_sample_f16()` + `gpu_sample_batched_f16()`.
+//! TODO: F16 LM head output — biarkan logits tetap F16 dari matmul, hindari F16→F32 upconvert.
 
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 

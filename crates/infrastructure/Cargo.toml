@@ -22,8 +22,5 @@ toml = "0.8"
 # Storage
 sqlx.workspace = true
 
-# Metrics
-prometheus = "0.13"
-
 # Logging
 tracing-appender = "0.2"

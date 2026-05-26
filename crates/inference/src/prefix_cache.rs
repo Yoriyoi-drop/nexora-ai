@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use std::sync::atomic::Ordering;
 use tracing::{debug, warn};
 
 use nexora_transformer::KVCacheEntry;
@@ -209,6 +210,7 @@ impl PrefixCache {
 
         let (cached_value, cached_kv_cache) = if last_cached_id != self.root_id {
             self.hits.fetch_add(1, Ordering::Relaxed);
+            crate::inference_trait::PREFIX_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             match nodes.get(&last_cached_id) {
                 Some(n) => (
                     n.value.clone().unwrap_or_else(|| {
@@ -224,6 +226,7 @@ impl PrefixCache {
             }
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
+            crate::inference_trait::PREFIX_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
             (Vec::new(), Vec::new())
         };
 

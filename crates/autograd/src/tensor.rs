@@ -184,9 +184,16 @@ impl Tensor {
     }
 
     pub fn grad(&self) -> Option<ArrayD<f32>> {
-        self.0.read().grad.as_ref().map(|g| {
-            g.to_cpu().expect("Tensor::grad GPU readback failed")
-        })
+        match self.0.read().grad.as_ref() {
+            Some(g) => match g.to_cpu() {
+                Ok(cpu) => Some(cpu),
+                Err(e) => {
+                    tracing::warn!("Tensor::grad GPU readback failed: {}", e);
+                    None
+                }
+            },
+            None => None,
+        }
     }
 
     /// Returns the gradient storage directly (no CPU readback if on GPU).

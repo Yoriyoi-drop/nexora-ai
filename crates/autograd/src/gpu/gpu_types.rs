@@ -137,6 +137,8 @@ pub enum ElemOp {
     BinaryCrossEntropy = 15,
     LogSoftmax = 16,
     Swiglu = 17,
+    /// Heaviside step: 1 if x > 0 else 0. Used in relu_backward.
+    Step = 18,
 }
 
 // ─── Reduce op codes ───────────────────────────────────────────────────────────

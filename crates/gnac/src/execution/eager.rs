@@ -56,10 +56,13 @@ impl GraphValidator {
         }
 
         for node_id in order {
-            // safe: node_id comes from topological order of the graph
-            let node = graph
-                .get_node(&node_id)
-                .expect("node exists during execution");
+            let node = match graph.get_node(&node_id) {
+                Some(n) => n,
+                None => {
+                    tracing::warn!("node {:?} not found in graph during execution — skipping", node_id);
+                    continue;
+                }
+            };
             if !node.params.enabled {
                 continue;
             }

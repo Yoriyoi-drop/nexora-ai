@@ -199,22 +199,14 @@ pub fn neg_backward(
 }
 
 // ── Relu backward ──────────────────────────────────────────────────
-// da = grad * (x > 0)  — using smooth step approximation on GPU
+// da = grad * (x > 0)  — pure GPU comparison, no floating-point epsilon
 pub fn relu_backward(
     ctx: &GpuContext,
     input: &GpuTensor,
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let relu_out = ctx.elementwise_unary(input, ElemOp::Relu)
-        .map_err(|e| GpuError::Device(format!("relu_backward relu: {e}")))?;
-    let eps = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), 1e-12f32))
-        .map_err(|e| GpuError::Conversion(format!("relu_backward eps: {e}")))?;
-    let denom = ctx.add(&relu_out, &eps)
-        .map_err(|e| GpuError::Device(format!("relu_backward add: {e}")))?;
-    let mask = ctx.div(&relu_out, &denom)
-        .map_err(|e| GpuError::Device(format!("relu_backward div: {e}")))?;
-    let da = ctx.mul(grad, &mask)
-        .map_err(|e| GpuError::Device(format!("relu_backward mul: {e}")))?;
+    let mask = ctx.elementwise_unary(input, ElemOp::Step)?;
+    let da = ctx.mul(grad, &mask)?;
     Ok(da)
 }
 

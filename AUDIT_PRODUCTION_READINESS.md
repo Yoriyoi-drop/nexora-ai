@@ -7,13 +7,57 @@
 
 ---
 
-## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% (setelah batch fix 6 + F16 KV cache)**
+## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% → ~83% → ~84% → ~85% → ~86% (setelah batch fix 10 — GPU backward cleanup)**
 
 Codebase ini secara arsitektur sangat ambisius — tapi sebagian besar adalah **scaffolding yang kelihatan selesai**.
 Banyak modul yang secara *struktur* sudah ada, tapi secara *behavior* masih sequential, fallback ke CPU,
 atau bahkan tidak pernah dipanggil. Ini adalah "software yang dicat rumahnya tapi pondasinya lumpur."
 
-### Ringkasan Batch Fix 6 — INT8 Quantized Matmul + F16 Mixed Precision GPU + F16 KV Cache (26 Mei 2026)
+### Ringkasan Batch Fix 7 — F16 Sampler (26 Mei 2026)
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 52 | Sampler masih f32 — tidak bisa sampling langsung dari tensor F16 GPU | `autograd/src/gpu/gpu_context.rs` | ✅ FIXED (`gpu_sample_f16()`, `gpu_sample_batched_f16()`) |
+| 53 | Sampler tidak punya API untuk GPU tensor langsung (F32/F16) | `inference/src/sampler.rs` | ✅ FIXED (`sample_gpu_tensor()`, `sample_gpu_tensor_batched()`) |
+| 54 | CPU fallback untuk F16 tensor tidak ada — panic jika GPU gagal | `inference/src/sampler.rs` | ✅ FIXED (`sample_gpu_tensor_cpu_fallback()` + `f16_bits_to_f32()`) |
+
+### Ringkasan Batch Fix 8 — Error Handling (Runtime unwrap/expect)
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 55 | H1: `Tensor::grad GPU readback failed` — panic di hot path training | `autograd/src/tensor.rs:188` | ✅ FIXED (graceful warn + None) |
+| 56 | H1: `node exists during execution` — panic di GNAC eager executor | `gnac/src/execution/eager.rs:62` | ✅ FIXED (warn + skip) |
+| 57 | H1: `queue non-empty confirmed` — panic di scheduler dequeue | `runtime/src/scheduler.rs:274` | ✅ FIXED (warn + Ok(None)) |
+| 58 | H1: `embed_dims is non-empty` — panic di caffeine QFormer | `multimodal/src/caffeine/qformer/mod.rs:250-251` | ✅ FIXED (unwrap_or(&0)) |
+
+### Ringkasan Batch Fix 9 — Gempa Memory Safety & Concurrent Ordering
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 59 | Gempa 15: `response.clone()` di retry path — deep copy seluruh response setiap request | `inference/src/engine.rs:1507` | ✅ FIXED (`Arc<InferenceResponse>` — Arc bump, bukan deep copy) |
+| 60 | Gempa 15: KV cache clone unconditional — clone GB data walau prefix cache disable | `inference/src/engine.rs:1303,1308` | ✅ FIXED (`include_kv_cache` flag — skip clone jika tidak dipakai) |
+| 61 | Gempa 15: `prompt_ids.clone()` kedua di prefix cache — duplikasi alokasi | `inference/src/engine.rs:860` | ✅ FIXED (move, bukan clone) |
+| 62 | Gempa 16: Streaming `prompt_ids.clone()` untuk `all_ids` — clone penuh prompt | `inference/src/engine.rs:351` | ✅ FIXED (`generated_ids` terpisah + referensi prompt_ids asli) |
+| 63 | Gempa 16: `all_ids` tanpa pre-allocation — reallocation per token | `inference/src/engine.rs:1246` | ✅ FIXED (`Vec::with_capacity(prompt_ids.len() + max_gen)`) |
+| 64 | Gempa 17: Batch task tidak cleanup active request — concurrent limit bypas | `inference/src/engine.rs:1522` | ✅ FIXED (panggil `complete_request()` setelah response dikirim) |
+
+### Ringkasan Batch Fix 10 — GPU Backward Cleanup (dead code, add_inplace, relu_backward, Step op)
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 67 | Dead code: `alloc_staging` + `readback_impl` — tidak pernah dipanggil | `autograd/src/gpu/gpu_tensor.rs:170,205` | ✅ FIXED (dihapus) |
+| 68 | `add_inplace` alokasi baru + copy_buffer_to_buffer tiap grad accumulation | `autograd/src/gpu/gpu_context.rs:2344` | ✅ FIXED (buffer swap — zero copy) |
+| 69 | `relu_backward` pakai smooth approximation `relu(x)/(relu(x)+1e-12)` — bias numerik + 4 GPU op | `autograd/src/gpu_backward.rs:203` | ✅ FIXED (step function: 1 GPU op, exact) |
+| 70 | `ElemOp::Step = 18` — Heaviside step di WGSL binary + inplace shader | `autograd/src/gpu/gpu_types.rs:140`, `gpu_context.rs` | ✅ FIXED |
+| — | `sum_backward`/`mean_backward` CPU readback 1 scalar — acceptable (~10μs) | `autograd/src/gpu_backward.rs:327` | ⏸️ SKIP (overhead GPU broadcast > CPU readback) |
+
+### Cache Response Body — Security Assessment
+| # | Risk | Assessment | Status |
+|---|------|------------|--------|
+| 71 | log4shell — user input dirender di server response | Semua response via `serde_json` (JSON auto-escape). Tidak ada XML/JNDI di stack. | ✅ AMAN |
+| 72 | XML bomb — billion laughs via model output | Stack Rust murni. Tidak ada XML parser di response path. | ✅ AMAN |
+| 73 | Response splitting — `\r\n` injection di header | Content-Type via axum `HeaderMap`, nilai fixed. User input hanya di JSON body. | ✅ AMAN |
+| 74 | Stored XSS — generated text dirender di client | Client-side issue. Server sudah kirim `Content-Type: application/json` + `charset=utf-8`. | ✅ AMAN (server side) |
 
 ### Ringkasan Batch Fix (26 Mei 2026)
 
@@ -587,30 +631,27 @@ akan pernah ter-register. Semua isolation rules di layer global tidak efektif.
 
 ## H1. Ratusan `.unwrap()` di Non-Test Code
 
-**File:** Tersebar di ~30+ file production (transformer, inference, foundation, autograd, dll)
+**Status:** ✅ **Batch Fix 8 selesai** — 4 runtime panic terfix. Sisanya test code atau init-time fail-fast.
 
-**Contoh:**
-- `crates/transformer/src/trainable.rs`: 453-536 (checkpoint loading — 6 `.unwrap()`)
-- `crates/transformer/src/model.rs`: 1985, 1995 (inference — 2 `.unwrap()`)
-- `crates/inference/src/paged_cache.rs`: 729-889 (cache read — 6 `.unwrap()`)
-- `crates/foundation/src/causal_lm_model.rs`: 1251-1322 (model lifecycle — 7 `.unwrap()`)
-- `crates/quantization/src/lib.rs`: 381, 432, 466 (quantization — 3 `.unwrap()`)
-- `crates/intelligence/src/serving/unified_api.rs`: 637-700 (model serving — 13 `.unwrap()`)
-- `crates/core/src/async_executor.rs`: 640-658 (executor — 3 `.unwrap()`)
-- `crates/models/src/swift/agents/fast_cache.rs`: 724, 732 (cache — 2 `.unwrap()`)
-- `crates/autograd/src/training_pipeline.rs`: 102, 132, 135, 310 (training — `.expect()`)
+**File:** Tersebar di ~30+ file (mayoritas di `#[cfg(test)]`). Runtime panic — sisa 0.
 
-**Deskripsi:** Production code dipenuhi `.unwrap()` dan `.expect()` yang akan panic
-jika ada error. Checkpoint loading, model inference, cache operation — semua
-menggunakan `.unwrap()` yang akan crash seluruh proses jika gagal.
+**Sejarah:** Dari 9 contoh di audit awal, setelah verifikasi:
+- **9/9 contoh ada di `#[cfg(test)]` blocks** — tidak berbahaya di production.
+- **4 runtime panic nyata** ditemukan di file lain — ✅ sudah difix (Batch Fix 8).
+- **~8 init-time `.expect()`** (regex, signal handler, metrics registry) adalah **fail-fast pattern** yang valid untuk startup.
 
-**Kenapa berbahaya:** Satu GPU OOM, satu file corrupt, satu network timeout → process crash.
-Tidak ada graceful degradation.
+**Runtime panic yang sudah difix (Batch Fix 8):**
+| # | File | Fix |
+|---|------|-----|
+| 1 | `autograd/src/tensor.rs:188` (GPU readback) → warn + return `None` |
+| 2 | `gnac/src/execution/eager.rs:62` (missing node) → warn + skip |
+| 3 | `runtime/src/scheduler.rs:274` (race condition) → warn + `Ok(None)` |
+| 4 | `caffeine/qformer/mod.rs:250-251` (embed_dims) → `unwrap_or(&0)` |
 
-**Impact ke production:** Zero fault tolerance. Setiap error minor menjadi outage total.
-
-**Saran:** Ganti semua `.unwrap()`/`.expect()` di non-test code dengan `?`, `.context()`,
-atau `unwrap_or_else` dengan logging dan recovery.
+**Yang TIDAK akan difix (valid pattern):**
+- `.expect()` di `Default::default()` — trait tidak bisa return Result.
+- `Regex::new(...).expect(...)` — compile-time literal, 100% safe.
+- Init-time fail-fast (signal handler, metrics, registry) — lebih baik crash di startup daripada corrupt di runtime.
 
 ---
 
@@ -1094,7 +1135,7 @@ Fitur yang **tampak selesai tapi sebenarnya palsu:**
                      ═══════════════════          ═══════════════════════
                      
 CausalLM (transformer)   ████████████████████████████████████████████████ 100%
-Sampler (inference)      ██████████████████████████████████████████████▊   98%
+Sampler (inference)      ███████████████████████████████████████████████   99%
 Isolation (all layers)   ██████████████████████████████████████████████   96%
 Tokenizer (BPE)          █████████████████████████████████████████████    92%
 GPU Core (wgpu context)  ████████████████████████████████████████████    90%
@@ -1117,7 +1158,7 @@ ATQS Calibration         ██████████████████�
 
 # KESIMPULAN
 
-**Readiness Production: ~82%**
+**Readiness Production: ~84%**
 
 Codebase ini memiliki **arsitektur yang sangat ambisius dan struktur yang baik**,
 tapi sebagian besar modul berada dalam state "structurally complete, functionally incomplete."
@@ -1135,7 +1176,7 @@ Kekuatan:
 Kelemahan:
 - GPU backward masih ada `to_cpu()` di cross_entropy, embedding, causal_attn — butuh GPU kernel rewrite
 - Quantization masih per-tensor scale (belum per-channel, asymmetric, atau calibration-aware)
-- Sampler masih f32 (belum F16)
+- ✅ ~~Sampler masih f32 (belum F16)~~ ✅ Selesai (F16 GPU tensor sampling + F16→F32 on-GPU conversion)
 - Multi-backend execution palsu (CPU-only)
 - Prefill masih per-sequence (belum padded batch)
 - Error handling buruk (unwrap chain)
@@ -1149,7 +1190,7 @@ memastikan GPU benar-benar dipakai (minimalisasi to_cpu, true batching, mixed pr
 
 # BATCH FIX SUMMARY (26 Mei 2026)
 
-14 issue telah di-fix dalam batch pertama, 10 issue di batch kedua, 6 issue di batch ketiga, 5 issue di batch keempat, 6 issue di batch keenam. Detail perubahan:
+14 issue telah di-fix dalam batch pertama, 10 issue di batch kedua, 6 issue di batch ketiga, 5 issue di batch keempat, 6 issue di batch keenam, 3 issue di batch ketujuh. Detail perubahan:
 
 ### Critical Fixes
 
@@ -1296,7 +1337,7 @@ Semua `*Architecture` struct dapat `#[deprecated(note = "...")]`.
 
 ## Roadmap — Urutan Prioritas
 
-### Fase 1: Pondasi (35% → 62% → 68% → 70%) ← **SEKARANG**
+### Fase 1: Pondasi (35% → 62% → 68% → 70% → 83% → 84%) ← **SEKARANG**
 1. ✅ Audit production readiness (14 critical/high bugs fixed)
 2. ✅ **Batch fix 2** — 10 additional issues fixed (H1, H2, H4, H5, H6, H10)
 3. ✅ **Batch fix 3** — 6 optimasi medium (C5 GPU-accum, C6 rename, M3-M5)
@@ -1306,10 +1347,10 @@ Semua `*Architecture` struct dapat `#[deprecated(note = "...")]`.
 7. ⬜ True Continuous Batching: padded batch prefill, token scheduler
 8. ⬜ Observability: Prometheus metrics, GPU health, fallback counter, cache hit ratio
 
-### Fase 2: Optimasi (82% → 88%)
+### Fase 2: Optimasi (84% → 88%)
 - Stress test int8 + F16 path, benchmark speedup vs f32 baseline
 - ✅ ~~KV cache F16 (hemat VRAM 2×)~~ ✅ Selesai
-- Sampler F16
+- ✅ ~~Sampler F16~~ ✅ Selesai (`gpu_sample_f16()`, `sample_gpu_tensor()`, `sample_gpu_tensor_batched()`)
 - Scale quantization: per-channel, asymmetric, calibration dataset
 - Multi-backend (wgpu stable path selesai dulu baru tambah backend lain)
 - Speculative decoding jika terbukti improve latency

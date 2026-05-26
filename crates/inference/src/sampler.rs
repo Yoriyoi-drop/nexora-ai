@@ -324,6 +324,148 @@ impl Sampler {
         Ok(tokens)
     }
 
+    /// Sample from a GPU tensor directly (F32 or F16 dtype).
+    /// F16 tensors are converted to F32 on GPU before sampling.
+    /// Only token IDs (4 bytes) are read back — avoids full logit CPU transfer.
+    #[cfg(feature = "gpu")]
+    pub fn sample_gpu_tensor(&mut self, logits_gpu: &nexora_autograd::gpu::GpuTensor) -> Result<usize> {
+        use nexora_autograd::gpu::{GpuContext, GpuDtype};
+        self.total_attempts += 1;
+        self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(e) => {
+                self.fallback_attempts += 1;
+                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                self.check_gpu_health_and_alert();
+                return if self.allow_gpu_fallback {
+                    warn!("GPU unavailable: {}, falling back to CPU sampling", e);
+                    self.sample_gpu_tensor_cpu_fallback(logits_gpu)
+                } else {
+                    Err(InferenceError::DecodingError(format!("GPU unavailable: {}", e)))
+                };
+            }
+        };
+        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
+        let out = if logits_gpu.dtype() == GpuDtype::F16 {
+            ctx.gpu_sample_f16(logits_gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
+        } else {
+            ctx.gpu_sample(logits_gpu, self.config.temperature, top_k as u32, self.config.top_p, seed)
+        };
+        match out {
+            Ok(result) => {
+                let raw = result.to_cpu_raw_bytes()
+                    .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
+                Ok(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize)
+            }
+            Err(e) => {
+                self.fallback_attempts += 1;
+                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                self.check_gpu_health_and_alert();
+                if self.allow_gpu_fallback {
+                    warn!("GPU sampling failed: {}, falling back to CPU", e);
+                    self.sample_gpu_tensor_cpu_fallback(logits_gpu)
+                } else {
+                    error!("GPU tensor sampling failed: {}, fallback disabled", e);
+                    Err(InferenceError::DecodingError(format!("GPU sampling: {}", e)))
+                }
+            }
+        }
+    }
+
+    /// CPU fallback for GPU tensor sampling.
+    /// Reads raw bytes from GPU tensor and converts to f32 for CPU sampling.
+    #[cfg(feature = "gpu")]
+    fn sample_gpu_tensor_cpu_fallback(&mut self, logits_gpu: &nexora_autograd::gpu::GpuTensor) -> Result<usize> {
+        use nexora_autograd::gpu::GpuDtype;
+        let raw = logits_gpu
+            .to_cpu_raw_bytes()
+            .map_err(|e| InferenceError::DecodingError(format!("CPU fallback readback: {}", e)))?;
+        let cpu: Vec<f32> = if logits_gpu.dtype() == GpuDtype::F16 {
+            // Decode packed F16 (2 f16 per u32) to f32 manually
+            raw.chunks_exact(4)
+                .flat_map(|c| {
+                    let packed = u32::from_ne_bytes([c[0], c[1], c[2], c[3]]);
+                    let lo = (packed & 0xFFFF) as u16;
+                    let hi = (packed >> 16) as u16;
+                    [f16_bits_to_f32(lo), f16_bits_to_f32(hi)]
+                })
+                .take(logits_gpu.numel())
+                .collect()
+        } else {
+            raw.chunks_exact(4)
+                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                .collect()
+        };
+        self.sample_cpu(&cpu)
+    }
+
+    /// Sample multiple tokens from batched GPU tensors (F32 or F16).
+    /// F16 tensors are converted to F32 on GPU then sampled in one batch call.
+    /// Falls back to per-sequence CPU on GPU error.
+    #[cfg(feature = "gpu")]
+    pub fn sample_gpu_tensor_batched(&mut self, batch_logits: &[&nexora_autograd::gpu::GpuTensor]) -> Result<Vec<usize>> {
+        use nexora_autograd::gpu::{GpuContext, GpuDtype};
+        let batch = batch_logits.len();
+        if batch == 0 {
+            return Ok(Vec::new());
+        }
+        self.total_attempts += 1;
+        self.gpu_attempts.fetch_add(batch as u64, Ordering::Relaxed);
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(e) => {
+                self.fallback_attempts += 1;
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.check_gpu_health_and_alert();
+                return if self.allow_gpu_fallback {
+                    warn!("GPU unavailable: {}, falling back to per-sequence CPU", e);
+                    batch_logits.iter().map(|t| self.sample_gpu_tensor_cpu_fallback(t)).collect()
+                } else {
+                    Err(InferenceError::DecodingError(format!("GPU unavailable: {}", e)))
+                };
+            }
+        };
+        let top_k = if self.config.top_k > 0 { self.config.top_k } else { 0 };
+        let seed = self.config.seed.unwrap_or_else(|| rand::thread_rng().gen());
+        let has_f16 = batch_logits.iter().any(|t| t.dtype() == GpuDtype::F16);
+        let out = if has_f16 {
+            ctx.gpu_sample_batched_f16(batch_logits, self.config.temperature, top_k as u32, self.config.top_p, seed)
+        } else {
+            // F32: sample individually
+            let mut tokens = Vec::with_capacity(batch);
+            for t in batch_logits {
+                let result = ctx.gpu_sample(t, self.config.temperature, top_k as u32, self.config.top_p, seed)
+                    .map_err(|e| InferenceError::DecodingError(format!("GPU sample: {}", e)))?;
+                let raw = result.to_cpu_raw_bytes()
+                    .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
+                tokens.push(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize);
+            }
+            return Ok(tokens);
+        };
+        match out {
+            Ok(result) => {
+                let raw = result.to_cpu_raw_bytes()
+                    .map_err(|e| InferenceError::DecodingError(format!("readback: {}", e)))?;
+                Ok(raw.chunks_exact(4).map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as usize).collect())
+            }
+            Err(e) => {
+                self.fallback_attempts += 1;
+                self.gpu_fallback_count.fetch_add(batch as u64, Ordering::Relaxed);
+                self.check_gpu_health_and_alert();
+                if self.allow_gpu_fallback {
+                    warn!("GPU batched sampling failed: {}, falling back to per-sequence CPU", e);
+                    batch_logits.iter().map(|t| self.sample_gpu_tensor_cpu_fallback(t)).collect()
+                } else {
+                    error!("GPU batched tensor sampling failed: {}, fallback disabled", e);
+                    Err(InferenceError::DecodingError(format!("GPU batched sampling: {}", e)))
+                }
+            }
+        }
+    }
+
     /// Sample a token index from logits (CPU path).
     /// Pipeline: logits → temperature scaling → softmax → top-k filter → top-p filter → sample
     pub fn sample(&mut self, logits: &[f32]) -> Result<usize> {
@@ -669,6 +811,23 @@ pub fn top_p_filter(probs: &[f32], p: f32) -> Vec<f32> {
         }
     }
     filtered
+}
+
+/// Convert a u16 F16 bit pattern to f32 (no `half` crate dependency).
+fn f16_bits_to_f32(bits: u16) -> f32 {
+    let sign = (bits >> 15) as u32;
+    let exp = ((bits >> 10) & 0x1F) as u32;
+    let mant = (bits & 0x3FF) as u32;
+    if exp == 0 {
+        // Zero/subnormal — flush to zero
+        f32::from_bits(sign << 31)
+    } else if exp == 31 {
+        // Inf/NaN
+        f32::from_bits((sign << 31) | (0xFF << 23) | (mant << 13))
+    } else {
+        // Normal
+        f32::from_bits((sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13))
+    }
 }
 
 // --- Presets ---

@@ -348,7 +348,9 @@ impl InferenceEngine {
             };
             #[cfg(not(feature = "gpu"))]
             let mut kv_state = Box::new(cpu_cache);
-            let mut all_ids = prompt_ids.clone();
+            let max_gen = max_tokens.min(2048) as usize;
+            let prompt_len = prompt_ids.len();
+            let mut generated_ids: Vec<u32> = Vec::with_capacity(max_gen);
             let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
                 temperature,
                 top_k,
@@ -357,14 +359,12 @@ impl InferenceEngine {
             });
             sampler.set_use_gpu(use_gpu);
 
-            let max_gen = max_tokens.min(2048) as usize;
-
             let gen_result = tokio::time::timeout(generation_timeout, async {
                 for pos in 0..max_gen {
                     let input: &[u32] = if pos == 0 {
                         &prompt_ids
                     } else {
-                        core::slice::from_ref(all_ids.last().unwrap_or(&0))
+                        core::slice::from_ref(generated_ids.last().unwrap_or(&0))
                     };
 
                     let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
@@ -410,7 +410,7 @@ impl InferenceEngine {
                         break;
                     }
 
-                    all_ids.push(token_id);
+                    generated_ids.push(token_id);
                     if is_last {
                         break;
                     }
@@ -427,14 +427,13 @@ impl InferenceEngine {
 
             // Store interaction in memory for future RAG
             if let Some(ref memory) = memory_clone {
-                if all_ids.len() > prompt_ids.len() {
+                if !generated_ids.is_empty() {
                     let response_text = match &tokenizer {
                         Some(tok) => {
                             let t = tok.lock().await;
-                            let response_ids: Vec<u32> = all_ids[prompt_ids.len()..].to_vec();
-                            t.decode(&response_ids)
+                            t.decode(&generated_ids)
                         }
-                        None => format!("[{} tokens generated]", all_ids.len() - prompt_ids.len()),
+                        None => format!("[{} tokens generated]", generated_ids.len()),
                     };
                     let _ = memory.lock().await.store_interaction(&augmented_prompt, &response_text).await;
                 }
@@ -825,6 +824,7 @@ impl InferenceEngine {
         let tokenizer = self.tokenizer.clone();
         let prompt_ids_for_loop = prompt_ids.clone();
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
+        let include_kv_cache = true;
         let (tokens, last_logits, timed_out, prefix_kv_cache) = tokio::task::spawn_blocking(move || {
             run_generation_loop(
                 &model,
@@ -836,6 +836,7 @@ impl InferenceEngine {
                 prefix_len,
                 prefix_logits,
                 generation_timeout,
+                include_kv_cache,
             )
         })
         .await
@@ -857,7 +858,7 @@ impl InferenceEngine {
 
         // Cache generated sequence + last logits + KV cache for future prefix reuse
         let generated_ids: Vec<u32> = response.tokens.iter().map(|t| t.token_id).collect();
-        let mut full_seq = prompt_ids.clone();
+        let mut full_seq = prompt_ids;
         full_seq.extend(&generated_ids);
         if !full_seq.is_empty() && !last_logits.is_empty() {
             let kvcache = if prefix_kv_cache.is_empty() { None } else { Some(prefix_kv_cache) };
@@ -1237,9 +1238,11 @@ fn run_generation_loop(
     prefix_len: usize,
     prefix_logits: Vec<f32>,
     generation_timeout: Duration,
+    include_kv_cache: bool,
 ) -> (Vec<GeneratedToken>, Vec<f32>, bool, Vec<KVCacheEntry>) {
     let start = std::time::Instant::now();
-    let mut all_ids = prompt_ids.to_vec();
+    let mut all_ids = Vec::with_capacity(prompt_ids.len() + max_gen);
+    all_ids.extend_from_slice(prompt_ids);
     let mut tokens = Vec::with_capacity(max_gen);
     let vocab_size = model.config.vocab_size;
     let mut prefix_logits = prefix_logits;
@@ -1300,12 +1303,12 @@ fn run_generation_loop(
 
         if token_id == 0 || start.elapsed() > generation_timeout {
             let timed_out = start.elapsed() > generation_timeout;
-            let kvcache = kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default();
+            let kvcache = if include_kv_cache { kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default() } else { Vec::new() };
             return (tokens, last_logits, timed_out, kvcache);
         }
     }
 
-    let kvcache = kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default();
+    let kvcache = if include_kv_cache { kv_state.as_cpu_entries().map(|e| e.clone()).unwrap_or_default() } else { Vec::new() };
     (tokens, last_logits, false, kvcache)
 }
 
@@ -1471,6 +1474,7 @@ impl InferenceEngineHandle {
                         prefix_len,
                         prefix_logits,
                         generation_timeout,
+                        false,
                     )
                 })
                 .await;
@@ -1501,15 +1505,16 @@ impl InferenceEngineHandle {
                 response.inference_time_ms = start.elapsed().as_millis() as u64;
 
                 let rid = breq.request_id;
+                let response = Arc::new(response);
                 if let Err(e) = RetryConfig::default()
                     .retry(|| {
                         let scheduler = scheduler.clone();
-                        let response = response.clone();
+                        let response = Arc::clone(&response);
                         async move {
                             scheduler
                                 .write()
                                 .await
-                                .send_response(rid, response)
+                                .send_response(rid, (*response).clone())
                                 .await
                         }
                     })
@@ -1520,6 +1525,8 @@ impl InferenceEngineHandle {
                         rid, e
                     );
                 }
+                // Gempa 17: cleanup active request tracking after response sent
+                scheduler.write().await.complete_request(rid).await;
             });
             handles.push(handle);
         }

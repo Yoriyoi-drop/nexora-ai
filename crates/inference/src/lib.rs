@@ -40,7 +40,7 @@ pub use paged_cache::{
     GLOBAL_PAGED_CACHE,
 };
 pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
-pub use runtime::{InferenceRuntime, RuntimeState};
+pub use runtime::{read_gpu_memory, InferenceRuntime, RuntimeState};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
 pub use sequence_state::{SeqState, Sequence};
 pub use session::{InferenceSession, SessionConfig, SessionState};

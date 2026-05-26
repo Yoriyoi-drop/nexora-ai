@@ -3763,7 +3763,6 @@ dependencies = [
  "anyhow",
  "chrono",
  "config",
- "prometheus",
  "serde",
  "serde_json",
  "sqlx",

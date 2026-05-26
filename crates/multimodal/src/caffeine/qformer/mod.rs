@@ -246,9 +246,10 @@ impl TriQueryFormer {
         }
 
         // Check embedding dimension compatibility
+        // embed_dims is guaranteed non-empty by the `is_empty` check above
         if !embed_dims.is_empty() {
-            let max_embed_dim = *embed_dims.iter().max().expect("embed_dims is non-empty");
-            let min_embed_dim = *embed_dims.iter().min().expect("embed_dims is non-empty");
+            let max_embed_dim = *embed_dims.iter().max().unwrap_or(&0);
+            let min_embed_dim = *embed_dims.iter().min().unwrap_or(&0);
 
             if max_embed_dim > min_embed_dim * 4 {
                 return Err(crate::caffeine::error::CaffeineError::tensor_operation(

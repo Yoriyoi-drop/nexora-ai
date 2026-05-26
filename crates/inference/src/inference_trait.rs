@@ -28,6 +28,12 @@ pub static GPU_TOKENS_GENERATED: AtomicU64 = AtomicU64::new(0);
 /// Global counter of total tokens generated via CPU fallback path.
 pub static CPU_TOKENS_GENERATED: AtomicU64 = AtomicU64::new(0);
 
+/// Global counter of prefix cache hits.
+pub static PREFIX_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of prefix cache misses.
+pub static PREFIX_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+
 /// Returns current GPU forward error count.
 pub fn gpu_forward_error_count() -> u64 {
     GPU_FORWARD_ERRORS.load(Ordering::Relaxed)
@@ -58,6 +64,24 @@ pub fn cpu_tokens_generated() -> u64 {
     CPU_TOKENS_GENERATED.load(Ordering::Relaxed)
 }
 
+/// Returns current prefix cache hit count.
+pub fn prefix_cache_hits() -> u64 {
+    PREFIX_CACHE_HITS.load(Ordering::Relaxed)
+}
+
+/// Returns current prefix cache miss count.
+pub fn prefix_cache_misses() -> u64 {
+    PREFIX_CACHE_MISSES.load(Ordering::Relaxed)
+}
+
+/// Returns current prefix cache hit ratio (0.0–1.0).
+pub fn prefix_cache_hit_ratio() -> f64 {
+    let hits = PREFIX_CACHE_HITS.load(Ordering::Relaxed);
+    let misses = PREFIX_CACHE_MISSES.load(Ordering::Relaxed);
+    let total = hits + misses;
+    if total == 0 { 0.0 } else { hits as f64 / total as f64 }
+}
+
 /// Returns all observability counters as a snapshot struct.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ObservabilitySnapshot {
@@ -69,6 +93,9 @@ pub struct ObservabilitySnapshot {
     pub cpu_tokens_generated: u64,
     pub gpu_resident_ratio: f64,
     pub gpu_alive: bool,
+    pub prefix_cache_hits: u64,
+    pub prefix_cache_misses: u64,
+    pub prefix_cache_hit_ratio: f64,
 }
 
 /// Collect a snapshot of all observability counters.
@@ -87,6 +114,14 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
         cpu_tokens_generated: cpu_tokens,
         gpu_resident_ratio: if total > 0 { gpu_tokens as f64 / total as f64 } else { 0.0 },
         gpu_alive: gpu_ok,
+        prefix_cache_hits: PREFIX_CACHE_HITS.load(Ordering::Relaxed),
+        prefix_cache_misses: PREFIX_CACHE_MISSES.load(Ordering::Relaxed),
+        prefix_cache_hit_ratio: {
+            let h = PREFIX_CACHE_HITS.load(Ordering::Relaxed);
+            let m = PREFIX_CACHE_MISSES.load(Ordering::Relaxed);
+            let t = h + m;
+            if t == 0 { 0.0 } else { h as f64 / t as f64 }
+        },
     }
 }
 

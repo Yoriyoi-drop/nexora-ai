@@ -167,25 +167,6 @@ impl GpuTensor {
         }
     }
 
-    fn alloc_staging(ctx: &GpuContext, byte_size: u64, readable: bool) -> wgpu::Buffer {
-        let usage = if readable {
-            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
-        } else {
-            wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE
-        };
-        let key = (crate::gpu_memory::bucket_for(byte_size), usage);
-        if let Ok(mut pool) = ctx.memory_pool.lock() {
-            let pooled = pool.alloc(byte_size, usage);
-            return pooled.buffer;
-        }
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("staging_fallback"),
-            size: byte_size,
-            usage,
-            mapped_at_creation: readable,
-        })
-    }
-
     fn return_staging(ctx: &GpuContext, buffer: wgpu::Buffer, byte_size: u64, readable: bool) {
         let usage = if readable {
             wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
@@ -219,26 +200,6 @@ impl GpuTensor {
             dtype: GpuDtype::F32,
             device_id: 0,
         })
-    }
-
-    fn readback_impl(ctx: &GpuContext, buffer: &wgpu::Buffer, byte_size: u64) -> Result<wgpu::Buffer, GpuError> {
-        let staging = Self::alloc_staging(ctx, byte_size, true);
-
-        let mut encoder = ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(buffer, 0, &staging, 0, byte_size);
-        ctx.queue.submit(Some(encoder.finish()));
-
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        readback_with_timeout(&ctx.device, &rx)
-            .map_err(|e| GpuError::Device(format!("readback failed: {e}")))?;
-
-        Ok(staging)
     }
 
     fn readback_inner(&self, offset: u64, size: u64) -> Result<(Vec<u8>, wgpu::Buffer), GpuError> {

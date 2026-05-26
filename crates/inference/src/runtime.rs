@@ -680,34 +680,7 @@ impl InferenceRuntime {
     }
 
     async fn get_gpu_memory_usage(&self) -> Result<(u64, f64)> {
-        tokio::task::spawn_blocking(|| {
-            match nvml_wrapper::Nvml::init() {
-                Ok(nvml) => match nvml.device_count() {
-                    Ok(count) if count > 0 => {
-                        if let Ok(device) = nvml.device_by_index(0) {
-                            if let Ok(memory_info) = device.memory_info() {
-                                let total_memory = memory_info.total;
-                                let used_memory = memory_info.used;
-                                let usage_percent =
-                                    (used_memory as f64 / total_memory as f64) * 100.0;
-                                return Ok((used_memory, usage_percent));
-                            }
-                        }
-                    }
-                    _ => {
-                        debug!("No NVIDIA GPU detected");
-                    }
-                },
-                Err(e) => {
-                    debug!("NVML initialization failed: {}", e);
-                }
-            }
-            Ok((0, 0.0))
-        })
-        .await
-        .map_err(|e| {
-            InferenceError::InternalError(format!("GPU memory read failed: {}", e))
-        })?
+        read_gpu_memory().await
     }
 
     async fn get_active_thread_count(&self) -> Result<usize> {
@@ -842,6 +815,36 @@ impl InferenceRuntime {
             Ok(())
         }
     }
+}
+
+/// Read GPU memory usage via NVML. Public for use by external metrics collectors.
+pub async fn read_gpu_memory() -> Result<(u64, f64)> {
+    tokio::task::spawn_blocking(|| {
+        match nvml_wrapper::Nvml::init() {
+            Ok(nvml) => match nvml.device_count() {
+                Ok(count) if count > 0 => {
+                    if let Ok(device) = nvml.device_by_index(0) {
+                        if let Ok(memory_info) = device.memory_info() {
+                            let total_memory = memory_info.total;
+                            let used_memory = memory_info.used;
+                            let usage_percent =
+                                (used_memory as f64 / total_memory as f64) * 100.0;
+                            return Ok((used_memory, usage_percent));
+                        }
+                    }
+                }
+                _ => {
+                    debug!("No NVIDIA GPU detected");
+                }
+            },
+            Err(e) => {
+                debug!("NVML initialization failed: {}", e);
+            }
+        }
+        Ok((0, 0.0))
+    })
+    .await
+    .map_err(|e| InferenceError::InternalError(format!("GPU memory read failed: {}", e)))?
 }
 
 impl Clone for InferenceRuntime {
