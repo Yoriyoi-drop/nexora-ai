@@ -81,7 +81,8 @@ impl FusedLinearActivation {
     /// GPU-accelerated forward pass: upload → matmul → activation → download
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: ndarray::ArrayView<f32, ndarray::Ix1>) -> DLResult<ArrayD<f32>> {
-        use nexora_autograd::gpu::{ElemOp, GpuContext, GpuTensor};
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
@@ -92,10 +93,35 @@ impl FusedLinearActivation {
         let in_dim = self.weights.shape()[0];
 
         // Upload input → GPU
-        let input_arr = ndarray::ArrayD::from_shape_vec(vec![1, in_dim], input.to_vec())
+        let input_arr = ArrayD::from_shape_vec(vec![1, in_dim], input.to_vec())
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
         let input_gpu = GpuTensor::from_cpu(&input_arr)
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        let out_gpu = self.forward_gpu_keep_gpu(&input_gpu, &ctx)?;
+
+        // download result
+        let result_cpu = out_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let result_slice = result_cpu.as_slice().ok_or_else(|| {
+            DeepLearningError::Computation { reason: "result not contiguous".into() }
+        })?;
+        let result_1d = Array1::from_shape_vec(out_dim, result_slice.to_vec())
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+
+        Ok(result_1d.into_dyn())
+    }
+
+    /// GPU-only forward pass — keeps result on GPU (no PCIe readback)
+    #[cfg(feature = "gpu")]
+    fn forward_gpu_keep_gpu(
+        &self,
+        input_gpu: &nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> DLResult<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{ElemOp, GpuTensor};
+
+        let out_dim = self.weights.shape()[1];
+        let in_dim = self.weights.shape()[0];
 
         // Upload weights W^T → GPU (weights are [in_dim, out_dim], matmul needs [out_dim, in_dim])
         let wt_transposed = self.weights.t();
@@ -120,7 +146,7 @@ impl FusedLinearActivation {
 
         // matmul: [1, in_dim] × [in_dim, out_dim] = [1, out_dim]
         let mut out_gpu = ctx
-            .matmul(&input_gpu, &wt_gpu)
+            .matmul(input_gpu, &wt_gpu)
             .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
 
         // add bias
@@ -145,15 +171,7 @@ impl FusedLinearActivation {
                 .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
         }
 
-        // download result
-        let result_cpu = out_gpu.to_cpu().map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-        let result_slice = result_cpu.as_slice().ok_or_else(|| {
-            DeepLearningError::Computation { reason: "result not contiguous".into() }
-        })?;
-        let result_1d = Array1::from_shape_vec(out_dim, result_slice.to_vec())
-            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
-
-        Ok(result_1d.into_dyn())
+        Ok(out_gpu)
     }
 
     // SAFETY: Caller must ensure AVX2 and FMA are supported at runtime before

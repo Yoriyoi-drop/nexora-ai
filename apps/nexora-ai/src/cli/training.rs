@@ -820,10 +820,13 @@ impl crate::cli::commands::Cli {
             warmup_steps: (max_steps / 20).max(1),
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
-            use_gpu: gpu,
+                        use_gpu: gpu,
+            num_replicas: 1,
         };
 
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+
         let stop_flag_c = stop_flag.clone();
         let ctrlc_handle = tokio::spawn(async move {
             signal::ctrl_c().await.ok();
@@ -1228,6 +1231,7 @@ impl crate::cli::commands::Cli {
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
             use_gpu: gpu,
+            num_replicas: 1,
         };
 
         let output_safetensors = output.with_extension("safetensors");

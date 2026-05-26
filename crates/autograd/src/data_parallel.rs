@@ -1,16 +1,16 @@
 //! Data-parallel training utilities.
 //!
 //! Provides gradient accumulation (`GradientAccumulator`), gradient averaging
-//! across workers (`all_reduce_gradients`), and multi-worker coordination
-//! (`DataParallel`).
+//! across workers (`all_reduce_gradients`), multi-worker coordination
+//! (`DataParallel`), and GPU-native gradient allreduce (`gpu_allreduce_gradients`).
 //!
 //! ## GPU support
 //!
 //! When the `gpu` feature is enabled, [`GradientAccumulator`] stores and
 //! accumulates gradients entirely on-device with no CPU round-trip.
-//! [`accumulate()`](GradientAccumulator::accumulate) reads gradients via
-//! [`Tensor::grad_storage`] and performs addition + scaling on the GPU
-//! through wgpu compute shaders.
+//! [`gpu_allreduce_gradients`] averages gradient tensors across model replicas
+//! using the GPU Gradient AllReduce WGSL kernel (`GRADIENT_ALLREDUCE_WGSL`),
+//! eliminating CPU readback for gradient synchronization.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -127,6 +127,79 @@ pub fn all_reduce_gradients(gradients: &mut [Vec<ArrayD<f32>>]) {
         }
         gradients[0][param_idx] = &sum / num_workers;
     }
+}
+
+/// GPU-native gradient allreduce: average gradients across model replicas.
+///
+/// Uses the GPU Gradient AllReduce WGSL kernel (`GRADIENT_ALLREDUCE_WGSL`)
+/// which operates on a flat interleaved buffer `[replica0 | replica1 | ...]`.
+/// Eliminates CPU readback for gradient synchronization.
+///
+/// `grad_tensors`: one gradient tensor per replica for a single parameter.
+/// All tensors must be on the same GPU device.
+#[cfg(feature = "gpu")]
+pub fn gpu_allreduce_gradients(
+    ctx: &crate::gpu::GpuContext,
+    grad_tensors: &[&crate::gpu::GpuTensor],
+) -> Result<(), crate::gpu::GpuError> {
+    let n = grad_tensors.len();
+    if n <= 1 {
+        return Ok(());
+    }
+
+    let numel = grad_tensors[0].numel();
+    let total_elements = numel * n;
+
+    // Allocate flat buffer: [replica0 | replica1 | ...]
+    let flat_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("dp_allreduce_flat"),
+        size: (total_elements * 4) as u64,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    let mut enc = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("dp_allreduce_copy"),
+    });
+    for (i, g) in grad_tensors.iter().enumerate() {
+        let offset = (i * numel * 4) as u64;
+        enc.copy_buffer_to_buffer(g.buffer(), 0, &flat_buffer, offset, (numel * 4) as u64);
+    }
+    ctx.queue.submit(Some(enc.finish()));
+
+    // Allreduce on flat buffer
+    let flat_tensor = crate::gpu::GpuTensor {
+        shape: vec![total_elements],
+        buffer: flat_buffer,
+        dtype: crate::gpu::GpuDtype::F32,
+        device_id: 0,
+    };
+    let out_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("dp_allreduce_out"),
+        size: (numel * 4) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let out_tensor = crate::gpu::GpuTensor {
+        shape: vec![numel],
+        buffer: out_buffer,
+        dtype: crate::gpu::GpuDtype::F32,
+        device_id: 0,
+    };
+    ctx.gradient_allreduce(&flat_tensor, &out_tensor, n as u32)?;
+
+    // Copy averaged gradients back to each replica
+    let mut cb = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("dp_allreduce_copy_back"),
+    });
+    for g in grad_tensors {
+        cb.copy_buffer_to_buffer(&out_tensor.buffer(), 0, g.buffer(), 0, (numel * 4) as u64);
+    }
+    ctx.queue.submit(Some(cb.finish()));
+
+    Ok(())
 }
 
 // ─── Data-Parallel Config ─────────────────────────────────────────────────────

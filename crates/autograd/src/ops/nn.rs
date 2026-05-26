@@ -391,7 +391,7 @@ pub fn layer_norm_2d(
                                                 }),
                                             ArrayD::from_elem(vec![1], n),
                                         ],
-                                        vec![],
+                                        vec![gpu_in.clone(), gpu_w.clone(), gpu_b.clone()],
                                         Box::new(move |grad, saved| {
                                             let x = &saved[0];
                                             let mean = &saved[1];
@@ -447,7 +447,17 @@ pub fn layer_norm_2d(
                                             }
                                             vec![dx]
                                         }),
-                                        None,
+                                        Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                            use crate::gpu_backward::layer_norm_backward_gpu;
+                                            let input_gpu = &saved_gpu[0];
+                                            let weight_gpu = &saved_gpu[1];
+                                            let bias_gpu = &saved_gpu[2];
+                                            let (dx, dw, db) = layer_norm_backward_gpu(
+                                                ctx, input_gpu, weight_gpu, bias_gpu, grad_gpu, eps,
+                                            ).map_err(|e| format!("layer_norm gpu backward failed: {e}"))?;
+                                            // db is not needed by the op's output (only grad w.r.t dx matters for loss)
+                                            Ok(vec![dx, dw, db])
+                                        })),
                                     );
                                 }
                                 Err(e) => warn!("autograd nn backward failed: {e}")
@@ -1018,7 +1028,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                             gpu_result,
                             vec![input.clone(), weight.clone()],
                             vec![cpu_x.clone(), cpu_w.clone()],
-                            vec![], // no gpu_saved
+                            vec![gpu_in.clone(), gpu_w.clone()],
                             Box::new(move |grad, saved| {
                                 let x = &saved[0];
                                 let w = &saved[1];
@@ -1034,16 +1044,15 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                     }
                                     let rms = (ssq / hidden + eps).sqrt();
                                     let inv_rms = 1.0 / rms;
-                                    let inv_hidden = 1.0 / hidden;
-                                    let rms_grad_factor = -inv_rms.powi(3) * inv_hidden;
+                                    let mut sum_x_g = 0.0f32;
+                                    for k in 0..dim {
+                                        sum_x_g += x[[b, k]] * grad[[b, k]];
+                                    }
+                                    let rms_grad_factor = -inv_rms.powi(3) * (1.0 / hidden);
                                     for j in 0..dim {
                                         let xv = x[[b, j]];
                                         let wv = w[[j]];
                                         let g = grad[[b, j]];
-                                        let mut sum_x_g = 0.0f32;
-                                        for k in 0..dim {
-                                            sum_x_g += x[[b, k]] * grad[[b, k]];
-                                        }
                                         dx_data[b * dim + j] =
                                             g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
                                         dw_data[j] += g * xv * inv_rms;
@@ -1061,7 +1070,15 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                     }),
                                 ]
                             }),
-                            None,
+                            Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                use crate::gpu_backward::rms_norm_backward_gpu;
+                                let input_gpu = &saved_gpu[0];
+                                let weight_gpu = &saved_gpu[1];
+                                let (dx, dw) = rms_norm_backward_gpu(
+                                    ctx, input_gpu, weight_gpu, grad_gpu, eps,
+                                ).map_err(|e| format!("rms_norm gpu backward failed: {e}"))?;
+                                Ok(vec![dx, dw])
+                            })),
                         );
                     }
                     Err(e) => warn!("autograd nn backward failed: {e}")

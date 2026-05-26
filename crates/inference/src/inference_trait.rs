@@ -157,6 +157,25 @@ pub trait ModelForward: Send + Sync {
             .collect()
     }
 
+    /// Forward pass with GPU-native sampling — returns sampled token entirely
+    /// on GPU without reading back the full logits vector (128KB per token).
+    ///
+    /// Returns `Some(token_id)` when GPU-resident path succeeds, `None` to
+    /// indicate caller should fall back to [`forward`] + CPU sampling.
+    ///
+    /// Default implementation always returns `None`.
+    fn forward_sample_gpu(
+        &self,
+        _input_ids: &[u32],
+        _kv_cache: &mut dyn KVCacheProvider,
+        _temperature: f32,
+        _top_k: usize,
+        _top_p: f32,
+        _seed: u64,
+    ) -> Option<u32> {
+        None
+    }
+
     /// Create a fresh, empty KV cache for this model.
     fn reset_cache(&self) -> CpuKVCache;
 }
@@ -264,5 +283,32 @@ impl ModelForward for nexora_transformer::CausalLM {
             .zip(kv_caches.iter_mut())
             .map(|(&id, cache)| ModelForward::forward(self, &[id], cache))
             .collect()
+    }
+
+    fn forward_sample_gpu(
+        &self,
+        input_ids: &[u32],
+        kv_cache: &mut dyn KVCacheProvider,
+        temperature: f32,
+        top_k: usize,
+        top_p: f32,
+        seed: u64,
+    ) -> Option<u32> {
+        #[cfg(feature = "gpu")]
+        {
+            use nexora_transformer::model::sample_token_gpu_keep_gpu;
+            let gpu_entries = kv_cache.as_gpu_entries()?;
+            let logits_gpu = self
+                .forward_gpu_with_cache_keep_gpu(input_ids, gpu_entries)
+                .ok()?;
+            let token_gpu =
+                sample_token_gpu_keep_gpu(&logits_gpu, temperature, top_k, top_p, seed).ok()?;
+            let raw = token_gpu.to_cpu_raw_bytes().ok()?;
+            GPU_RESIDENT_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+            GPU_TOKENS_GENERATED.fetch_add(1, Ordering::Relaxed);
+            Some(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]))
+        }
+        #[cfg(not(feature = "gpu"))]
+        None
     }
 }

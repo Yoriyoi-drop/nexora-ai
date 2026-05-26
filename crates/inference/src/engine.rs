@@ -349,7 +349,6 @@ impl InferenceEngine {
             #[cfg(not(feature = "gpu"))]
             let mut kv_state = Box::new(cpu_cache);
             let max_gen = max_tokens.min(2048) as usize;
-            let prompt_len = prompt_ids.len();
             let mut generated_ids: Vec<u32> = Vec::with_capacity(max_gen);
             let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
                 temperature,
@@ -360,6 +359,10 @@ impl InferenceEngine {
             sampler.set_use_gpu(use_gpu);
 
             let gen_result = tokio::time::timeout(generation_timeout, async {
+                let base_seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64;
                 for pos in 0..max_gen {
                     let input: &[u32] = if pos == 0 {
                         &prompt_ids
@@ -367,26 +370,42 @@ impl InferenceEngine {
                         core::slice::from_ref(generated_ids.last().unwrap_or(&0))
                     };
 
-                    let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
-                    let logits_slice = logits.as_slice().unwrap_or(&[]);
+                    // Try GPU-native path first — no 128KB logits readback per token
+                    let (token_id, log_prob) =
+                        if let Some(tok) = ModelForward::forward_sample_gpu(
+                            model.as_ref(),
+                            input,
+                            &mut *kv_state,
+                            temperature,
+                            top_k,
+                            top_p,
+                            base_seed.wrapping_add(pos as u64),
+                        ) {
+                            (tok, 0.0f32)
+                        } else {
+                            let logits = ModelForward::forward(model.as_ref(), input, &mut *kv_state);
+                            let logits_slice = logits.as_slice().unwrap_or(&[]);
 
-                    let token_id = match sampler.sample(logits_slice) {
-                        Ok(idx) => idx as u32,
-                        Err(e) => {
-                            warn!("Sampler failed, error: {:?}, falling back to argmax", e);
-                            match logits
-                                .iter()
-                                .enumerate()
-                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                            {
-                                Some((i, _)) => i as u32,
-                                None => {
-                                    warn!("Empty logits in streaming, using default token 1");
-                                    1
+                            let tok = match sampler.sample(logits_slice) {
+                                Ok(idx) => idx as u32,
+                                Err(e) => {
+                                    warn!("Sampler failed, error: {:?}, falling back to argmax", e);
+                                    match logits
+                                        .iter()
+                                        .enumerate()
+                                        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                                    {
+                                        Some((i, _)) => i as u32,
+                                        None => {
+                                            warn!("Empty logits in streaming, using default token 1");
+                                            1
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    };
+                            };
+                            let lp = logits.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                            (tok, lp)
+                        };
 
                     let token_text = match &tokenizer {
                         Some(tok) => {
@@ -395,8 +414,6 @@ impl InferenceEngine {
                         }
                         None => token_id_to_text_fallback(token_id),
                     };
-
-                    let log_prob = logits.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
                     let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
 
                     let is_last = pos == max_gen - 1 || token_id == 0;
@@ -1249,13 +1266,53 @@ fn run_generation_loop(
     let use_prefix = prefix_len > 0 && !prefix_logits.is_empty();
     let mut last_logits: Vec<f32> = if use_prefix { prefix_logits.clone() } else { Vec::with_capacity(vocab_size) };
 
+    let base_seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
     for pos in 0..max_gen {
-        let logits_arr: Array1<f32> = if pos == 0 && use_prefix {
+        let token_id: u32;
+        let log_prob: f32;
+        let mut used_gpu = false;
+
+        if pos == 0 && use_prefix {
             if prefix_len >= prompt_ids.len() {
-                Array1::from_vec(std::mem::take(&mut prefix_logits))
+                let arr = Array1::from_vec(std::mem::take(&mut prefix_logits));
+                let logits_slice = arr.as_slice().unwrap_or(&[]);
+                let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
+                let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                token_id = tok;
+                log_prob = lp;
+                if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
+                    last_logits.copy_from_slice(logits_slice);
+                } else {
+                    last_logits = logits_slice.to_vec();
+                }
             } else {
                 let input = &prompt_ids[prefix_len..];
-                ModelForward::forward(model, input, kv_state)
+                if let Some(tok) = ModelForward::forward_sample_gpu(
+                    model, input, kv_state,
+                    sampler.config().temperature,
+                    sampler.config().top_k,
+                    sampler.config().top_p,
+                    base_seed.wrapping_add(pos as u64),
+                ) {
+                    token_id = tok;
+                    log_prob = 0.0;
+                    used_gpu = true;
+                } else {
+                    let arr = ModelForward::forward(model, input, kv_state);
+                    let logits_slice = arr.as_slice().unwrap_or(&[]);
+                    let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
+                    let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                    token_id = tok;
+                    log_prob = lp;
+                    if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
+                        last_logits.copy_from_slice(logits_slice);
+                    } else {
+                        last_logits = logits_slice.to_vec();
+                    }
+                }
             }
         } else {
             let input = if pos == 0 {
@@ -1263,30 +1320,30 @@ fn run_generation_loop(
             } else {
                 core::slice::from_ref(all_ids.last().unwrap_or(&0))
             };
-            ModelForward::forward(model, input, kv_state)
-        };
-
-        let logits_slice: &[f32] = logits_arr.as_slice().unwrap_or(&[]);
-
-        if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
-            last_logits.copy_from_slice(logits_slice);
-        } else {
-            last_logits = logits_slice.to_vec();
-        }
-
-        let token_id = match sampler.sample(logits_slice) {
-            Ok(idx) => idx as u32,
-            Err(e) => {
-                warn!("Sampler failed in generation loop: {:?}, falling back to argmax", e);
-                match logits_slice.iter().enumerate().max_by(|(_, a), (_, b)| a.total_cmp(b)) {
-                    Some((i, _)) => i as u32,
-                    None => {
-                        warn!("Empty logits, using default token 1");
-                        1
-                    }
+            if let Some(tok) = ModelForward::forward_sample_gpu(
+                model, input, kv_state,
+                sampler.config().temperature,
+                sampler.config().top_k,
+                sampler.config().top_p,
+                base_seed.wrapping_add(pos as u64),
+            ) {
+                token_id = tok;
+                log_prob = 0.0;
+                used_gpu = true;
+            } else {
+                let arr = ModelForward::forward(model, input, kv_state);
+                let logits_slice = arr.as_slice().unwrap_or(&[]);
+                let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
+                let lp = logits_slice.get(tok as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
+                token_id = tok;
+                log_prob = lp;
+                if logits_slice.len() == vocab_size && last_logits.len() == vocab_size {
+                    last_logits.copy_from_slice(logits_slice);
+                } else {
+                    last_logits = logits_slice.to_vec();
                 }
             }
-        };
+        }
 
         let token_text: String = match tokenizer {
             Some(tok) => {
@@ -1296,9 +1353,12 @@ fn run_generation_loop(
             None => token_id_to_text_fallback(token_id),
         };
 
-        let log_prob = logits_slice.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
-        crate::inference_trait::CPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if used_gpu {
+            crate::inference_trait::GPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            crate::inference_trait::CPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         all_ids.push(token_id);
 
         if token_id == 0 || start.elapsed() > generation_timeout {

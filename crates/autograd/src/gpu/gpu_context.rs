@@ -301,6 +301,12 @@ impl GpuContext {
             .await
             .map_err(|_| GpuError::NoAdapter)?;
 
+        Self::from_adapter(adapter).await
+    }
+
+    /// Create a GpuContext from an already-retrieved wgpu Adapter.
+    /// Used by both the single-device [`Self::new`] and multi-device [`GpuDeviceManager`].
+    pub(crate) async fn from_adapter(adapter: wgpu::Adapter) -> Result<Self, GpuError> {
         let adapter_features = adapter.features();
         let mut required_features = wgpu::Features::empty();
         if adapter_features.contains(wgpu::Features::TIMESTAMP_QUERY) {
@@ -459,6 +465,8 @@ impl GpuContext {
         self.compile_reduce(ReduceOp::Min)?;
         self.compile_softmax()?;
         self.compile_rms_norm()?;
+        self.compile_rms_norm_backward()?;
+        self.compile_layer_norm_backward()?;
         self.compile_cross_entropy()?;
         self.compile_cross_entropy_backward()?;
         self.compile_embedding()?;
@@ -2970,6 +2978,192 @@ impl GpuContext {
         })
     }
 
+    fn compile_rms_norm_backward(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "rms_norm_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                storage_binding(4, false),
+                uniform_binding(5),
+            ],
+            std::borrow::Cow::Borrowed(RMSNORM_BACKWARD_WGSL),
+            "rms_norm_bwd_main",
+        )
+    }
+
+    pub fn rms_norm_backward(
+        &self,
+        input: &GpuTensor,
+        weight: &GpuTensor,
+        grad: &GpuTensor,
+        eps: f32,
+    ) -> Result<(GpuTensor, GpuTensor), GpuError> {
+        let shape = input.shape();
+        let batch = shape[0] as u32;
+        let dim = shape[1] as u32;
+        let numel = input.numel();
+
+        let dx_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rms_norm_dx"),
+            size: (numel * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let dw_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rms_norm_dw_atomic"),
+            size: (dim as u64) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        // Zero-init dw
+        let dw_tmp = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: dw_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        self.fill_zero_u32(&dw_tmp)?;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rms_norm_bwd_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let pipeline = self
+            .pipelines
+            .get("rms_norm_backward")
+            .ok_or_else(|| GpuError::Pipeline("rms_norm_backward not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("rms_norm_bwd_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: weight.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: dx_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: dw_tmp.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        self.dispatch(pipeline, &bind_group, (batch, 1, 1));
+
+        let dx = GpuTensor {
+            shape: shape.to_vec(),
+            buffer: dx_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        let dw = GpuTensor {
+            shape: vec![dim as usize],
+            buffer: dw_tmp.buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        };
+        Ok((dx, dw))
+    }
+
+    // ── LayerNorm Backward ──────────────────────────────────────────────
+
+    fn compile_layer_norm_backward(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "layer_norm_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, true),
+                storage_binding(4, false),
+                storage_binding(5, false),
+                storage_binding(6, false),
+                uniform_binding(7),
+            ],
+            std::borrow::Cow::Borrowed(LAYERNORM_BACKWARD_WGSL),
+            "layer_norm_bwd_main",
+        )
+    }
+
+    pub fn layer_norm_backward(
+        &self,
+        input: &GpuTensor,
+        weight: &GpuTensor,
+        bias: &GpuTensor,
+        grad: &GpuTensor,
+        eps: f32,
+    ) -> Result<(GpuTensor, GpuTensor, GpuTensor), GpuError> {
+        let shape = input.shape();
+        let batch = shape[0] as u32;
+        let dim = shape[1] as u32;
+        let numel = input.numel();
+
+        let dx_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer_norm_dx"),
+            size: (numel * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let dw_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer_norm_dw_atomic"),
+            size: (dim as u64) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let db_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer_norm_db_atomic"),
+            size: (dim as u64) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let dw_tmp = GpuTensor { shape: vec![dim as usize], buffer: dw_buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let db_tmp = GpuTensor { shape: vec![dim as usize], buffer: db_buffer, dtype: GpuDtype::F32, device_id: 0 };
+        self.fill_zero_u32(&dw_tmp)?;
+        self.fill_zero_u32(&db_tmp)?;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer_norm_bwd_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [batch, dim, f32::to_bits(eps), 0];
+        self.queue.write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        let pipeline = self
+            .pipelines
+            .get("layer_norm_backward")
+            .ok_or_else(|| GpuError::Pipeline("layer_norm_backward not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("layer_norm_bwd_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: input.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: grad.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: weight.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: bias.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: dx_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: dw_tmp.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 6, resource: db_tmp.buffer().as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 7, resource: cfg_buf.as_entire_binding() },
+            ],
+        });
+
+        self.dispatch(pipeline, &bind_group, (batch, 1, 1));
+
+        let dx = GpuTensor { shape: shape.to_vec(), buffer: dx_buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let dw = GpuTensor { shape: vec![dim as usize], buffer: dw_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+        let db = GpuTensor { shape: vec![dim as usize], buffer: db_tmp.buffer, dtype: GpuDtype::F32, device_id: 0 };
+        Ok((dx, dw, db))
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //  PHASE 2.3: CROSS-ENTROPY LOSS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -4382,6 +4576,96 @@ fn rms_norm_main(
 }
 "#;
 
+// ── Phase 2.3: RMSNorm Backward ──────────────────────────────────────────────
+
+const RMSNORM_BACKWARD_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> input: array<f32>;
+@group(0) @binding(1) var<storage, read> grad: array<f32>;
+@group(0) @binding(2) var<storage, read> weight: array<f32>;
+@group(0) @binding(3) var<storage, read_write> dx: array<f32>;
+@group(0) @binding(4) var<storage, read_write> dw: array<atomic<u32>>;
+@group(0) @binding(5) var<uniform> cfg: vec4<u32>;
+
+const BLOCK_SIZE = 256u;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
+fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
+    loop {
+        let old_bits = atomicLoad(atom);
+        let old_val = bitcast<f32>(old_bits);
+        let new_bits = bitcast<u32>(old_val + val);
+        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
+        if (res.old == old_bits) { break; }
+    }
+}
+
+@compute @workgroup_size(BLOCK_SIZE)
+fn rms_norm_bwd_main(
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wg: vec3<u32>,
+) {
+    let dim = cfg.y;
+    let eps = bitcast<f32>(cfg.z);
+    let row = wg.x;
+    let base = row * dim;
+
+    // Pass 1: sum(x²) → rms → inv_rms
+    var ssq: f32 = 0.0;
+    var i = lid.x;
+    while (i < dim) {
+        let xv = input[base + i];
+        ssq += xv * xv;
+        i += BLOCK_SIZE;
+    }
+    scratch[lid.x] = ssq;
+    workgroupBarrier();
+
+    var stride = BLOCK_SIZE / 2u;
+    while (stride > 0u) {
+        if (lid.x < stride) {
+            scratch[lid.x] += scratch[lid.x + stride];
+        }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let rms = sqrt(scratch[0u] / f32(dim) + eps);
+    let inv_rms = 1.0 / rms;
+
+    // Pass 2: sum(grad * x)
+    var sum_x_g: f32 = 0.0;
+    i = lid.x;
+    while (i < dim) {
+        sum_x_g += input[base + i] * grad[base + i];
+        i += BLOCK_SIZE;
+    }
+    scratch[lid.x] = sum_x_g;
+    workgroupBarrier();
+
+    stride = BLOCK_SIZE / 2u;
+    while (stride > 0u) {
+        if (lid.x < stride) {
+            scratch[lid.x] += scratch[lid.x + stride];
+        }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let row_sum_x_g = scratch[0u];
+
+    let rms_grad_factor = -inv_rms * inv_rms * inv_rms / f32(dim);
+
+    // Pass 3: compute dx (per element) + accumulate dw (atomic across rows)
+    i = lid.x;
+    while (i < dim) {
+        let xv = input[base + i];
+        let gv = grad[base + i];
+        let wv = weight[i];
+        dx[base + i] = gv * wv * inv_rms + wv * xv * rms_grad_factor * row_sum_x_g;
+        atomic_add_f32(&dw[i], gv * xv * inv_rms);
+        i += BLOCK_SIZE;
+    }
+}
+"#;
+
 // ── Phase 2.3: Cross-Entropy ─────────────────────────────────────────────────
 
 const CROSS_ENTROPY_WGSL: &str = r#"
@@ -5587,5 +5871,125 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     m[i] = m_new;
     v[i] = v_new;
+}
+"#;
+
+const LAYERNORM_BACKWARD_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> input: array<f32>;
+@group(0) @binding(1) var<storage, read> grad: array<f32>;
+@group(0) @binding(2) var<storage, read> weight: array<f32>;
+@group(0) @binding(3) var<storage, read> bias: array<f32>;
+@group(0) @binding(4) var<storage, read_write> dx: array<f32>;
+@group(0) @binding(5) var<storage, read_write> dw: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read_write> db: array<atomic<u32>>;
+@group(0) @binding(7) var<uniform> cfg: vec4<u32>;
+
+const BLOCK_SIZE = 256u;
+var<workgroup> scratch: array<f32, BLOCK_SIZE>;
+
+fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
+    loop {
+        let old_bits = atomicLoad(atom);
+        let old_val = bitcast<f32>(old_bits);
+        let new_bits = bitcast<u32>(old_val + val);
+        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
+        if (res.old == old_bits) { break; }
+    }
+}
+
+@compute @workgroup_size(BLOCK_SIZE)
+fn layer_norm_bwd_main(
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wg: vec3<u32>,
+) {
+    let dim = cfg.y;
+    let eps = bitcast<f32>(cfg.z);
+    let row = wg.x;
+    let base = row * dim;
+
+    var sum: f32 = 0.0;
+    var i = lid.x;
+    while (i < dim) {
+        sum += input[base + i];
+        i += BLOCK_SIZE;
+    }
+    scratch[lid.x] = sum;
+    workgroupBarrier();
+    var stride = BLOCK_SIZE / 2u;
+    while (stride > 0u) {
+        if (lid.x < stride) { scratch[lid.x] += scratch[lid.x + stride]; }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let mean = scratch[0u] / f32(dim);
+
+    var var_sum: f32 = 0.0;
+    i = lid.x;
+    while (i < dim) {
+        let diff = input[base + i] - mean;
+        var_sum += diff * diff;
+        i += BLOCK_SIZE;
+    }
+    scratch[lid.x] = var_sum;
+    workgroupBarrier();
+    stride = BLOCK_SIZE / 2u;
+    while (stride > 0u) {
+        if (lid.x < stride) { scratch[lid.x] += scratch[lid.x + stride]; }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let variance = scratch[0u] / f32(dim);
+    let sigma = sqrt(variance + eps);
+    let inv_sigma = 1.0 / sigma;
+
+    var sum_dy: f32 = 0.0;
+    var sum_dy_xhat: f32 = 0.0;
+    i = lid.x;
+    while (i < dim) {
+        let gv = grad[base + i];
+        let x_hat = (input[base + i] - mean) * inv_sigma;
+        sum_dy += gv;
+        sum_dy_xhat += gv * x_hat;
+        i += BLOCK_SIZE;
+    }
+    scratch[lid.x] = sum_dy;
+    scratch[lid.x + BLOCK_SIZE / 2u] = sum_dy_xhat;
+    workgroupBarrier();
+
+    stride = BLOCK_SIZE / 2u;
+    while (stride > 0u) {
+        if (lid.x < stride) { scratch[lid.x] += scratch[lid.x + stride]; }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let row_sum_dy = scratch[0u];
+
+    i = lid.x;
+    while (i < BLOCK_SIZE / 2u) {
+        scratch[i] = scratch[i + BLOCK_SIZE / 2u];
+        i += BLOCK_SIZE / 2u;
+    }
+    workgroupBarrier();
+
+    stride = BLOCK_SIZE / 4u;
+    while (stride > 0u) {
+        if (lid.x < stride) { scratch[lid.x] += scratch[lid.x + stride]; }
+        workgroupBarrier();
+        stride >>= 1u;
+    }
+    let row_sum_dy_xhat = scratch[0u];
+
+    let inv_n = 1.0 / f32(dim);
+
+    i = lid.x;
+    while (i < dim) {
+        let x_hat = (input[base + i] - mean) * inv_sigma;
+        let gv = grad[base + i];
+        let wv = weight[i];
+        dx[base + i] = inv_sigma * (gv - row_sum_dy * inv_n - x_hat * row_sum_dy_xhat * inv_n);
+        atomic_add_f32(&dw[i], gv * x_hat);
+        atomic_add_f32(&db[i], gv);
+        i += BLOCK_SIZE;
+    }
 }
 "#;

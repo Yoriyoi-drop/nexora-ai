@@ -449,7 +449,15 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                     let d_x = grad.clone() * &sig;
                                     vec![d_gate, d_x]
                                 }),
-                                None,
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    use crate::gpu_backward::swiglu_backward_gpu;
+                                    let gate_gpu = &saved_gpu[0];
+                                    let x_gpu = &saved_gpu[1];
+                                    let (d_gate, d_x) = swiglu_backward_gpu(
+                                        ctx, gate_gpu, x_gpu, grad_gpu,
+                                    ).map_err(|e| format!("swiglu gpu backward failed: {e}"))?;
+                                    Ok(vec![d_gate, d_x])
+                                })),
                             );
                         }
                         Err(e) => warn!("autograd activation backward failed: {e}")

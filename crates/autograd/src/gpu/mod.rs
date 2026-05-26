@@ -5,3 +5,6 @@ pub mod gpu_context;
 
 pub mod gpu_tensor;
 pub use gpu_tensor::*;
+
+pub mod gpu_device_manager;
+pub use gpu_device_manager::*;

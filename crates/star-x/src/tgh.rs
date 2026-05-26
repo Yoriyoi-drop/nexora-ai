@@ -170,7 +170,21 @@ impl TemporalGatingHierarchy {
         Ok(Array1::from_vec(output).into_dyn())
     }
 
-    /// GPU-accelerated matrix multiplication
+    /// GPU-accelerated matrix multiplication — returns GpuTensor (no PCIe readback)
+    #[cfg(feature = "gpu")]
+    fn matmul_gpu_keep_gpu(
+        &self,
+        weights_gpu: &nexora_autograd::gpu::GpuTensor,
+        input_gpu: &nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> Option<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::GpuTensor;
+
+        let wt_gpu = ctx.transpose(weights_gpu).ok()?;
+        ctx.matmul(input_gpu, &wt_gpu).ok()
+    }
+
+    /// GPU-accelerated matrix multiplication (CPU round-trip fallback)
     #[cfg(feature = "gpu")]
     fn matmul_gpu(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> Option<ArrayD<f32>> {
         use ndarray::ArrayD;
@@ -187,9 +201,8 @@ impl TemporalGatingHierarchy {
         let w_gpu = GpuTensor::from_cpu(
             &ArrayD::from_shape_vec(vec![w_shape[0], w_shape[1]], weights.iter().copied().collect()).ok()?
         ).ok()?;
-        let wt_gpu = ctx.transpose(&w_gpu).ok()?;
 
-        let out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
+        let out_gpu = self.matmul_gpu_keep_gpu(&w_gpu, &input_gpu, &ctx)?;
         let out_cpu = out_gpu.to_cpu().ok()?;
         let result: Vec<f32> = out_cpu.iter().copied().collect();
         Some(Array1::from_vec(result).into_dyn())

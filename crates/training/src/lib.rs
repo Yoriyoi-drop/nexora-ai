@@ -19,6 +19,8 @@ use tracing::{info, warn};
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::{GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
+use nexora_autograd::data_parallel::gpu_allreduce_gradients;
+#[cfg(feature = "gpu")]
 use nexora_autograd::gpu_adam::GpuAdam;
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
@@ -48,6 +50,10 @@ pub struct TrainerConfig {
     pub val_every_steps: usize,
     pub early_stop_patience: usize,
     pub use_gpu: bool,
+    /// Number of model replicas for data-parallel training (1 = no replication).
+    /// When >1, gradients are averaged across replicas via GPU Gradient AllReduce
+    /// after each optimizer step. Requires GPU mode.
+    pub num_replicas: usize,
 }
 
 impl Default for TrainerConfig {
@@ -67,6 +73,7 @@ impl Default for TrainerConfig {
             val_every_steps: 100,
             early_stop_patience: 3,
             use_gpu: true,
+            num_replicas: 1,
         }
     }
 }
@@ -84,6 +91,9 @@ pub struct Trainer {
     pub gpu_target_buf: Option<GpuTensor>,
     #[cfg(feature = "gpu")]
     pub gpu_staging: Option<GpuStagingPool>,
+    /// GPU gradient tensors per replica for data-parallel allreduce.
+    #[cfg(feature = "gpu")]
+    pub replica_grads: Vec<Vec<GpuTensor>>,
     pub step: usize,
     pub total_loss: f64,
     pub total_tokens: usize,
@@ -119,6 +129,8 @@ impl Trainer {
             gpu_target_buf: None,
             #[cfg(feature = "gpu")]
             gpu_staging: None,
+            #[cfg(feature = "gpu")]
+            replica_grads: Vec::new(),
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -148,6 +160,8 @@ impl Trainer {
             gpu_target_buf: None,
             #[cfg(feature = "gpu")]
             gpu_staging: None,
+            #[cfg(feature = "gpu")]
+            replica_grads: Vec::new(),
             step: 0,
             total_loss: 0.0,
             total_tokens: 0,
@@ -825,6 +839,11 @@ fn train_batch_gpu(
             }
         };
         *last_grad_norm = Some(clip_result.norm);
+
+        // Data-parallel gradient allreduce across model replicas
+        if config.num_replicas > 1 && !grad_refs.is_empty() {
+            let _ = gpu_allreduce_gradients(ctx, &grad_refs);
+        }
 
         let _ = gpu_opt.step(&ctx, &params, &grad_refs);
         let _ = gpu_opt.zero_grad(&ctx, &params);

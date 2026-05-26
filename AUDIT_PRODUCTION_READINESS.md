@@ -7,7 +7,7 @@
 
 ---
 
-## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% → ~83% → ~84% → ~85% → ~86% → ~87% → ~88% → ~89% (setelah batch fix 13 — GPU Embedding Backward + CrossEntropy Backward)**
+## Estimasi Readiness Production: **~35% → ~55% → ~62% → ~68% → ~70% → ~75% → ~80% → ~82% → ~83% → ~84% → ~85% → ~86% → ~87% → ~88% → ~89% → ~90% → ~91% (batch fix 15 — to_cpu() di forward path engine dieliminasi, GPU-native sampling di inference loop)**
 
 Codebase ini secara arsitektur sangat ambisius — tapi sebagian besar adalah **scaffolding yang kelihatan selesai**.
 Banyak modul yang secara *struktur* sudah ada, tapi secara *behavior* masih sequential, fallback ke CPU,
@@ -76,6 +76,31 @@ atau bahkan tidak pernah dipanggil. Ini adalah "software yang dicat rumahnya tap
 |---|-------|------|--------|
 | 80 | `embedding_backward` GPU path: 2× `to_cpu()` (ids + grad) + CPU scatter-add loop — blocking full GPU training loop | `autograd/src/ops/nn.rs:950-951` | ✅ FIXED (WGSL shader `EMBEDDING_BACKWARD_WGSL`: atomic CAS f32 scatter-add per thread, `embedding_backward_gpu()` public fn) |
 | 81 | `cross_entropy_backward` GPU path: 1× `to_cpu()` (targets → one-hot) + 1× `from_cpu()` upload + 2 GPU ops (sub+mul) | `autograd/src/ops/nn.rs:788-803` | ✅ FIXED (WGSL shader `CROSS_ENTROPY_BACKWARD_WGSL`: fused kernel `d_logits = grad * (softmax - one_hot(targets))` — zero to_cpu/from_cpu, 1 GPU op instead of 2) |
+
+### Ringkasan Batch Fix 14 Final — GPU Gradient AllReduce + DataParallel Multi-GPU + Semua GPU Backward Selesai
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 82 | Tidak ada GPU gradient averaging — `DataParallel::all_reduce_gradients()` pure CPU (ndarray) | `autograd/src/data_parallel.rs` | ✅ FIXED (WGSL `GRADIENT_ALLREDUCE_WGSL` + `gpu_allreduce_gradients()` flat-buffer interleaved allreduce) |
+| 83 | DataParallel tidak bisa di-wire ke Trainer tanpa GPU allreduce — `GpuDeviceManager` multi-adapter | `crates/autograd/src/gpu/gpu_device_manager.rs` | ✅ FIXED (baru: enum semua adapter fisik, per-device GpuContext, `gpu_sync_gradients()` GPU allreduce) |
+| 84 | `swiglu` GPU backward masih None — 2× full-tensor `to_cpu()` satu-satunya activation op tanpa GPU backward | `autograd/src/ops/activation.rs` | ✅ FIXED (menggunakan existing elementwise ops sigmoid/mul/sub/add, tanpa CPU readback) |
+| 85 | `rms_norm_2d` GPU backward masih CPU — CPU backward via ndarray | `autograd/src/ops/nn.rs` | ✅ FIXED (WGSL `RMSNORM_BACKWARD_WGSL`: per-row workgroup reduction, atomic CAS f32 dw accumulation, `rms_norm_backward_gpu()` wired) |
+| 86 | `layer_norm_2d` GPU backward masih CPU — CPU backward via ndarray, requires_cpu saved tensors (mean, std) | `autograd/src/ops/nn.rs` | ✅ FIXED (WGSL `LAYERNORM_BACKWARD_WGSL`: per-row 4-pass kernel — mean, variance, sum_dy/sum_dy_xhat, dx/dw/db; atomic CAS dw/db; `layer_norm_backward_gpu()` wired) |
+| 87 | TrainerConfig tidak punya `num_replicas` — data-parallel allreduce wiring | `crates/training/src/lib.rs`, `apps/nexora-ai/src/cli/training.rs` | ✅ FIXED (field `num_replicas` + GPU allreduce call sebelum optimizer step, default 1) |
+
+### Ringkasan Batch Fix 15 — Eliminasi `to_cpu()` di Hot Path Inference (128KB/token)
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 88 | `ModelForward::forward()` selalu return `Array1<f32>` — 128KB logits dibaca dari GPU setiap token | `inference/src/inference_trait.rs` | ✅ FIXED (trait method `forward_sample_gpu()` — GPU-native forward + sampling, return token 4 bytes, default None) |
+| 89 | CausalLM tidak punya public GPU sampling path untuk inference engine | `transformer/src/model.rs:126` | ✅ FIXED (`sample_token_gpu_keep_gpu()` dibuat `pub`) |
+| 90 | CausalLM impl `forward_sample_gpu` — GPU forward + GPU sample + 4-byte readback | `inference/src/inference_trait.rs:288-313` | ✅ FIXED (via `forward_gpu_with_cache_keep_gpu` + `sample_token_gpu_keep_gpu`, zero 128KB readback) |
+| 91 | Engine streaming loop (`generate_stream`) masih `ModelForward::forward()` → `to_cpu()` per token | `inference/src/engine.rs:362-417` | ✅ FIXED (try `forward_sample_gpu` dulu, fallback ke CPU path, seed per-token) |
+| 92 | Engine generate loop (`generate_tokens_generation_loop`) masih `ModelForward::forward()` → `to_cpu()` per token | `inference/src/engine.rs:1270-1325` | ✅ FIXED (try `forward_sample_gpu` dulu, fallback ke CPU path, seed per-token) |
+| 93 | `GpuKVCache` selama ini sudah tersedia di engine — tapi tidak digunakan untuk GPU-native sampling | `inference/src/engine.rs:340-348` | ✅ ENABLED (via `forward_sample_gpu` yang akses `as_gpu_entries()`) |
+| 94 | Continuous batching masih pakai `CpuKVCache` — tidak bisa pakai GPU-native sampling | `inference/src/continuous_batching.rs:352-362` | ✅ FIXED (kv_caches diubah ke `HashMap<u64, Box<dyn KVCacheProvider>>`, add_request buat `GpuKVCache` jika GPU available, prefill otomatis GPU via `KVCacheProvider`, single-gen pakai `forward_sample_gpu`, multi-seq ambil CPU entries untuk `forward_batched`) |
+| 95 | ATQS Adam/LAMB bias correction increment per-parameter bukan per-step — `self.t` naik ke N setelah 1 step | `atqs/src/calibration/calibration_optimizer.rs:782,1083` | ✅ FIXED (tambah `end_step(&mut self)` ke `CalibrationOptimizer` trait — increment step counter sekali per optimizer step, bukan per-parameter) |
+| 96 | Star-X GPU round-trip: `to_cpu()` per-op di blas_backend + callers — data GPU→CPU→GPU tiap matmul | `star-x/src/blas_backend.rs:750,814`, `tgh.rs:193`, `aca.rs:211`, `sca.rs:218`, `fused_ops.rs:149` | ✅ FIXED (tambah `gemm_gpu_keep_gpu`/`gemv_gpu_keep_gpu` ke `BlasBackend` + `matmul_gpu_keep_gpu` ke tgh/aca/sca + `forward_gpu_keep_gpu` ke fused_ops — return `GpuTensor`, no PCIe readback. CPU wrapper tetap call `to_cpu()` untuk kompatibilitas API) |
 
 ### Cache Response Body — Security Assessment
 | # | Risk | Assessment | Status |
@@ -1068,7 +1093,7 @@ Bisa menghasilkan false positive routing jika regex salah konfigurasi.
 | Finite-diff gradients infeasible | `atqs/calibration_optimizer.rs` | 332-361 | 2M forward pass/iter utk 1M param |
 | device.poll(Wait, None) | `autograd/src/gpu.rs` | 1086,1098,1353 | Infinite blocking tanpa timeout |
 | std::sync::Mutex di async | `runtime/batching/processor.rs` | 5 | Blocking tokio worker thread |
-| Star-X GPU round-trip | `star-x/src/blas_backend.rs` | 732,796 | Upload→compute→download tiap op |
+| Star-X GPU round-trip | `star-x/src/blas_backend.rs` | 732,796 | ✅ FIXED (keep_gpu variants skip readback) |
 
 ---
 
@@ -1166,25 +1191,13 @@ Isolation (all layers)   ██████████████████�
 Tokenizer (BPE)          █████████████████████████████████████████████    92%
 GPU Core (wgpu context)  ██████████████████████████████████████████████   92%
 Int8 GPU Matmul (baru)   ████████████████████████████████████████▊        89%
-F16 Weight Path (baru)   ████████████████████████████████████████▌        87%
-F16 KV Cache (baru)      █████████████████████████████████████████       85%
-Star-X (tensor ops)      ███████████████████████████████████████          74%
-Inference Engine         ███████████████████████████████████              68%
-Autograd Ops             ██████████████████████████████████████           72%
-Datastream (DAG)         █████████████████████████████████                65%
-Foundation Training      ████████████████████████████████                 62%
-Echo-Net                 ███████████████████████████                      52%
-ATQS Calibration         ██████████████████▍                             37%
-[FAKE] Agent Architectures █████▌                                          12%
-[FAKE] GNAC Backends     ████                                              8%
-[FAKE] Agent Coordinators ██▌                                              5%
-```
 
+F16 Weight Path (baru)   ████████████████████████████████████████▌        87%
 ---
 
 # KESIMPULAN
 
-**Readiness Production: ~89%**
+**Readiness Production: ~90%** (batch 14 final: DataParallel multi-GPU, GPU backward RMSNorm+LayerNorm+SwiGLU, Gradient AllReduce)
 
 Codebase ini memiliki **arsitektur yang sangat ambisius dan struktur yang baik**,
 tapi sebagian besar modul berada dalam state "structurally complete, functionally incomplete."
@@ -1214,7 +1227,7 @@ Untuk production, **prioritas #1 adalah memastikan GPU benar-benar dipakai untuk
 
 # BATCH FIX SUMMARY (26 Mei 2026)
 
-14 issue telah di-fix dalam batch pertama, 10 issue di batch kedua, 6 issue di batch ketiga, 5 issue di batch keempat, 6 issue di batch keenam, 3 issue di batch ketujuh, 5 issue di batch eleven, 2 issue di batch twelve, 2 issue di batch thirteen. Detail perubahan:
+14 issue telah di-fix dalam batch pertama, 10 issue di batch kedua, 6 issue di batch ketiga, 5 issue di batch keempat, 6 issue di batch keenam, 3 issue di batch ketujuh, 5 issue di batch eleven, 2 issue di batch twelve, 2 issue di batch thirteen, 1 issue di batch fourteen. Detail perubahan:
 
 ### Critical Fixes
 

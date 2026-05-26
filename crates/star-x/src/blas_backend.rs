@@ -12,14 +12,21 @@
 //! To enable C BLAS with link-time: add `features = ["blas"]` to ndarray in
 //! Cargo.toml and link `blas-src` + a provider (`openblas-src`, `intel-mkl-src`).
 //!
-//! # GPU Limitation
+//! # GPU Path
 //!
-//! GPU-accelerated operations (behind `#[cfg(feature = "gpu")]`) perform a
-//! full PCIe round-trip for EVERY operation: `GpuTensor::from_cpu()` → GPU
-//! compute → `result.to_cpu()`. Data never stays on GPU between calls. This
-//! negates most GPU benefit for matrices under ~4096 dimensions. Production
-//! GPU acceleration requires a compute graph with lazy execution (see
-//! autograd GPU pipeline).
+//! GPU-accelerated operations (behind `#[cfg(feature = "gpu")]`) come in two
+//! flavors:
+//!
+//! - **`gemm_gpu` / `gemv_gpu`** — CPU convenience wrappers that accept
+//!   `Array2`/`Array1`, upload to GPU, compute, and download results back to
+//!   CPU. Include a full PCIe round-trip per call.
+//! - **`*_gpu_keep_gpu`** — GPU-native variants (e.g. `gemm_gpu_keep_gpu`,
+//!   `matmul_gpu_keep_gpu`) that accept and return `GpuTensor`. Zero PCIe
+//!   readback. Use these when chaining multiple GPU operations to keep data
+//!   resident on device.
+//!
+//! When chaining is possible (`fused_ops`, `tgh`, `aca`, `sca`), prefer the
+//! `*_gpu_keep_gpu` variants and download only the final result.
 
 use crate::fused_ops::ActivationType;
 use crate::{DLResult, DeepLearningError, require_contiguous, require_contiguous_mut};
@@ -695,14 +702,12 @@ impl BlasOperations {
 
     // ── GPU-accelerated operations ───────────────────────────────────────────────
     //
-    // WARNING: GPU operations follow an upload→compute→download pattern for
-    // EVERY operation: `from_cpu()` → GPU compute → `to_cpu()`. Data never
-    // stays on GPU between operations. This causes a PCIe round-trip per op
-    // which negates most GPU benefit for matrices smaller than ~4096 dimensions.
-    //
-    // This GPU path is suitable for prototyping and single large operations.
-    // For production GPU acceleration, a compute graph with lazy execution
-    // and minimal readback is required (see: autograd GPU pipeline).
+    // Two variants available:
+    //   gemm_gpu / gemv_gpu  — CPU convenience: upload → compute → download (PCIe
+    //     round-trip per call). Use when caller needs CPU `Array2`/`Array1` back.
+    //   *_gpu_keep_gpu       — GPU-native: accept/return `GpuTensor`, zero readback.
+    //     Use when chaining multiple GPU ops (fused_ops, tgh, aca, sca) to keep data
+    //     resident on device. Download the final result only.
 
     #[cfg(feature = "gpu")]
     pub fn gemm_gpu(
@@ -823,6 +828,37 @@ impl BlasOperations {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn gemm_gpu_keep_gpu(
+        &self,
+        a: &nexora_autograd::gpu::GpuTensor,
+        b: &nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> DLResult<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::GpuContext;
+
+        let b_t = ctx
+            .transpose(b)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        let result = ctx
+            .matmul(a, &b_t)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        Ok(result)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn gemv_gpu_keep_gpu(
+        &self,
+        a: &nexora_autograd::gpu::GpuTensor,
+        x: &nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> DLResult<nexora_autograd::gpu::GpuTensor> {
+        let result = ctx
+            .matmul(a, x)
+            .map_err(|e| DeepLearningError::Computation { reason: e.to_string() })?;
+        Ok(result)
     }
 
     // Vector operations

@@ -9,7 +9,9 @@ use tracing::{debug, warn};
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
-use nexora_transformer::CpuKVCache;
+use nexora_transformer::{CpuKVCache, KVCacheProvider};
+#[cfg(feature = "gpu")]
+use nexora_transformer::GpuKVCache;
 
 /// Configuration for continuous batching engine.
 #[derive(Debug, Clone)]
@@ -99,7 +101,7 @@ pub struct StepResult {
 /// To use, set `InferenceConfig::use_continuous_batching = true`.
 pub struct ContinuousBatchingEngine<M> {
     sequences: HashMap<u64, Sequence>,
-    kv_caches: HashMap<u64, CpuKVCache>,
+    kv_caches: HashMap<u64, Box<dyn KVCacheProvider>>,
     model: M,
     next_seq_id: u64,
     max_batch_size: usize,
@@ -109,6 +111,14 @@ pub struct ContinuousBatchingEngine<M> {
     tokenizer: Option<Arc<std::sync::Mutex<BpeTokenizer>>>,
     config: ContinuousBatchingConfig,
     prefix_trie: Option<PrefixTrie>,
+    #[cfg(feature = "gpu")]
+    num_layers: usize,
+    #[cfg(feature = "gpu")]
+    num_kv_heads: usize,
+    #[cfg(feature = "gpu")]
+    head_dim: usize,
+    #[cfg(feature = "gpu")]
+    max_seq_len: usize,
 }
 
 #[deprecated(note = "renamed to ContinuousBatchingEngine")]
@@ -123,6 +133,16 @@ where
             max_batch_size,
             ..Default::default()
         })
+    }
+
+    /// Set model architecture dimensions for GPU KV cache creation.
+    /// Only needed when GPU is available; safe to skip for CPU-only usage.
+    #[cfg(feature = "gpu")]
+    pub fn set_model_dims(&mut self, num_layers: usize, num_kv_heads: usize, head_dim: usize, max_seq_len: usize) {
+        self.num_layers = num_layers;
+        self.num_kv_heads = num_kv_heads;
+        self.head_dim = head_dim;
+        self.max_seq_len = max_seq_len;
     }
 
     pub fn with_config(model: M, config: ContinuousBatchingConfig) -> Self {
@@ -145,6 +165,14 @@ where
                 None
             },
             config,
+            #[cfg(feature = "gpu")]
+            num_layers: 0,
+            #[cfg(feature = "gpu")]
+            num_kv_heads: 0,
+            #[cfg(feature = "gpu")]
+            head_dim: 0,
+            #[cfg(feature = "gpu")]
+            max_seq_len: 0,
         }
     }
 
@@ -167,6 +195,17 @@ where
         }
     }
 
+    /// Extract a CpuKVCache from a Box<dyn KVCacheProvider>.
+    /// For CpuKVCache, takes entries directly. For GpuKVCache, reads back K/V from GPU.
+    /// Used to provide CPU caches to `forward_batched`.
+    fn boxed_cache_to_cpu(cache: &mut Box<dyn KVCacheProvider>) -> CpuKVCache {
+        if let Some(cpu_entries) = cache.as_cpu_entries() {
+            CpuKVCache { entries: std::mem::take(cpu_entries) }
+        } else {
+            CpuKVCache::new(0)
+        }
+    }
+
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {
         if self.sequences.len() >= self.max_total_sequences {
             warn!(
@@ -180,8 +219,25 @@ where
 
         let mut seq = Sequence::from_request(seq_id, &request);
         seq.state = SeqState::Prefilling;
-        let cache = self.model.reset_cache();
-        self.kv_caches.insert(seq_id, cache);
+        if self.use_gpu {
+            #[cfg(feature = "gpu")]
+            if self.num_layers > 0 {
+                let gpu_cache =
+                    GpuKVCache::new(self.num_layers, self.num_kv_heads, self.head_dim, self.max_seq_len);
+                self.kv_caches.insert(seq_id, Box::new(gpu_cache));
+            } else {
+                let cache = self.model.reset_cache();
+                self.kv_caches.insert(seq_id, Box::new(cache));
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                let cache = self.model.reset_cache();
+                self.kv_caches.insert(seq_id, Box::new(cache));
+            }
+        } else {
+            let cache = self.model.reset_cache();
+            self.kv_caches.insert(seq_id, Box::new(cache));
+        }
 
         // Register in prefix trie for shared prefill
         if let Some(ref mut trie) = self.prefix_trie {
@@ -256,7 +312,7 @@ where
         // logits predict the first generated token.
         if !prefill_ids.is_empty() {
             // Extract KV caches for prefill sequences
-            let mut prefill_caches: Vec<(u64, CpuKVCache)> = prefill_ids
+            let mut prefill_caches: Vec<(u64, Box<dyn KVCacheProvider>)> = prefill_ids
                 .iter()
                 .filter_map(|&sid| self.kv_caches.remove(&sid).map(|c| (sid, c)))
                 .collect();
@@ -271,13 +327,14 @@ where
                 let prompt_tokens: Vec<u32> = seq.prompt[seq.prompt_pos..].to_vec();
                 drop(seq);
 
-                let logits = self.model.forward(&prompt_tokens, cache);
+                let logits = self.model.forward(&prompt_tokens, &mut **cache);
                 prefill_logits.push((*sid, logits));
             }
 
             // Restore all prefill KV caches and update states to Generating
             for (sid, cache) in prefill_caches {
                 self.kv_caches.insert(sid, cache);
+                // For GPU caches, also sync back to CPU if needed
                 if let Some(seq) = self.sequences.get_mut(&sid) {
                     seq.prompt_pos = seq.prompt.len();
                     seq.state = SeqState::Generating;
@@ -345,12 +402,13 @@ where
 
         // --- PHASE 2: Batched generation for non-prefill sequences ---
         if !gen_ids.is_empty() {
-            let mut gen_caches: Vec<CpuKVCache> = Vec::with_capacity(gen_ids.len());
+            let mut gen_boxed_caches: Vec<Box<dyn KVCacheProvider>> = Vec::with_capacity(gen_ids.len());
             let mut gen_inputs: Vec<u32> = Vec::with_capacity(gen_ids.len());
+            let mut gen_samplers: Vec<(u64, f32, usize, f32)> = Vec::with_capacity(gen_ids.len());
 
             for &sid in &gen_ids {
                 if let Some(cache) = self.kv_caches.remove(&sid) {
-                    gen_caches.push(cache);
+                    gen_boxed_caches.push(cache);
                 }
                 if let Some(s) = self.sequences.get(&sid) {
                     let next_token = s.next_input_token();
@@ -358,13 +416,54 @@ where
                         warn!("Sequence {} has no input token, using BOS(0)", sid);
                     }
                     gen_inputs.push(next_token.unwrap_or(0));
+                    gen_samplers.push((sid, s.temperature, s.top_k as usize, s.top_p));
                 }
             }
 
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+
+            // Pre-sampled token IDs from GPU path (None = use CPU sampler)
+            let mut gpu_tokens: Vec<Option<u32>> = vec![None; gen_ids.len()];
+
+            // For multi-seq: extract CPU entries, call forward_batched (GPU w/ logit readback)
+            // For single-seq with GPU: use forward_sample_gpu (zero logit readback)
             let all_logits: Vec<Array1<f32>> = if gen_ids.len() > 1 {
-                self.model.forward_batched(&gen_inputs, &mut gen_caches)
-            } else if let Some(cache) = gen_caches.first_mut() {
-                vec![self.model.forward(&gen_inputs, cache)]
+                let mut caches: Vec<CpuKVCache> = gen_boxed_caches
+                    .iter_mut()
+                    .map(|c| Self::boxed_cache_to_cpu(c))
+                    .collect();
+                self.model.forward_batched(&gen_inputs, &mut caches)
+            } else if gen_ids.len() == 1 && !gen_boxed_caches.is_empty() {
+                if self.use_gpu {
+                    let cache = &mut *gen_boxed_caches[0];
+                    let (_, temperature, top_k, top_p) = gen_samplers[0];
+                    if let Some(tok) = self.model.forward_sample_gpu(
+                        &gen_inputs,
+                        cache,
+                        temperature,
+                        top_k,
+                        top_p,
+                        seed.wrapping_add(0),
+                    ) {
+                        gpu_tokens[0] = Some(tok);
+                        vec![Array1::zeros(1)]
+                    } else {
+                        let mut caches: Vec<CpuKVCache> = gen_boxed_caches
+                            .iter_mut()
+                            .map(|c| Self::boxed_cache_to_cpu(c))
+                            .collect();
+                        vec![self.model.forward(&gen_inputs, &mut caches[0])]
+                    }
+                } else {
+                    let mut caches: Vec<CpuKVCache> = gen_boxed_caches
+                        .iter_mut()
+                        .map(|c| Self::boxed_cache_to_cpu(c))
+                        .collect();
+                    vec![self.model.forward(&gen_inputs, &mut caches[0])]
+                }
             } else {
                 warn!("No cache available for generation forward pass — skipping");
                 Vec::new()
@@ -372,36 +471,40 @@ where
 
             // Restore generation caches
             for (i, sid) in gen_ids.iter().enumerate() {
-                if i < gen_caches.len() {
-                    let cache = std::mem::replace(&mut gen_caches[i], CpuKVCache::new(0));
+                if i < gen_boxed_caches.len() {
+                    let cache = std::mem::replace(&mut gen_boxed_caches[i], Box::new(CpuKVCache::new(0)));
                     self.kv_caches.insert(*sid, cache);
                 }
             }
 
             // Process each generation result
-            for (i, (&seq_id, logits_arr)) in gen_ids.iter().zip(all_logits.iter()).enumerate() {
+            for (seq_idx, (&seq_id, logits_arr)) in gen_ids.iter().zip(all_logits.iter()).enumerate() {
                 let logits_vec: Vec<f32> = logits_arr.clone().into_raw_vec();
 
-                let sampler = match self.samplers.get_mut(&seq_id) {
-                    Some(s) => s,
-                    None => {
-                        warn!("Sampler not found for sequence {}, skipping", seq_id);
-                        continue;
-                    }
-                };
-                let token_id = match sampler.sample(&logits_vec) {
-                    Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
-                    Err(e) => {
-                        warn!(
-                            "Sampler failed for sequence {}, error: {:?}, falling back to argmax",
-                            seq_id, e
-                        );
-                        logits_vec
-                            .iter()
-                            .enumerate()
-                            .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                            .map(|(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
-                            .unwrap_or(0)
+                let token_id = if let Some(gpu_tok) = gpu_tokens[seq_idx] {
+                    gpu_tok
+                } else {
+                    let sampler = match self.samplers.get_mut(&seq_id) {
+                        Some(s) => s,
+                        None => {
+                            warn!("Sampler not found for sequence {}, skipping", seq_id);
+                            continue;
+                        }
+                    };
+                    match sampler.sample(&logits_vec) {
+                        Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
+                        Err(e) => {
+                            warn!(
+                                "Sampler failed for sequence {}, error: {:?}, falling back to argmax",
+                                seq_id, e
+                            );
+                            logits_vec
+                                .iter()
+                                .enumerate()
+                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                                .map(|(i, _)| u32::try_from(i).unwrap_or(u32::MAX))
+                                .unwrap_or(0)
+                        }
                     }
                 };
 
@@ -415,14 +518,18 @@ where
                     }
                 };
 
-                let log_prob = logits_vec.get(token_id as usize).copied().unwrap_or_else(|| {
-                    warn!(
-                        "token_id {} out of range for logits of length {}",
-                        token_id,
-                        logits_vec.len()
-                    );
+                let log_prob = if gpu_tokens[seq_idx].is_some() {
                     0.0
-                });
+                } else {
+                    logits_vec.get(token_id as usize).copied().unwrap_or_else(|| {
+                        warn!(
+                            "token_id {} out of range for logits of length {}",
+                            token_id,
+                            logits_vec.len()
+                        );
+                        0.0
+                    })
+                };
                 let pos = seq.prompt.len() + seq.generated.len();
                 seq.push_token(Arc::new(GeneratedToken::new(
                     token_id,

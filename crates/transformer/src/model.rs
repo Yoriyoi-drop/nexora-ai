@@ -123,7 +123,7 @@ fn sample_token_gpu(
 /// Sample a token from GPU-resident logits — zero CPU round-trip for logits.
 /// Takes logits that are ALREADY on GPU, returns sampled token as GPU tensor (still on GPU).
 #[cfg(feature = "gpu")]
-fn sample_token_gpu_keep_gpu(
+pub fn sample_token_gpu_keep_gpu(
     logits_gpu: &nexora_autograd::gpu::GpuTensor,
     temperature: f32,
     top_k: usize,

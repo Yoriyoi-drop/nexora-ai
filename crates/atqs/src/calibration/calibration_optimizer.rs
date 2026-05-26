@@ -426,6 +426,9 @@ fn update_parameters(
         }
     }
 
+    // One step complete — increment step counters for bias correction etc.
+    optimizer.end_step();
+
     Ok(())
 }
 
@@ -705,6 +708,10 @@ trait CalibrationOptimizer {
         gradient: &ArrayD<f32>,
         state: &OptimizationState,
     ) -> Result<(), crate::ATQSError>;
+
+    /// Called once per optimizer step after all parameters are updated.
+    /// Used for step counter increment (e.g. bias correction in Adam/LAMB).
+    fn end_step(&mut self) {}
 }
 
 /// Adam optimizer implementation
@@ -779,8 +786,11 @@ impl CalibrationOptimizer for AdamOptimizer {
         // Apply update to model (simplified)
         apply_parameter_update(model, layer_idx, param_type, &update)?;
 
-        self.t += 1;
         Ok(())
+    }
+
+    fn end_step(&mut self) {
+        self.t += 1;
     }
 }
 
@@ -1080,8 +1090,11 @@ impl CalibrationOptimizer for LAMBOptimizer {
 
         apply_parameter_update(model, layer_idx, param_type, &update)?;
 
-        self.t += 1;
         Ok(())
+    }
+
+    fn end_step(&mut self) {
+        self.t += 1;
     }
 }
 

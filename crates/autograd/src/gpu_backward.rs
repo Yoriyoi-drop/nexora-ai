@@ -423,6 +423,55 @@ pub fn cross_entropy_backward_gpu(
     ctx.cross_entropy_backward(&softmax, grad, targets)
 }
 
+// ── SwiGLU backward ────────────────────────────────────────────────
+// swiglu(gate, x) = silu(gate) * x
+// d_gate = grad * silu'(gate) * x
+// d_x    = grad * silu(gate)
+// All GPU-native using existing elementwise ops.
+pub fn swiglu_backward_gpu(
+    ctx: &GpuContext,
+    gate: &GpuTensor,
+    x: &GpuTensor,
+    grad: &GpuTensor,
+) -> Result<(GpuTensor, GpuTensor), GpuError> {
+    // silu(gate) = gate * sigmoid(gate)
+    let sig = ctx.elementwise_unary(gate, ElemOp::Sigmoid)
+        .map_err(|e| GpuError::Device(format!("swiglu_backward sigmoid: {e}")))?;
+
+    // dsilu = sig + gate * sig * (1 - sig)  (silu derivative)
+    let shape = gate.shape().to_vec();
+    let one = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
+        ndarray::IxDyn(&shape), 1.0f32,
+    )).map_err(|e| GpuError::Conversion(format!("swiglu_backward one: {e}")))?;
+    let one_minus_sig = ctx.sub(&one, &sig)?;
+    let gate_sig = ctx.mul(gate, &sig)?;
+    let term = ctx.mul(&gate_sig, &one_minus_sig)?;
+    let dsilu = ctx.add(&sig, &term)?;
+
+    // d_gate = grad * dsilu * x
+    let d_gate = ctx.mul(grad, &dsilu)?;
+    let d_gate = ctx.mul(&d_gate, x)?;
+
+    // d_x = grad * silu(gate) = grad * gate * sig
+    let gate_times_sig = ctx.mul(gate, &sig)?;
+    let d_x = ctx.mul(grad, &gate_times_sig)?;
+
+    Ok((d_gate, d_x))
+}
+
+// ── RMSNorm backward ───────────────────────────────────────────────
+// Pure GPU: per-workgroup kernel computes dx and dw atomically.
+// Eliminates CPU backward for RMSNorm.
+pub fn rms_norm_backward_gpu(
+    ctx: &GpuContext,
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    grad: &GpuTensor,
+    eps: f32,
+) -> Result<(GpuTensor, GpuTensor), GpuError> {
+    ctx.rms_norm_backward(input, weight, grad, eps)
+}
+
 // ── Gradient AllReduce (GPU) ───────────────────────────────────────
 // Average gradients from N model replicas.
 // Takes a flat buffer of [replica_0_grads | replica_1_grads | ...]
@@ -434,4 +483,16 @@ pub fn gradient_allreduce_gpu(
     num_replicas: u32,
 ) -> Result<(), GpuError> {
     ctx.gradient_allreduce(all_grads, out, num_replicas)
+}
+
+// ── LayerNorm backward ──────────────────────────────────────────────
+pub fn layer_norm_backward_gpu(
+    ctx: &GpuContext,
+    input: &GpuTensor,
+    weight: &GpuTensor,
+    bias: &GpuTensor,
+    grad: &GpuTensor,
+    eps: f32,
+) -> Result<(GpuTensor, GpuTensor, GpuTensor), GpuError> {
+    ctx.layer_norm_backward(input, weight, bias, grad, eps)
 }

@@ -590,6 +590,7 @@ impl Cli {
             val_every_steps: (steps / 5).max(1),
             early_stop_patience: 3,
             use_gpu: gpu,
+            num_replicas: 1,
         };
 
         // Initialize GPU if enabled
