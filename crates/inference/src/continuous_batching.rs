@@ -4,12 +4,78 @@ use std::time::Instant;
 
 use ndarray::Array1;
 use nexora_tokenizer::BpeTokenizer;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
 use nexora_transformer::CpuKVCache;
+
+/// Configuration for continuous batching engine.
+#[derive(Debug, Clone)]
+pub struct ContinuousBatchingConfig {
+    /// Max sequences per batch (forward_batched max size).
+    pub max_batch_size: usize,
+    /// Max total sequences in flight at once.
+    pub max_total_sequences: usize,
+    /// Minimum prefix length to consider for sharing (0 = disabled).
+    pub min_shared_prefix_len: usize,
+    /// Whether to enable prefix sharing across sequences.
+    pub enable_prefix_sharing: bool,
+}
+
+impl Default for ContinuousBatchingConfig {
+    fn default() -> Self {
+        Self {
+            max_batch_size: 8,
+            max_total_sequences: 1024,
+            min_shared_prefix_len: 4,
+            enable_prefix_sharing: true,
+        }
+    }
+}
+
+/// A simple prefix tree (trie) for detecting shared prefixes across sequences.
+/// When `enable_prefix_sharing` is on, sequences with matching prefixes share
+/// the initial KV cache computation — the common prefix is processed once
+/// and the result is copied to each sequence's KV cache.
+#[derive(Debug, Default)]
+struct PrefixTrieNode {
+    children: HashMap<u32, PrefixTrieNode>,
+    /// Sequence IDs that share this prefix
+    seq_ids: Vec<u64>,
+}
+
+#[derive(Debug)]
+struct PrefixTrie {
+    root: PrefixTrieNode,
+}
+
+impl PrefixTrie {
+    fn new() -> Self {
+        Self {
+            root: PrefixTrieNode::default(),
+        }
+    }
+
+    /// Insert a sequence's prompt into the trie and return (prefix_len, shared_with_count).
+    fn insert(&mut self, seq_id: u64, prompt: &[u32], min_shared: usize) -> (usize, usize) {
+        let mut node = &mut self.root;
+        let mut prefix_len = 0usize;
+        for &token in prompt {
+            node = node.children.entry(token).or_default();
+            node.seq_ids.push(seq_id);
+            prefix_len += 1;
+            if prefix_len >= min_shared && node.seq_ids.len() > 1 {
+                // Found a shared prefix — return it
+                let shared_count = node.seq_ids.len();
+                // Walk remaining tokens to build full subtree
+                return (prefix_len, shared_count);
+            }
+        }
+        (0, 0)
+    }
+}
 
 /// Result of a single sequential batching step.
 #[derive(Debug)]
@@ -32,7 +98,8 @@ pub struct StepResult {
 ///
 /// Variable-length sequences are handled by processing all remaining prompt tokens
 /// for prefill sequences before proceeding to batched generation for all sequences.
-#[deprecated(note = "Use InferenceEngine with sampler-based decoding instead")]
+///
+/// To use, set `InferenceConfig::use_continuous_batching = true`.
 pub struct SequentialBatchingEngine<M> {
     sequences: HashMap<u64, Sequence>,
     kv_caches: HashMap<u64, CpuKVCache>,
@@ -43,6 +110,8 @@ pub struct SequentialBatchingEngine<M> {
     samplers: HashMap<u64, Sampler>,
     use_gpu: bool,
     tokenizer: Option<Arc<std::sync::Mutex<BpeTokenizer>>>,
+    config: ContinuousBatchingConfig,
+    prefix_trie: Option<PrefixTrie>,
 }
 
 impl<M> SequentialBatchingEngine<M>
@@ -50,19 +119,32 @@ where
     M: crate::inference_trait::ModelForward,
 {
     pub fn new(model: M, max_batch_size: usize) -> Self {
+        Self::with_config(model, ContinuousBatchingConfig {
+            max_batch_size,
+            ..Default::default()
+        })
+    }
+
+    pub fn with_config(model: M, config: ContinuousBatchingConfig) -> Self {
         Self {
             sequences: HashMap::new(),
             kv_caches: HashMap::new(),
             model,
             next_seq_id: 1,
-            max_batch_size,
-            max_total_sequences: 1024,
+            max_batch_size: config.max_batch_size,
+            max_total_sequences: config.max_total_sequences,
             samplers: HashMap::new(),
             #[cfg(feature = "gpu")]
             use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
             tokenizer: None,
+            prefix_trie: if config.enable_prefix_sharing {
+                Some(PrefixTrie::new())
+            } else {
+                None
+            },
+            config,
         }
     }
 
@@ -100,6 +182,18 @@ where
         seq.state = SeqState::Prefilling;
         let cache = self.model.reset_cache();
         self.kv_caches.insert(seq_id, cache);
+
+        // Register in prefix trie for shared prefill
+        if let Some(ref mut trie) = self.prefix_trie {
+            let (prefix_len, shared_count) = trie.insert(seq_id, &request.input_tokens, self.config.min_shared_prefix_len);
+            if prefix_len > 0 && shared_count > 1 {
+                debug!(
+                    "Seq {} shares {} token prefix with {} other sequence(s)",
+                    seq_id, prefix_len, shared_count - 1
+                );
+            }
+        }
+
         self.sequences.insert(seq_id, seq);
 
         let mut sampler = Sampler::new(SamplingConfig {

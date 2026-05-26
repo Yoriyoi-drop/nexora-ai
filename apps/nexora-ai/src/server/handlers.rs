@@ -71,9 +71,43 @@ pub async fn detailed_health_check(Extension(nexora): Extension<Arc<NexoraAI>>) 
 }
 
 pub async fn metrics_handler() -> axum::response::Response {
+    let obs = nexora_inference::inference_trait::observability_snapshot();
+    let additional = format!(
+        concat!(
+            "# HELP nexora_gpu_forward_errors Total GPU forward failures\n",
+            "# TYPE nexora_gpu_forward_errors counter\n",
+            "nexora_gpu_forward_errors {} {}\n",
+            "# HELP nexora_gpu_cpu_fallbacks Total GPU→CPU fallback events\n",
+            "# TYPE nexora_gpu_cpu_fallbacks counter\n",
+            "nexora_gpu_cpu_fallbacks {} {}\n",
+            "# HELP nexora_gpu_resident_successes GPU-resident generation successes\n",
+            "# TYPE nexora_gpu_resident_successes counter\n",
+            "nexora_gpu_resident_successes {} {}\n",
+            "# HELP nexora_gpu_resident_fallbacks GPU-resident generation fallbacks\n",
+            "# TYPE nexora_gpu_resident_fallbacks counter\n",
+            "nexora_gpu_resident_fallbacks {} {}\n",
+            "# HELP nexora_gpu_tokens_generated Total tokens generated via GPU path\n",
+            "# TYPE nexora_gpu_tokens_generated counter\n",
+            "nexora_gpu_tokens_generated {} {}\n",
+            "# HELP nexora_cpu_tokens_generated Total tokens generated via CPU path\n",
+            "# TYPE nexora_cpu_tokens_generated counter\n",
+            "nexora_cpu_tokens_generated {} {}\n",
+            "# HELP nexora_gpu_alive GPU device health (1=alive, 0=dead)\n",
+            "# TYPE nexora_gpu_alive gauge\n",
+            "nexora_gpu_alive {} {}\n",
+        ),
+        obs.gpu_forward_errors, 0i64,
+        obs.gpu_cpu_fallbacks, 0i64,
+        obs.gpu_resident_successes, 0i64,
+        obs.gpu_resident_fallbacks, 0i64,
+        obs.gpu_tokens_generated, 0i64,
+        obs.cpu_tokens_generated, 0i64,
+        if obs.gpu_alive { 1 } else { 0 }, 0i64,
+    );
+
     match metrics_collector() {
         Some(m) => {
-            let body = m.gather_prometheus();
+            let body = m.gather_prometheus() + &additional;
             axum::http::Response::builder()
                 .header("Content-Type", "text/plain; charset=utf-8")
                 .body(axum::body::Body::from(body))
@@ -86,18 +120,35 @@ pub async fn metrics_handler() -> axum::response::Response {
                         })
                 })
         }
-        None => axum::http::Response::builder()
-            .header("Content-Type", "text/plain; charset=utf-8")
-            .body(axum::body::Body::from("# metrics disabled"))
-            .unwrap_or_else(|e| {
-                axum::http::Response::builder()
-                    .status(500)
-                    .body(axum::body::Body::from(format!("metrics error: {}", e)))
-                    .unwrap_or_else(|_| {
-                        axum::http::Response::new(axum::body::Body::from("metrics error"))
-                    })
-            }),
+        None => {
+            let body = additional;
+            axum::http::Response::builder()
+                .header("Content-Type", "text/plain; charset=utf-8")
+                .body(axum::body::Body::from(body))
+                .unwrap_or_else(|e| {
+                    axum::http::Response::builder()
+                        .status(500)
+                        .body(axum::body::Body::from(format!("metrics error: {}", e)))
+                        .unwrap_or_else(|_| {
+                            axum::http::Response::new(axum::body::Body::from("metrics error"))
+                        })
+                })
+        }
     }
+}
+
+pub async fn gpu_health_handler() -> Json<serde_json::Value> {
+    let obs = nexora_inference::inference_trait::observability_snapshot();
+    Json(serde_json::json!({
+        "gpu_alive": obs.gpu_alive,
+        "gpu_forward_errors": obs.gpu_forward_errors,
+        "gpu_cpu_fallbacks": obs.gpu_cpu_fallbacks,
+        "gpu_resident_successes": obs.gpu_resident_successes,
+        "gpu_resident_fallbacks": obs.gpu_resident_fallbacks,
+        "gpu_tokens_generated": obs.gpu_tokens_generated,
+        "cpu_tokens_generated": obs.cpu_tokens_generated,
+        "gpu_resident_ratio": obs.gpu_resident_ratio,
+    }))
 }
 
 pub async fn system_info(Extension(nexora): Extension<Arc<NexoraAI>>) -> impl IntoResponse {

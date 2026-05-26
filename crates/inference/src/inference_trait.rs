@@ -13,14 +13,91 @@ use nexora_transformer::{CpuKVCache, KVCacheProvider};
 /// Global counter of GPU forward failures — resettable, observable.
 pub static GPU_FORWARD_ERRORS: AtomicU64 = AtomicU64::new(0);
 
+/// Global counter of GPU→CPU fallback events (sampler fallback, forward fallback, etc.).
+pub static GPU_CPU_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of GPU-resident generation path used successfully.
+pub static GPU_RESIDENT_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of GPU-resident → fallback events (when GPU-resident path fails).
+pub static GPU_RESIDENT_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of total tokens generated via GPU path.
+pub static GPU_TOKENS_GENERATED: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of total tokens generated via CPU fallback path.
+pub static CPU_TOKENS_GENERATED: AtomicU64 = AtomicU64::new(0);
+
 /// Returns current GPU forward error count.
 pub fn gpu_forward_error_count() -> u64 {
     GPU_FORWARD_ERRORS.load(Ordering::Relaxed)
 }
 
-/// Resets GPU forward error counter to zero.
-pub fn reset_gpu_forward_errors() {
+/// Returns current GPU→CPU fallback count.
+pub fn gpu_cpu_fallback_count() -> u64 {
+    GPU_CPU_FALLBACKS.load(Ordering::Relaxed)
+}
+
+/// Returns current GPU-resident success count.
+pub fn gpu_resident_success_count() -> u64 {
+    GPU_RESIDENT_SUCCESSES.load(Ordering::Relaxed)
+}
+
+/// Returns current GPU-resident fallback count.
+pub fn gpu_resident_fallback_count() -> u64 {
+    GPU_RESIDENT_FALLBACKS.load(Ordering::Relaxed)
+}
+
+/// Returns total tokens generated via GPU path.
+pub fn gpu_tokens_generated() -> u64 {
+    GPU_TOKENS_GENERATED.load(Ordering::Relaxed)
+}
+
+/// Returns total tokens generated via CPU fallback.
+pub fn cpu_tokens_generated() -> u64 {
+    CPU_TOKENS_GENERATED.load(Ordering::Relaxed)
+}
+
+/// Returns all observability counters as a snapshot struct.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ObservabilitySnapshot {
+    pub gpu_forward_errors: u64,
+    pub gpu_cpu_fallbacks: u64,
+    pub gpu_resident_successes: u64,
+    pub gpu_resident_fallbacks: u64,
+    pub gpu_tokens_generated: u64,
+    pub cpu_tokens_generated: u64,
+    pub gpu_resident_ratio: f64,
+    pub gpu_alive: bool,
+}
+
+/// Collect a snapshot of all observability counters.
+pub fn observability_snapshot() -> ObservabilitySnapshot {
+    let gpu_ok = cfg!(feature = "gpu")
+        && nexora_autograd::gpu::GpuContext::is_available();
+    let gpu_tokens = GPU_TOKENS_GENERATED.load(Ordering::Relaxed);
+    let cpu_tokens = CPU_TOKENS_GENERATED.load(Ordering::Relaxed);
+    let total = gpu_tokens + cpu_tokens;
+    ObservabilitySnapshot {
+        gpu_forward_errors: GPU_FORWARD_ERRORS.load(Ordering::Relaxed),
+        gpu_cpu_fallbacks: GPU_CPU_FALLBACKS.load(Ordering::Relaxed),
+        gpu_resident_successes: GPU_RESIDENT_SUCCESSES.load(Ordering::Relaxed),
+        gpu_resident_fallbacks: GPU_RESIDENT_FALLBACKS.load(Ordering::Relaxed),
+        gpu_tokens_generated: gpu_tokens,
+        cpu_tokens_generated: cpu_tokens,
+        gpu_resident_ratio: if total > 0 { gpu_tokens as f64 / total as f64 } else { 0.0 },
+        gpu_alive: gpu_ok,
+    }
+}
+
+/// Resets all observability counters to zero.
+pub fn reset_all_observability() {
     GPU_FORWARD_ERRORS.store(0, Ordering::Relaxed);
+    GPU_CPU_FALLBACKS.store(0, Ordering::Relaxed);
+    GPU_RESIDENT_SUCCESSES.store(0, Ordering::Relaxed);
+    GPU_RESIDENT_FALLBACKS.store(0, Ordering::Relaxed);
+    GPU_TOKENS_GENERATED.store(0, Ordering::Relaxed);
+    CPU_TOKENS_GENERATED.store(0, Ordering::Relaxed);
 }
 
 /// Trait for model forward pass — abstracts over CausalLM for testing.
@@ -98,6 +175,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                 Ok(v) => v,
                 Err(e) => {
                     GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                    GPU_CPU_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     tracing::error!("CausalLM forward failed: {e}");
                     let mut zeros = Array1::zeros(model.config.vocab_size);
                     // Inject a non-zero sentinel in the last position so callers
@@ -137,6 +215,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                 }
                 Err(e) => {
                     GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
+                    GPU_CPU_FALLBACKS.fetch_add(1, Ordering::Relaxed);
                     tracing::warn!("GPU forward failed: {}, falling back to CPU", e);
                 }
             }

@@ -230,6 +230,8 @@ impl NexoraAI {
             max_concurrent_requests: 4,
             enable_streaming: true,
             use_gpu: false,
+            #[cfg(feature = "gpu")]
+            use_gpu_resident: true,
             ..Default::default()
         };
         let inference_engine = Arc::new(

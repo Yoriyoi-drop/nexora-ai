@@ -14,6 +14,7 @@ use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
 use crate::session::InferenceSession;
 use crate::streaming::StreamingEngine;
+use crate::continuous_batching::ContinuousBatchingConfig;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
 };
@@ -41,6 +42,10 @@ pub struct InferenceConfig {
     pub use_gpu: bool,
     #[cfg(feature = "gpu")]
     pub use_gpu_cache: bool,
+    #[cfg(feature = "gpu")]
+    pub use_gpu_resident: bool,
+    pub use_continuous_batching: bool,
+    pub use_continuous_batching_config: Option<ContinuousBatchingConfig>,
     pub checkpoint_path: Option<String>,
 }
 
@@ -62,6 +67,10 @@ impl Default for InferenceConfig {
             use_gpu: true,
             #[cfg(feature = "gpu")]
             use_gpu_cache: true,
+            #[cfg(feature = "gpu")]
+            use_gpu_resident: true,
+            use_continuous_batching: false,
+            use_continuous_batching_config: None,
             checkpoint_path: None,
         }
     }
@@ -444,6 +453,228 @@ impl InferenceEngine {
         Ok(rx)
     }
 
+    /// Generate using continuous batching — multiple sequences share batched forward passes.
+    /// Uses batched model forward (`forward_batched`) to process multiple sequences in
+    /// a single kernel launch. Only activates with `use_continuous_batching: true`.
+    /// Falls back to per-request generation for single requests.
+    pub async fn generate_continuous_batched(
+        &self,
+        requests: Vec<InferenceRequest>,
+    ) -> Vec<InferenceResponse> {
+        if requests.is_empty() {
+            return Vec::new();
+        }
+        if requests.len() == 1 || !self.config.use_continuous_batching {
+            return match requests.into_iter().next() {
+                Some(req) => {
+                    let request_id = req.request_id;
+                    match self.generate_internal(req).await {
+                        Ok(r) => vec![r],
+                        Err(e) => {
+                            let mut err_resp = InferenceResponse::new(request_id);
+                            err_resp.finish_reason = FinishReason::Error(e.to_string());
+                            vec![err_resp]
+                        }
+                    }
+                }
+                None => Vec::new(),
+            };
+        }
+
+        let start = std::time::Instant::now();
+        let max_steps = requests.iter().map(|r| r.max_tokens as usize).max().unwrap_or(1024);
+        let use_gpu = self.config.use_gpu;
+
+        // Prepare per-sequence state
+        struct SeqState {
+            request_id: uuid::Uuid,
+            prompt: Vec<u32>,
+            generated: Vec<u32>,
+            kv_cache: Vec<nexora_transformer::KVCacheEntry>,
+            prompt_pos: usize,
+            temperature: f32,
+            top_k: usize,
+            top_p: f32,
+            finished: bool,
+            finish_reason: FinishReason,
+        }
+
+        let model = Arc::clone(&self.model);
+        let tokenizer = self.tokenizer.clone();
+        let mut sequences: Vec<SeqState> = Vec::with_capacity(requests.len());
+
+        for req in &requests {
+            let prompt_ids = self.encode_prompt(&req.prompt).await.unwrap_or_else(|_| {
+                req.input_tokens.clone()
+            });
+            let cache = model.reset_cache();
+            sequences.push(SeqState {
+                request_id: req.request_id,
+                prompt: prompt_ids,
+                generated: Vec::new(),
+                kv_cache: cache.entries,
+                prompt_pos: 0,
+                temperature: req.temperature,
+                top_k: req.top_k as usize,
+                top_p: req.top_p,
+                finished: false,
+                finish_reason: FinishReason::Unknown,
+            });
+        }
+
+        // BATTER STEP LOOP
+        let completed = tokio::task::spawn_blocking(move || {
+            let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig::default());
+            sampler.set_use_gpu(use_gpu);
+
+            for _step in 0..max_steps {
+                // Collect ready sequences
+                let mut active_indices: Vec<usize> = Vec::new();
+                let mut tokens: Vec<u32> = Vec::new();
+                let mut seq_caches: Vec<nexora_transformer::CpuKVCache> = Vec::new();
+
+                for (i, seq) in sequences.iter_mut().enumerate() {
+                    if seq.finished {
+                        continue;
+                    }
+                    let input = if seq.prompt_pos < seq.prompt.len() {
+                        seq.prompt[seq.prompt_pos]
+                    } else {
+                        seq.generated.last().copied().unwrap_or(0)
+                    };
+                    active_indices.push(i);
+                    tokens.push(input);
+                    let cache = std::mem::replace(
+                        &mut seq.kv_cache,
+                        Vec::new(),
+                    );
+                    seq_caches.push(nexora_transformer::CpuKVCache { entries: cache });
+                }
+
+                if active_indices.is_empty() {
+                    break;
+                }
+
+                // Batched forward — prefer GPU batched matmul for throughput
+                let all_logits: Vec<Array1<f32>> = if seq_caches.len() > 1 {
+                    #[cfg(feature = "gpu")]
+                    if use_gpu {
+                        let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = seq_caches.iter_mut()
+                            .map(|c| std::mem::take(&mut c.entries))
+                            .collect();
+                        match model.forward_gpu_batched(&tokens, &mut vec_caches) {
+                            Ok(logits) => {
+                                for (i, entries) in vec_caches.into_iter().enumerate() {
+                                    seq_caches[i].entries = entries;
+                                }
+                                logits
+                            }
+                            Err(e) => {
+                                crate::inference_trait::GPU_CPU_FALLBACKS.fetch_add(seq_caches.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                                tracing::warn!("Batched GPU forward failed: {e}, falling back to per-sequence");
+                                for (i, entries) in vec_caches.into_iter().enumerate() {
+                                    seq_caches[i].entries = entries;
+                                }
+                                tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
+                                    model.forward(&[tok], cache).ok()
+                                }).collect()
+                            }
+                        }
+                    } else {
+                        tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
+                            model.forward(&[tok], cache).ok()
+                        }).collect()
+                    }
+                    #[cfg(not(feature = "gpu"))]
+                    tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
+                        model.forward(&[tok], cache).ok()
+                    }).collect()
+                } else {
+                    tokens.iter().zip(seq_caches.iter_mut()).filter_map(|(&tok, cache)| {
+                        model.forward(&[tok], cache).ok()
+                    }).collect()
+                };
+
+                // Restore caches and sample
+                for (batch_idx, &seq_idx) in active_indices.iter().enumerate() {
+                    let seq = &mut sequences[seq_idx];
+                    seq.kv_cache = std::mem::take(&mut seq_caches[batch_idx].entries);
+
+                    if batch_idx >= all_logits.len() {
+                        continue;
+                    }
+                    let logits_arr = &all_logits[batch_idx];
+                    let logits_slice: &[f32] = logits_arr.as_slice().unwrap_or(&[]);
+                    if logits_slice.is_empty() {
+                        seq.finished = true;
+                        seq.finish_reason = FinishReason::Error("Empty logits from forward".into());
+                        continue;
+                    }
+
+                    let token_id = match sampler.sample(logits_slice) {
+                        Ok(idx) => idx as u32,
+                        Err(_) => {
+                            logits_slice.iter().enumerate()
+                                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                                .map(|(i, _)| i as u32)
+                                .unwrap_or(0)
+                        }
+                    };
+
+                    seq.generated.push(token_id);
+                    if seq.prompt_pos < seq.prompt.len() {
+                        seq.prompt_pos += 1;
+                    }
+
+                    // Check completion
+                    if token_id == 0 || token_id == 2 {
+                        seq.finished = true;
+                        seq.finish_reason = FinishReason::EndOfSequence;
+                    } else if seq.generated.len() >= max_steps {
+                        seq.finished = true;
+                        seq.finish_reason = FinishReason::MaxTokens;
+                    }
+                }
+            }
+
+            // Build responses
+            let mut results = Vec::with_capacity(sequences.len());
+            for mut seq in sequences {
+                let text: String = seq.generated.iter().map(|&id| {
+                    if let Some(ref tok) = tokenizer {
+                        let t = tok.blocking_lock();
+                        t.decode(&[id])
+                    } else {
+                        format!("[{}]", id)
+                    }
+                }).collect();
+                let tokens: Vec<GeneratedToken> = seq.generated.iter().enumerate().map(|(i, &id)| {
+                    GeneratedToken::new(id, format!("[{}]", id), 0.0, i)
+                }).collect();
+                results.push(InferenceResponse {
+                    request_id: seq.request_id,
+                    tokens,
+                    text,
+                    finish_reason: seq.finish_reason,
+                    total_tokens: seq.generated.len(),
+                    inference_time_ms: 0,
+                    metadata: std::collections::HashMap::new(),
+                });
+            }
+            results
+        }).await.unwrap_or_else(|e| {
+            tracing::error!("Continuous batching panicked: {:?}", e);
+            Vec::new()
+        });
+
+        let elapsed = start.elapsed().as_millis() as u64;
+        completed.into_iter().map(|mut resp| {
+            resp.inference_time_ms = elapsed;
+            resp
+        }).collect()
+    }
+
+    /// Generate tokens for a single request.
     #[tracing::instrument(skip_all, fields(request_id = %request.request_id, prompt_len = request.prompt.len()))]
     pub async fn generate_internal(&self, request: InferenceRequest) -> Result<InferenceResponse> {
         let start = std::time::Instant::now();
@@ -516,6 +747,67 @@ impl InferenceEngine {
             ..Default::default()
         });
         sampler.set_use_gpu(self.config.use_gpu);
+
+        // GPU-resident generation path: logits stay on GPU, only 4 bytes/token readback.
+        // Falls back to per-token loop if GPU-resident returns error or is disabled.
+        #[cfg(feature = "gpu")]
+        if self.config.use_gpu_resident {
+            let model = Arc::clone(&self.model);
+            let prompt_ids_for_loop = prompt_ids.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                model.generate_with_gpu_keep_gpu(
+                    &prompt_ids_for_loop,
+                    max_gen,
+                    request.temperature,
+                    request.top_k as usize,
+                    request.top_p,
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos() as u64,
+                )
+            })
+            .await;
+
+            match result {
+                Ok((out_tokens, _out_cache)) if !out_tokens.is_empty() => {
+                    crate::inference_trait::GPU_RESIDENT_SUCCESSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    crate::inference_trait::GPU_TOKENS_GENERATED.fetch_add(out_tokens.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    let mut finish_reason = FinishReason::Unknown;
+                    for (i, &token_id) in out_tokens.iter().enumerate() {
+                        let token_text: String = match &self.tokenizer {
+                            Some(tok) => {
+                                let t = tok.lock().await;
+                                t.decode(&[token_id])
+                            }
+                            None => token_id_to_text_fallback(token_id),
+                        };
+                        let log_prob = 0.0;
+                        response.add_token(GeneratedToken::new(
+                            token_id, token_text, log_prob, i,
+                        ));
+                        if token_id == 0 || token_id == 2 {
+                            finish_reason = FinishReason::EndOfSequence;
+                            break;
+                        }
+                    }
+                    if finish_reason == FinishReason::Unknown {
+                        finish_reason = FinishReason::MaxTokens;
+                    }
+                    response.finish_reason = finish_reason;
+                    response.inference_time_ms = start.elapsed().as_millis() as u64;
+                    return Ok(response);
+                }
+                Ok((_, _)) => {
+                    crate::inference_trait::GPU_RESIDENT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    tracing::warn!("GPU-resident generation returned empty, falling back to per-token loop");
+                }
+                Err(e) => {
+                    crate::inference_trait::GPU_RESIDENT_FALLBACKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    tracing::error!("GPU-resident generation panicked: {:?}, falling back", e);
+                }
+            }
+        }
 
         // Run CPU-bound generation loop on blocking thread to avoid async runtime starvation
         let model = Arc::clone(&self.model);
@@ -991,6 +1283,7 @@ fn run_generation_loop(
 
         let log_prob = logits_slice.get(token_id as usize).copied().map(|x| (x.max(1e-10)).ln()).unwrap_or(0.0);
         tokens.push(GeneratedToken::new(token_id, token_text, log_prob, pos));
+        crate::inference_trait::CPU_TOKENS_GENERATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         all_ids.push(token_id);
 
         if token_id == 0 || start.elapsed() > generation_timeout {

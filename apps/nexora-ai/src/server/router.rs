@@ -29,6 +29,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     let mut app = Router::new()
         .route("/health", get(health_check))
         .route("/health/detailed", get(detailed_health_check))
+        .route("/health/gpu", get(gpu_health_handler))
         .route("/metrics", get(metrics_handler))
         .route("/info", get(system_info))
         .route("/info/performance", get(performance_metrics))
