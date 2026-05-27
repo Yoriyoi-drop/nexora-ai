@@ -22,6 +22,15 @@ pub struct MetricsCollector {
     pub gpu_math_fallbacks: Counter,
     pub inference_queue_depth: Gauge,
     pub throughput_tokens: Counter,
+    // Phase 6b metrics
+    pub tokens_per_sec: Gauge,
+    pub gpu_utilization_pct: Gauge,
+    pub kv_cache_pressure: Gauge,
+    pub scheduler_queue_depth: Gauge,
+    pub batching_efficiency_pct: Gauge,
+    pub memory_fragmentation: Gauge,
+    pub pcie_read_bytes: Counter,
+    pub pcie_write_bytes: Counter,
 }
 
 impl MetricsCollector {
@@ -84,6 +93,38 @@ impl MetricsCollector {
             "nexora_throughput_tokens_total",
             "Total tokens generated (all paths)",
         )?;
+        let tokens_per_sec = Gauge::new(
+            "nexora_tokens_per_sec",
+            "Moving-average token generation throughput",
+        )?;
+        let gpu_utilization_pct = Gauge::new(
+            "nexora_gpu_utilization_percent",
+            "GPU utilization estimate (0-100)",
+        )?;
+        let kv_cache_pressure = Gauge::new(
+            "nexora_kv_cache_pressure",
+            "KV cache block usage ratio (0-1)",
+        )?;
+        let scheduler_queue_depth = Gauge::new(
+            "nexora_scheduler_queue_depth",
+            "Current scheduler queue depth",
+        )?;
+        let batching_efficiency_pct = Gauge::new(
+            "nexora_batching_efficiency_percent",
+            "Average batching efficiency (0-100)",
+        )?;
+        let memory_fragmentation = Gauge::new(
+            "nexora_memory_fragmentation",
+            "GPU memory pool fragmentation estimate (0-1)",
+        )?;
+        let pcie_read_bytes = Counter::new(
+            "nexora_pcie_read_bytes_total",
+            "Total bytes read from GPU (PCIe readback)",
+        )?;
+        let pcie_write_bytes = Counter::new(
+            "nexora_pcie_write_bytes_total",
+            "Total bytes written to GPU (PCIe upload)",
+        )?;
 
         registry.register(Box::new(request_counter.clone()))?;
         registry.register(Box::new(request_failures.clone()))?;
@@ -105,6 +146,14 @@ impl MetricsCollector {
         registry.register(Box::new(gpu_math_fallbacks.clone()))?;
         registry.register(Box::new(inference_queue_depth.clone()))?;
         registry.register(Box::new(throughput_tokens.clone()))?;
+        registry.register(Box::new(tokens_per_sec.clone()))?;
+        registry.register(Box::new(gpu_utilization_pct.clone()))?;
+        registry.register(Box::new(kv_cache_pressure.clone()))?;
+        registry.register(Box::new(scheduler_queue_depth.clone()))?;
+        registry.register(Box::new(batching_efficiency_pct.clone()))?;
+        registry.register(Box::new(memory_fragmentation.clone()))?;
+        registry.register(Box::new(pcie_read_bytes.clone()))?;
+        registry.register(Box::new(pcie_write_bytes.clone()))?;
 
         Ok(Self {
             registry,
@@ -128,6 +177,14 @@ impl MetricsCollector {
             gpu_math_fallbacks,
             inference_queue_depth,
             throughput_tokens,
+            tokens_per_sec,
+            gpu_utilization_pct,
+            kv_cache_pressure,
+            scheduler_queue_depth,
+            batching_efficiency_pct,
+            memory_fragmentation,
+            pcie_read_bytes,
+            pcie_write_bytes,
         })
     }
 
@@ -205,6 +262,38 @@ impl MetricsCollector {
 
     pub fn set_throughput_tokens(&self, count: u64) {
         self.throughput_tokens.inc_by(count as f64);
+    }
+
+    pub fn set_tokens_per_sec(&self, rate: f64) {
+        self.tokens_per_sec.set(rate);
+    }
+
+    pub fn set_gpu_utilization_pct(&self, pct: f64) {
+        self.gpu_utilization_pct.set(pct);
+    }
+
+    pub fn set_kv_cache_pressure(&self, ratio: f64) {
+        self.kv_cache_pressure.set(ratio);
+    }
+
+    pub fn set_scheduler_queue_depth(&self, depth: i64) {
+        self.scheduler_queue_depth.set(depth as f64);
+    }
+
+    pub fn set_batching_efficiency_pct(&self, pct: f64) {
+        self.batching_efficiency_pct.set(pct);
+    }
+
+    pub fn set_memory_fragmentation(&self, ratio: f64) {
+        self.memory_fragmentation.set(ratio);
+    }
+
+    pub fn set_pcie_read_bytes(&self, bytes: u64) {
+        self.pcie_read_bytes.inc_by(bytes as f64);
+    }
+
+    pub fn set_pcie_write_bytes(&self, bytes: u64) {
+        self.pcie_write_bytes.inc_by(bytes as f64);
     }
 
     pub fn gather_prometheus(&self) -> String {

@@ -17,3 +17,6 @@ pub use gpu_telemetry::*;
 
 pub mod gpu_watchdog;
 pub use gpu_watchdog::*;
+
+pub mod gpu_observability;
+pub use gpu_observability::*;

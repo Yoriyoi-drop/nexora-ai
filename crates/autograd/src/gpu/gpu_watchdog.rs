@@ -3,8 +3,6 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::gpu::GpuContext;
-
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -116,9 +114,8 @@ impl GpuWatchdog {
         self.reset_count.fetch_add(1, Ordering::Relaxed);
         self.hang_count.store(0, Ordering::Relaxed);
 
-        // Attempt to rebuild GPU context
-        if let Ok(ctx) = GpuContext::global() {
-            match ctx.try_rebuild() {
+        if let Ok(ctx) = crate::gpu::GpuContext::global() {
+            match unsafe { ctx.try_rebuild() } {
                 Ok(_) => {
                     tracing::info!("GPU watchdog: context rebuilt successfully after reset");
                     self.ping();
@@ -137,19 +134,17 @@ impl GpuWatchdog {
         let hang_count = self.hang_count.load(Ordering::Relaxed);
         let reset_count = self.reset_count.load(Ordering::Relaxed);
         let timeout_count = self.timeout_count.load(Ordering::Relaxed);
+        let (max_hangs, timeout_ms) = {
+            let cfg = self.config.lock().unwrap_or_else(|e| e.into_inner());
+            (cfg.max_hangs_before_reset, cfg.timeout_ms)
+        };
         serde_json::json!({
             "enabled": self.is_enabled(),
             "hang_count": hang_count,
             "reset_count": reset_count,
             "timeout_count": timeout_count,
-            "max_hangs_before_reset": {
-                let cfg = self.config.lock().unwrap_or_else(|e| e.into_inner());
-                cfg.max_hangs_before_reset
-            },
-            "timeout_ms": {
-                let cfg = self.config.lock().unwrap_or_else(|e| e.into_inner());
-                cfg.timeout_ms
-            },
+            "max_hangs_before_reset": max_hangs,
+            "timeout_ms": timeout_ms,
         })
     }
 }

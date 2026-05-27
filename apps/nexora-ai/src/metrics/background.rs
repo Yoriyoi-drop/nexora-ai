@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::debug;
 
 use crate::server::handlers::metrics_collector;
@@ -28,6 +28,12 @@ impl BackgroundMetricsCollector {
         let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
         self.stop_signal = Some(tx);
 
+        // Track token throughput across collection intervals
+        let last_tokens = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let last_time = std::sync::Arc::new(std::sync::Mutex::new(Instant::now()));
+        let last_tokens_clone = last_tokens.clone();
+        let last_time_clone = last_time.clone();
+
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -36,7 +42,10 @@ impl BackgroundMetricsCollector {
                         break;
                     }
                     _ = tokio::time::sleep(interval) => {
-                        Self::collect_once().await;
+                        Self::collect_once(
+                            &last_tokens_clone,
+                            &last_time_clone,
+                        ).await;
                     }
                 }
             }
@@ -50,7 +59,10 @@ impl BackgroundMetricsCollector {
         }
     }
 
-    async fn collect_once() {
+    async fn collect_once(
+        last_tokens: &std::sync::Arc<std::sync::atomic::AtomicU64>,
+        last_time: &std::sync::Arc<std::sync::Mutex<Instant>>,
+    ) {
         let collector = match metrics_collector() {
             Some(c) => c,
             None => return,
@@ -71,6 +83,36 @@ impl BackgroundMetricsCollector {
         if total_tokens > 0 {
             collector.set_throughput_tokens(total_tokens);
         }
+
+        // Token/sec throughput (moving window)
+        let now = Instant::now();
+        let prev_tokens = last_tokens.swap(total_tokens, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut prev_time) = last_time.lock() {
+            let elapsed = now.duration_since(*prev_time).as_secs_f64();
+            if elapsed > 0.0 && total_tokens >= prev_tokens {
+                let tps = (total_tokens - prev_tokens) as f64 / elapsed;
+                collector.set_tokens_per_sec(tps);
+            }
+            *prev_time = now;
+        }
+
+        // Phase 6b metrics
+        collector.set_kv_cache_pressure(obs.kv_cache_pressure);
+        collector.set_scheduler_queue_depth(obs.scheduler_queue_depth);
+        collector.set_batching_efficiency_pct(obs.batching_efficiency_pct);
+        collector.set_gpu_utilization_pct(obs.gpu_utilization_pct);
+        collector.set_pcie_read_bytes(obs.pcie_read_bytes);
+        collector.set_pcie_write_bytes(obs.pcie_write_bytes);
+
+        // Memory fragmentation estimate from pool alloc/dealloc ratio
+        let allocs = obs.pool_allocs;
+        let deallocs = obs.pool_deallocs;
+        let fragmentation = if allocs + deallocs > 0 {
+            (deallocs as f64 / (allocs + deallocs) as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        collector.set_memory_fragmentation(fragmentation);
 
         let math_fallbacks = nexora_deeplearning::autograd::ops::math::gpu_math_fallback_count();
         collector.set_gpu_math_fallbacks(math_fallbacks);

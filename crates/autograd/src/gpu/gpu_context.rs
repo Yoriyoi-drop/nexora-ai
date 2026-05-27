@@ -1201,10 +1201,14 @@ impl GpuContext {
     /// Blocks the current thread for up to 30s. Must be called from
     /// `spawn_blocking` if used in async context.
     pub fn sync(&self) {
+        let start = std::time::Instant::now();
         self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
             timeout: Some(Duration::from_secs(30)),
         });
+        let elapsed_ns = start.elapsed().as_nanos() as u64;
+        crate::gpu::gpu_observability::GPU_BUSY_NS
+            .fetch_add(elapsed_ns, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Non-blocking poll — proses callback async tanpa blocking
@@ -4323,20 +4327,24 @@ impl GpuContext {
     /// On success, all previously compiled pipelines are restored.
     /// GPU tensor buffers allocated before the loss are INVALID and must be
     /// re-uploaded.
-    pub fn try_rebuild(&self) -> Result<(), GpuError> {
+    ///
+    /// # Safety
+    /// Caller must ensure no GPU operations are in-flight during recovery.
+    /// Uses raw pointer dereference to mutate `&self` fields — only safe when
+    /// exclusive access is guaranteed (all GPU ops blocked).
+    pub unsafe fn try_rebuild(&self) -> Result<(), GpuError> {
         tracing::warn!("Attempting GPU context rebuild (device lost recovery)...");
 
-        // 1. Clear memory pool
-        self.clear_memory_pool();
+        let self_ptr = self as *const GpuContext as *mut GpuContext;
 
-        // 2. Clear caches (unsafe: only called during recovery when all GPU ops blocked)
-        unsafe {
-            let self_mut = &mut *(self as *const Self as *mut Self);
-            self_mut.shader_cache.clear();
-            self_mut.bind_group_layout_cache.clear();
-            self_mut.pipelines.clear();
-        }
-        *self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        // 1. Clear memory pool
+        (*self_ptr).clear_memory_pool();
+
+        // 2. Clear caches
+        (*self_ptr).shader_cache.clear();
+        (*self_ptr).bind_group_layout_cache.clear();
+        (*self_ptr).pipelines.clear();
+        *(*self_ptr).bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
 
         // 3. Recreate device + queue from new adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -4378,30 +4386,22 @@ impl GpuContext {
         ))
         .map_err(|e| GpuError::DeviceLost(format!("Device re-request failed: {}", e)))?;
 
-        // 4. Replace device + queue (unsafe: no other threads hold references during recovery)
-        unsafe {
-            let self_mut = &mut *(self as *const Self as *mut Self);
-            std::ptr::write(&mut self_mut.device as *mut wgpu::Device, device);
-            std::ptr::write(&mut self_mut.queue as *mut wgpu::Queue, queue);
-        }
+        // 4. Replace device + queue
+        (*self_ptr).device = device;
+        (*self_ptr).queue = queue;
 
         // 5. Recreate memory pool
-        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&self.device);
-        *self.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
+        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&(*self_ptr).device);
+        *(*self_ptr).memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
 
         // 6. Recreate command encoder
-        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let enc = (*self_ptr).device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nexora_reusable_encoder_recovered"),
         });
-        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        *(*self_ptr).current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
 
         // 7. Recompile all pipelines
-        let compile_result: Result<(), GpuError> = unsafe {
-            let self_mut = &mut *(self as *const Self as *mut Self);
-            self_mut.compile_all_pipelines()
-        };
-
-        match compile_result {
+        match (*self_ptr).compile_all_pipelines() {
             Ok(()) => {
                 tracing::info!("GPU context rebuilt successfully after device lost");
                 Ok(())
@@ -4415,14 +4415,18 @@ impl GpuContext {
 
     /// Soft reset: clears caches and memory pool without device recreation.
     /// Use for transient recovery (timeout, temporary OOM).
-    pub fn soft_reset(&self) {
+    ///
+    /// # Safety
+    /// Caller must ensure no GPU operations are in-flight during soft reset.
+    pub unsafe fn soft_reset(&self) {
         tracing::debug!("GPU soft reset: clearing caches and memory pool");
-        self.clear_memory_pool();
-        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let self_ptr = self as *const GpuContext as *mut GpuContext;
+        (*self_ptr).clear_memory_pool();
+        let enc = (*self_ptr).device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nexora_reusable_encoder_reset"),
         });
-        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
-        self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+        *(*self_ptr).current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        (*self_ptr).ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
     }
 }
 

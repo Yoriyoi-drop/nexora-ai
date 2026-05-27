@@ -5,7 +5,10 @@ use ndarray::Array1;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::gpu_observability as gpu_obs;
 
 use crate::{InferenceRequest, InferenceResponse, Result as InferenceResult};
 use nexora_transformer::{CpuKVCache, KVCacheProvider};
@@ -45,6 +48,39 @@ pub static GPU_SHADER_ERRORS: AtomicU64 = AtomicU64::new(0);
 
 /// Global counter of GPU successful recovery events (after device lost/OOM).
 pub static GPU_RECOVERED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+// ── Phase 6b Observability Metrics ──────────────────────────────────────────
+
+/// KV cache pressure: used blocks (updated by paged_cache on alloc/free).
+pub static KV_CACHE_USED_BLOCKS: AtomicU64 = AtomicU64::new(0);
+/// KV cache pressure: total available blocks.
+pub static KV_CACHE_TOTAL_BLOCKS: AtomicU64 = AtomicU64::new(0);
+
+/// Current scheduler queue depth (waiting sequences in continuous batching).
+pub static SCHEDULER_QUEUE_DEPTH: AtomicI64 = AtomicI64::new(0);
+
+/// Cumulative padding waste × 100 (summed across batches for averaging).
+pub static BATCHING_PADDING_WASTE_SUM: AtomicU64 = AtomicU64::new(0);
+/// Number of batches accumulated in the waste sum.
+pub static BATCHING_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Cumulative GPU busy time in nanoseconds.
+pub static GPU_BUSY_NS: AtomicU64 = AtomicU64::new(0);
+/// Cumulative GPU idle time in nanoseconds.
+pub static GPU_IDLE_NS: AtomicU64 = AtomicU64::new(0);
+
+/// Cumulative bytes read from GPU (PCIe readback).
+pub static PCIE_READ_BYTES: AtomicU64 = AtomicU64::new(0);
+/// Cumulative bytes written to GPU (PCIe upload).
+pub static PCIE_WRITE_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// Memory pool allocation tracking.
+pub static POOL_ALLOCS: AtomicU64 = AtomicU64::new(0);
+pub static POOL_DEALLOCS: AtomicU64 = AtomicU64::new(0);
+pub static POOL_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+pub static POOL_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+pub static POOL_BYTES_ALLOCATED: AtomicU64 = AtomicU64::new(0);
+pub static POOL_BYTES_REUSED: AtomicU64 = AtomicU64::new(0);
 
 /// Returns current GPU forward error count.
 pub fn gpu_forward_error_count() -> u64 {
@@ -98,6 +134,41 @@ pub fn prefix_cache_hit_ratio() -> f64 {
     }
 }
 
+/// Returns KV cache pressure ratio (0.0–1.0), or 0.0 if no blocks configured.
+pub fn kv_cache_pressure() -> f64 {
+    let total = KV_CACHE_TOTAL_BLOCKS.load(Ordering::Relaxed);
+    if total == 0 {
+        0.0
+    } else {
+        let used = KV_CACHE_USED_BLOCKS.load(Ordering::Relaxed);
+        used as f64 / total as f64
+    }
+}
+
+/// Returns average batching efficiency (0.0–1.0), or 1.0 if no batches yet.
+pub fn batching_efficiency() -> f64 {
+    let count = BATCHING_COUNT.load(Ordering::Relaxed);
+    if count == 0 {
+        1.0
+    } else {
+        let waste_sum = BATCHING_PADDING_WASTE_SUM.load(Ordering::Relaxed);
+        let avg_waste = waste_sum as f64 / count as f64 / 100.0;
+        (1.0 - avg_waste).clamp(0.0, 1.0)
+    }
+}
+
+/// Returns GPU utilization estimate (0.0–1.0).
+pub fn gpu_utilization() -> f64 {
+    let busy = GPU_BUSY_NS.load(Ordering::Relaxed);
+    let idle = GPU_IDLE_NS.load(Ordering::Relaxed);
+    let total = busy + idle;
+    if total == 0 {
+        0.0
+    } else {
+        busy as f64 / total as f64
+    }
+}
+
 /// Returns all observability counters as a snapshot struct.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ObservabilitySnapshot {
@@ -112,6 +183,16 @@ pub struct ObservabilitySnapshot {
     pub prefix_cache_hits: u64,
     pub prefix_cache_misses: u64,
     pub prefix_cache_hit_ratio: f64,
+    // Phase 6b metrics
+    pub kv_cache_pressure: f64,
+    pub scheduler_queue_depth: i64,
+    pub batching_efficiency_pct: f64,
+    pub gpu_utilization_pct: f64,
+    pub pcie_read_bytes: u64,
+    pub pcie_write_bytes: u64,
+    pub pool_allocs: u64,
+    pub pool_deallocs: u64,
+    pub tokens_per_sec: f64,
 }
 
 /// Collect a snapshot of all observability counters.
@@ -120,6 +201,34 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
     let gpu_tokens = GPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let cpu_tokens = CPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let total = gpu_tokens + cpu_tokens;
+
+    let total_blocks = KV_CACHE_TOTAL_BLOCKS.load(Ordering::Relaxed);
+    let used_blocks = KV_CACHE_USED_BLOCKS.load(Ordering::Relaxed);
+
+    #[cfg(feature = "gpu")]
+    let busy_ns = gpu_obs::GPU_BUSY_NS.load(Ordering::Relaxed);
+    #[cfg(not(feature = "gpu"))]
+    let busy_ns = 0u64;
+    let idle_ns = 0u64; // not separately tracked
+    let gpu_total_ns = busy_ns;
+
+    #[cfg(feature = "gpu")]
+    let pcie_read = gpu_obs::PCIE_READ_BYTES.load(Ordering::Relaxed);
+    #[cfg(not(feature = "gpu"))]
+    let pcie_read = 0u64;
+    #[cfg(feature = "gpu")]
+    let pcie_write = gpu_obs::PCIE_WRITE_BYTES.load(Ordering::Relaxed);
+    #[cfg(not(feature = "gpu"))]
+    let pcie_write = 0u64;
+    #[cfg(feature = "gpu")]
+    let pool_allocs = gpu_obs::POOL_ALLOCS.load(Ordering::Relaxed);
+    #[cfg(not(feature = "gpu"))]
+    let pool_allocs = 0u64;
+    #[cfg(feature = "gpu")]
+    let pool_deallocs = gpu_obs::POOL_DEALLOCS.load(Ordering::Relaxed);
+    #[cfg(not(feature = "gpu"))]
+    let pool_deallocs = 0u64;
+
     ObservabilitySnapshot {
         gpu_forward_errors: GPU_FORWARD_ERRORS.load(Ordering::Relaxed),
         gpu_cpu_fallbacks: GPU_CPU_FALLBACKS.load(Ordering::Relaxed),
@@ -145,6 +254,23 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
                 h as f64 / t as f64
             }
         },
+        kv_cache_pressure: if total_blocks > 0 {
+            used_blocks as f64 / total_blocks as f64
+        } else {
+            0.0
+        },
+        scheduler_queue_depth: SCHEDULER_QUEUE_DEPTH.load(Ordering::Relaxed),
+        batching_efficiency_pct: batching_efficiency() * 100.0,
+        gpu_utilization_pct: if gpu_total_ns > 0 {
+            (busy_ns as f64 / gpu_total_ns as f64) * 100.0
+        } else {
+            0.0
+        },
+        pcie_read_bytes: pcie_read,
+        pcie_write_bytes: pcie_write,
+        pool_allocs,
+        pool_deallocs,
+        tokens_per_sec: 0.0, // computed by background collector
     }
 }
 
@@ -366,6 +492,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                     for (i, entries) in vec_caches.into_iter().enumerate() {
                         kv_caches[i].entries = entries;
                     }
+                    nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
                     return result;
                 }
                 Err(e) => {
@@ -424,7 +551,10 @@ impl ModelForward for nexora_transformer::CausalLM {
                 }
 
                 match result {
-                    Ok(logits) => return logits,
+                    Ok(logits) => {
+                        nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
+                        return logits;
+                    }
                     Err(e) => {
                         GPU_FORWARD_ERRORS.fetch_add(1, Ordering::Relaxed);
                         GPU_CPU_FALLBACKS.fetch_add(1, Ordering::Relaxed);
@@ -461,6 +591,7 @@ impl ModelForward for nexora_transformer::CausalLM {
             let raw = token_gpu.to_cpu_raw_bytes().ok()?;
             GPU_RESIDENT_SUCCESSES.fetch_add(1, Ordering::Relaxed);
             GPU_TOKENS_GENERATED.fetch_add(1, Ordering::Relaxed);
+            nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
             Some(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]))
         }
         #[cfg(not(feature = "gpu"))]
@@ -518,6 +649,8 @@ impl ModelForward for nexora_transformer::CausalLM {
                     Ok(tokens) => {
                         GPU_RESIDENT_SUCCESSES.fetch_add(n as u64, Ordering::Relaxed);
                         GPU_TOKENS_GENERATED.fetch_add(n as u64, Ordering::Relaxed);
+                        #[cfg(feature = "gpu")]
+                        nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
                         return tokens.into_iter().map(Some).collect();
                     }
                     Err(e) => {

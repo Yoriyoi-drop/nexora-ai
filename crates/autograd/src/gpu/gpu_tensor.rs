@@ -85,8 +85,11 @@ impl GpuTensor {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        let byte_len = flat.len() as u64;
         ctx.queue
             .write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
+        crate::gpu::gpu_observability::PCIE_WRITE_BYTES
+            .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
         Ok(Self {
             shape,
             buffer,
@@ -271,6 +274,10 @@ impl GpuTensor {
         let mapped = slice.get_mapped_range();
         let data = mapped.to_vec();
         staging.unmap();
+
+        crate::gpu::gpu_observability::PCIE_READ_BYTES
+            .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
+
         Ok((data, staging))
     }
 

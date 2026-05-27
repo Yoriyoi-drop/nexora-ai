@@ -865,14 +865,20 @@ impl PagedKVCache {
     pub fn stats(&self) -> PagedCacheStats {
         let total = self.total_blocks();
         let free = self.free_blocks();
+        let used = total.saturating_sub(free);
         let total_tokens: usize = self.sequences.values().map(|t| t.num_tokens).sum();
         let (int_frag, wasted_slots) = self.compute_internal_fragmentation();
         let ext_frag = self.compute_external_fragmentation();
+
+        // Update global observability atomics
+        crate::inference_trait::KV_CACHE_TOTAL_BLOCKS.store(total as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_USED_BLOCKS.store(used as u64, std::sync::atomic::Ordering::Relaxed);
+
         PagedCacheStats {
             num_sequences: self.sequences.len(),
             total_blocks: total,
             free_blocks: free,
-            used_blocks: total.saturating_sub(free),
+            used_blocks: used,
             memory_bytes: self.memory_usage_bytes(),
             total_tokens,
             internal_fragmentation_ratio: int_frag,

@@ -92,6 +92,10 @@ impl GpuMemoryPool {
                 }
                 self.stats.cache_hits += 1;
                 self.stats.bytes_reused += b_size;
+                crate::gpu::gpu_observability::POOL_CACHE_HITS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::gpu::gpu_observability::POOL_BYTES_REUSED
+                    .fetch_add(b_size, std::sync::atomic::Ordering::Relaxed);
                 return PooledBuffer {
                     buffer: buf,
                     size: b_size,
@@ -104,6 +108,12 @@ impl GpuMemoryPool {
         self.stats.cache_misses += 1;
         self.stats.allocs += 1;
         self.stats.bytes_allocated += b_size;
+        crate::gpu::gpu_observability::POOL_CACHE_MISSES
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::gpu::gpu_observability::POOL_ALLOCS
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::gpu::gpu_observability::POOL_BYTES_ALLOCATED
+            .fetch_add(b_size, std::sync::atomic::Ordering::Relaxed);
 
         let extra = if usage.contains(wgpu::BufferUsages::MAP_READ)
             || usage.contains(wgpu::BufferUsages::MAP_WRITE)
@@ -129,6 +139,8 @@ impl GpuMemoryPool {
 
     pub fn dealloc(&mut self, buf: PooledBuffer) {
         self.stats.deallocs += 1;
+        crate::gpu::gpu_observability::POOL_DEALLOCS
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(key) = buf.pool_key {
             let list = self.free_buffers.entry(key).or_default();
             if list.len() < self.max_capacity {

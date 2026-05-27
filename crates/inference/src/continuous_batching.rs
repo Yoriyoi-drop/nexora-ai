@@ -954,6 +954,16 @@ where
         }
 
         let active_count = self.sequences.values().filter(|s| !s.is_finished()).count();
+        let waiting_count = self.sequences.len();
+
+        // Update global observability atomics
+        crate::inference_trait::SCHEDULER_QUEUE_DEPTH
+            .store(waiting_count as i64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::BATCHING_PADDING_WASTE_SUM
+            .fetch_add((padding_waste * 100.0) as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::BATCHING_COUNT
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         StepResult {
             completed,
             active_count,
