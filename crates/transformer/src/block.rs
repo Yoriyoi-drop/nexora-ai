@@ -29,6 +29,12 @@ impl TransformerBlock {
         }
     }
 
+    /// Propagate half-precision flag to attention and FFN sub-layers.
+    pub fn set_use_half_precision(&mut self) {
+        self.attention.use_half_precision = true;
+        self.ffn.use_half_precision = true;
+    }
+
     pub fn forward(
         &self,
         x: &Array2<f32>,

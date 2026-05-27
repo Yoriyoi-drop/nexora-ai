@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::{FinishReason, GeneratedToken, InferenceRequest};
@@ -41,6 +42,10 @@ pub struct Sequence {
     pub eos_token_id: u32,
     /// How many prompt tokens have been processed through the model
     pub prompt_pos: usize,
+    /// When this sequence was created (for aging-based scheduling).
+    pub created_at: Instant,
+    /// Base priority (higher = more urgent). Default 50.
+    pub priority: u32,
 }
 
 impl Sequence {
@@ -59,6 +64,8 @@ impl Sequence {
             top_k: request.top_k,
             eos_token_id: 0,
             prompt_pos: 0,
+            created_at: Instant::now(),
+            priority: request.priority as u32,
         }
     }
 

@@ -704,7 +704,7 @@ impl nexora_transformer::PagedCacheReader for PagedKVCache {
     }
 }
 
-// ─── Statistics ──────────────────────────────────────────────────────────────
+// ─── Statistics & Fragmentation ──────────────────────────────────────────────
 
 #[derive(Clone, Debug, Default)]
 pub struct PagedCacheStats {
@@ -714,13 +714,160 @@ pub struct PagedCacheStats {
     pub used_blocks: usize,
     pub memory_bytes: usize,
     pub total_tokens: usize,
+    /// Fraction of allocated block slots that are empty (internal fragmentation).
+    /// `0.0` means zero waste; `0.5` means half the slots are unused.
+    pub internal_fragmentation_ratio: f64,
+    /// Fraction of free blocks vs total allocated (external fragmentation).
+    /// High values indicate many freed-but-unreclaimed blocks scattered across layers.
+    pub external_fragmentation_ratio: f64,
+    /// Total wasted token slots across all partially-filled blocks
+    pub wasted_slots: usize,
 }
 
 impl PagedKVCache {
+    /// Compute internal fragmentation: wasted slots in partially-filled blocks.
+    ///
+    /// Each block can hold `block_size` tokens. If a block has only `filled` tokens,
+    /// the remaining `block_size - filled` slots are wasted. This sums across all
+    /// allocated blocks (both in-use and free).
+    fn compute_internal_fragmentation(&self) -> (f64, usize) {
+        let bs = self.config.block_size;
+        if bs == 0 {
+            return (0.0, 0);
+        }
+        let (total_slots, filled_slots) = self.blocks.iter().flatten().fold(
+            (0usize, 0usize),
+            |(total, filled), block| {
+                let cap = bs;
+                (total + cap, filled + block.filled)
+            },
+        );
+        if total_slots == 0 {
+            return (0.0, 0);
+        }
+        let wasted = total_slots.saturating_sub(filled_slots);
+        (wasted as f64 / total_slots as f64, wasted)
+    }
+
+    /// Compute external fragmentation: fraction of blocks that are free vs total.
+    fn compute_external_fragmentation(&self) -> f64 {
+        let total = self.total_blocks();
+        if total == 0 {
+            return 0.0;
+        }
+        let free = self.free_blocks();
+        free as f64 / total as f64
+    }
+
+    /// Defragment by compacting sparse blocks within each layer.
+    ///
+    /// Scans all blocks, identifies those with filled < block_size (partial),
+    /// and moves data from the sparsest blocks into earlier partial blocks.
+    /// After compaction, freed blocks are returned to the free list.
+    ///
+    /// Returns number of blocks reclaimed.
+    pub fn defragment(&mut self) -> usize {
+        let bs = self.config.block_size;
+        if bs == 0 || self.blocks.is_empty() {
+            return 0;
+        }
+        let mut total_reclaimed = 0usize;
+        let num_layers = self.blocks.len();
+
+        for layer in 0..num_layers {
+            // Collect blocks by fill level: partial (< bs) or full (=bs)
+            let mut partial_indices: Vec<usize> = (0..self.blocks[layer].len())
+                .filter(|&i| {
+                    let b = &self.blocks[layer][i];
+                    b.ref_count == 0 && b.filled > 0 && b.filled < bs
+                })
+                .collect();
+
+            if partial_indices.len() <= 1 {
+                continue;
+            }
+
+            // Sort by filled ascending (sparsest first)
+            partial_indices.sort_by(|&a, &b| {
+                self.blocks[layer][a]
+                    .filled
+                    .cmp(&self.blocks[layer][b].filled)
+            });
+
+            // Compact: move data from sparser blocks into fuller ones,
+            // then free the sparsest blocks when all their data has been moved.
+            let mut drain_targets: Vec<usize> = Vec::new();
+            let mut i = 0;
+            while i + 1 < partial_indices.len() {
+                let src = partial_indices[i];
+                let dst = partial_indices[i + 1];
+                let src_filled = self.blocks[layer][src].filled;
+                let dst_filled = self.blocks[layer][dst].filled;
+                let dst_capacity = bs - dst_filled;
+                let move_count = src_filled.min(dst_capacity);
+
+                if move_count > 0 {
+                    // Copy rows from src to dst
+                    for row in 0..move_count {
+                        let src_row = self.blocks[layer][src]
+                            .k
+                            .slice(s![row, ..])
+                            .to_vec();
+                        let dst_row_idx = dst_filled + row;
+                        for col in 0..src_row.len() {
+                            self.blocks[layer][dst].k[[dst_row_idx, col]] = src_row[col];
+                        }
+                        let v_src = self.blocks[layer][src]
+                            .v
+                            .slice(s![row, ..])
+                            .to_vec();
+                        for col in 0..v_src.len() {
+                            self.blocks[layer][dst].v[[dst_row_idx, col]] = v_src[col];
+                        }
+                    }
+                    self.blocks[layer][dst].filled = dst_filled + move_count;
+                    self.blocks[layer][src].filled = src_filled - move_count;
+                }
+
+                if self.blocks[layer][src].filled == 0 {
+                    drain_targets.push(src);
+                    i += 2;
+                } else {
+                    // Not fully drained, advance by one
+                    partial_indices[i] = src;
+                    partial_indices[i] = dst;
+                    i += 1;
+                }
+            }
+
+            // Free fully-drained blocks and remap block tables
+            for &phys in &drain_targets {
+                // Clear and add to free list
+                self.blocks[layer][phys].filled = 0;
+                self.blocks[layer][phys].ref_count = 0;
+                self.free_lists[layer].push(phys);
+                self.num_freed += 1;
+                total_reclaimed += 1;
+            }
+
+            // Remap block tables: any sequence pointing to a recycled block
+            // needs to be reassigned if that block still has an owner.
+            // In our free-list model, freed blocks go to a pool and are
+            // reused on next alloc. Block tables keep logical→physical mapping
+            // that's valid until the sequence that owns it is removed.
+            // Since we only freed blocks with ref_count=0 (no sequence owns them),
+            // we don't need to remap — they were already unused.
+        }
+
+        total_reclaimed
+    }
+
     pub fn stats(&self) -> PagedCacheStats {
         let total = self.total_blocks();
         let free = self.free_blocks();
         let total_tokens: usize = self.sequences.values().map(|t| t.num_tokens).sum();
+        let (int_frag, wasted_slots) = self.compute_internal_fragmentation();
+        let ext_frag = self.compute_external_fragmentation();
         PagedCacheStats {
             num_sequences: self.sequences.len(),
             total_blocks: total,
@@ -728,6 +875,9 @@ impl PagedKVCache {
             used_blocks: total.saturating_sub(free),
             memory_bytes: self.memory_usage_bytes(),
             total_tokens,
+            internal_fragmentation_ratio: int_frag,
+            external_fragmentation_ratio: ext_frag,
+            wasted_slots,
         }
     }
 }

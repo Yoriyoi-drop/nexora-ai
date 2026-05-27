@@ -475,7 +475,7 @@ impl GpuContext {
         Ok(ctx)
     }
 
-    fn compile_all_pipelines(&mut self) -> Result<(), GpuError> {
+    pub(crate) fn compile_all_pipelines(&mut self) -> Result<(), GpuError> {
         let tile = self.caps.optimal_tile_size();
         self.compile_matmul_tiled(tile)?;
         self.compile_matmul_int8_tiled(tile)?;
@@ -4312,6 +4312,117 @@ impl GpuContext {
         };
 
         Ok((dq, dk, dv))
+    }
+
+    // ── Recovery methods ───────────────────────────────────────────────────────
+
+    /// Attempt to recover from a device lost error by rebuilding the entire
+    /// GPU context (device, queue, pipelines, memory pool, shader cache).
+    ///
+    /// Returns `Ok(())` if recovery succeeded, `Err(GpuError)` otherwise.
+    /// On success, all previously compiled pipelines are restored.
+    /// GPU tensor buffers allocated before the loss are INVALID and must be
+    /// re-uploaded.
+    pub fn try_rebuild(&self) -> Result<(), GpuError> {
+        tracing::warn!("Attempting GPU context rebuild (device lost recovery)...");
+
+        // 1. Clear memory pool
+        self.clear_memory_pool();
+
+        // 2. Clear caches (unsafe: only called during recovery when all GPU ops blocked)
+        unsafe {
+            let self_mut = &mut *(self as *const Self as *mut Self);
+            self_mut.shader_cache.clear();
+            self_mut.bind_group_layout_cache.clear();
+            self_mut.pipelines.clear();
+        }
+        *self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+
+        // 3. Recreate device + queue from new adapter
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                ..Default::default()
+            },
+        ))
+        .map_err(|_| GpuError::DeviceLost("No adapter found after device lost".into()))?;
+
+        let adapter_features = adapter.features();
+        let mut required_features = wgpu::Features::empty();
+        if adapter_features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY;
+        }
+        if adapter_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
+        }
+        if adapter_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS) {
+            required_features |= wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+        }
+        if adapter_features.contains(wgpu::Features::SHADER_F16) {
+            required_features |= wgpu::Features::SHADER_F16;
+        }
+        if adapter_features.contains(wgpu::Features::PIPELINE_CACHE) {
+            required_features |= wgpu::Features::PIPELINE_CACHE;
+        }
+
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("Nexora GPU Device (recovered)"),
+                required_features,
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            },
+        ))
+        .map_err(|e| GpuError::DeviceLost(format!("Device re-request failed: {}", e)))?;
+
+        // 4. Replace device + queue (unsafe: no other threads hold references during recovery)
+        unsafe {
+            let self_mut = &mut *(self as *const Self as *mut Self);
+            std::ptr::write(&mut self_mut.device as *mut wgpu::Device, device);
+            std::ptr::write(&mut self_mut.queue as *mut wgpu::Queue, queue);
+        }
+
+        // 5. Recreate memory pool
+        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&self.device);
+        *self.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
+
+        // 6. Recreate command encoder
+        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("nexora_reusable_encoder_recovered"),
+        });
+        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+
+        // 7. Recompile all pipelines
+        let compile_result: Result<(), GpuError> = unsafe {
+            let self_mut = &mut *(self as *const Self as *mut Self);
+            self_mut.compile_all_pipelines()
+        };
+
+        match compile_result {
+            Ok(()) => {
+                tracing::info!("GPU context rebuilt successfully after device lost");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("GPU context rebuild partially failed (pipelines): {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Soft reset: clears caches and memory pool without device recreation.
+    /// Use for transient recovery (timeout, temporary OOM).
+    pub fn soft_reset(&self) {
+        tracing::debug!("GPU soft reset: clearing caches and memory pool");
+        self.clear_memory_pool();
+        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("nexora_reusable_encoder_reset"),
+        });
+        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        self.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
     }
 }
 

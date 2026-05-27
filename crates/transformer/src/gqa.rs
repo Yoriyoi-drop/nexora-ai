@@ -21,6 +21,7 @@ pub(crate) struct GqaGpuTemps {
     pub wo_t: nexora_autograd::gpu::GpuTensor,
 }
 
+#[derive(Debug)]
 pub(crate) struct GqaGpuWeights {
     pub wq_t: nexora_autograd::gpu::GpuTensor,
     pub wk_t: nexora_autograd::gpu::GpuTensor,
@@ -1052,6 +1053,10 @@ impl GQA {
         } else {
             (None, None, None, None)
         };
+        // F16 mode: f32 transposed QKV+O weights ga dipake —
+        // forward_gpu upconvert f16→f32 temp per-call.
+        // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~16 bytes),
+        // BUKAN 4 matriks perhatian ukuran penuh. VRAM hemat: (4 × hidden × dim) bytes.
         let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;
             (d.clone(), d.clone(), d.clone(), d)
@@ -1245,7 +1250,7 @@ impl GQA {
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
 
         // 9. Output projection on GPU
-        ctx.matmul(&attn_flat, &cached.wo_t)
+        ctx.matmul(&attn_flat, wo_t)
     }
 
     /// GPU forward with GPU-resident KV cache AND pre-uploaded cos/sin GPU tensors.
@@ -1263,40 +1268,29 @@ impl GQA {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
 
-        // 1. Lazy-init cached GPU weights
-        if self.gpu_weights.get().is_none() {
-            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
-                let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr
-                    .as_slice()
-                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
-                    .to_vec();
-                Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
-                )?)
-            };
-            let wq = mk(&self.wq)?;
-            let wk = mk(&self.wk)?;
-            let wv = mk(&self.wv)?;
-            let wo = mk(&self.wo)?;
-            let _ = self.gpu_weights.set(GqaGpuWeights {
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-            });
-        }
+        // 1. Ensure GPU weights are initialized
+        self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after lazy init".into(),
             )
         })?;
 
+        // 1b. Upconvert f16 → f32 temps if half precision
+        let _f16_temps = if self.use_half_precision {
+            Some(Self::gqa_upconvert_f16(cached, &ctx)?)
+        } else {
+            None
+        };
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+
         // 2. QKV projection on GPU
-        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
-        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
-        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+        let q_proj = ctx.matmul(x_gpu, wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, wv_t)?;
 
         // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin
         let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
@@ -1325,7 +1319,7 @@ impl GQA {
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
 
         // 10. Output projection on GPU
-        ctx.matmul(&attn_flat, &cached.wo_t)
+        ctx.matmul(&attn_flat, wo_t)
     }
 
     /// GPU forward with GPU-resident KV cache.
@@ -1342,40 +1336,29 @@ impl GQA {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
 
-        // 1. Lazy-init cached GPU weights
-        if self.gpu_weights.get().is_none() {
-            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
-                let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr
-                    .as_slice()
-                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
-                    .to_vec();
-                Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
-                )?)
-            };
-            let wq = mk(&self.wq)?;
-            let wk = mk(&self.wk)?;
-            let wv = mk(&self.wv)?;
-            let wo = mk(&self.wo)?;
-            let _ = self.gpu_weights.set(GqaGpuWeights {
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-            });
-        }
+        // 1. Ensure GPU weights are initialized
+        self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after lazy init".into(),
             )
         })?;
 
+        // 1b. Upconvert f16 → f32 temps if half precision
+        let _f16_temps = if self.use_half_precision {
+            Some(Self::gqa_upconvert_f16(cached, &ctx)?)
+        } else {
+            None
+        };
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+
         // 2. QKV projection on GPU
-        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
-        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
-        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+        let q_proj = ctx.matmul(x_gpu, wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, wv_t)?;
 
         // 3. Upload cos/sin for RoPE
         let half = cos.len();
@@ -1415,7 +1398,7 @@ impl GQA {
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
 
         // 10. Output projection on GPU
-        ctx.matmul(&attn_flat, &cached.wo_t)
+        ctx.matmul(&attn_flat, wo_t)
     }
 
     /// GPU forward with CPU-side KV cache (Vec<KVCacheEntry>).
@@ -1435,40 +1418,29 @@ impl GQA {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
 
-        // 1. Lazy-init cached GPU weights
-        if self.gpu_weights.get().is_none() {
-            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
-                let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr
-                    .as_slice()
-                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
-                    .to_vec();
-                Ok(GpuTensor::from_cpu(
-                    &ArrayD::from_shape_vec(shape, data)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
-                )?)
-            };
-            let wq = mk(&self.wq)?;
-            let wk = mk(&self.wk)?;
-            let wv = mk(&self.wv)?;
-            let wo = mk(&self.wo)?;
-            let _ = self.gpu_weights.set(GqaGpuWeights {
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-            });
-        }
+        // 1. Ensure GPU weights are initialized
+        self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after lazy init".into(),
             )
         })?;
 
+        // 1b. Upconvert f16 → f32 temps if half precision
+        let _f16_temps = if self.use_half_precision {
+            Some(Self::gqa_upconvert_f16(cached, &ctx)?)
+        } else {
+            None
+        };
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+
         // 2. QKV projection on GPU
-        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
-        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
-        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+        let q_proj = ctx.matmul(x_gpu, wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, wv_t)?;
 
         // 3. Upload cos/sin for RoPE
         let half = cos.len();
@@ -1582,7 +1554,7 @@ impl GQA {
         let attn_flat = attn_output_4d.reshape(vec![batch_size, self.num_heads * self.head_dim])?;
 
         // 9. Output projection on GPU
-        ctx.matmul(&attn_flat, &cached.wo_t)
+        ctx.matmul(&attn_flat, wo_t)
     }
 
     /// Sync back only the last token's K/V from GPU cache to CPU cache.
@@ -1679,34 +1651,7 @@ impl GQA {
 
     /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
-        let ctx = GpuContext::global()?;
-        if self.gpu_weights.get().is_some() {
-            return Ok(());
-        }
-        let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, GpuError> {
-            let shape = vec![arr.shape()[0], arr.shape()[1]];
-            let data = arr
-                .as_slice()
-                .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
-                .to_vec();
-            let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
-            GpuTensor::from_cpu(&cpu_arr)
-        };
-        let wq = mk(&self.wq)?;
-        let wk = mk(&self.wk)?;
-        let wv = mk(&self.wv)?;
-        let wo = mk(&self.wo)?;
-        self.gpu_weights
-            .set(GqaGpuWeights {
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-            })
-            .map_err(|_| GpuError::Unsupported("weights already set".into()))?;
-        Ok(())
+        self.ensure_weights_gpu()
     }
 }
 

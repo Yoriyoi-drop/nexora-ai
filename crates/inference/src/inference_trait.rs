@@ -34,6 +34,18 @@ pub static PREFIX_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 /// Global counter of prefix cache misses.
 pub static PREFIX_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 
+/// Global counter of GPU device lost events.
+pub static GPU_DEVICE_LOST_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of GPU out-of-memory events.
+pub static GPU_OOM_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of GPU shader compilation errors.
+pub static GPU_SHADER_ERRORS: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of GPU successful recovery events (after device lost/OOM).
+pub static GPU_RECOVERED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
 /// Returns current GPU forward error count.
 pub fn gpu_forward_error_count() -> u64 {
     GPU_FORWARD_ERRORS.load(Ordering::Relaxed)

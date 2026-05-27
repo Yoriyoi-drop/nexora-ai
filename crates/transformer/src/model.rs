@@ -385,6 +385,9 @@ impl CausalLM {
     /// lalu di-upconvert ke f32 tiap forward pass.
     pub fn with_half_precision(mut self) -> Self {
         self.use_half_precision = true;
+        for block in &mut self.blocks {
+            block.set_use_half_precision();
+        }
         self
     }
 
@@ -853,6 +856,9 @@ impl CausalLM {
         let token_embedding = mk_gpu(&self.token_embedding)?;
 
         let lm_head_gpu = mk_gpu(&self.lm_head)?;
+        // F16 mode: f32 transposed weight ga dipake — cukup f16 packed doang.
+        // `zeros(&[1])` adalah DUMMY placeholder (4 bytes) buat ngisi struct field,
+        // BUKAN matriks ukuran penuh. VRAM hemat: (vocab_size × hidden_size × 4) bytes.
         let lm_head_t = if self.use_half_precision && !self.quantize_weights {
             GpuTensor::zeros(&[1])?
         } else {
@@ -981,7 +987,10 @@ impl CausalLM {
                 None
             };
 
-            // F16 mode: skip f32 transposed weights — VRAM hemat ~50%.
+            // F16 mode: f32 transposed weights (wq_t..w3_t) ga dipake —
+            // semua matmul pake f16→f32 upconvert temp per-forward.
+            // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~28 bytes),
+            // BUKAN 7 matriks ukuran penuh. VRAM hemat ~50% per block.
             let (wq_t, wk_t, wv_t, wo_t, w1_t, w2_t, w3_t) = if use_f16 {
                 let d = GpuTensor::zeros(&[1])?;
                 (d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d)

@@ -63,6 +63,60 @@ pub enum GpuError {
     Conversion(String),
     #[error("Lock error: {0}")]
     LockError(String),
+    /// GPU device was lost or removed (e.g. TDR, driver crash, physical disconnect).
+    #[error("Device lost: {0}")]
+    DeviceLost(String),
+    /// GPU out of memory (VRAM exhaustion).
+    #[error("Out of memory: {0}")]
+    OutOfMemory(String),
+    /// Shader compilation failure.
+    #[error("Shader compilation failed: {0}")]
+    ShaderCompile(String),
+    /// Watchdog timeout — GPU operation exceeded deadline.
+    #[error("Watchdog timeout: {0}")]
+    WatchdogTimeout(String),
+}
+
+impl GpuError {
+    /// Categorize error for recovery dispatching.
+    pub fn kind(&self) -> GpuErrorKind {
+        match self {
+            GpuError::DeviceLost(_) => GpuErrorKind::DeviceLost,
+            GpuError::OutOfMemory(_) => GpuErrorKind::OutOfMemory,
+            GpuError::ShaderCompile(_) | GpuError::Shader(_) | GpuError::Pipeline(_) => {
+                GpuErrorKind::ShaderCompile
+            }
+            GpuError::WatchdogTimeout(_) | GpuError::Timeout(_) => GpuErrorKind::Timeout,
+            GpuError::NoAdapter | GpuError::NotInitialized => GpuErrorKind::Fatal,
+            GpuError::Buffer(_) => {
+                // Buffer allocation failure could be OOM or device lost
+                GpuErrorKind::Transient
+            }
+            _ => GpuErrorKind::Transient,
+        }
+    }
+
+    /// Returns true if the error is recoverable (retry + fallback makes sense).
+    pub fn is_recoverable(&self) -> bool {
+        !matches!(self.kind(), GpuErrorKind::Fatal)
+    }
+}
+
+/// High-level error category for recovery dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpuErrorKind {
+    /// Device lost — requires full context rebuild.
+    DeviceLost,
+    /// Out of memory — purge caches, retry with smaller allocations.
+    OutOfMemory,
+    /// Shader compile failure — fall back to CPU or skip pipeline.
+    ShaderCompile,
+    /// Operation timed out — retry with fresh encoder.
+    Timeout,
+    /// Transient error — safe to retry with backoff.
+    Transient,
+    /// Fatal error — no recovery possible, abort GPU path.
+    Fatal,
 }
 
 // ─── Singleton Context ─────────────────────────────────────────────────────────

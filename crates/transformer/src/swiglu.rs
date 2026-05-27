@@ -4,10 +4,21 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
+pub(crate) struct SwigluGpuTemps {
+    pub w1_t: nexora_autograd::gpu::GpuTensor,
+    pub w2_t: nexora_autograd::gpu::GpuTensor,
+    pub w3_t: nexora_autograd::gpu::GpuTensor,
+}
+
+#[cfg(feature = "gpu")]
+#[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuWeights {
     pub w1_t: nexora_autograd::gpu::GpuTensor,
     pub w2_t: nexora_autograd::gpu::GpuTensor,
     pub w3_t: nexora_autograd::gpu::GpuTensor,
+    pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
 }
 
 #[derive(Debug)]
@@ -17,6 +28,7 @@ pub struct SwiGLU {
     pub w3: Array2<f32>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<SwigluGpuWeights>,
+    pub(crate) use_half_precision: bool,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -26,6 +38,7 @@ impl Clone for SwiGLU {
             w1: self.w1.clone(),
             w2: self.w2.clone(),
             w3: self.w3.clone(),
+            use_half_precision: self.use_half_precision,
         }
     }
 }
@@ -38,6 +51,7 @@ impl Clone for SwiGLU {
             w2: self.w2.clone(),
             w3: self.w3.clone(),
             gpu_weights: OnceLock::new(),
+            use_half_precision: self.use_half_precision,
         }
     }
 }
@@ -63,6 +77,7 @@ impl SwiGLU {
             w3,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
+            use_half_precision: false,
         }
     }
 
@@ -170,14 +185,13 @@ mod tests {
 
 #[cfg(feature = "gpu")]
 impl SwiGLU {
-    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
-    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+    fn ensure_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
-        let ctx = GpuContext::global()?;
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
-        let mk = |arr: &ndarray::Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
+        let ctx = GpuContext::global()?;
+        let mk = |arr: &Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
             let shape = vec![arr.shape()[0], arr.shape()[1]];
             let data = arr
                 .as_slice()
@@ -192,14 +206,64 @@ impl SwiGLU {
         let w1 = mk(&self.w1)?;
         let w2 = mk(&self.w2)?;
         let w3 = mk(&self.w3)?;
+        let use_f16 = self.use_half_precision;
+        let (w1_f16, w2_f16, w3_f16) = if use_f16 {
+            (
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w1)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w2)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w3)?)?),
+            )
+        } else {
+            (None, None, None)
+        };
+        // F16 mode: f32 transposed FFN weights ga dipake —
+        // forward_gpu upconvert f16→f32 temp per-call.
+        // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~12 bytes),
+        // BUKAN 3 matriks FFN ukuran penuh. VRAM hemat: (3 × intermediate × hidden) bytes.
+        let (w1_t, w2_t, w3_t) = if use_f16 {
+            let d = GpuTensor::zeros(&[1])?;
+            (d.clone(), d.clone(), d)
+        } else {
+            (
+                ctx.transpose(&w1)?,
+                ctx.transpose(&w2)?,
+                ctx.transpose(&w3)?,
+            )
+        };
         self.gpu_weights
             .set(SwigluGpuWeights {
-                w1_t: ctx.transpose(&w1)?,
-                w2_t: ctx.transpose(&w2)?,
-                w3_t: ctx.transpose(&w3)?,
+                w1_t,
+                w2_t,
+                w3_t,
+                w1_f16,
+                w2_f16,
+                w3_f16,
             })
             .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("already set".into()))?;
         Ok(())
+    }
+
+    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
+    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        self.ensure_weights_gpu()
+    }
+
+    fn swiglu_upconvert_f16(
+        cached: &SwigluGpuWeights,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> Result<SwigluGpuTemps, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuError;
+        Ok(SwigluGpuTemps {
+            w1_t: ctx.f16_packed_to_f32(cached.w1_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("SwiGLU f16 missing w1".into())
+            })?)?,
+            w2_t: ctx.f16_packed_to_f32(cached.w2_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("SwiGLU f16 missing w2".into())
+            })?)?,
+            w3_t: ctx.f16_packed_to_f32(cached.w3_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("SwiGLU f16 missing w3".into())
+            })?)?,
+        })
     }
 
     /// GPU forward: SwiGLU FFN using GPU matmul + silu + mul (cached weights).
@@ -209,42 +273,24 @@ impl SwiGLU {
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
-        if self.gpu_weights.get().is_none() {
-            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
-                let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr
-                    .as_slice()
-                    .ok_or_else(|| {
-                        nexora_autograd::gpu::GpuError::Unsupported(
-                            "non-contiguous weight slice".into(),
-                        )
-                    })?
-                    .to_vec();
-                let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data).map_err(|e| {
-                    nexora_autograd::gpu::GpuError::Unsupported(format!(
-                        "shape mismatch for weight: {}",
-                        e
-                    ))
-                })?;
-                GpuTensor::from_cpu(&cpu_arr)
-            };
-            let w1 = mk(&self.w1)?;
-            let w2 = mk(&self.w2)?;
-            let w3 = mk(&self.w3)?;
-            let _ = self.gpu_weights.set(SwigluGpuWeights {
-                w1_t: ctx.transpose(&w1)?,
-                w2_t: ctx.transpose(&w2)?,
-                w3_t: ctx.transpose(&w3)?,
-            });
-        }
+        self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("SwiGLU weights not initialized".into())
         })?;
 
-        let gate = ctx.matmul(x, &cached.w1_t)?;
-        let hidden = ctx.matmul(x, &cached.w3_t)?;
+        let _f16_temps = if self.use_half_precision {
+            Some(Self::swiglu_upconvert_f16(cached, &ctx)?)
+        } else {
+            None
+        };
+        let w1_t = _f16_temps.as_ref().map(|t| &t.w1_t).unwrap_or(&cached.w1_t);
+        let w2_t = _f16_temps.as_ref().map(|t| &t.w2_t).unwrap_or(&cached.w2_t);
+        let w3_t = _f16_temps.as_ref().map(|t| &t.w3_t).unwrap_or(&cached.w3_t);
+
+        let gate = ctx.matmul(x, w1_t)?;
+        let hidden = ctx.matmul(x, w3_t)?;
         let silu_gate = ctx.silu(&gate)?;
         let gated = ctx.mul(&silu_gate, &hidden)?;
-        ctx.matmul(&gated, &cached.w2_t)
+        ctx.matmul(&gated, w2_t)
     }
 }
