@@ -290,35 +290,24 @@ impl BaseAgent for CreativeMuseAgent {
     type Input = CreativeTaskInput;
     type Output = CreativeTaskOutput;
 
+    /// Process a creative task.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with a creative generation prompt.
+    /// The previous implementation generated template strings and derived scores
+    /// from word counts — that was not real creative generation.
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
-        let start_time = std::time::Instant::now();
-
         // Validate input
         self.validate_input(&input)?;
 
-        // Generate creative content
-        let content = self.generate_creative_content(&input).await?;
-
-        // Calculate quality scores
-        let creativity_score = self.calculate_creativity_score(&input, &content);
-        let originality_score = self.calculate_originality_score(&content);
-        let innovation_score = self.calculate_innovation_score(&input, &content);
-        let coherence_score = self.calculate_coherence_score(&content);
-
-        // Build output
-        let output = CreativeTaskOutput {
-            content,
-            creativity_score,
-            originality_score,
-            innovation_score,
-            coherence_score,
+        Ok(CreativeTaskOutput {
+            content: "[creative generation will delegate to foundation model]".to_string(),
+            creativity_score: 0.0,
+            originality_score: 0.0,
+            innovation_score: 0.0,
+            coherence_score: 0.0,
             metadata: HashMap::new(),
-            inspiration_sources: self.get_inspiration_sources_used(&input),
-        };
-
-        let processing_time = start_time.elapsed().as_millis() as u64;
-
-        Ok(output)
+            inspiration_sources: vec![],
+        })
     }
 
     fn agent_id(&self) -> &str {
@@ -337,10 +326,10 @@ impl BaseAgent for CreativeMuseAgent {
             input_types: vec!["creative_task".to_string()],
             output_types: vec!["creative_content".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.85,
-                avg_latency: 500.0,
-                resource_usage: 0.6,
-                reliability: 0.9,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -397,82 +386,34 @@ impl CreativeMuseAgent {
         Ok(())
     }
 
-    /// Generate creative content
-    async fn generate_creative_content(&self, input: &CreativeTaskInput) -> AgentResult<String> {
-        // This is a simplified implementation
-        // In a real system, this would involve complex creative generation algorithms
-        let creativity_level = self.config.creativity_level.value();
-        let originality_weight = self.config.originality_weight;
-
-        // Simulate creative content generation
-        let base_content = format!(
-            "Creative content for: {} in domain: {} with creativity level: {:.2}",
-            input.description, input.domain, creativity_level
-        );
-
-        let enhanced_content = if originality_weight > 0.7 {
-            format!("{} [High Originality]", base_content)
-        } else {
-            base_content
-        };
-
-        Ok(enhanced_content)
+    /// Generate creative content.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM.
+    /// The previous implementation used template strings — not real generation.
+    async fn generate_creative_content(&self, _input: &CreativeTaskInput) -> AgentResult<String> {
+        Ok("[creative content generation will delegate to foundation model]".to_string())
     }
 
-    /// Calculate creativity score
-    fn calculate_creativity_score(&self, input: &CreativeTaskInput, content: &str) -> f32 {
-        let base_score = self.config.creativity_level.value();
-        let domain_bonus = if self.config.creative_domains.contains(&input.domain) {
-            0.2
-        } else {
-            0.0
-        };
-
-        (base_score + domain_bonus).min(1.0)
+    /// Calculate creativity score.
+    ///
+    /// FUTURE: Will be derived from foundation model output.
+    /// The previous implementation used enum values — not real creativity assessment.
+    fn calculate_creativity_score(&self, _input: &CreativeTaskInput, _content: &str) -> f32 {
+        0.0
     }
 
-    /// Calculate originality score
-    fn calculate_originality_score(&self, content: &str) -> f32 {
-        // Simplified originality calculation
-        let unique_words = content
-            .split_whitespace()
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        let total_words = content.split_whitespace().count();
-
-        if total_words == 0 {
-            return 0.0;
-        }
-
-        let uniqueness_ratio = unique_words as f32 / total_words as f32;
-        (uniqueness_ratio * self.config.originality_weight).min(1.0)
+    fn calculate_originality_score(&self, _content: &str) -> f32 {
+        0.0
     }
 
-    /// Calculate innovation score
-    fn calculate_innovation_score(&self, input: &CreativeTaskInput, content: &str) -> f32 {
-        let base_score = content.len() as f32 / 1000.0; // Simplified
-        let threshold_adjustment = self.config.innovation_threshold;
-
-        (base_score * threshold_adjustment).min(1.0)
+    fn calculate_innovation_score(&self, _input: &CreativeTaskInput, _content: &str) -> f32 {
+        0.0
     }
 
-    /// Calculate coherence score
-    fn calculate_coherence_score(&self, content: &str) -> f32 {
-        // Simplified coherence calculation
-        let sentences = content.split('.').count();
-        if sentences == 0 {
-            return 0.0;
-        }
-
-        // Base coherence on sentence structure
-        let avg_sentence_length = content.len() as f32 / sentences as f32;
-        let optimal_length = 50.0;
-        let length_score = 1.0 - (avg_sentence_length - optimal_length).abs() / optimal_length;
-
-        length_score.max(0.0).min(1.0)
+    fn calculate_coherence_score(&self, _content: &str) -> f32 {
+        0.0
     }
 
-    /// Get inspiration sources used for this task
     fn get_inspiration_sources_used(&self, input: &CreativeTaskInput) -> Vec<String> {
         input.inspiration_hints.clone()
     }

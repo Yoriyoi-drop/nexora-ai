@@ -40,9 +40,9 @@ impl SwiftCapabilities {
                         "text_generation".to_string(),
                         "text_comprehension".to_string(),
                     ])
-                    .with_metric("text_accuracy".to_string(), 0.972)
-                    .with_metric("response_latency_ms".to_string(), 50.0)
-                    .with_metric("throughput_rps".to_string(), 1000.0)
+                    .with_metric("text_accuracy".to_string(), 0.0)
+                    .with_metric("response_latency_ms".to_string(), 0.0)
+                    .with_metric("throughput_rps".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -62,9 +62,9 @@ impl SwiftCapabilities {
                         "dependency_management".to_string(),
                         "workflow_integration".to_string(),
                     ])
-                    .with_metric("coordination_accuracy".to_string(), 0.94)
-                    .with_metric("workflow_efficiency".to_string(), 0.91)
-                    .with_metric("integration_speed".to_string(), 0.88)
+                    .with_metric("coordination_accuracy".to_string(), 0.0)
+                    .with_metric("workflow_efficiency".to_string(), 0.0)
+                    .with_metric("integration_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -82,8 +82,8 @@ impl SwiftCapabilities {
                         "workflow_simulation".to_string(),
                         "performance_simulation".to_string(),
                     ])
-                    .with_metric("simulation_accuracy".to_string(), 0.86)
-                    .with_metric("simulation_speed".to_string(), 0.92)
+                    .with_metric("simulation_accuracy".to_string(), 0.0)
+                    .with_metric("simulation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -102,8 +102,8 @@ impl SwiftCapabilities {
                         "resource_allocation".to_string(),
                         "load_balancing".to_string(),
                     ])
-                    .with_metric("decision_accuracy".to_string(), 0.87)
-                    .with_metric("decision_speed".to_string(), 0.94)
+                    .with_metric("decision_accuracy".to_string(), 0.0)
+                    .with_metric("decision_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -121,8 +121,8 @@ impl SwiftCapabilities {
                         "conditional_processing".to_string(),
                         "rule_evaluation".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.82)
-                    .with_metric("reasoning_speed".to_string(), 0.91)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -139,8 +139,8 @@ impl SwiftCapabilities {
                         "basic_calculations".to_string(),
                         "metric_computations".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.75)
-                    .with_metric("calculation_speed".to_string(), 0.88)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("calculation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 4.0,
                         min_compute_units: 8,
@@ -158,8 +158,8 @@ impl SwiftCapabilities {
                         "resource_strategy".to_string(),
                         "optimization_strategy".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.81)
-                    .with_metric("optimization_efficiency".to_string(), 0.87)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("optimization_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -177,8 +177,8 @@ impl SwiftCapabilities {
                         "integration_patterns".to_string(),
                         "best_practices".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.83)
-                    .with_metric("pattern_coverage".to_string(), 0.80)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("pattern_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -196,8 +196,8 @@ impl SwiftCapabilities {
                         "api_security".to_string(),
                         "access_control".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.84)
-                    .with_metric("threat_detection".to_string(), 0.78)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("threat_detection".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -217,9 +217,9 @@ impl SwiftCapabilities {
                         "workflow_monitoring".to_string(),
                         "alert_generation".to_string(),
                     ])
-                    .with_metric("monitoring_accuracy".to_string(), 0.93)
-                    .with_metric("alert_precision".to_string(), 0.90)
-                    .with_metric("monitoring_latency".to_string(), 0.95)
+                    .with_metric("monitoring_accuracy".to_string(), 0.0)
+                    .with_metric("alert_precision".to_string(), 0.0)
+                    .with_metric("monitoring_latency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -236,8 +236,8 @@ impl SwiftCapabilities {
                         "workflow_visualization".to_string(),
                         "dashboard_generation".to_string(),
                     ])
-                    .with_metric("modality_accuracy".to_string(), 0.70)
-                    .with_metric("visualization_quality".to_string(), 0.68)
+                    .with_metric("modality_accuracy".to_string(), 0.0)
+                    .with_metric("visualization_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,

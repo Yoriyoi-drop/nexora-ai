@@ -928,7 +928,7 @@ impl AetherArchitecture {
                     batch_size: 32,
                 },
                 performance_metrics: NetworkPerformanceMetrics {
-                    accuracy: 0.92,
+                    accuracy: 0.0,
                     precision: 0.90,
                     recall: 0.88,
                     f1_score: 0.89,
@@ -958,7 +958,7 @@ impl AetherArchitecture {
                     batch_size: 16,
                 },
                 performance_metrics: NetworkPerformanceMetrics {
-                    accuracy: 0.87,
+                    accuracy: 0.0,
                     precision: 0.85,
                     recall: 0.83,
                     f1_score: 0.84,
@@ -989,7 +989,7 @@ impl AetherArchitecture {
                     batch_size: 8,
                 },
                 performance_metrics: NetworkPerformanceMetrics {
-                    accuracy: 0.84,
+                    accuracy: 0.0,
                     precision: 0.82,
                     recall: 0.80,
                     f1_score: 0.81,
@@ -1011,7 +1011,7 @@ impl AetherArchitecture {
                     model_size: 1000000000, // 1B parameters
                     num_parameters: 1000000000,
                     training_data_size: 10000000, // 10M samples
-                    validation_accuracy: 0.91,
+                    validation_accuracy: 0.0,
                 },
                 validation_status: ValidationStatus::Validated,
             },
@@ -1031,7 +1031,7 @@ impl AetherArchitecture {
                     model_size: 800000000, // 800M parameters
                     num_parameters: 800000000,
                     training_data_size: 8000000, // 8M samples
-                    validation_accuracy: 0.94,
+                    validation_accuracy: 0.0,
                 },
                 validation_status: ValidationStatus::Validated,
             },
@@ -1049,10 +1049,10 @@ impl AetherArchitecture {
                     model_size: 600000000, // 600M parameters
                     num_parameters: 600000000,
                     training_data_size: 6000000, // 6M samples
-                    validation_accuracy: 0.93,
+                    validation_accuracy: 0.0,
                 },
                 performance_metrics: EmpathyPerformanceMetrics {
-                    empathy_accuracy: 0.93,
+                    empathy_accuracy: 0.0,
                     response_appropriateness: 0.91,
                     support_effectiveness: 0.89,
                     user_satisfaction: 0.92,
@@ -1070,10 +1070,10 @@ impl AetherArchitecture {
                     model_size: 700000000, // 700M parameters
                     num_parameters: 700000000,
                     training_data_size: 7000000, // 7M samples
-                    validation_accuracy: 0.95,
+                    validation_accuracy: 0.0,
                 },
                 performance_metrics: EmpathyPerformanceMetrics {
-                    empathy_accuracy: 0.95,
+                    empathy_accuracy: 0.0,
                     response_appropriateness: 0.93,
                     support_effectiveness: 0.91,
                     user_satisfaction: 0.94,
@@ -1094,9 +1094,9 @@ impl AetherArchitecture {
                         model_size: 400000000, // 400M parameters
                         num_parameters: 400000000,
                         training_data_size: 4000000, // 4M samples
-                        validation_accuracy: 0.89,
+                        validation_accuracy: 0.0,
                     },
-                    adaptation_accuracy: 0.87,
+                    adaptation_accuracy: 0.0,
                 },
             );
         }
@@ -1113,9 +1113,9 @@ impl AetherArchitecture {
                     model_size: 300000000, // 300M parameters
                     num_parameters: 300000000,
                     training_data_size: 3000000, // 3M samples
-                    validation_accuracy: 0.88,
+                    validation_accuracy: 0.0,
                 },
-                processing_accuracy: 0.86,
+                processing_accuracy: 0.0,
             },
         );
 
@@ -1129,9 +1129,9 @@ impl AetherArchitecture {
                     model_size: 350000000, // 350M parameters
                     num_parameters: 350000000,
                     training_data_size: 3500000, // 3.5M samples
-                    validation_accuracy: 0.90,
+                    validation_accuracy: 0.0,
                 },
-                processing_accuracy: 0.88,
+                processing_accuracy: 0.0,
             },
         );
 
@@ -1205,7 +1205,7 @@ impl AetherArchitecture {
     pub async fn initialize(&mut self, _config: &AetherConfig) -> NxrModelResult<()> {
         // Initialize emotion networks
         for network in self.emotion_networks.values_mut() {
-            network.performance_metrics.accuracy = 0.95;
+            network.performance_metrics.accuracy = 0.0;
             network.performance_metrics.inference_time_ms = 100.0;
         }
 
@@ -1216,18 +1216,18 @@ impl AetherArchitecture {
 
         // Initialize empathy models
         for model in self.empathy_system.models.values_mut() {
-            model.performance_metrics.empathy_accuracy = 0.96;
+            model.performance_metrics.empathy_accuracy = 0.0;
             model.performance_metrics.user_satisfaction = 0.94;
         }
 
         // Initialize cultural models
         for model in self.cultural_adaptation.models.values_mut() {
-            model.adaptation_accuracy = 0.91;
+            model.adaptation_accuracy = 0.0;
         }
 
         // Initialize context models
         for model in self.context_processor.models.values_mut() {
-            model.processing_accuracy = 0.92;
+            model.processing_accuracy = 0.0;
         }
 
         Ok(())
@@ -1846,14 +1846,14 @@ impl AetherArchitecture {
                 detail.response_content = self
                     .generate_somatic_empathy_response(content, emotional_result)
                     .await?;
-                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.9;
+                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.0;
                 // Slightly lower for less common type
             }
             EmpathyType::Spiritual => {
                 detail.response_content = self
                     .generate_spiritual_empathy_response(content, emotional_result)
                     .await?;
-                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.85;
+                detail.empathy_score = model.performance_metrics.empathy_accuracy * 0.0;
                 // Lower for spiritual empathy
             }
         }

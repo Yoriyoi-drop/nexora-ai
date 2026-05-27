@@ -168,10 +168,10 @@ impl BaseAgent for FirewallAiAgent {
                 input_types: vec!["traffic_data".to_string(), "current_rules".to_string()],
                 output_types: vec!["filtered_traffic".to_string(), "new_rules".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.97,
-                    avg_latency: 2500.0,
-                    resource_usage: 0.80,
-                    reliability: 0.99,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

@@ -382,10 +382,10 @@ impl BaseAgent for FastCacheAgent {
                 "similarity_analysis".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.96,
-                avg_latency: 0.2,
-                resource_usage: 0.4,
-                reliability: 0.99,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

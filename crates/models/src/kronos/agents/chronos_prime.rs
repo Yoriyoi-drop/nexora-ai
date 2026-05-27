@@ -178,10 +178,10 @@ impl BaseAgent for ChronosPrimeAgent {
                 "time_predictions".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.94,
-                avg_latency: 3000.0,
-                resource_usage: 0.78,
-                reliability: 0.96,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

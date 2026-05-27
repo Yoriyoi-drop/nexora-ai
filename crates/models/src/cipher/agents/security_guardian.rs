@@ -182,10 +182,10 @@ impl BaseAgent for SecurityGuardianAgent {
                 "security_recommendations".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.96,
-                avg_latency: 2800.0,
-                resource_usage: 0.82,
-                reliability: 0.98,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

@@ -735,7 +735,7 @@ impl OmnisArchitecture {
                         activation: "relu".to_string(),
                     },
                     prediction_horizon: 100,
-                    accuracy: 0.95,
+                    accuracy: 0.0,
                     uncertainty_quantification: true,
                 },
                 update_mechanism: UpdateMechanism {

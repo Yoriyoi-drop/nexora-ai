@@ -172,10 +172,10 @@ impl BaseAgent for EmergeAiAgent {
                 input_types: vec!["system_state".to_string(), "capability_signals".to_string()],
                 output_types: vec!["detected_capabilities".to_string(), "emergence_report".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.87,
-                    avg_latency: 3600.0,
-                    resource_usage: 0.82,
-                    reliability: 0.91,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

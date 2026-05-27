@@ -47,7 +47,7 @@ impl NexumCapabilities {
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
         let performance_metrics = CapabilityPerformanceMetrics {
-            orchestration_accuracy: 0.932,
+            orchestration_accuracy: 0.0,
             consensus_building_speed: 0.89,
             conflict_resolution_success: 0.91,
             resource_optimization_efficiency: 0.87,
@@ -109,9 +109,9 @@ impl NexumCapabilities {
                     "workflow_orchestration".to_string(),
                     "service_coordination".to_string(),
                 ])
-                .with_metric("orchestration_score".to_string(), 0.932)
-                .with_metric("coordination_efficiency".to_string(), 0.89)
-                .with_metric("context_window".to_string(), 750_000.0)
+                .with_metric("orchestration_score".to_string(), 0.0)
+                .with_metric("coordination_efficiency".to_string(), 0.0)
+                .with_metric("context_window".to_string(), 750_0.0)
                 .with_resources(ResourceRequirements {
                     min_memory_gb: 24.0,
                     min_compute_units: 48,
@@ -134,8 +134,8 @@ impl NexumCapabilities {
                         "distributed_consensus".to_string(),
                         "consensus_algorithms".to_string(),
                     ])
-                    .with_metric("consensus_accuracy".to_string(), 0.89)
-                    .with_metric("consensus_speed".to_string(), 0.87)
+                    .with_metric("consensus_accuracy".to_string(), 0.0)
+                    .with_metric("consensus_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 20.0,
                         min_compute_units: 40,
@@ -158,8 +158,8 @@ impl NexumCapabilities {
                         "service_coordination".to_string(),
                         "cross_agent_coordination".to_string(),
                     ])
-                    .with_metric("coordination_accuracy".to_string(), 0.91)
-                    .with_metric("coordination_speed".to_string(), 0.85)
+                    .with_metric("coordination_accuracy".to_string(), 0.0)
+                    .with_metric("coordination_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 18.0,
                         min_compute_units: 36,
@@ -181,8 +181,8 @@ impl NexumCapabilities {
                         "alignment_verification".to_string(),
                         "conflict_resolution".to_string(),
                     ])
-                    .with_metric("alignment_score".to_string(), 0.87)
-                    .with_metric("compliance_rate".to_string(), 0.83)
+                    .with_metric("alignment_score".to_string(), 0.0)
+                    .with_metric("compliance_rate".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -207,8 +207,8 @@ impl NexumCapabilities {
                     "resource_prediction".to_string(),
                     "cost_optimization".to_string(),
                 ])
-                .with_metric("resource_efficiency".to_string(), 0.87)
-                .with_metric("optimization_score".to_string(), 0.85)
+                .with_metric("resource_efficiency".to_string(), 0.0)
+                .with_metric("optimization_score".to_string(), 0.0)
                 .with_resources(ResourceRequirements {
                     min_memory_gb: 14.0,
                     min_compute_units: 28,
@@ -230,8 +230,8 @@ impl NexumCapabilities {
                         "message_security".to_string(),
                         "broadcast_communication".to_string(),
                     ])
-                    .with_metric("communication_efficiency".to_string(), 0.89)
-                    .with_metric("message_throughput".to_string(), 0.86)
+                    .with_metric("communication_efficiency".to_string(), 0.0)
+                    .with_metric("message_throughput".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -250,8 +250,8 @@ impl NexumCapabilities {
                         "optimization_logic".to_string(),
                         "scheduling_logic".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.78)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 10.0,
                         min_compute_units: 20,
@@ -272,8 +272,8 @@ impl NexumCapabilities {
                         "agent_capabilities".to_string(),
                         "system_architecture".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.88)
-                    .with_metric("knowledge_coverage".to_string(), 0.85)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("knowledge_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -292,8 +292,8 @@ impl NexumCapabilities {
                         "resource_recommendations".to_string(),
                         "consensus_facilitation".to_string(),
                     ])
-                    .with_metric("support_quality".to_string(), 0.82)
-                    .with_metric("guidance_effectiveness".to_string(), 0.79)
+                    .with_metric("support_quality".to_string(), 0.0)
+                    .with_metric("guidance_effectiveness".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,

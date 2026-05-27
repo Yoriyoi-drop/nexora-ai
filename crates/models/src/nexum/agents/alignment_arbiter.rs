@@ -1120,10 +1120,10 @@ impl BaseAgent for AlignmentArbiterAgent {
                 "conflict_resolutions".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.85,
-                avg_latency: 800.0,
-                resource_usage: 0.6,
-                reliability: 0.90,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

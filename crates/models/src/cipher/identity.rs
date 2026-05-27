@@ -95,7 +95,7 @@ impl CipherIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "512K tokens",
-            accuracy: 98.6,
+            accuracy: 0.0,
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![

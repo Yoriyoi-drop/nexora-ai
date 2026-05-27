@@ -4,6 +4,8 @@
 //! Cybersecurity and vulnerability analysis specialist
 
 pub mod agents;
+pub mod classifier;
+pub mod delegation;
 /// Simulated architecture — NOT a real neural network.
 /// Uses keyword matching and template responses, not tensor computation.
 /// Gated behind `simulated-models` feature (default: off).
@@ -104,7 +106,7 @@ impl Default for CipherMetrics {
         Self {
             total_security_analyses: 0,
             vulnerability_detection_rate: 0.986,
-            threat_prediction_accuracy: 0.94,
+            threat_prediction_accuracy: 0.0,
             security_recommendation_success: 0.97,
             last_updated: chrono::Utc::now(),
         }
@@ -331,11 +333,34 @@ impl NxrModel for NxrCipherModel {
         let safety = global_safety();
         safety.pre_inference_check(NxrModelId::Cipher, None).await?;
 
-        let augmented = augment_cipher_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrCipherModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrCipherModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::cipher::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

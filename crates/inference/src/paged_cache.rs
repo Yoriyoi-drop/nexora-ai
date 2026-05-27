@@ -524,6 +524,77 @@ impl PagedKVCache {
         Some((k, v))
     }
 
+    /// Share prefix blocks between sequences (PrefixDAG).
+    ///
+    /// Copies the block table entries for the first `prefix_tokens` from `src_seq`
+    /// to `dst_seq`, incrementing refcount on shared physical blocks. Subsequent
+    /// appends by `dst_seq` that touch a shared block trigger copy-on-write
+    /// (deep copy in `get_or_alloc_block` when `ref_count > 1`).
+    ///
+    /// Returns the number of physical blocks shared.
+    pub fn share_prefix_in_blocks(
+        &mut self,
+        dst_seq: u64,
+        src_seq: u64,
+        prefix_tokens: usize,
+    ) -> usize {
+        let Some(src_table) = self.sequences.get(&src_seq) else {
+            return 0;
+        };
+        if src_table.num_tokens < prefix_tokens {
+            return 0;
+        }
+        let num_logical = (prefix_tokens + self.config.block_size - 1) / self.config.block_size;
+        if num_logical == 0 {
+            return 0;
+        }
+
+        // Capture src data before mutable borrow
+        let src_layers_len = src_table.layers.len();
+        let src_rows: Vec<Vec<Option<usize>>> = (0..src_layers_len)
+            .map(|l| {
+                let count = num_logical.min(src_table.layers[l].len());
+                src_table.layers[l][..count].to_vec()
+            })
+            .collect();
+        let src_total_before = src_table.num_tokens;
+        let _ = src_total_before;
+        drop(src_table);
+
+        // Update dst block table: extend layers & assign physical block indices
+        let Some(dst_table) = self.sequences.get_mut(&dst_seq) else {
+            return 0;
+        };
+        while dst_table.layers.len() < src_layers_len {
+            dst_table.layers.push(Vec::new());
+        }
+        let mut shared = 0usize;
+        let mut refcount_increments: Vec<(usize, usize)> = Vec::new();
+        for (layer_idx, src_row) in src_rows.iter().enumerate() {
+            for (logical, &phys_opt) in src_row.iter().enumerate() {
+                if let Some(phys) = phys_opt {
+                    while dst_table.layers[layer_idx].len() <= logical {
+                        dst_table.layers[layer_idx].push(None);
+                    }
+                    dst_table.layers[layer_idx][logical] = Some(phys);
+                    dst_table.num_tokens = dst_table.num_tokens.max(prefix_tokens);
+                    refcount_increments.push((layer_idx, phys));
+                    shared += 1;
+                }
+            }
+        }
+        drop(dst_table);
+
+        // Increment refcounts (separate borrow from sequences)
+        for (layer_idx, phys) in refcount_increments {
+            if layer_idx < self.blocks.len() && phys < self.blocks[layer_idx].len() {
+                self.blocks[layer_idx][phys].ref_count += 1;
+            }
+        }
+
+        shared
+    }
+
     /// Convert paged cache state to the flat `Vec<KVCacheEntry>` format
     /// expected by `CausalLM::forward()`.
     ///

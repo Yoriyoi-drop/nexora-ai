@@ -728,7 +728,7 @@ impl Default for AnalysisEngine {
             ],
             algorithms: HashMap::new(),
             quality_metrics: QualityMetrics {
-                accuracy_threshold: 0.8,
+                accuracy_threshold: 0.0,
                 reliability_threshold: 0.8,
                 validity_threshold: 0.8,
                 consistency_threshold: 0.8,
@@ -821,10 +821,10 @@ impl BaseAgent for PsycheAnalyzerAgent {
             input_types: vec!["psychological_analysis_task".to_string()],
             output_types: vec!["psychological_analysis_results".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.85,
-                avg_latency: 800.0,
-                resource_usage: 0.7,
-                reliability: 0.88,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

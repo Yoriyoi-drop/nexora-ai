@@ -84,7 +84,7 @@ fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
     }
 }
 
-fn byte_encode(text: &str) -> Vec<u32> {
+pub(crate) fn byte_encode(text: &str) -> Vec<u32> {
     text.bytes().map(|b| b as u32).collect()
 }
 
@@ -123,7 +123,7 @@ macro_rules! define_foundation_model {
             /// generation to `tokio::task::spawn_blocking` so the async runtime is not
             /// blocked. `infer_stream()` still holds the lock inline — callers should
             /// ensure streams are not interleaved with other model operations.
-            model: Arc<Mutex<Option<CausalLM>>>,
+            pub model: Arc<Mutex<Option<CausalLM>>>,
             model_config: TransformerConfig,
             inference_count: AtomicU64,
             total_generated: AtomicU64,

@@ -41,9 +41,9 @@ impl KronosCapabilities {
                         "knowledge_synthesis".to_string(),
                         "document_indexing".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.978)
-                    .with_metric("retrieval_precision".to_string(), 0.94)
-                    .with_metric("indexing_speed".to_string(), 0.89)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("retrieval_precision".to_string(), 0.0)
+                    .with_metric("indexing_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -63,9 +63,9 @@ impl KronosCapabilities {
                         "summarization".to_string(),
                         "text_generation".to_string(),
                     ])
-                    .with_metric("text_accuracy".to_string(), 0.965)
-                    .with_metric("extraction_accuracy".to_string(), 0.93)
-                    .with_metric("summarization_quality".to_string(), 0.90)
+                    .with_metric("text_accuracy".to_string(), 0.0)
+                    .with_metric("extraction_accuracy".to_string(), 0.0)
+                    .with_metric("summarization_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -84,8 +84,8 @@ impl KronosCapabilities {
                         "graph_orchestration".to_string(),
                         "pipeline_orchestration".to_string(),
                     ])
-                    .with_metric("orchestration_accuracy".to_string(), 0.88)
-                    .with_metric("pipeline_efficiency".to_string(), 0.85)
+                    .with_metric("orchestration_accuracy".to_string(), 0.0)
+                    .with_metric("pipeline_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -103,8 +103,8 @@ impl KronosCapabilities {
                         "search_simulation".to_string(),
                         "workflow_simulation".to_string(),
                     ])
-                    .with_metric("simulation_accuracy".to_string(), 0.82)
-                    .with_metric("simulation_speed".to_string(), 0.85)
+                    .with_metric("simulation_accuracy".to_string(), 0.0)
+                    .with_metric("simulation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -122,8 +122,8 @@ impl KronosCapabilities {
                         "indexing_decisions".to_string(),
                         "synthesis_decisions".to_string(),
                     ])
-                    .with_metric("decision_accuracy".to_string(), 0.83)
-                    .with_metric("decision_speed".to_string(), 0.86)
+                    .with_metric("decision_accuracy".to_string(), 0.0)
+                    .with_metric("decision_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -141,8 +141,8 @@ impl KronosCapabilities {
                         "relation_logic".to_string(),
                         "extraction_logic".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.81)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -159,8 +159,8 @@ impl KronosCapabilities {
                         "vector_operations".to_string(),
                         "similarity_calculations".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.76)
-                    .with_metric("calculation_speed".to_string(), 0.85)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("calculation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 4.0,
                         min_compute_units: 8,
@@ -178,8 +178,8 @@ impl KronosCapabilities {
                         "search_strategy".to_string(),
                         "storage_strategy".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.82)
-                    .with_metric("optimization_efficiency".to_string(), 0.84)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("optimization_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -197,8 +197,8 @@ impl KronosCapabilities {
                         "data_encryption".to_string(),
                         "privacy_preservation".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.83)
-                    .with_metric("protection_level".to_string(), 0.80)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("protection_level".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -217,8 +217,8 @@ impl KronosCapabilities {
                         "graph_monitoring".to_string(),
                         "performance_monitoring".to_string(),
                     ])
-                    .with_metric("monitoring_accuracy".to_string(), 0.90)
-                    .with_metric("alert_precision".to_string(), 0.87)
+                    .with_metric("monitoring_accuracy".to_string(), 0.0)
+                    .with_metric("alert_precision".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -235,8 +235,8 @@ impl KronosCapabilities {
                         "document_visualization".to_string(),
                         "graph_visualization".to_string(),
                     ])
-                    .with_metric("modality_accuracy".to_string(), 0.71)
-                    .with_metric("visualization_quality".to_string(), 0.68)
+                    .with_metric("modality_accuracy".to_string(), 0.0)
+                    .with_metric("visualization_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,

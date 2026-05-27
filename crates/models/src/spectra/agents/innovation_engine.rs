@@ -472,40 +472,45 @@ impl BaseAgent for InnovationEngineAgent {
     type Input = InnovationTaskInput;
     type Output = InnovationTaskOutput;
 
+    /// Process an innovation task.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with an innovation prompt.
+    /// The previous implementation generated template concepts and derived scores
+    /// from word counts — that was not real innovation.
     async fn process(&self, input: Self::Input) -> AgentResult<Self::Output> {
-        let start_time = std::time::Instant::now();
-
         // Validate input
         self.validate_input(&input)?;
 
-        // Analyze existing concepts
-        let existing_analysis = self.analyze_existing_concepts(&input).await?;
-
-        // Generate innovative concepts
-        let generated_concepts = self
-            .generate_innovative_concepts(&input, &existing_analysis)
-            .await?;
-
-        // Evaluate novelty
-        let novelty_analysis = self
-            .evaluate_novelty(&generated_concepts, &existing_analysis)
-            .await?;
-
-        // Calculate innovation scores
-        let innovation_scores =
-            self.calculate_innovation_scores(&generated_concepts, &novelty_analysis);
-
-        // Build output
-        let output = InnovationTaskOutput {
-            generated_concepts,
-            innovation_scores,
-            novelty_analysis,
+        Ok(InnovationTaskOutput {
+            generated_concepts: vec![],
+            innovation_scores: InnovationScores {
+                overall_score: 0.0,
+                novelty_score: 0.0,
+                originality_score: 0.0,
+                uniqueness_score: 0.0,
+                surprisal_score: 0.0,
+            },
+            novelty_analysis: NoveltyAnalysis {
+                novelty_breakdown: NoveltyBreakdown {
+                    semantic_novelty: 0.0,
+                    structural_novelty: 0.0,
+                    functional_novelty: 0.0,
+                    conceptual_novelty: 0.0,
+                },
+                comparison: ConceptComparison {
+                    most_similar: vec![],
+                    novelty_gaps: vec![],
+                    opportunities: vec![],
+                },
+                innovation_potential: InnovationPotential {
+                    market_potential: 0.0,
+                    technical_feasibility: 0.0,
+                    social_impact: 0.0,
+                    long_term_value: 0.0,
+                },
+            },
             metadata: HashMap::new(),
-        };
-
-        let processing_time = start_time.elapsed().as_millis() as u64;
-
-        Ok(output)
+        })
     }
 
     fn agent_id(&self) -> &str {
@@ -524,10 +529,10 @@ impl BaseAgent for InnovationEngineAgent {
             input_types: vec!["innovation_task".to_string()],
             output_types: vec!["innovative_concepts".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.82,
-                avg_latency: 1200.0,
-                resource_usage: 0.8,
-                reliability: 0.88,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

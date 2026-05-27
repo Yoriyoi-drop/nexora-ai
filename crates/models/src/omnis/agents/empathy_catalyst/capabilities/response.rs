@@ -62,7 +62,7 @@ pub struct ToneAdaptation {
 impl Default for ToneAdaptation {
     fn default() -> Self {
         Self {
-            tone_recognition_accuracy: 0.85,
+            tone_recognition_accuracy: 0.0,
             tone_adjustment_effectiveness: 0.8,
             contextual_appropriateness: 0.9,
         }
@@ -83,7 +83,7 @@ pub struct ContentPersonalization {
 impl Default for ContentPersonalization {
     fn default() -> Self {
         Self {
-            personalization_accuracy: 0.8,
+            personalization_accuracy: 0.0,
             preference_incorporation: 0.85,
             context_relevance: 0.9,
         }

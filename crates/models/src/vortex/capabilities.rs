@@ -44,9 +44,9 @@ impl VortexCapabilities {
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
         let performance_metrics = CapabilityPerformanceMetrics {
-            code_generation_accuracy: 0.972,
+            code_generation_accuracy: 0.0,
             debug_success_rate: 0.95,
-            arch_analysis_accuracy: 0.94,
+            arch_analysis_accuracy: 0.0,
             test_generation_quality: 0.91,
             avg_response_time_ms: 450.0,
             resource_utilization: 0.75,
@@ -102,9 +102,9 @@ impl VortexCapabilities {
                         "security analysis".to_string(),
                         "performance optimization".to_string(),
                     ])
-                    .with_metric("accuracy".to_string(), 0.972)
-                    .with_metric("reasoning_depth".to_string(), 9.0)
-                    .with_metric("context_window".to_string(), 2_000_000.0)
+                    .with_metric("accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
+                    .with_metric("context_window".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -127,8 +127,8 @@ impl VortexCapabilities {
                         "algorithmic reasoning".to_string(),
                         "computational complexity analysis".to_string(),
                     ])
-                    .with_metric("proof_accuracy".to_string(), 0.995)
-                    .with_metric("inference_speed".to_string(), 950.0)
+                    .with_metric("proof_accuracy".to_string(), 0.0)
+                    .with_metric("inference_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -152,8 +152,8 @@ impl VortexCapabilities {
                         "algorithm analysis".to_string(),
                         "computational mathematics".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.98)
-                    .with_metric("problem_complexity".to_string(), 9.0)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("problem_complexity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -176,8 +176,8 @@ impl VortexCapabilities {
                         "security audit".to_string(),
                         "compliance checking".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.97)
-                    .with_metric("threat_detection".to_string(), 0.94)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("threat_detection".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 20.0,
                         min_compute_units: 40,
@@ -199,8 +199,8 @@ impl VortexCapabilities {
                         "competitive analysis".to_string(),
                         "resource optimization".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.89)
-                    .with_metric("planning_horizon".to_string(), 180.0)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("planning_horizon".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -222,8 +222,8 @@ impl VortexCapabilities {
                         "concept mapping".to_string(),
                         "domain expertise".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.91)
-                    .with_metric("fact_coverage".to_string(), 0.85)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("fact_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 28.0,
                         min_compute_units: 56,
@@ -244,8 +244,8 @@ impl VortexCapabilities {
                         "innovation facilitation".to_string(),
                         "design thinking".to_string(),
                     ])
-                    .with_metric("creativity_score".to_string(), 0.88)
-                    .with_metric("novelty_score".to_string(), 0.86)
+                    .with_metric("creativity_score".to_string(), 0.0)
+                    .with_metric("novelty_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 20.0,
                         min_compute_units: 40,
@@ -266,8 +266,8 @@ impl VortexCapabilities {
                         "agent communication".to_string(),
                         "consensus building".to_string(),
                     ])
-                    .with_metric("coordination_accuracy".to_string(), 0.92)
-                    .with_metric("agent_efficiency".to_string(), 0.89)
+                    .with_metric("coordination_accuracy".to_string(), 0.0)
+                    .with_metric("agent_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -290,8 +290,8 @@ impl VortexCapabilities {
                     "learning optimization".to_string(),
                     "meta-learning".to_string(),
                 ])
-                .with_metric("improvement_rate".to_string(), 0.75)
-                .with_metric("adaptation_speed".to_string(), 0.72)
+                .with_metric("improvement_rate".to_string(), 0.0)
+                .with_metric("adaptation_speed".to_string(), 0.0)
                 .with_resources(ResourceRequirements {
                     min_memory_gb: 16.0,
                     min_compute_units: 32,
@@ -309,8 +309,8 @@ impl VortexCapabilities {
                         "resource optimization".to_string(),
                         "edge deployment".to_string(),
                     ])
-                    .with_metric("edge_efficiency".to_string(), 0.65)
-                    .with_metric("resource_usage".to_string(), 0.7)
+                    .with_metric("edge_efficiency".to_string(), 0.0)
+                    .with_metric("resource_usage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 4.0,
                         min_compute_units: 8,

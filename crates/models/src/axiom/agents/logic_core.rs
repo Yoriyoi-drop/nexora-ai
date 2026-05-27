@@ -179,10 +179,10 @@ impl BaseAgent for LogicCoreAgent {
             input_types: vec!["premises".to_string(), "conclusion".to_string()],
             output_types: vec!["proof_steps".to_string(), "validity_result".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.95,
-                avg_latency: 2200.0,
-                resource_usage: 0.5,
-                reliability: 0.97,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

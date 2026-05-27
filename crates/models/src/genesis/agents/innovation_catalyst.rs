@@ -179,10 +179,10 @@ impl BaseAgent for InnovationCatalystAgent {
                 "transformation_roadmap".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.89,
-                avg_latency: 3200.0,
-                resource_usage: 0.75,
-                reliability: 0.91,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

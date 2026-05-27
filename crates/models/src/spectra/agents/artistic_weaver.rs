@@ -383,10 +383,10 @@ impl BaseAgent for ArtisticWeaverAgent {
             input_types: vec!["artistic_task".to_string()],
             output_types: vec!["artistic_content".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.85,
-                avg_latency: 800.0,
-                resource_usage: 0.7,
-                reliability: 0.9,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

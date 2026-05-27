@@ -1041,7 +1041,7 @@ impl SpectraArchitecture {
                     hidden_size: 768,
                 },
                 performance_metrics: EncoderMetrics {
-                    encoding_accuracy: 0.96,
+                    encoding_accuracy: 0.0,
                     compression_ratio: 0.15,
                     encoding_time_ms: 50.0,
                     memory_usage_mb: 128.0,
@@ -1062,7 +1062,7 @@ impl SpectraArchitecture {
                     hidden_size: 512,
                 },
                 performance_metrics: EncoderMetrics {
-                    encoding_accuracy: 0.94,
+                    encoding_accuracy: 0.0,
                     compression_ratio: 0.25,
                     encoding_time_ms: 80.0,
                     memory_usage_mb: 256.0,
@@ -1087,7 +1087,7 @@ impl SpectraArchitecture {
                     hidden_size: 384,
                 },
                 performance_metrics: EncoderMetrics {
-                    encoding_accuracy: 0.91,
+                    encoding_accuracy: 0.0,
                     compression_ratio: 0.18,
                     encoding_time_ms: 60.0,
                     memory_usage_mb: 192.0,
@@ -1111,7 +1111,7 @@ impl SpectraArchitecture {
                         hidden_size: 512,
                     },
                     performance_metrics: StyleEncoderMetrics {
-                        style_accuracy: 0.89,
+                        style_accuracy: 0.0,
                         style_consistency: 0.87,
                         style_transfer_quality: 0.91,
                         encoding_time_ms: 120.0,
@@ -1168,7 +1168,7 @@ impl SpectraArchitecture {
                         hidden_size: 1024,
                     },
                     performance_metrics: FusionMetrics {
-                        fusion_accuracy: 0.92,
+                        fusion_accuracy: 0.0,
                         fusion_quality: 0.89,
                         fusion_time_ms: 100.0,
                         memory_usage_mb: 256.0,
@@ -1179,7 +1179,7 @@ impl SpectraArchitecture {
                     attention_heads: 16,
                     attention_span: 512,
                     performance_metrics: AttentionMetrics {
-                        attention_accuracy: 0.94,
+                        attention_accuracy: 0.0,
                         attention_efficiency: 0.91,
                         attention_time_ms: 80.0,
                         memory_usage_mb: 192.0,
@@ -1249,7 +1249,7 @@ impl SpectraArchitecture {
                         threshold: 0.7,
                     }],
                     performance_metrics: NoveltyEvaluatorMetrics {
-                        evaluation_accuracy: 0.87,
+                        evaluation_accuracy: 0.0,
                         evaluation_consistency: 0.85,
                         evaluation_time_ms: 60.0,
                     },
@@ -1272,7 +1272,7 @@ impl SpectraArchitecture {
                 modality_projections: HashMap::new(),
                 fusion_strategy: CrossModalFusionStrategy::Attention,
                 performance_metrics: CrossModalAttentionMetrics {
-                    attention_accuracy: 0.93,
+                    attention_accuracy: 0.0,
                     cross_modal_understanding: 0.89,
                     fusion_quality: 0.91,
                     processing_time_ms: 120.0,
@@ -1290,12 +1290,12 @@ impl SpectraArchitecture {
 
         // Initialize modality encoders
         for encoder in self.multimodal_fusion.modality_encoders.values_mut() {
-            encoder.performance_metrics.encoding_accuracy = 0.97;
+            encoder.performance_metrics.encoding_accuracy = 0.0;
         }
 
         // Initialize style encoders
         for encoder in self.style_adaptation.style_encoders.values_mut() {
-            encoder.performance_metrics.style_accuracy = 0.92;
+            encoder.performance_metrics.style_accuracy = 0.0;
         }
 
         // Initialize concept generators
@@ -1583,7 +1583,7 @@ impl SpectraArchitecture {
         let mut styled_content = content.to_string();
 
         // Apply style based on metrics
-        if metrics.style_accuracy > 0.9 {
+        if metrics.style_accuracy > 0.0 {
             styled_content.push_str(&format!(" [High-quality {} style]", style));
         } else {
             styled_content.push_str(&format!(" [{} style]", style));

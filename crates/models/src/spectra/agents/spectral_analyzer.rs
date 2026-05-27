@@ -182,10 +182,10 @@ impl BaseAgent for SpectralAnalyzerAgent {
                 "signal_characteristics".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 2300.0,
-                resource_usage: 0.68,
-                reliability: 0.94,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

@@ -185,10 +185,10 @@ impl BaseAgent for VulnScanAgent {
                 input_types: vec!["target".to_string(), "scan_parameters".to_string()],
                 output_types: vec!["vulnerabilities".to_string(), "severity_distribution".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 3800.0,
-                    resource_usage: 0.87,
-                    reliability: 0.97,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

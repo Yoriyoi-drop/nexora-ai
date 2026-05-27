@@ -309,7 +309,7 @@ impl Default for EmpathyCapabilities {
             emotional_empathy: true,
             compassionate_empathy: true,
             cultural_empathy: true,
-            empathy_accuracy: 0.85,
+            empathy_accuracy: 0.0,
             emotional_intelligence: 0.9,
         }
     }
@@ -429,10 +429,10 @@ impl BaseAgent for EmpathyPrimeAgent {
             input_types: vec!["empathy_task".to_string()],
             output_types: vec!["empathetic_response".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 400.0,
-                resource_usage: 0.5,
-                reliability: 0.95,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -511,83 +511,34 @@ impl EmpathyPrimeAgent {
         })
     }
 
-    /// Apply cultural adaptation
+    /// Apply cultural adaptation.
+    ///
+    /// FUTURE: Will pass through foundation CausalLM with a cultural-adaptation
+    /// prompt. Currently returns neutral defaults — NOT performing real adaptation.
     async fn apply_cultural_adaptation(
         &self,
-        input: &EmpathyTaskInput,
-        emotional_understanding: &EmotionalUnderstanding,
+        _input: &EmpathyTaskInput,
+        _emotional_understanding: &EmotionalUnderstanding,
     ) -> AgentResult<CulturalAdaptation> {
-        let cultural_context = input
-            .cultural_background
-            .clone()
-            .unwrap_or_else(|| "western".to_string());
-
-        let adaptation_level =
-            self.config.cultural_awareness * self.empathy_synthesis.parameters.cultural_adaptation;
-        let cultural_sensitivity = self.config.cultural_awareness;
-
-        let adaptation_details = vec![
-            format!("Applied {} cultural context", cultural_context),
-            "Adjusted emotional expression".to_string(),
-            "Modified response style".to_string(),
-        ];
-
         Ok(CulturalAdaptation {
-            cultural_context,
-            adaptation_level,
-            cultural_sensitivity,
-            adaptation_details,
+            cultural_context: "neutral".to_string(),
+            adaptation_level: 0.0,
+            cultural_sensitivity: 0.0,
+            adaptation_details: vec![],
         })
     }
 
-    /// Synthesize empathetic response
+    /// Synthesize empathetic response.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with the emotional context
+    /// injected into a system prompt. Currently returns a neutral message.
     async fn synthesize_empathetic_response(
         &self,
-        input: &EmpathyTaskInput,
-        emotional_understanding: &EmotionalUnderstanding,
-        cultural_adaptation: &CulturalAdaptation,
+        _input: &EmpathyTaskInput,
+        _emotional_understanding: &EmotionalUnderstanding,
+        _cultural_adaptation: &CulturalAdaptation,
     ) -> AgentResult<String> {
-        let warmth = self.empathy_synthesis.parameters.response_warmth;
-        let validation = self.empathy_synthesis.parameters.validation_strength;
-        let support = self.empathy_synthesis.parameters.support_level;
-
-        // Generate empathetic response based on detected emotions and requirements
-        let response = match input.empathy_requirements.response_type {
-            ResponseType::Understanding => {
-                format!(
-                    "I understand that you're feeling {}. Your emotions are valid and important.",
-                    emotional_understanding.emotional_context
-                )
-            }
-            ResponseType::Validation => {
-                format!("It's completely understandable to feel {} in this situation. Your feelings are valid.", 
-                       emotional_understanding.emotional_context)
-            }
-            ResponseType::Support => {
-                format!("I'm here for you as you navigate through these feelings of {}. You're not alone in this.", 
-                       emotional_understanding.emotional_context)
-            }
-            ResponseType::Guidance => {
-                format!("I can see you're experiencing {}. Let's explore some ways to work through these emotions together.", 
-                       emotional_understanding.emotional_context)
-            }
-            ResponseType::Reflective => {
-                format!("It sounds like you're feeling {} about this. Can you tell me more about what's been on your mind?", 
-                       emotional_understanding.emotional_context)
-            }
-        };
-
-        // Apply cultural adaptation
-        let culturally_adapted_response = if cultural_adaptation.adaptation_level > 0.5 {
-            format!(
-                "{} [Culturally adapted for {} context]",
-                response, cultural_adaptation.cultural_context
-            )
-        } else {
-            response
-        };
-
-        Ok(culturally_adapted_response)
+        Ok("I'm here to help. Could you tell me more about what's on your mind?".to_string())
     }
 
     /// Calculate empathy score
@@ -604,48 +555,18 @@ impl EmpathyPrimeAgent {
         (emotional_score + cultural_score + sensitivity_score) / 3.0
     }
 
-    /// Detect emotions from text
-    fn detect_emotions(&self, text: &str) -> Vec<Emotion> {
-        let mut emotions = Vec::new();
-
-        // Simplified emotion detection
-        if text.to_lowercase().contains("sad") || text.to_lowercase().contains("unhappy") {
-            emotions.push(Emotion {
-                name: "sadness".to_string(),
-                intensity: 0.7,
-                valence: -0.5,
-                arousal: 0.3,
-            });
-        }
-
-        if text.to_lowercase().contains("happy") || text.to_lowercase().contains("joy") {
-            emotions.push(Emotion {
-                name: "joy".to_string(),
-                intensity: 0.8,
-                valence: 0.8,
-                arousal: 0.7,
-            });
-        }
-
-        if text.to_lowercase().contains("angry") || text.to_lowercase().contains("frustrated") {
-            emotions.push(Emotion {
-                name: "anger".to_string(),
-                intensity: 0.6,
-                valence: -0.3,
-                arousal: 0.8,
-            });
-        }
-
-        if emotions.is_empty() {
-            emotions.push(Emotion {
-                name: "neutral".to_string(),
-                intensity: 0.3,
-                valence: 0.0,
-                arousal: 0.2,
-            });
-        }
-
-        emotions
+    /// Detect emotions from text.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with a specialized
+    /// emotional-analysis prompt. Currently returns a single neutral emotion
+    /// as a structured placeholder — NOT performing real emotion detection.
+    fn detect_emotions(&self, _text: &str) -> Vec<Emotion> {
+        vec![Emotion {
+            name: "neutral".to_string(),
+            intensity: 0.0,
+            valence: 0.0,
+            arousal: 0.0,
+        }]
     }
 
     /// Calculate emotional intensity

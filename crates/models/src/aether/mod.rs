@@ -3,6 +3,8 @@
 //! NXR-03 APEX - Adaptive Emotional & Holistic Transcendent Empathy Reasoner
 //! Emotional intelligence and psychological analysis specialist
 
+pub mod classifier;
+pub mod delegation;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -106,7 +108,7 @@ impl Default for AetherMetrics {
         Self {
             total_emotional_analyses: 0,
             avg_empathy_score: 0.965,
-            emotional_accuracy: 0.94,
+            emotional_accuracy: 0.0,
             psychological_insight_score: 0.92,
             last_updated: chrono::Utc::now(),
         }
@@ -378,11 +380,34 @@ impl NxrModel for NxrAetherModel {
             safety.gate.check_consent(consent_token)?;
         }
 
-        let augmented = augment_aether_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAetherModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAetherModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::aether::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

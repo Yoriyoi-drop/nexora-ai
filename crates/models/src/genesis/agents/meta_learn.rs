@@ -172,10 +172,10 @@ impl BaseAgent for MetaLearnAgent {
                 input_types: vec!["task_distribution".to_string(), "learning_experience".to_string()],
                 output_types: vec!["optimized_learner".to_string(), "meta_knowledge".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.93,
-                    avg_latency: 4800.0,
-                    resource_usage: 0.90,
-                    reliability: 0.94,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

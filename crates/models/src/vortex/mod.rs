@@ -3,6 +3,8 @@
 //! NXR-02 APEX - Variable Optimization Recursive Text & Expert eXchange
 //! Code generation and software engineering specialist
 
+pub mod analyzer;
+pub mod delegation;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -292,9 +294,9 @@ impl Default for VortexMetrics {
         Self {
             total_code_analyses: 0,
             avg_analysis_depth: 0.0,
-            code_generation_accuracy: 0.972,
+            code_generation_accuracy: 0.0,
             debug_success_rate: 0.95,
-            arch_analysis_accuracy: 0.94,
+            arch_analysis_accuracy: 0.0,
             test_generation_quality: 0.91,
             last_updated: chrono::Utc::now(),
         }
@@ -609,11 +611,34 @@ impl NxrModel for NxrVortexModel {
             ));
         }
 
-        let augmented = augment_vortex_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrVortexModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrVortexModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::vortex::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

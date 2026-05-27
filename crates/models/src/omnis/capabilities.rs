@@ -43,9 +43,9 @@ impl OmnisCapabilities {
                         "cross-modal synthesis".to_string(),
                         "unlimited context understanding".to_string(),
                     ])
-                    .with_metric("accuracy".to_string(), 0.997)
-                    .with_metric("reasoning_depth".to_string(), 10.0)
-                    .with_metric("context_window".to_string(), 10_000_000.0)
+                    .with_metric("accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
+                    .with_metric("context_window".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 64.0,
                         min_compute_units: 128,
@@ -66,8 +66,8 @@ impl OmnisCapabilities {
                         "inference optimization".to_string(),
                         "contradiction detection".to_string(),
                     ])
-                    .with_metric("proof_accuracy".to_string(), 0.995)
-                    .with_metric("inference_speed".to_string(), 850.0)
+                    .with_metric("proof_accuracy".to_string(), 0.0)
+                    .with_metric("inference_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -89,8 +89,8 @@ impl OmnisCapabilities {
                         "probability theory".to_string(),
                         "discrete mathematics".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.98)
-                    .with_metric("problem_complexity".to_string(), 9.0)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("problem_complexity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -110,8 +110,8 @@ impl OmnisCapabilities {
                         "modality translation".to_string(),
                         "sensory integration".to_string(),
                     ])
-                    .with_metric("modality_accuracy".to_string(), 0.92)
-                    .with_metric("integration_score".to_string(), 0.88)
+                    .with_metric("modality_accuracy".to_string(), 0.0)
+                    .with_metric("integration_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 48.0,
                         min_compute_units: 96,
@@ -131,8 +131,8 @@ impl OmnisCapabilities {
                         "psychological modeling".to_string(),
                         "emotional intelligence".to_string(),
                     ])
-                    .with_metric("emotional_accuracy".to_string(), 0.91)
-                    .with_metric("empathy_score".to_string(), 0.89)
+                    .with_metric("emotional_accuracy".to_string(), 0.0)
+                    .with_metric("empathy_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -153,8 +153,8 @@ impl OmnisCapabilities {
                         "long-term planning".to_string(),
                         "competitive analysis".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.96)
-                    .with_metric("planning_horizon".to_string(), 365.0)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("planning_horizon".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -175,8 +175,8 @@ impl OmnisCapabilities {
                         "semantic understanding".to_string(),
                         "concept mapping".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.998)
-                    .with_metric("fact_coverage".to_string(), 0.95)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("fact_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 128.0,
                         min_compute_units: 256,
@@ -196,8 +196,8 @@ impl OmnisCapabilities {
                         "risk evaluation".to_string(),
                         "security protocol analysis".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.89)
-                    .with_metric("threat_detection".to_string(), 0.87)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("threat_detection".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -217,8 +217,8 @@ impl OmnisCapabilities {
                         "creative problem solving".to_string(),
                         "innovation facilitation".to_string(),
                     ])
-                    .with_metric("creativity_score".to_string(), 0.93)
-                    .with_metric("novelty_score".to_string(), 0.91)
+                    .with_metric("creativity_score".to_string(), 0.0)
+                    .with_metric("novelty_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -242,8 +242,8 @@ impl OmnisCapabilities {
                     "agent communication".to_string(),
                     "consensus building".to_string(),
                 ])
-                .with_metric("coordination_accuracy".to_string(), 0.98)
-                .with_metric("agent_efficiency".to_string(), 0.96)
+                .with_metric("coordination_accuracy".to_string(), 0.0)
+                .with_metric("agent_efficiency".to_string(), 0.0)
                 .with_resources(ResourceRequirements {
                     min_memory_gb: 48.0,
                     min_compute_units: 96,
@@ -263,8 +263,8 @@ impl OmnisCapabilities {
                         "learning optimization".to_string(),
                         "meta-learning".to_string(),
                     ])
-                    .with_metric("improvement_rate".to_string(), 0.85)
-                    .with_metric("adaptation_speed".to_string(), 0.82)
+                    .with_metric("improvement_rate".to_string(), 0.0)
+                    .with_metric("adaptation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -282,8 +282,8 @@ impl OmnisCapabilities {
                         "resource optimization".to_string(),
                         "edge deployment".to_string(),
                     ])
-                    .with_metric("edge_efficiency".to_string(), 0.75)
-                    .with_metric("resource_usage".to_string(), 0.8)
+                    .with_metric("edge_efficiency".to_string(), 0.0)
+                    .with_metric("resource_usage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 4.0,
                         min_compute_units: 8,

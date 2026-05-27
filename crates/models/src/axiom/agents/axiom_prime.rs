@@ -176,10 +176,10 @@ impl BaseAgent for AxiomPrimeAgent {
             input_types: vec!["problem_statement".to_string(), "given_facts".to_string()],
             output_types: vec!["derived_axioms".to_string(), "truth_assessment".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.93,
-                avg_latency: 2800.0,
-                resource_usage: 0.6,
-                reliability: 0.95,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -217,39 +217,28 @@ impl AxiomPrimeAgent {
         }
     }
 
-    async fn derive_axioms(&self, input: &AxiomPrimeTaskInput) -> AgentResult<Vec<String>> {
-        Ok(vec![
-            format!(
-                "Axiom 1: From problem '{}', we derive that fundamental principles apply",
-                input.problem_statement
-            ),
-            format!(
-                "Axiom 2: Given facts '{}', logical consistency must be maintained",
-                input.given_facts.join(", ")
-            ),
-            "Axiom 3: Truth is determined through systematic reasoning".to_string(),
-        ])
+    /// Derive axioms from a problem statement.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM. Currently returns
+    /// a single placeholder string — NOT performing real axiom derivation.
+    async fn derive_axioms(&self, _input: &AxiomPrimeTaskInput) -> AgentResult<Vec<String>> {
+        Ok(vec!["[placeholder — will delegate to foundation model]".to_string()])
     }
 
     async fn assess_truth(
         &self,
-        input: &AxiomPrimeTaskInput,
+        _input: &AxiomPrimeTaskInput,
         _axioms: &[String],
     ) -> AgentResult<String> {
-        Ok(format!("Truth assessment for '{}': Based on correspondence theory, the problem statement aligns with given facts and logical principles", input.problem_statement))
+        Ok("[placeholder — will delegate to foundation model]".to_string())
     }
 
     async fn create_reasoning_chain(
         &self,
-        input: &AxiomPrimeTaskInput,
+        _input: &AxiomPrimeTaskInput,
         _axioms: &[String],
     ) -> AgentResult<Vec<String>> {
-        Ok(vec![
-            format!("Step 1: Analyze problem: {}", input.problem_statement),
-            "Step 2: Apply logical inference rules".to_string(),
-            "Step 3: Validate against given facts".to_string(),
-            "Step 4: Derive fundamental axioms".to_string(),
-        ])
+        Ok(vec!["[placeholder — will delegate to foundation model]".to_string()])
     }
 
     async fn calculate_confidence(
@@ -257,7 +246,7 @@ impl AxiomPrimeAgent {
         _input: &AxiomPrimeTaskInput,
         _axioms: &[String],
     ) -> AgentResult<f32> {
-        Ok(0.87)
+        Ok(0.0)
     }
 }
 

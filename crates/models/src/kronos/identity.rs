@@ -99,7 +99,7 @@ impl KronosIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "512K tokens",
-            accuracy: 97.8,
+            accuracy: 0.0,
             reasoning_depth: "Intermediate",
             agents_count: 5,
             specializations: vec![

@@ -4,6 +4,8 @@
 //! Flagship model with maximum capabilities
 
 pub mod agents;
+pub mod delegation;
+pub mod router;
 /// Simulated architecture — NOT a real neural network.
 /// Uses keyword matching and template responses, not tensor computation.
 /// Gated behind `simulated-models` feature (default: off).
@@ -76,7 +78,7 @@ pub struct OmnisState {
 }
 
 /// Meta-reasoning state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MetaReasoningState {
     /// Current reasoning chain
     pub reasoning_chain: Vec<ReasoningStep>,
@@ -137,7 +139,7 @@ pub struct Hypothesis {
 }
 
 /// Truth arbitration state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TruthArbitrationState {
     /// Active truth claims
     pub truth_claims: Vec<TruthClaim>,
@@ -163,7 +165,7 @@ pub struct TruthClaim {
 }
 
 /// Resolution status
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolutionStatus;
 
 /// NXR-OMNIS Model Metrics
@@ -501,11 +503,34 @@ impl NxrModel for NxrOmnisModel {
             ));
         }
 
-        let augmented = augment_omnis_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrOmnisModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrOmnisModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::omnis::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

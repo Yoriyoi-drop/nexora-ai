@@ -96,7 +96,7 @@ impl AetherIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "512K tokens",
-            accuracy: 96.5,
+            accuracy: 0.0,
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![
@@ -112,7 +112,7 @@ impl AetherIdentity {
     pub fn emotional_intelligence_metrics(&self) -> EmotionalIntelligenceMetrics {
         EmotionalIntelligenceMetrics {
             empathy_score: 0.965,
-            emotional_accuracy: 0.94,
+            emotional_accuracy: 0.0,
             cultural_sensitivity: 0.92,
             psychological_insight: 0.91,
             support_quality: 0.93,

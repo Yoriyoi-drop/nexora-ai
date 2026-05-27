@@ -200,10 +200,10 @@ impl BaseAgent for FactCheckXAgent {
                 input_types: vec!["claim".to_string(), "primary_sources".to_string()],
                 output_types: vec!["verification_result".to_string(), "source_evaluations".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.95,
-                    avg_latency: 2800.0,
-                    resource_usage: 0.70,
-                    reliability: 0.97,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

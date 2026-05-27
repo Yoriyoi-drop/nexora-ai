@@ -46,8 +46,8 @@ impl SpectraCapabilities {
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
         let performance_metrics = CapabilityPerformanceMetrics {
-            creative_generation_accuracy: 0.948,
-            style_adaptation_accuracy: 0.91,
+            creative_generation_accuracy: 0.0,
+            style_adaptation_accuracy: 0.0,
             multimodal_synthesis_quality: 0.89,
             innovation_generation_quality: 0.87,
             artistic_quality_score: 0.93,
@@ -104,9 +104,9 @@ impl SpectraCapabilities {
                         "creative collaboration".to_string(),
                         "artistic expression".to_string(),
                     ])
-                    .with_metric("creativity_score".to_string(), 0.948)
-                    .with_metric("originality_score".to_string(), 0.91)
-                    .with_metric("context_window".to_string(), 1_000_000.0)
+                    .with_metric("creativity_score".to_string(), 0.0)
+                    .with_metric("originality_score".to_string(), 0.0)
+                    .with_metric("context_window".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -129,8 +129,8 @@ impl SpectraCapabilities {
                         "cross-modal attention".to_string(),
                         "media adaptation".to_string(),
                     ])
-                    .with_metric("multimedia_quality".to_string(), 0.94)
-                    .with_metric("synthesis_accuracy".to_string(), 0.89)
+                    .with_metric("multimedia_quality".to_string(), 0.0)
+                    .with_metric("synthesis_accuracy".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 28.0,
                         min_compute_units: 56,
@@ -153,8 +153,8 @@ impl SpectraCapabilities {
                         "cultural style understanding".to_string(),
                         "style evolution".to_string(),
                     ])
-                    .with_metric("style_accuracy".to_string(), 0.91)
-                    .with_metric("adaptation_speed".to_string(), 0.85)
+                    .with_metric("style_accuracy".to_string(), 0.0)
+                    .with_metric("adaptation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -176,8 +176,8 @@ impl SpectraCapabilities {
                         "creative problem solving".to_string(),
                         "idea generation".to_string(),
                     ])
-                    .with_metric("innovation_score".to_string(), 0.87)
-                    .with_metric("novelty_score".to_string(), 0.83)
+                    .with_metric("innovation_score".to_string(), 0.0)
+                    .with_metric("novelty_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 20.0,
                         min_compute_units: 40,
@@ -198,8 +198,8 @@ impl SpectraCapabilities {
                         "aesthetic communication".to_string(),
                         "creative collaboration".to_string(),
                     ])
-                    .with_metric("communication_quality".to_string(), 0.89)
-                    .with_metric("expression_clarity".to_string(), 0.86)
+                    .with_metric("communication_quality".to_string(), 0.0)
+                    .with_metric("expression_clarity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -217,8 +217,8 @@ impl SpectraCapabilities {
                         "artistic logic".to_string(),
                         "aesthetic reasoning".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.78)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -239,8 +239,8 @@ impl SpectraCapabilities {
                         "art history".to_string(),
                         "design principles".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.88)
-                    .with_metric("knowledge_coverage".to_string(), 0.85)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("knowledge_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 18.0,
                         min_compute_units: 36,
@@ -259,8 +259,8 @@ impl SpectraCapabilities {
                         "style recommendations".to_string(),
                         "creative inspiration".to_string(),
                     ])
-                    .with_metric("support_quality".to_string(), 0.82)
-                    .with_metric("guidance_effectiveness".to_string(), 0.79)
+                    .with_metric("support_quality".to_string(), 0.0)
+                    .with_metric("guidance_effectiveness".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 14.0,
                         min_compute_units: 28,

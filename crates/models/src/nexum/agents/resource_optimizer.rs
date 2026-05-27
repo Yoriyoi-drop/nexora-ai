@@ -1255,7 +1255,7 @@ impl Default for PerformanceMonitoring {
                 ],
                 prediction_horizon_hours: 24,
                 confidence_thresholds: HashMap::new(),
-                model_accuracy_requirements: 0.8,
+                model_accuracy_requirements: 0.0,
             },
         }
     }
@@ -1351,10 +1351,10 @@ impl BaseAgent for ResourceOptimizerAgent {
                 "performance_improvements".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.90,
-                avg_latency: 1000.0,
-                resource_usage: 0.8,
-                reliability: 0.95,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

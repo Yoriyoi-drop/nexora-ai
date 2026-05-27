@@ -449,10 +449,10 @@ impl BaseAgent for StyleAdapterAgent {
             input_types: vec!["style_adaptation_task".to_string()],
             output_types: vec!["adapted_content".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.88,
-                avg_latency: 600.0,
-                resource_usage: 0.65,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

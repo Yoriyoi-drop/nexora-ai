@@ -2543,7 +2543,7 @@ impl Default for ExecutionTracing {
                         matching_performance: MatchingPerformance {
                             matching_speed: 1000.0,
                             memory_usage: 0.1,
-                            accuracy_rate: 0.95,
+                            accuracy_rate: 0.0,
                             false_positive_rate: 0.05,
                         },
                     },
@@ -2686,10 +2686,10 @@ impl BaseAgent for DebugPhantomAgent {
                 "fix_recommendations".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.88,
-                avg_latency: 1500.0,
-                resource_usage: 0.7,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -2815,7 +2815,7 @@ impl DebugPhantomAgent {
         let mut confidence_scores = HashMap::new();
         confidence_scores.insert("bug_001".to_string(), 0.9);
 
-        let localization_accuracy = 0.88;
+        let localization_accuracy = 0.0;
 
         let false_positives = vec![];
 

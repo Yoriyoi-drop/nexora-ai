@@ -231,10 +231,10 @@ impl BaseAgent for HarmonyGenAgent {
             input_types: vec!["audio_generation_input".to_string()],
             output_types: vec!["audio_content".to_string(), "harmonic_analysis".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.84,
-                avg_latency: 1100.0,
-                resource_usage: 0.78,
-                reliability: 0.89,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

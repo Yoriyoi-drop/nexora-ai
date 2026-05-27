@@ -399,7 +399,7 @@ impl Default for CulturalCapabilities {
             cultural_sensitivity: true,
             cultural_competence: true,
             cross_cultural_communication: true,
-            adaptation_accuracy: 0.85,
+            adaptation_accuracy: 0.0,
             knowledge_depth: 0.8,
         }
     }
@@ -526,10 +526,10 @@ impl BaseAgent for CultureAdapterAgent {
             input_types: vec!["cultural_adaptation_task".to_string()],
             output_types: vec!["culturally_adapted_content".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.87,
-                avg_latency: 600.0,
-                resource_usage: 0.6,
-                reliability: 0.9,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -816,7 +816,7 @@ impl CultureAdapterAgent {
             culture: culture.to_string(),
             model_type: CulturalModelType::Hofstede,
             cultural_dimensions: dimensions,
-            accuracy: 0.8,
+            accuracy: 0.0,
         }
     }
 

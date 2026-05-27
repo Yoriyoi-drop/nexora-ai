@@ -185,10 +185,10 @@ impl BaseAgent for PrimeCreatorAgent {
                 "leadership_plan".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.94,
-                avg_latency: 4500.0,
-                resource_usage: 0.85,
-                reliability: 0.96,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

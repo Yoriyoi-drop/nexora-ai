@@ -102,7 +102,7 @@ impl SpectraIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "1M tokens",
-            accuracy: 94.8,
+            accuracy: 0.0,
             reasoning_depth: "Advanced",
             agents_count: 5,
             specializations: vec![

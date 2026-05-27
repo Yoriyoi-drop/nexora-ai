@@ -41,9 +41,9 @@ impl GenesisCapabilities {
                         "cross_domain_creativity".to_string(),
                         "ideation".to_string(),
                     ])
-                    .with_metric("creativity_score".to_string(), 0.975)
-                    .with_metric("novelty_score".to_string(), 0.92)
-                    .with_metric("innovation_score".to_string(), 0.88)
+                    .with_metric("creativity_score".to_string(), 0.0)
+                    .with_metric("novelty_score".to_string(), 0.0)
+                    .with_metric("innovation_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -63,9 +63,9 @@ impl GenesisCapabilities {
                         "narrative_creation".to_string(),
                         "dialogue_generation".to_string(),
                     ])
-                    .with_metric("text_creativity".to_string(), 0.96)
-                    .with_metric("writing_quality".to_string(), 0.93)
-                    .with_metric("narrative_coherence".to_string(), 0.89)
+                    .with_metric("text_creativity".to_string(), 0.0)
+                    .with_metric("writing_quality".to_string(), 0.0)
+                    .with_metric("narrative_coherence".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -84,9 +84,9 @@ impl GenesisCapabilities {
                         "cross_modal_synthesis".to_string(),
                         "multimodal_creativity".to_string(),
                     ])
-                    .with_metric("multimodal_accuracy".to_string(), 0.94)
-                    .with_metric("generation_quality".to_string(), 0.91)
-                    .with_metric("modality_integration".to_string(), 0.87)
+                    .with_metric("multimodal_accuracy".to_string(), 0.0)
+                    .with_metric("generation_quality".to_string(), 0.0)
+                    .with_metric("modality_integration".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 48.0,
                         min_compute_units: 96,
@@ -105,8 +105,8 @@ impl GenesisCapabilities {
                         "creative_concepts".to_string(),
                         "domain_expertise".to_string(),
                     ])
-                    .with_metric("knowledge_creativity".to_string(), 0.88)
-                    .with_metric("pattern_recognition".to_string(), 0.85)
+                    .with_metric("knowledge_creativity".to_string(), 0.0)
+                    .with_metric("pattern_recognition".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -124,8 +124,8 @@ impl GenesisCapabilities {
                         "generation_pipeline".to_string(),
                         "innovation_workflow".to_string(),
                     ])
-                    .with_metric("orchestration_creativity".to_string(), 0.86)
-                    .with_metric("pipeline_efficiency".to_string(), 0.83)
+                    .with_metric("orchestration_creativity".to_string(), 0.0)
+                    .with_metric("pipeline_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -143,8 +143,8 @@ impl GenesisCapabilities {
                         "innovation_simulation".to_string(),
                         "idea_exploration".to_string(),
                     ])
-                    .with_metric("simulation_creativity".to_string(), 0.82)
-                    .with_metric("exploration_diversity".to_string(), 0.84)
+                    .with_metric("simulation_creativity".to_string(), 0.0)
+                    .with_metric("exploration_diversity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -162,8 +162,8 @@ impl GenesisCapabilities {
                         "innovation_selection".to_string(),
                         "synthesis_decisions".to_string(),
                     ])
-                    .with_metric("decision_creativity".to_string(), 0.81)
-                    .with_metric("selection_quality".to_string(), 0.85)
+                    .with_metric("decision_creativity".to_string(), 0.0)
+                    .with_metric("selection_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -181,8 +181,8 @@ impl GenesisCapabilities {
                         "innovation_reasoning".to_string(),
                         "pattern_logic".to_string(),
                     ])
-                    .with_metric("logic_creativity".to_string(), 0.80)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_creativity".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -199,8 +199,8 @@ impl GenesisCapabilities {
                         "pattern_mathematics".to_string(),
                         "geometric_creativity".to_string(),
                     ])
-                    .with_metric("math_creativity".to_string(), 0.74)
-                    .with_metric("calculation_speed".to_string(), 0.82)
+                    .with_metric("math_creativity".to_string(), 0.0)
+                    .with_metric("calculation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 4.0,
                         min_compute_units: 8,
@@ -218,8 +218,8 @@ impl GenesisCapabilities {
                         "innovation_strategy".to_string(),
                         "exploration_strategy".to_string(),
                     ])
-                    .with_metric("strategy_creativity".to_string(), 0.83)
-                    .with_metric("innovation_rate".to_string(), 0.81)
+                    .with_metric("strategy_creativity".to_string(), 0.0)
+                    .with_metric("innovation_rate".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -236,8 +236,8 @@ impl GenesisCapabilities {
                         "content_protection".to_string(),
                         "intellectual_property".to_string(),
                     ])
-                    .with_metric("security_level".to_string(), 0.75)
-                    .with_metric("protection_effectiveness".to_string(), 0.72)
+                    .with_metric("security_level".to_string(), 0.0)
+                    .with_metric("protection_effectiveness".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -256,8 +256,8 @@ impl GenesisCapabilities {
                         "novelty_tracking".to_string(),
                         "performance_monitoring".to_string(),
                     ])
-                    .with_metric("monitoring_accuracy".to_string(), 0.89)
-                    .with_metric("alert_precision".to_string(), 0.86)
+                    .with_metric("monitoring_accuracy".to_string(), 0.0)
+                    .with_metric("alert_precision".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,

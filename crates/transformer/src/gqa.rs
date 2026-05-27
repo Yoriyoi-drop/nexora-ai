@@ -416,7 +416,6 @@ impl GpuKVCache {
         };
         Self { entries }
     }
-}
 
     /// Copy the first `prefix_len` K/V positions from `source` into this cache.
     /// Both caches must have the same number of layers.
@@ -434,7 +433,7 @@ impl GpuKVCache {
             source.entries.len()
         );
         let ctx = nexora_autograd::gpu::GpuContext::global().map_err(|_| {
-            nexora_autograd::gpu::GpuError::ContextLost("GpuContext not available".into())
+            nexora_autograd::gpu::GpuError::NotInitialized
         })?;
         for (dst_entry, src_entry) in self.entries.iter_mut().zip(source.entries.iter()) {
             dst_entry.copy_prefix_from(&ctx, src_entry, prefix_len)?;

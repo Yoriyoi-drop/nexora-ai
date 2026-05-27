@@ -186,10 +186,10 @@ impl BaseAgent for DecisionXAgent {
                 input_types: vec!["decision_context".to_string(), "options".to_string(), "constraints".to_string()],
                 output_types: vec!["final_decision".to_string(), "execution_plan".to_string(), "audit_log".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.94,
-                    avg_latency: 2800.0,
-                    resource_usage: 0.5,
-                    reliability: 0.97,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

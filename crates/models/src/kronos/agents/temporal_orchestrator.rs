@@ -181,10 +181,10 @@ impl BaseAgent for TemporalOrchestratorAgent {
                 "temporal_schedule".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.91,
-                avg_latency: 2600.0,
-                resource_usage: 0.73,
-                reliability: 0.93,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

@@ -175,10 +175,10 @@ impl BaseAgent for CryptoPrimeAgent {
                 "security_metadata".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.98,
-                avg_latency: 3200.0,
-                resource_usage: 0.85,
-                reliability: 0.99,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

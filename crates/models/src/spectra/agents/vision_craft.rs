@@ -205,10 +205,10 @@ impl BaseAgent for VisionCraftAgent {
             input_types: vec!["vision_task".to_string()],
             output_types: vec!["vision_content".to_string(), "analysis_result".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.88,
-                avg_latency: 950.0,
-                resource_usage: 0.75,
-                reliability: 0.91,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

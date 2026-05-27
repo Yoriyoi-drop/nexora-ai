@@ -178,10 +178,10 @@ impl BaseAgent for EncryptionMasterAgent {
                 "encryption_metadata".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.99,
-                avg_latency: 3500.0,
-                resource_usage: 0.88,
-                reliability: 0.99,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

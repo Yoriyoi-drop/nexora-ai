@@ -103,7 +103,7 @@ impl OmnisIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "10M tokens",
-            accuracy: 99.7,
+            accuracy: 0.0,
             reasoning_depth: "Unlimited",
             agents_count: 6,
             specializations: vec![

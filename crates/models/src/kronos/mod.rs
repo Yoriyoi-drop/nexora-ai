@@ -4,6 +4,8 @@
 //! Knowledge management and scientific research specialist
 
 pub mod agents;
+pub mod classifier;
+pub mod delegation;
 /// Simulated architecture — NOT a real neural network.
 /// Uses keyword matching and template responses, not tensor computation.
 /// Gated behind `simulated-models` feature (default: off).
@@ -115,7 +117,7 @@ impl Default for KronosMetrics {
     fn default() -> Self {
         Self {
             total_queries: 0,
-            fact_accuracy: 0.993,
+            fact_accuracy: 0.0,
             retrieval_latency_ms: 150.0,
             knowledge_coverage: 0.98,
             last_updated: chrono::Utc::now(),
@@ -372,11 +374,34 @@ impl NxrModel for NxrKronosModel {
             ));
         }
 
-        let augmented = augment_kronos_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrKronosModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrKronosModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::kronos::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

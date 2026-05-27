@@ -180,10 +180,10 @@ impl BaseAgent for TemporalOptimizerAgent {
                 "efficiency_improvements".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 2800.0,
-                resource_usage: 0.76,
-                reliability: 0.94,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

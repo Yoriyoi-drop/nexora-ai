@@ -189,10 +189,10 @@ impl BaseAgent for SpectralProcessorAgent {
                 "spectral_features".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.93,
-                avg_latency: 2100.0,
-                resource_usage: 0.8,
-                reliability: 0.95,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

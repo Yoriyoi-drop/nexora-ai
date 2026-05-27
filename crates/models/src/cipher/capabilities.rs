@@ -42,9 +42,9 @@ impl CipherCapabilities {
                         "malware_analysis".to_string(),
                         "forensics".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.986)
-                    .with_metric("vulnerability_detection".to_string(), 0.97)
-                    .with_metric("threat_identification".to_string(), 0.94)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("vulnerability_detection".to_string(), 0.0)
+                    .with_metric("threat_identification".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -63,8 +63,8 @@ impl CipherCapabilities {
                         "incident_response_planning".to_string(),
                         "threat_modeling".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.89)
-                    .with_metric("risk_assessment".to_string(), 0.92)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("risk_assessment".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -84,9 +84,9 @@ impl CipherCapabilities {
                         "compliance_standards".to_string(),
                         "attack_patterns".to_string(),
                     ])
-                    .with_metric("knowledge_coverage".to_string(), 0.95)
-                    .with_metric("intelligence_accuracy".to_string(), 0.91)
-                    .with_metric("compliance_coverage".to_string(), 0.88)
+                    .with_metric("knowledge_coverage".to_string(), 0.0)
+                    .with_metric("intelligence_accuracy".to_string(), 0.0)
+                    .with_metric("compliance_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 64.0,
                         min_compute_units: 128,
@@ -105,8 +105,8 @@ impl CipherCapabilities {
                         "threat_explanation".to_string(),
                         "technical_documentation".to_string(),
                     ])
-                    .with_metric("text_accuracy".to_string(), 0.91)
-                    .with_metric("report_quality".to_string(), 0.88)
+                    .with_metric("text_accuracy".to_string(), 0.0)
+                    .with_metric("report_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -124,8 +124,8 @@ impl CipherCapabilities {
                         "vulnerability_reasoning".to_string(),
                         "security_logic".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.85)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -142,8 +142,8 @@ impl CipherCapabilities {
                         "risk_calculation".to_string(),
                         "statistical_analysis".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.78)
-                    .with_metric("calculation_speed".to_string(), 0.82)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("calculation_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -163,9 +163,9 @@ impl CipherCapabilities {
                         "log_analysis".to_string(),
                         "traffic_analysis".to_string(),
                     ])
-                    .with_metric("monitoring_accuracy".to_string(), 0.94)
-                    .with_metric("detection_precision".to_string(), 0.91)
-                    .with_metric("alert_response_time".to_string(), 0.89)
+                    .with_metric("monitoring_accuracy".to_string(), 0.0)
+                    .with_metric("detection_precision".to_string(), 0.0)
+                    .with_metric("alert_response_time".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -184,9 +184,9 @@ impl CipherCapabilities {
                         "threat_scenario_simulation".to_string(),
                         "zero_day_simulation".to_string(),
                     ])
-                    .with_metric("simulation_accuracy".to_string(), 0.87)
-                    .with_metric("scenario_diversity".to_string(), 0.85)
-                    .with_metric("prediction_confidence".to_string(), 0.82)
+                    .with_metric("simulation_accuracy".to_string(), 0.0)
+                    .with_metric("scenario_diversity".to_string(), 0.0)
+                    .with_metric("prediction_confidence".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -205,8 +205,8 @@ impl CipherCapabilities {
                         "risk_mitigation_decisions".to_string(),
                         "compliance_decisions".to_string(),
                     ])
-                    .with_metric("decision_accuracy".to_string(), 0.88)
-                    .with_metric("response_effectiveness".to_string(), 0.85)
+                    .with_metric("decision_accuracy".to_string(), 0.0)
+                    .with_metric("response_effectiveness".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -227,8 +227,8 @@ impl CipherCapabilities {
                     "scan_orchestration".to_string(),
                     "response_orchestration".to_string(),
                 ])
-                .with_metric("coordination_accuracy".to_string(), 0.84)
-                .with_metric("orchestration_efficiency".to_string(), 0.82)
+                .with_metric("coordination_accuracy".to_string(), 0.0)
+                .with_metric("orchestration_efficiency".to_string(), 0.0)
                 .with_resources(ResourceRequirements {
                     min_memory_gb: 16.0,
                     min_compute_units: 32,
@@ -245,8 +245,8 @@ impl CipherCapabilities {
                         "network_diagram_generation".to_string(),
                         "threat_visualization".to_string(),
                     ])
-                    .with_metric("modality_accuracy".to_string(), 0.72)
-                    .with_metric("visualization_quality".to_string(), 0.70)
+                    .with_metric("modality_accuracy".to_string(), 0.0)
+                    .with_metric("visualization_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,

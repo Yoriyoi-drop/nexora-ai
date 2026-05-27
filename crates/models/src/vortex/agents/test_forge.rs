@@ -2025,10 +2025,10 @@ impl BaseAgent for TestForgeAgent {
             input_types: vec!["source_code".to_string(), "test_requirements".to_string()],
             output_types: vec!["generated_tests".to_string(), "test_strategy".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.87,
-                avg_latency: 1200.0,
-                resource_usage: 0.6,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

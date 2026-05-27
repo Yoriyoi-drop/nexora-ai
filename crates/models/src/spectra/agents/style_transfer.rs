@@ -217,10 +217,10 @@ impl BaseAgent for StyleTransferAgent {
             input_types: vec!["style_transfer_input".to_string()],
             output_types: vec!["transferred_content".to_string(), "consistency_report".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.86,
-                avg_latency: 750.0,
-                resource_usage: 0.7,
-                reliability: 0.9,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

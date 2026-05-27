@@ -380,7 +380,7 @@ impl Default for EdgeOptConfig {
             performance_targets: PerformanceTargets {
                 target_latency_ms: 5,
                 target_throughput_ops_per_sec: 1000.0,
-                target_accuracy: 0.9,
+                target_accuracy: 0.0,
                 target_energy_efficiency: 0.8,
             },
         }
@@ -467,7 +467,7 @@ impl Default for AdaptationStrategy {
                 max_seconds: 10,
             },
             stability_margin: 0.1,
-            prediction_horizon_seconds: 30,
+            prediction_horizon_seconds: 0,
         }
     }
 }
@@ -546,10 +546,10 @@ impl BaseAgent for EdgeOptAgent {
                 "resource_assessment".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.94,
-                avg_latency: 2.0,
-                resource_usage: 0.5,
-                reliability: 0.96,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -912,7 +912,7 @@ impl EdgeOptAgent {
             predicted_energy_efficiency: base_efficiency
                 * (1.0 + impact.power_change_percent / 100.0),
             forecast_confidence: impact.confidence,
-            time_horizon_seconds: 60,
+            time_horizon_seconds: 0,
         })
     }
 

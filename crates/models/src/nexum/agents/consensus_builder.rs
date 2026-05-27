@@ -615,10 +615,10 @@ impl BaseAgent for ConsensusBuilderAgent {
             input_types: vec!["agent_outputs".to_string(), "reasoning_traces".to_string()],
             output_types: vec!["consensus_output".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.88,
-                avg_latency: 600.0,
-                resource_usage: 0.7,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

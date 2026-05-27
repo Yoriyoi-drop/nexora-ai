@@ -155,6 +155,124 @@ cargo run --bin nexora -- train \
   --learning-rate 0.001
 ```
 
+## Fake Architecture Cleanup
+
+Phase 1-3 complete. Tiap model crate punya `delegation.rs` dengan pola unik: Tiap model crate punya `delegation.rs` dengan pola unik:
+
+| Crate | Pola | Delegasi |
+|-------|------|----------|
+| Omnis | **Expert routing (7 domain)** | `omnis::delegation::delegate(prompt)` |
+| Aether | Emotional framing | `aether::delegation::delegate(prompt)` |
+| Axiom | Structured logic | `axiom::delegation::delegate(prompt)` |
+| Spectra | Parallel creative (3 temps) | `spectra::delegation::delegate(prompt)` |
+| Cipher | Security checklist | `cipher::delegation::delegate(prompt)` |
+| Vortex | **Code review** | `vortex::delegation::delegate(prompt)` |
+| Kronos | Temporal context | `kronos::delegation::delegate(prompt)` |
+| Swift | Minimal pass-through | `swift::delegation::delegate(prompt)` |
+| Genesis | Iterative refinement | `genesis::delegation::delegate(prompt)` |
+| Nexum | Task decomposition | `nexum::delegation::delegate(prompt)` |
+
+Semua delegation memanggil `crate::foundation::Nxr*Model::infer()` via `OnceLock` singleton. Native impl (classifier, encoder, expert routing) selesai — semua 10 crate punya real MLP classifier.
+
+**Aether Emotion Classifier** (`crates/models/src/aether/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 64 GELU → 8 emotions`) — bukan keyword matching
+- Input: average pooled CausalLM `token_embedding` per token ID
+- Output: 8 emotions (joy, sadness, anger, fear, surprise, disgust, trust, neutral) dengan softmax probability
+- Bobot Xavier init via `rand::thread_rng()`, bisa di-load dari checkpoint
+- Integrasi: Aether `delegate()` deteksi emosi sebelum call foundation, inject `detected emotion: {dominant}` ke prompt
+
+**Omnis Expert Router** (`crates/models/src/omnis/router.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 7 domains`) — domain-aware expert routing
+- Input: average pooled CausalLM `token_embedding` per token ID
+- Output: 7 domains (math, science, code, creative, reasoning, factual, general) dengan softmax probability
+- Routing: top-1 inject expert system prompt; top-2 confidence > 0.3 → dual-expert + synthesis call
+- Bobot Xavier init via `rand::thread_rng()`
+
+**Vortex Code Review Analyzer** (`crates/models/src/vortex/analyzer.rs`):
+- Real 2-layer MLP (`embed_dim → 64 GELU → 6 categories`) — code review focus classifier
+- Input: average pooled CausalLM `token_embedding` per token ID
+- Output: 6 categories (bugs, security, performance, style, architecture, general) dengan softmax probability
+- Language detection heuristic: 8 bahasa (Rust, Python, JS, Java, C++, Go, SQL, unknown)
+- Integrasi: Vortex `delegate()` deteksi kategori + bahasa, inject focus prompt ke foundation call
+
+**Axiom Reasoning Classifier** (`crates/models/src/axiom/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 6 reasoning types`)
+- Types: deductive, inductive, abductive, analogical, causal, analytical
+
+**Cipher Threat Classifier** (`crates/models/src/cipher/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 6 threat categories`)
+- Threats: injection, xss, auth, crypto, config, network
+
+**Kronos Temporal Classifier** (`crates/models/src/kronos/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 5 temporal modes`)
+- Modes: urgent, scheduled, historical, realtime, evergreen
+- Inject `chrono::Utc::now()` + temporal framing
+
+**Swift Task Classifier** (`crates/models/src/swift/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 5 task types`)
+- Types: qa, summarize, translate, generate, analyze
+- Adjusts `max_tokens` + `temperature` per task type
+
+**Genesis Quality Classifier** (`crates/models/src/genesis/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 6 quality dimensions`)
+- Dimensions: clarity, depth, accuracy, structure, conciseness, engagement
+- Focuses iterative refinement on weakest dimension
+
+**Nexum Complexity Classifier** (`crates/models/src/nexum/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 4 complexity levels`)
+- Levels: simple (direct), moderate (2-3 subtasks), complex (3-5), multi_domain (8 + synthesis)
+
+**Spectra Style Classifier** (`crates/models/src/spectra/classifier.rs`):
+- Real 2-layer MLP (`embed_dim → 32 GELU → 6 creative styles`)
+- Styles: narrative, poetic, persuasive, technical, dialogue, descriptive
+- Adjusts temperature range per style (not fixed 0.7/0.9/1.2)
+
+## Phase 4 — Native Specialized Systems
+
+**Vision**: Wiring real subsystem infrastructure into model crate delegation. Bukan prompt wrapper — genuine capability.
+
+### Infrastructure yang SUDAH ADA (belum di-wire)
+
+| Subsystem | Crate | Files | Status |
+|-----------|-------|-------|--------|
+| **Multimodal** (Caffeine) | `crates/multimodal/` | 5 encoders (image/audio/video/text/regional), Q-Former, unified tokenizer, action head, ATQS+MoE integration — 20+ source files | ✅ Real, bobot random |
+| **SACA Reasoning** | `crates/reasoning/` | 6-phase closed-loop: CoT → Decompose → Context → Sampling → Execute-Fail-Fix → Rerank. Feedback loop dengan quality threshold | ✅ Real pipeline |
+| **MoE Gating** | `crates/has-moe-ffn/` | Token-level learned gating (8 experts, top-2), load balancing loss, capped routing, GPU acceleration | ✅ Real, 22 unit tests |
+| **Oracle Backbone** | `crates/oracle/` | 12-layer MoE + MultiHeadLatentAttention transformer, RoPE, FIM pretraining, DPO alignment trainer | ✅ Real arsitektur, bobot random |
+| **Code Verifiers** | `crates/oracle/src/verifiers/` | 4 rule-based verifiers (security, performance, correctness, style) — 775 LOC real analysis | ✅ Real |
+
+### Target Wiring
+
+| Crate | Current (Phase 3) | Phase 4 Target | Subsystem | Status |
+|-------|-------------------|----------------|-----------|--------|
+| **Omnis** | Expert router MLP + prompt | Real MoE gating + Oracle reasoning backbone | `has-moe-ffn` + `oracle` | ✅ MoE gating wired |
+| **Aether** | Emotion classifier MLP (8 emotions) | Sentiment + intent + emotional state pipeline | `multimodal` encoders + classifier | ⏳ Deferred (no lightweight sentiment API yet) |
+| **Axiom** | Reasoning classifier MLP | SACA 6-phase reasoning loop (CoT, decompose, execute-fail-fix, rerank) | `reasoning` | ⏳ Deferred (SACA is code-specific) |
+| **Spectra** | Style classifier + 3 temps | Full multimodal Caffeine pipeline (vision, audio, fusion) | `multimodal` | ✅ CaffeineProcessor wired |
+| **Vortex** | Code review analyzer MLP | Oracle code verifiers + analysis pipeline | `oracle/src/verifiers/` | ✅ CodeVerifierManager wired |
+| **Cipher** | Threat classifier MLP | Security scanning engine + verifier integration | `oracle/src/verifiers/security.rs` | ✅ Security verifier wired |
+| **Kronos** | Temporal classifier MLP | Temporal reasoning with context window | `reasoning` + `multimodal` | ⏳ Deferred |
+| **Swift** | Task classifier MLP | Latency-aware dispatch + task routing | `has-moe-ffn` routing | ✅ MoE Router wired |
+| **Genesis** | Quality classifier MLP | Self-improvement loop with SACA feedback | `reasoning` feedback system | ⏳ Deferred (SACA is code-specific) |
+| **Nexum** | Complexity classifier MLP | Automatic task decomposition + Oracle sub-tasks | `oracle` + `reasoning` | ⏳ Deferred |
+
+### Phase 4 Wiring Detail
+
+| Crate | What changed | File |
+|-------|-------------|------|
+| **Omnis** | Custom MLP router replaced with `nexora_has_moe_ffn::Router` (real learned gating, top-2, Xavier init). Prompt embedding averaged → `Router::forward()` → per-domain probabilities. | `crates/models/src/omnis/router.rs` |
+| **Vortex** | `CodeVerifierManager::new()` → `verify_detailed(code, lang)` → inject `[Verifier findings]` block. Runs 4 real rule-based verifiers. | `crates/models/src/vortex/delegation.rs` |
+| **Cipher** | `CodeVerifierManager::verify_detailed()` for general text security scan. Findings injected as `[Oracle security scan: ...]` in prompt. | `crates/models/src/cipher/delegation.rs` |
+| **Spectra** | `CaffeineProcessor::process_multimodal()` via `nexora-multimodal` crate. Multimodal summary injected alongside style-framed creative generation. | `crates/models/src/spectra/delegation.rs` |
+| **Swift** | `nexora_has_moe_ffn::Router` creates expert routing (5 experts → task types). MoE weights determine best expert path. Latency-aware dispatch via router weights. | `crates/models/src/swift/delegation.rs` |
+
+### Phase 4 Decisions
+
+1. **MoE gating repurposed for sequence-level routing**: Per-token routing (`O(num_tokens * experts * hidden)`) too expensive for delegation hot path. Use averaged prompt embedding → `Router::forward()` → per-expert probabilities.
+2. **SACA deferred for Axiom/Genesis/Nexum**: SACA pipeline is code-specific (`CodingTask`, execute-fail-fix, rerank). Not suitable for general reasoning/quality/complexity tasks until a non-code API exists.
+3. **Aether multimodal deferred**: `Caffeine` encoders require concrete input tensors (image pixel data, audio samples). No lightweight sentiment-only API available without full pipeline overhead.
+4. **Kronos temporal reasoning deferred**: Requires both `reasoning` (code-specific) and `multimodal` (heavyweight). Cleanest approach waits for a dedicated temporal reasoning module.
+
 ## Notable quirks
 
 - `Cargo.lock` in `.gitignore` — every `cargo build` resolves from scratch unless a lockfile exists locally.

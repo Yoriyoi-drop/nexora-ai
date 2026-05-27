@@ -183,10 +183,10 @@ impl BaseAgent for SpectrumAnalyzerAgent {
                 "spectral_density".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.94,
-                avg_latency: 1800.0,
-                resource_usage: 0.7,
-                reliability: 0.96,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

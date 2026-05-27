@@ -448,7 +448,7 @@ impl KronosArchitecture {
                         }
                     },
                     embedding_dimensions: 768,
-                    accuracy: 0.92,
+                    accuracy: 0.0,
                 },
                 search_algorithm: match config.semantic_search.search_algorithm {
                     super::config::SearchAlgorithm::VectorSearch => SearchAlgorithm::VectorSearch,
@@ -563,7 +563,7 @@ impl KronosArchitecture {
         self.distributed_indexing.index_structure.index_partitions = 10;
 
         // Initialize semantic search
-        self.semantic_search_engine.embedding_model.accuracy = 0.92;
+        self.semantic_search_engine.embedding_model.accuracy = 0.0;
 
         Ok(())
     }

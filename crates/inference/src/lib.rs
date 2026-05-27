@@ -15,6 +15,7 @@ pub mod kv_cache;
 pub mod latency;
 pub mod metrics;
 pub mod paged_cache;
+pub mod paged_provider;
 pub mod prefix_cache;
 pub mod runtime;
 pub mod sampler;

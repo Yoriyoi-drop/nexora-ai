@@ -376,7 +376,7 @@ impl Default for EmotionalCapabilities {
             emotion_regulation: true,
             emotional_synthesis: true,
             emotional_intelligence: 0.85,
-            processing_accuracy: 0.9,
+            processing_accuracy: 0.0,
         }
     }
 }
@@ -495,10 +495,10 @@ impl BaseAgent for EmotionWeaverAgent {
             input_types: vec!["emotional_task".to_string()],
             output_types: vec!["emotional_response".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.88,
-                avg_latency: 500.0,
-                resource_usage: 0.6,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -673,122 +673,28 @@ impl EmotionWeaverAgent {
         }
     }
 
-    /// Detect primary emotions
-    fn detect_primary_emotions(&self, text: &str) -> Vec<Emotion> {
-        let mut emotions = Vec::new();
-
-        // Simplified primary emotion detection
-        let text_lower = text.to_lowercase();
-
-        if text_lower.contains("happy")
-            || text_lower.contains("joy")
-            || text_lower.contains("excited")
-        {
-            emotions.push(Emotion {
-                name: "joy".to_string(),
-                category: "positive".to_string(),
-                intensity: 0.8,
-                valence: 0.9,
-                arousal: 0.7,
-                duration: None,
-                triggers: vec!["text_content".to_string()],
-            });
-        }
-
-        if text_lower.contains("sad")
-            || text_lower.contains("unhappy")
-            || text_lower.contains("depressed")
-        {
-            emotions.push(Emotion {
-                name: "sadness".to_string(),
-                category: "negative".to_string(),
-                intensity: 0.7,
-                valence: -0.8,
-                arousal: 0.3,
-                duration: None,
-                triggers: vec!["text_content".to_string()],
-            });
-        }
-
-        if text_lower.contains("angry")
-            || text_lower.contains("frustrated")
-            || text_lower.contains("mad")
-        {
-            emotions.push(Emotion {
-                name: "anger".to_string(),
-                category: "negative".to_string(),
-                intensity: 0.6,
-                valence: -0.5,
-                arousal: 0.8,
-                duration: None,
-                triggers: vec!["text_content".to_string()],
-            });
-        }
-
-        if text_lower.contains("fear")
-            || text_lower.contains("scared")
-            || text_lower.contains("anxious")
-        {
-            emotions.push(Emotion {
-                name: "fear".to_string(),
-                category: "negative".to_string(),
-                intensity: 0.7,
-                valence: -0.7,
-                arousal: 0.8,
-                duration: None,
-                triggers: vec!["text_content".to_string()],
-            });
-        }
-
-        if emotions.is_empty() {
-            emotions.push(Emotion {
-                name: "neutral".to_string(),
-                category: "neutral".to_string(),
-                intensity: 0.3,
-                valence: 0.0,
-                arousal: 0.2,
-                duration: None,
-                triggers: vec!["default".to_string()],
-            });
-        }
-
-        emotions
+    /// Detect primary emotions.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with a specialized
+    /// emotional-analysis prompt. Currently returns neutral.
+    fn detect_primary_emotions(&self, _text: &str) -> Vec<Emotion> {
+        vec![Emotion {
+            name: "neutral".to_string(),
+            category: "neutral".to_string(),
+            intensity: 0.0,
+            valence: 0.0,
+            arousal: 0.0,
+            duration: None,
+            triggers: vec![],
+        }]
     }
 
-    /// Detect secondary emotions
-    fn detect_secondary_emotions(&self, text: &str, primary_emotions: &[Emotion]) -> Vec<Emotion> {
-        let mut secondary_emotions = Vec::new();
-
-        // Generate secondary emotions based on primary emotions
-        for primary in primary_emotions {
-            match primary.name.as_str() {
-                "sadness" => {
-                    secondary_emotions.push(Emotion {
-                        name: "disappointment".to_string(),
-                        category: "secondary".to_string(),
-                        intensity: primary.intensity * 0.7,
-                        valence: -0.6,
-                        arousal: 0.4,
-                        duration: None,
-                        triggers: vec!["sadness_derived".to_string()],
-                    });
-                }
-                "anger" => {
-                    secondary_emotions.push(Emotion {
-                        name: "irritation".to_string(),
-                        category: "secondary".to_string(),
-                        intensity: primary.intensity * 0.6,
-                        valence: -0.3,
-                        arousal: 0.6,
-                        duration: None,
-                        triggers: vec!["anger_derived".to_string()],
-                    });
-                }
-                _ => {}
-            }
-        }
-
-        secondary_emotions
+    /// Detect secondary emotions.
+    ///
+    /// FUTURE: Will derive from primary emotions via foundation CausalLM.
+    /// Currently returns empty.
+    fn detect_secondary_emotions(&self, _text: &str, _primary_emotions: &[Emotion]) -> Vec<Emotion> {
+        vec![]
     }
 
     /// Create emotional blend

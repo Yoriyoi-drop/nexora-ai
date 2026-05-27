@@ -558,7 +558,7 @@ impl SwiftArchitecture {
                 },
                 prediction_model: PredictionModel {
                     model_type: PredictionModelType::MarkovChain,
-                    accuracy: 0.85,
+                    accuracy: 0.0,
                 },
             },
             workflow_integration_api: WorkflowIntegrationApi {

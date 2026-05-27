@@ -93,7 +93,7 @@ impl SwiftIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "256K tokens",
-            accuracy: 97.2,
+            accuracy: 0.0,
             reasoning_depth: "Intermediate",
             agents_count: 3,
             specializations: vec![

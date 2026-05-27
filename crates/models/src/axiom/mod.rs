@@ -4,6 +4,8 @@
 //! Strategic decision-making and autonomous operations specialist
 
 pub mod agents;
+pub mod classifier;
+pub mod delegation;
 /// Simulated architecture — NOT a real neural network.
 /// Uses keyword matching and template responses, not tensor computation.
 /// Gated behind `simulated-models` feature (default: off).
@@ -114,7 +116,7 @@ impl Default for AxiomState {
                 risk_factors: Vec::new(),
                 mitigation_strategies: Vec::new(),
             },
-            strategic_horizon: 365,
+            strategic_horizon: 0,
             last_inference: None,
         }
     }
@@ -124,8 +126,8 @@ impl Default for AxiomMetrics {
     fn default() -> Self {
         Self {
             total_decisions: 0,
-            avg_decision_quality: 0.991,
-            risk_prediction_accuracy: 0.96,
+            avg_decision_quality: 0.0,
+            risk_prediction_accuracy: 0.0,
             strategic_outcome_success: 0.94,
             last_updated: chrono::Utc::now(),
         }
@@ -204,58 +206,49 @@ impl NxrAxiomModel {
         ))
     }
 
-    fn analyze_strategic_context(&self, scenario: &str) -> NxrModelResult<StrategicAnalysis> {
+    /// Analyze strategic context.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM with a strategic-analysis
+    /// prompt. Currently returns neutral defaults — NOT performing real analysis.
+    fn analyze_strategic_context(&self, _scenario: &str) -> NxrModelResult<StrategicAnalysis> {
         Ok(StrategicAnalysis {
-            key_factors: "Market conditions, resource constraints, competitive landscape"
-                .to_string(),
-            complexity: 0.8,
-            time_horizon: 365,
-            stakeholders: vec!["executives".to_string(), "customers".to_string()],
+            key_factors: String::new(),
+            complexity: 0.0,
+            time_horizon: 0,
+            stakeholders: vec![],
         })
     }
 
-    fn assess_risks(&self, analysis: &StrategicAnalysis) -> NxrModelResult<RiskAssessment> {
+    fn assess_risks(&self, _analysis: &StrategicAnalysis) -> NxrModelResult<RiskAssessment> {
         Ok(RiskAssessment {
-            overall_risk: 0.4,
-            risk_factors: vec![RiskFactor {
-                factor: "Market volatility".to_string(),
-                probability: 0.6,
-                impact: 0.7,
-                risk_score: 0.42,
-            }],
-            mitigation_strategies: vec!["Diversification".to_string(), "Hedging".to_string()],
+            overall_risk: 0.0,
+            risk_factors: vec![],
+            mitigation_strategies: vec![],
         })
     }
 
     fn generate_strategic_decision(
         &self,
-        analysis: &StrategicAnalysis,
-        risk: &RiskAssessment,
+        _analysis: &StrategicAnalysis,
+        _risk: &RiskAssessment,
     ) -> NxrModelResult<StrategicDecision> {
         Ok(StrategicDecision {
-            recommendation: "Proceed with phased implementation".to_string(),
-            confidence: 0.87,
-            rationale: "Balanced approach with risk mitigation".to_string(),
+            recommendation: String::new(),
+            confidence: 0.0,
+            rationale: String::new(),
         })
     }
 
-    fn simulate_outcomes(&self, decision: &StrategicDecision) -> NxrModelResult<SimulationResult> {
-        let complexity_factor = (decision.rationale.len() as f64).sqrt() / 100.0;
-        let confidence_factor = decision.confidence as f64 / 2.0;
-        let recommendation_len = decision.recommendation.len() as f64 / 50.0;
-        let base_probability = 0.5 + (confidence_factor * 0.3)
-            - (complexity_factor * 0.2)
-            - (recommendation_len * 0.05);
-        let success_probability = base_probability.clamp(0.05, 0.98);
-        let roi_base = 0.05 + (confidence_factor * 0.2)
-            - (complexity_factor * 0.1)
-            - (recommendation_len * 0.02);
-        let expected_roi = roi_base.clamp(-0.5, 2.0);
-        let break_even = (50.0 + (complexity_factor * 200.0) - (confidence_factor * 30.0)) as u32;
+    /// Simulate decision outcomes.
+    ///
+    /// FUTURE: Will delegate to foundation CausalLM. Currently returns zeros.
+    /// The previous implementation derived success probability from string
+    /// lengths — that was not a real simulation.
+    fn simulate_outcomes(&self, _decision: &StrategicDecision) -> NxrModelResult<SimulationResult> {
         Ok(SimulationResult {
-            success_probability: success_probability as f32,
-            expected_roi: expected_roi as f32,
-            time_to_break_even: break_even.max(30),
+            success_probability: 0.0,
+            expected_roi: 0.0,
+            time_to_break_even: 0,
         })
     }
 
@@ -378,11 +371,34 @@ impl NxrModel for NxrAxiomModel {
             ));
         }
 
-        let augmented = augment_axiom_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrAxiomModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrAxiomModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::axiom::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

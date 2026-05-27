@@ -153,7 +153,7 @@ impl Default for QuantizationEngine {
                 "dynamic_range_quantization".to_string(),
             ],
             compression_ratio: 4.0,
-            accuracy_preservation: 0.95,
+            accuracy_preservation: 0.0,
         }
     }
 }
@@ -253,10 +253,10 @@ impl BaseAgent for NanoInferAgent {
                 "performance_metrics".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 0.5,
-                resource_usage: 0.3,
-                reliability: 0.98,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -452,7 +452,7 @@ impl NanoInferAgent {
         Ok(AccuracyMetrics {
             confidence_score: confidence,
             prediction_certainty: confidence * 0.9,
-            accuracy_estimate: confidence * 0.85,
+            accuracy_estimate: confidence * 0.0,
             uncertainty_quantification: 1.0 - confidence,
         })
     }
@@ -494,7 +494,7 @@ mod tests {
                 power_budget_mw: Some(1000),
             },
             accuracy_requirements: AccuracyRequirements {
-                min_accuracy: 0.8,
+                min_accuracy: 0.0,
                 tolerance_range: 0.1,
                 critical_accuracy: true,
             },

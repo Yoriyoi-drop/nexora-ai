@@ -563,10 +563,10 @@ impl BaseAgent for OrchestratorPrimeAgent {
             input_types: vec!["orchestration_task".to_string()],
             output_types: vec!["orchestration_result".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.95,
-                avg_latency: 200.0,
-                resource_usage: 0.6,
-                reliability: 0.98,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

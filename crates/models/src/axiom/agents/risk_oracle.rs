@@ -196,10 +196,10 @@ impl BaseAgent for RiskOracleAgent {
                 input_types: vec!["context".to_string(), "domain".to_string(), "known_factors".to_string()],
                 output_types: vec!["identified_risks".to_string(), "risk_score".to_string(), "quantification".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.91,
-                    avg_latency: 3600.0,
-                    resource_usage: 0.7,
-                    reliability: 0.93,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

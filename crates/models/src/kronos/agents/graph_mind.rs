@@ -175,10 +175,10 @@ impl BaseAgent for GraphMindAgent {
                 input_types: vec!["query_graph".to_string(), "source_entities".to_string()],
                 output_types: vec!["traversal_paths".to_string(), "reasoning_chain".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.93,
-                    avg_latency: 3200.0,
-                    resource_usage: 0.82,
-                    reliability: 0.95,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

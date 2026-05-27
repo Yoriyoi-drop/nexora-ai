@@ -200,10 +200,10 @@ impl BaseAgent for FutureSimAgent {
                 input_types: vec!["base_scenario".to_string(), "variables".to_string(), "iterations".to_string()],
                 output_types: vec!["scenarios".to_string(), "distribution".to_string(), "convergence".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.86,
-                    avg_latency: 5800.0,
-                    resource_usage: 0.85,
-                    reliability: 0.88,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

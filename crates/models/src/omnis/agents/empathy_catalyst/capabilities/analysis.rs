@@ -41,7 +41,7 @@ pub struct EmotionDetection {
 impl Default for EmotionDetection {
     fn default() -> Self {
         Self {
-            detection_accuracy: 0.85,
+            detection_accuracy: 0.0,
             supported_emotions: vec![
                 "joy".to_string(),
                 "sadness".to_string(),
@@ -73,8 +73,8 @@ pub struct SentimentAnalysis {
 impl Default for SentimentAnalysis {
     fn default() -> Self {
         Self {
-            polarity_detection_accuracy: 0.8,
-            subjectivity_detection_accuracy: 0.75,
+            polarity_detection_accuracy: 0.0,
+            subjectivity_detection_accuracy: 0.0,
             emotional_intensity_detection: 0.85,
         }
     }
@@ -94,7 +94,7 @@ pub struct EmotionalStateAssessment {
 impl Default for EmotionalStateAssessment {
     fn default() -> Self {
         Self {
-            state_recognition_accuracy: 0.8,
+            state_recognition_accuracy: 0.0,
             state_stability_assessment: 0.75,
             state_transition_prediction: 0.7,
         }

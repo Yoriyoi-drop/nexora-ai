@@ -176,10 +176,10 @@ impl BaseAgent for TruthValidatorAgent {
             input_types: vec!["statement".to_string(), "evidence_sources".to_string()],
             output_types: vec!["truth_score".to_string(), "validation_result".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 2400.0,
-                resource_usage: 0.55,
-                reliability: 0.94,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

@@ -49,7 +49,7 @@ pub struct SelfAwareness {
 impl Default for SelfAwareness {
     fn default() -> Self {
         Self {
-            emotional_recognition_accuracy: 0.85,
+            emotional_recognition_accuracy: 0.0,
             emotional_vocabulary: vec![
                 "joy".to_string(),
                 "sadness".to_string(),
@@ -85,7 +85,7 @@ impl Default for EmotionalPatternRecognition {
                 "statistical_analysis".to_string(),
                 "temporal_pattern_recognition".to_string(),
             ],
-            pattern_accuracy: 0.8,
+            pattern_accuracy: 0.0,
             learning_rate: 0.1,
         }
     }
@@ -335,7 +335,7 @@ pub struct SocialAwareness {
 impl Default for SocialAwareness {
     fn default() -> Self {
         Self {
-            empathy_accuracy: 0.85,
+            empathy_accuracy: 0.0,
             social_cue_recognition: SocialCueRecognition::default(),
             cultural_intelligence: CulturalIntelligence::default(),
             organizational_awareness: OrganizationalAwareness::default(),
@@ -357,8 +357,8 @@ pub struct SocialCueRecognition {
 impl Default for SocialCueRecognition {
     fn default() -> Self {
         Self {
-            non_verbal_cue_accuracy: 0.8,
-            verbal_cue_accuracy: 0.85,
+            non_verbal_cue_accuracy: 0.0,
+            verbal_cue_accuracy: 0.0,
             context_interpretation: 0.75,
         }
     }

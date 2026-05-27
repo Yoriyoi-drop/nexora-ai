@@ -103,7 +103,7 @@ impl NexumIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "750K tokens",
-            accuracy: 93.2,
+            accuracy: 0.0,
             reasoning_depth: "Advanced",
             agents_count: 6,
             specializations: vec![
@@ -120,7 +120,7 @@ impl NexumIdentity {
     /// Get orchestration metrics
     pub fn orchestration_metrics(&self) -> OrchestrationMetrics {
         OrchestrationMetrics {
-            coordination_accuracy: 0.932,
+            coordination_accuracy: 0.0,
             consensus_building_speed: 0.89,
             conflict_resolution_success: 0.91,
             resource_optimization_efficiency: 0.87,

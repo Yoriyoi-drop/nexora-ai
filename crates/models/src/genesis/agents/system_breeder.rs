@@ -186,10 +186,10 @@ impl BaseAgent for SystemBreederAgent {
             ],
             output_types: vec!["evolved_systems".to_string(), "fitness_scores".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.87,
-                avg_latency: 5000.0,
-                resource_usage: 0.9,
-                reliability: 0.89,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

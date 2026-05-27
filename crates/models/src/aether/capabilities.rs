@@ -46,22 +46,22 @@ impl AetherCapabilities {
     pub fn new() -> Self {
         let vector = Self::create_capability_vector();
         let performance_metrics = CapabilityPerformanceMetrics {
-            empathy_accuracy: 0.965,
-            emotional_recognition_accuracy: 0.94,
-            psychological_analysis_accuracy: 0.91,
-            cultural_adaptation_accuracy: 0.89,
-            support_generation_quality: 0.93,
-            avg_response_time_ms: 380.0,
-            resource_utilization: 0.72,
+            empathy_accuracy: 0.0,
+            emotional_recognition_accuracy: 0.0,
+            psychological_analysis_accuracy: 0.0,
+            cultural_adaptation_accuracy: 0.0,
+            support_generation_quality: 0.0,
+            avg_response_time_ms: 0.0,
+            resource_utilization: 0.0,
         };
 
         let resource_requirements = ResourceRequirements {
-            min_memory_gb: 24.0,
-            min_compute_units: 48,
-            requires_gpu: true,
-            min_gpu_memory_gb: Some(20.0),
-            requires_network: true,
-            max_latency_ms: Some(800),
+            min_memory_gb: 0.0,
+            min_compute_units: 0,
+            requires_gpu: false,
+            min_gpu_memory_gb: None,
+            requires_network: false,
+            max_latency_ms: None,
         };
 
         Self {
@@ -102,9 +102,9 @@ impl AetherCapabilities {
                         "emotional pattern recognition".to_string(),
                         "emotional intelligence assessment".to_string(),
                     ])
-                    .with_metric("empathy_accuracy".to_string(), 0.965)
-                    .with_metric("emotional_granularity".to_string(), 9.0)
-                    .with_metric("context_window".to_string(), 512000.0)
+                    .with_metric("empathy_accuracy".to_string(), 0.0)
+                    .with_metric("emotional_granularity".to_string(), 0.0)
+                    .with_metric("context_window".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -127,8 +127,8 @@ impl AetherCapabilities {
                         "therapeutic support generation".to_string(),
                         "psychological evaluation".to_string(),
                     ])
-                    .with_metric("analysis_accuracy".to_string(), 0.91)
-                    .with_metric("profile_depth".to_string(), 8.0)
+                    .with_metric("analysis_accuracy".to_string(), 0.0)
+                    .with_metric("profile_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 20.0,
                         min_compute_units: 40,
@@ -150,8 +150,8 @@ impl AetherCapabilities {
                         "group dynamics analysis".to_string(),
                         "social pattern recognition".to_string(),
                     ])
-                    .with_metric("social_accuracy".to_string(), 0.89)
-                    .with_metric("cultural_sensitivity".to_string(), 0.92)
+                    .with_metric("social_accuracy".to_string(), 0.0)
+                    .with_metric("cultural_sensitivity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -173,8 +173,8 @@ impl AetherCapabilities {
                         "cultural learning".to_string(),
                         "cultural norm understanding".to_string(),
                     ])
-                    .with_metric("adaptation_accuracy".to_string(), 0.87)
-                    .with_metric("cultural_coverage".to_string(), 0.85)
+                    .with_metric("adaptation_accuracy".to_string(), 0.0)
+                    .with_metric("cultural_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 18.0,
                         min_compute_units: 36,
@@ -196,8 +196,8 @@ impl AetherCapabilities {
                         "validation and affirmation".to_string(),
                         "support personalization".to_string(),
                     ])
-                    .with_metric("support_quality".to_string(), 0.93)
-                    .with_metric("personalization_level".to_string(), 0.88)
+                    .with_metric("support_quality".to_string(), 0.0)
+                    .with_metric("personalization_level".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 14.0,
                         min_compute_units: 28,
@@ -219,8 +219,8 @@ impl AetherCapabilities {
                         "context-aware communication".to_string(),
                         "multilingual emotional support".to_string(),
                     ])
-                    .with_metric("communication_accuracy".to_string(), 0.91)
-                    .with_metric("adaptability_score".to_string(), 0.86)
+                    .with_metric("communication_accuracy".to_string(), 0.0)
+                    .with_metric("adaptability_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 12.0,
                         min_compute_units: 24,
@@ -238,8 +238,8 @@ impl AetherCapabilities {
                         "psychological logic".to_string(),
                         "emotional decision making".to_string(),
                     ])
-                    .with_metric("logic_accuracy".to_string(), 0.78)
-                    .with_metric("reasoning_depth".to_string(), 5.0)
+                    .with_metric("logic_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,
@@ -260,8 +260,8 @@ impl AetherCapabilities {
                         "therapeutic knowledge".to_string(),
                         "mental health knowledge".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.88)
-                    .with_metric("knowledge_coverage".to_string(), 0.82)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("knowledge_coverage".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -279,8 +279,8 @@ impl AetherCapabilities {
                         "emotional creative expression".to_string(),
                         "therapeutic creativity".to_string(),
                     ])
-                    .with_metric("creativity_score".to_string(), 0.75)
-                    .with_metric("novelty_score".to_string(), 0.72)
+                    .with_metric("creativity_score".to_string(), 0.0)
+                    .with_metric("novelty_score".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 10.0,
                         min_compute_units: 20,

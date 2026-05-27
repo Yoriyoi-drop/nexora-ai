@@ -185,10 +185,10 @@ impl BaseAgent for HypoGenAgent {
                 input_types: vec!["research_question".to_string(), "scientific_domain".to_string()],
                 output_types: vec!["hypotheses".to_string(), "falsification_tests".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.90,
-                    avg_latency: 3500.0,
-                    resource_usage: 0.80,
-                    reliability: 0.92,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

@@ -184,10 +184,10 @@ impl BaseAgent for ScienceBotAgent {
                 input_types: vec!["scientific_claim".to_string(), "methodology_description".to_string()],
                 output_types: vec!["reasoning_analysis".to_string(), "methodology_assessment".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.91,
-                    avg_latency: 3000.0,
-                    resource_usage: 0.75,
-                    reliability: 0.93,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

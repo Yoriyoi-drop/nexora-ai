@@ -43,9 +43,9 @@ impl AxiomCapabilities {
                         "proof generation".to_string(),
                         "theorem proving".to_string(),
                     ])
-                    .with_metric("logical_accuracy".to_string(), 0.94)
-                    .with_metric("reasoning_depth".to_string(), 8.0)
-                    .with_metric("inference_speed".to_string(), 750.0)
+                    .with_metric("logical_accuracy".to_string(), 0.0)
+                    .with_metric("reasoning_depth".to_string(), 0.0)
+                    .with_metric("inference_speed".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -68,9 +68,9 @@ impl AxiomCapabilities {
                         "combinatorics".to_string(),
                         "graph theory".to_string(),
                     ])
-                    .with_metric("math_accuracy".to_string(), 0.92)
-                    .with_metric("problem_complexity".to_string(), 9.0)
-                    .with_metric("symbolic_computation".to_string(), 0.88)
+                    .with_metric("math_accuracy".to_string(), 0.0)
+                    .with_metric("problem_complexity".to_string(), 0.0)
+                    .with_metric("symbolic_computation".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -91,9 +91,9 @@ impl AxiomCapabilities {
                         "long-term planning".to_string(),
                         "scenario analysis".to_string(),
                     ])
-                    .with_metric("strategy_accuracy".to_string(), 0.89)
-                    .with_metric("planning_horizon".to_string(), 365.0)
-                    .with_metric("risk_detection".to_string(), 0.87)
+                    .with_metric("strategy_accuracy".to_string(), 0.0)
+                    .with_metric("planning_horizon".to_string(), 0.0)
+                    .with_metric("risk_detection".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -113,9 +113,9 @@ impl AxiomCapabilities {
                         "formal system mastery".to_string(),
                         "proof verification".to_string(),
                     ])
-                    .with_metric("knowledge_accuracy".to_string(), 0.91)
-                    .with_metric("theorem_coverage".to_string(), 0.85)
-                    .with_metric("verification_accuracy".to_string(), 0.96)
+                    .with_metric("knowledge_accuracy".to_string(), 0.0)
+                    .with_metric("theorem_coverage".to_string(), 0.0)
+                    .with_metric("verification_accuracy".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 64.0,
                         min_compute_units: 128,
@@ -134,8 +134,8 @@ impl AxiomCapabilities {
                         "audit compliance".to_string(),
                         "threat detection".to_string(),
                     ])
-                    .with_metric("security_accuracy".to_string(), 0.87)
-                    .with_metric("risk_detection".to_string(), 0.85)
+                    .with_metric("security_accuracy".to_string(), 0.0)
+                    .with_metric("risk_detection".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -154,8 +154,8 @@ impl AxiomCapabilities {
                         "logical expression".to_string(),
                         "technical documentation".to_string(),
                     ])
-                    .with_metric("text_accuracy".to_string(), 0.88)
-                    .with_metric("formal_correctness".to_string(), 0.92)
+                    .with_metric("text_accuracy".to_string(), 0.0)
+                    .with_metric("formal_correctness".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -175,9 +175,9 @@ impl AxiomCapabilities {
                         "trend analysis".to_string(),
                         "monte_carlo_simulation".to_string(),
                     ])
-                    .with_metric("simulation_accuracy".to_string(), 0.86)
-                    .with_metric("prediction_horizon".to_string(), 100.0)
-                    .with_metric("scenario_diversity".to_string(), 0.88)
+                    .with_metric("simulation_accuracy".to_string(), 0.0)
+                    .with_metric("prediction_horizon".to_string(), 0.0)
+                    .with_metric("scenario_diversity".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 48.0,
                         min_compute_units: 96,
@@ -197,8 +197,8 @@ impl AxiomCapabilities {
                         "sensitivity_analysis".to_string(),
                         "decision explanation".to_string(),
                     ])
-                    .with_metric("decision_accuracy".to_string(), 0.89)
-                    .with_metric("explanation_quality".to_string(), 0.85)
+                    .with_metric("decision_accuracy".to_string(), 0.0)
+                    .with_metric("explanation_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 24.0,
                         min_compute_units: 48,
@@ -217,8 +217,8 @@ impl AxiomCapabilities {
                         "workflow orchestration".to_string(),
                         "resource optimization".to_string(),
                     ])
-                    .with_metric("coordination_accuracy".to_string(), 0.87)
-                    .with_metric("agent_efficiency".to_string(), 0.85)
+                    .with_metric("coordination_accuracy".to_string(), 0.0)
+                    .with_metric("agent_efficiency".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 32.0,
                         min_compute_units: 64,
@@ -238,8 +238,8 @@ impl AxiomCapabilities {
                         "violation detection".to_string(),
                         "report generation".to_string(),
                     ])
-                    .with_metric("monitoring_accuracy".to_string(), 0.91)
-                    .with_metric("alert_precision".to_string(), 0.88)
+                    .with_metric("monitoring_accuracy".to_string(), 0.0)
+                    .with_metric("alert_precision".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 16.0,
                         min_compute_units: 32,
@@ -256,8 +256,8 @@ impl AxiomCapabilities {
                         "text_diagram_generation".to_string(),
                         "mathematical_visualization".to_string(),
                     ])
-                    .with_metric("modality_accuracy".to_string(), 0.75)
-                    .with_metric("visualization_quality".to_string(), 0.72)
+                    .with_metric("modality_accuracy".to_string(), 0.0)
+                    .with_metric("visualization_quality".to_string(), 0.0)
                     .with_resources(ResourceRequirements {
                         min_memory_gb: 8.0,
                         min_compute_units: 16,

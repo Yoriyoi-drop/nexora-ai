@@ -184,10 +184,10 @@ impl BaseAgent for FrequencyAnalyzerAgent {
                 "harmonic_components".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.95,
-                avg_latency: 1900.0,
-                resource_usage: 0.72,
-                reliability: 0.97,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

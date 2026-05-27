@@ -2473,7 +2473,7 @@ impl Default for CodeSentinelConfig {
                     documentation_standards: DocumentationStandards {
                         clarity_score: 0.8,
                         completeness_score: 0.9,
-                        accuracy_score: 0.95,
+                        accuracy_score: 0.0,
                         consistency_score: 0.85,
                     },
                 },
@@ -2665,10 +2665,10 @@ impl BaseAgent for CodeSentinelAgent {
                 "quality_metrics".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.92,
-                avg_latency: 300.0,
-                resource_usage: 0.6,
-                reliability: 0.95,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }
@@ -2877,7 +2877,7 @@ impl CodeSentinelAgent {
                 documentation_quality: DocumentationQuality {
                     clarity_score: 0.7,
                     completeness_score: 0.6,
-                    accuracy_score: 0.8,
+                    accuracy_score: 0.0,
                     consistency_score: 0.75,
                 },
             },
@@ -2953,7 +2953,7 @@ impl CodeSentinelAgent {
             documentation_quality: DocumentationQuality {
                 clarity_score: 0.7,
                 completeness_score: 0.6,
-                accuracy_score: 0.8,
+                accuracy_score: 0.0,
                 consistency_score: 0.75,
             },
         })

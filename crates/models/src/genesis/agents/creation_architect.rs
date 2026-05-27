@@ -181,10 +181,10 @@ impl BaseAgent for CreationArchitectAgent {
                 "innovation_score".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.86,
-                avg_latency: 3500.0,
-                resource_usage: 0.7,
-                reliability: 0.88,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

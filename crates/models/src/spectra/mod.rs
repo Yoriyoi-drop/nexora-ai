@@ -3,6 +3,8 @@
 //! NXR-04 PRO - Synthetic Pattern Enhanced Creative Transformer & Reasoning Architecture
 //! Creative multimodal synthesis specialist
 
+pub mod classifier;
+pub mod delegation;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -120,7 +122,7 @@ impl Default for SpectraMetrics {
         Self {
             total_creative_generations: 0,
             avg_creativity_score: 0.981,
-            multimodal_accuracy: 0.96,
+            multimodal_accuracy: 0.0,
             style_consistency: 0.94,
             last_updated: chrono::Utc::now(),
         }
@@ -434,11 +436,34 @@ impl NxrModel for NxrSpectraModel {
             ));
         }
 
-        let augmented = augment_spectra_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<crate::foundation::NxrSpectraModel> =
-            std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| crate::foundation::NxrSpectraModel::new());
-        foundation.infer(&augmented).await
+        let text = match &input.data {
+            nexora_shared::base_model::InputData::Text(t) => t.clone(),
+            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
+                "Text input required".to_string(),
+            )),
+        };
+        let result = crate::spectra::delegation::delegate(&text).await;
+        Ok(NxrOutput {
+            id: uuid::Uuid::new_v4(),
+            input_id: input.id,
+            timestamp: chrono::Utc::now(),
+            data: nexora_shared::base_model::OutputData::Text(result),
+            metadata: nexora_shared::base_model::GenerationMetadata {
+                finish_reason: nexora_shared::base_model::FinishReason::EndOfSequence,
+                total_tokens: 0,
+                generation_time_ms: 0,
+                model_version: self.identity().version.clone(),
+                seed: None,
+                extras: std::collections::HashMap::new(),
+            },
+            performance: nexora_shared::base_model::PerformanceMetrics {
+                tokens_per_second: 0.0,
+                memory_usage_gb: 0.0,
+                gpu_utilization: None,
+                cpu_utilization: 0.0,
+                network_usage_mbps: None,
+            },
+        })
     }
 
     async fn infer_stream(

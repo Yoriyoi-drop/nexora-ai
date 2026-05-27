@@ -24,6 +24,13 @@ pub struct ContinuousBatchingConfig {
     pub min_shared_prefix_len: usize,
     /// Whether to enable prefix sharing across sequences.
     pub enable_prefix_sharing: bool,
+    /// Use PagedKVCache instead of flat GpuKVCache/CpuKVCache.
+    /// Enables block-based allocation for zero fragmentation.
+    pub use_paged_cache: bool,
+    /// Block size for paged cache (tokens per block). 0 = auto.
+    pub paged_block_size: usize,
+    /// Max physical blocks for paged cache. 0 = auto.
+    pub paged_max_blocks: usize,
 }
 
 impl Default for ContinuousBatchingConfig {
@@ -33,6 +40,9 @@ impl Default for ContinuousBatchingConfig {
             max_total_sequences: 1024,
             min_shared_prefix_len: 4,
             enable_prefix_sharing: true,
+            use_paged_cache: false,
+            paged_block_size: 0,
+            paged_max_blocks: 0,
         }
     }
 }
@@ -137,14 +147,13 @@ pub struct ContinuousBatchingEngine<M> {
     tokenizer: Option<Arc<std::sync::Mutex<BpeTokenizer>>>,
     config: ContinuousBatchingConfig,
     prefix_trie: Option<PrefixTrie>,
-    #[cfg(feature = "gpu")]
     num_layers: usize,
-    #[cfg(feature = "gpu")]
     num_kv_heads: usize,
-    #[cfg(feature = "gpu")]
     head_dim: usize,
-    #[cfg(feature = "gpu")]
     max_seq_len: usize,
+    paged_cache_dim_set: bool,
+    /// Shared paged cache instance. All PagedKVCacheProviders use the same pool.
+    shared_paged: Option<std::sync::Arc<std::sync::Mutex<crate::paged_cache::PagedKVCache>>>,
 }
 
 #[deprecated(note = "renamed to ContinuousBatchingEngine")]
@@ -164,9 +173,8 @@ where
         )
     }
 
-    /// Set model architecture dimensions for GPU KV cache creation.
-    /// Only needed when GPU is available; safe to skip for CPU-only usage.
-    #[cfg(feature = "gpu")]
+    /// Set model architecture dimensions for KV cache creation.
+    /// Needed for paged cache and GPU cache; safe to skip for CPU-only GpuKVCache.
     pub fn set_model_dims(
         &mut self,
         num_layers: usize,
@@ -178,6 +186,32 @@ where
         self.num_kv_heads = num_kv_heads;
         self.head_dim = head_dim;
         self.max_seq_len = max_seq_len;
+        self.paged_cache_dim_set = true;
+
+        // Initialize shared paged cache if enabled
+        if self.config.use_paged_cache && self.shared_paged.is_none() {
+            let block_size = if self.config.paged_block_size > 0 {
+                self.config.paged_block_size
+            } else {
+                crate::paged_cache::PagedCacheConfig::suggest_block_size(head_dim, num_kv_heads)
+            };
+            let max_blocks = if self.config.paged_max_blocks > 0 {
+                self.config.paged_max_blocks
+            } else {
+                (self.max_seq_len / block_size).max(64) * self.config.max_total_sequences
+            };
+            let paged_config = crate::paged_cache::PagedCacheConfig {
+                block_size,
+                max_blocks,
+                num_layers,
+                num_kv_heads,
+                head_dim,
+                max_seq_len,
+            };
+            self.shared_paged = Some(Arc::new(std::sync::Mutex::new(
+                crate::paged_cache::PagedKVCache::new(paged_config),
+            )));
+        }
     }
 
     pub fn with_config(model: M, config: ContinuousBatchingConfig) -> Self {
@@ -189,10 +223,16 @@ where
             max_batch_size: config.max_batch_size,
             max_total_sequences: config.max_total_sequences,
             samplers: HashMap::new(),
-            #[cfg(feature = "gpu")]
-            use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
-            #[cfg(not(feature = "gpu"))]
-            use_gpu: false,
+            use_gpu: {
+                #[cfg(feature = "gpu")]
+                {
+                    nexora_autograd::gpu::GpuContext::is_available()
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    false
+                }
+            },
             tokenizer: None,
             prefix_trie: if config.enable_prefix_sharing {
                 Some(PrefixTrie::new())
@@ -200,14 +240,12 @@ where
                 None
             },
             config,
-            #[cfg(feature = "gpu")]
             num_layers: 0,
-            #[cfg(feature = "gpu")]
             num_kv_heads: 0,
-            #[cfg(feature = "gpu")]
             head_dim: 0,
-            #[cfg(feature = "gpu")]
             max_seq_len: 0,
+            paged_cache_dim_set: false,
+            shared_paged: None,
         }
     }
 
@@ -326,6 +364,71 @@ where
         }
     }
 
+    /// Block-level prefix sharing for paged cache.
+    ///
+    /// Uses the prefix trie to find sequences with shared prompt prefixes,
+    /// then shares physical blocks via `PagedKVCache::share_prefix_in_blocks`.
+    /// The shared blocks have `ref_count > 1`, so the first divergent append
+    /// triggers a copy-on-write deep copy (zero-copy for the common prefix).
+    ///
+    /// Only operates when the engine uses a shared paged cache.
+    fn try_paged_prefix_sharing(&mut self, prefill_ids: &[u64]) {
+        let shared_cache = match self.shared_paged.clone() {
+            Some(c) => c,
+            None => return,
+        };
+        let trie = match self.prefix_trie.as_ref() {
+            Some(t) => t,
+            None => return,
+        };
+
+        for &sid in prefill_ids {
+            let prompt = match self.sequences.get(&sid) {
+                Some(s) => {
+                    if s.prompt_pos > 0 {
+                        continue;
+                    }
+                    s.prompt.clone()
+                }
+                None => continue,
+            };
+
+            let (prefix_len, src_id) = match trie.find_shared_prefix(&prompt, sid) {
+                Some(m) => m,
+                None => continue,
+            };
+            if prefix_len < self.config.min_shared_prefix_len {
+                continue;
+            }
+
+            let mut guard = match shared_cache.lock() {
+                Ok(g) => g,
+                _ => continue,
+            };
+
+            // Check source has enough KV data
+            let src_ok = guard
+                .num_tokens(src_id)
+                .map_or(false, |n| n >= prefix_len);
+            if !src_ok {
+                continue;
+            }
+
+            let shared = guard.share_prefix_in_blocks(sid, src_id, prefix_len);
+            drop(guard);
+
+            if shared > 0 {
+                debug!(
+                    "Paged prefix sharing: {} blocks shared for seq {} from seq {}",
+                    shared, sid, src_id
+                );
+                if let Some(seq) = self.sequences.get_mut(&sid) {
+                    seq.prompt_pos = prefix_len.min(seq.prompt.len());
+                }
+            }
+        }
+    }
+
     fn decode_token(&self, token_id: u32) -> String {
         if let Some(ref tok) = self.tokenizer {
             tok.lock()
@@ -362,7 +465,20 @@ where
 
         let mut seq = Sequence::from_request(seq_id, &request);
         seq.state = SeqState::Prefilling;
-        if self.use_gpu {
+
+        if let Some(ref shared_cache) = self.shared_paged {
+            let provider = crate::paged_provider::PagedKVCacheProvider::new_shared(
+                seq_id,
+                shared_cache.clone(),
+                self.num_layers,
+            );
+            self.kv_caches.insert(seq_id, Box::new(provider));
+
+            // Register in prefix trie for block-level prefix sharing
+            if let Some(ref mut trie) = self.prefix_trie {
+                trie.insert(seq_id, &request.input_tokens);
+            }
+        } else if self.use_gpu {
             #[cfg(feature = "gpu")]
             if self.num_layers > 0 {
                 let gpu_cache = GpuKVCache::new(
@@ -451,6 +567,7 @@ where
         // that share a prompt prefix, so we can skip the common prefix computation.
         if !prefill_ids.is_empty() {
             self.try_gpu_prefix_sharing(&prefill_ids);
+            self.try_paged_prefix_sharing(&prefill_ids);
         }
 
         // --- PHASE 1: Position-by-position batched prefill ---

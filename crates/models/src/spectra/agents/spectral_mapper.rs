@@ -181,10 +181,10 @@ impl BaseAgent for SpectralMapperAgent {
             ],
             output_types: vec!["mapped_data".to_string(), "visualization_data".to_string()],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.91,
-                avg_latency: 2500.0,
-                resource_usage: 0.75,
-                reliability: 0.93,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

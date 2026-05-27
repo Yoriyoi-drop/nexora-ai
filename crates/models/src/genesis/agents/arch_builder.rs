@@ -178,10 +178,10 @@ impl BaseAgent for ArchBuilderAgent {
                 input_types: vec!["task_requirements".to_string(), "resource_constraints".to_string()],
                 output_types: vec!["optimal_architecture".to_string(), "performance_predictions".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 5500.0,
-                    resource_usage: 0.92,
-                    reliability: 0.90,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

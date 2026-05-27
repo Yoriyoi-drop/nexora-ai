@@ -10,6 +10,9 @@ nexora-shared = { path = "../shared" }
 nexora-erp = { path = "../erp" }
 nexora-vogp = { path = "../vogp" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
+nexora-multimodal = { path = "../multimodal" }
+nexora-oracle = { path = "../oracle" }
+nexora-reasoning = { path = "../reasoning" }
 nexora-transformer = { path = "../transformer" }
 nexora-alignment = { path = "../alignment" }
 nexora-hallucination = { path = "../hallucination", optional = true }

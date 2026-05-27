@@ -101,7 +101,7 @@ impl VortexIdentity {
         PerformanceSpecs {
             parameters: "0",
             context_window: "2M tokens",
-            accuracy: 97.2,
+            accuracy: 0.0,
             reasoning_depth: "Advanced",
             agents_count: 4,
             specializations: vec![

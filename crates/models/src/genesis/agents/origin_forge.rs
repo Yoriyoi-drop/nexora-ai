@@ -186,10 +186,10 @@ impl BaseAgent for OriginForgeAgent {
                 "foundational_components".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.90,
-                avg_latency: 3800.0,
-                resource_usage: 0.78,
-                reliability: 0.92,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

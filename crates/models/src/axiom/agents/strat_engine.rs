@@ -189,10 +189,10 @@ impl BaseAgent for StratEngineAgent {
                 input_types: vec!["objective".to_string(), "constraints".to_string(), "time_horizon".to_string()],
                 output_types: vec!["strategies".to_string(), "evaluation_scores".to_string(), "recommendation".to_string()],
                 metrics: nexora_shared::agent_types::CapabilityMetrics {
-                    accuracy: 0.88,
-                    avg_latency: 4200.0,
-                    resource_usage: 0.75,
-                    reliability: 0.90,
+                    accuracy: 0.0,
+                    avg_latency: 0.0,
+                    resource_usage: 0.0,
+                    reliability: 0.0,
                 },
             },
         ]

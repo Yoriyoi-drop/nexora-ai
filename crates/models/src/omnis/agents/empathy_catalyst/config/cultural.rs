@@ -384,7 +384,7 @@ pub struct TranslationConsiderations {
 impl Default for TranslationConsiderations {
     fn default() -> Self {
         Self {
-            direct_translation_accuracy: 0.7,
+            direct_translation_accuracy: 0.0,
             cultural_adaptation_needed: true,
             context_preservation_priority: 0.9,
         }

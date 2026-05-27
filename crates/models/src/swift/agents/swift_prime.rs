@@ -181,10 +181,10 @@ impl BaseAgent for SwiftPrimeAgent {
                 "processing_metrics".to_string(),
             ],
             metrics: nexora_shared::agent_types::CapabilityMetrics {
-                accuracy: 0.95,
-                avg_latency: 1000.0,
-                resource_usage: 0.7,
-                reliability: 0.97,
+                accuracy: 0.0,
+                avg_latency: 0.0,
+                resource_usage: 0.0,
+                reliability: 0.0,
             },
         }]
     }

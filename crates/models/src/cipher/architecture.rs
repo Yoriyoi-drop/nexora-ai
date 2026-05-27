@@ -761,25 +761,25 @@ impl CipherArchitecture {
                     SimulationModel {
                         id: uuid::Uuid::new_v4(),
                         model_type: SimulationModelType::CodeAnalysis,
-                        accuracy: 0.85,
+                        accuracy: 0.0,
                         coverage: 0.75,
                     },
                     SimulationModel {
                         id: uuid::Uuid::new_v4(),
                         model_type: SimulationModelType::NetworkBehavior,
-                        accuracy: 0.80,
+                        accuracy: 0.0,
                         coverage: 0.70,
                     },
                     SimulationModel {
                         id: uuid::Uuid::new_v4(),
                         model_type: SimulationModelType::SystemInteraction,
-                        accuracy: 0.82,
+                        accuracy: 0.0,
                         coverage: 0.72,
                     },
                     SimulationModel {
                         id: uuid::Uuid::new_v4(),
                         model_type: SimulationModelType::Hybrid,
-                        accuracy: 0.88,
+                        accuracy: 0.0,
                         coverage: 0.80,
                     },
                 ],
@@ -992,7 +992,7 @@ impl CipherArchitecture {
                     trend_analysis: TrendAnalysis {
                         trend_direction: TrendDirection::Stable,
                         trend_magnitude: 0.0,
-                        prediction_horizon: 30,
+                        prediction_horizon: 0,
                     },
                     risk_assessment: 0.5,
                 },
@@ -1139,7 +1139,7 @@ impl CipherArchitecture {
                 trend_analysis: TrendAnalysis {
                     trend_direction: TrendDirection::Stable,
                     trend_magnitude: 0.0,
-                    prediction_horizon: 30,
+                    prediction_horizon: 0,
                 },
                 risk_assessment: 0.5,
             },
@@ -1199,9 +1199,9 @@ impl CipherArchitecture {
             return Err("At least one simulation model required".into());
         }
         for model in &self.zero_day_simulation.simulation_models {
-            if !(0.0..=1.0).contains(&model.accuracy) {
+            if !(0.0..=0.0).contains(&model.accuracy) {
                 return Err(
-                    format!("Model {} accuracy must be between 0.0 and 1.0", model.id).into(),
+                    format!("Model {} accuracy must be between 0.0 and 0.0", model.id).into(),
                 );
             }
             if !(0.0..=1.0).contains(&model.coverage) {
