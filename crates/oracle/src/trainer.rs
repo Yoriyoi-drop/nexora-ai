@@ -141,7 +141,7 @@ pub struct OracleTrainer {
     pretrainer: OraclePretrainer,
     dpo_trainer: CodeDpoTrainer,
     tokenizer: CodeTokenizer,
-    verifier: crate::verifiers::CodeVerifierManager,
+    linter: crate::linters::CodeLinterManager,
     position_tracker: CrossFilePositionTracker,
     training_state: OracleTrainingState,
     /// Differentiable parameter wrappers for autograd training
@@ -173,7 +173,7 @@ impl OracleTrainer {
         let dpo_trainer = CodeDpoTrainer::new(config.dpo.clone(), current_model, reference_model);
 
         let tokenizer = CodeTokenizer::new();
-        let verifier = crate::verifiers::CodeVerifierManager::new();
+        let linter = crate::linters::CodeLinterManager::new();
         let position_tracker = CrossFilePositionTracker::new();
 
         // Create differentiable training parameters for the backbone
@@ -190,7 +190,7 @@ impl OracleTrainer {
             pretrainer,
             dpo_trainer,
             tokenizer,
-            verifier,
+            linter,
             position_tracker,
             training_state: OracleTrainingState::default(),
             trainable_params,
@@ -516,7 +516,7 @@ impl OracleTrainer {
         let mut verification_scores = Vec::new();
         for example in training_data.iter().take(100) {
             let code = self.tokenizer.decode(&example.tokens)?;
-            let result = self.verifier.verify_code(&code, "python")?;
+            let result = self.linter.verify_code(&code, "python")?;
             verification_scores.push(result);
         }
 

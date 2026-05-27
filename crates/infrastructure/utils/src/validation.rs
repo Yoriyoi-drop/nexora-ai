@@ -269,6 +269,11 @@ impl ValidationUtils {
             ));
         }
 
+        // Check for empty labels (consecutive dots)
+        if parts.iter().any(|p| p.is_empty()) {
+            return Err(anyhow::anyhow!("Domain contains empty label"));
+        }
+
         let tld = parts
             .last()
             .ok_or_else(|| anyhow::anyhow!("Domain has no parts"))?;

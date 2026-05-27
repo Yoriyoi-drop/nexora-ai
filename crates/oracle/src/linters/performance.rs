@@ -1,13 +1,14 @@
-//! Performance Verifier
+//! Performance Pattern Detector
 //!
-//! Implements performance verification for code efficiency and optimization.
+//! Regex-based pattern matcher untuk performance issues.
+//! BUKAN profiling — menggunakan heuristic pattern matching.
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
-use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
+use crate::linters::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterType};
 
 /// Performance thresholds configuration
 #[derive(Debug, Clone)]
@@ -81,11 +82,11 @@ static INEFFICIENT_SORT_REGEX: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Performance verifier
-pub struct PerformanceVerifier {
+pub struct PerformanceLinter {
     performance_patterns: Vec<PerformancePattern>,
 }
 
-impl PerformanceVerifier {
+impl PerformanceLinter {
     pub fn new() -> Self {
         Self {
             performance_patterns: vec![
@@ -138,7 +139,6 @@ impl PerformanceVerifier {
         }
     }
 
-    /// Validate input code before processing
     fn validate_input(code: &str) -> Result<()> {
         if code.is_empty() {
             return Err(anyhow::anyhow!("Code input cannot be empty"));
@@ -149,7 +149,6 @@ impl PerformanceVerifier {
         Ok(())
     }
 
-    /// Add issue with deduplication
     fn add_issue(issues: &mut Vec<CodeIssue>, seen: &mut HashSet<String>, issue: CodeIssue) {
         let key = format!(
             "{}:{}:{:?}",
@@ -164,8 +163,8 @@ impl PerformanceVerifier {
     }
 }
 
-impl CodeVerifier for PerformanceVerifier {
-    fn verify(&self, code: &str, language: &str) -> Result<VerificationResult> {
+impl CodeLinter for PerformanceLinter {
+    fn verify(&self, code: &str, language: &str) -> Result<LintResult> {
         // Validate input
         Self::validate_input(code)?;
 
@@ -221,9 +220,9 @@ impl CodeVerifier for PerformanceVerifier {
                 .count() as f32,
         );
 
-        Ok(VerificationResult {
-            verifier_name: "PerformanceVerifier".to_string(),
-            verifier_type: VerifierType::Performance,
+        Ok(LintResult {
+            linter_name: "PerformanceLinter".to_string(),
+            linter_type: LinterType::Performance,
             score,
             passed: score >= 0.7,
             issues,
@@ -232,12 +231,12 @@ impl CodeVerifier for PerformanceVerifier {
         })
     }
 
-    fn verifier_name(&self) -> &str {
-        "PerformanceVerifier"
+    fn linter_name(&self) -> &str {
+        "PerformanceLinter"
     }
 
-    fn verifier_type(&self) -> VerifierType {
-        VerifierType::Performance
+    fn linter_type(&self) -> LinterType {
+        LinterType::Performance
     }
 
     fn check_language_specific_performance(

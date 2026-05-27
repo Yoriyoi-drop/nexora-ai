@@ -1,11 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use ndarray::Array1;
 use nexora_tokenizer::BpeTokenizer;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
+use crate::degradation::DegradationLevel;
 use crate::paged_provider::PagedKVCacheProvider;
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
@@ -65,23 +67,50 @@ pub struct ContinuousBatchingConfig {
     /// Target padding waste ratio (0.0–1.0). If batch waste exceeds this,
     /// process immediately rather than waiting for more sequences.
     pub target_padding_waste: f64,
+    // ── Adaptive Batching ─────────────────────────────────────────────────
+    /// Enable adaptive batch sizing: auto-tune max_batch_size based on
+    /// measured throughput (tokens/sec). Prevents overload when model is
+    /// slow, increases throughput when the system is underutilized.
+    pub enable_adaptive_batching: bool,
+    /// Target throughput in tokens/sec for adaptive batching to tune toward.
+    /// Batch size adjusts: `new_size = clamp(current * throughput / target, min, max)`.
+    pub target_tokens_per_sec: f64,
+    /// Floor for adaptive batch size — never go below this.
+    pub min_adaptive_batch_size: usize,
+    /// EWMA smoothing factor for throughput measurement (0.0–1.0).
+    /// Higher = more responsive, lower = smoother.
+    pub throughput_alpha: f64,
+    // ── Load Shedding ─────────────────────────────────────────────────────
+    /// Max queued (not yet batched) sequences before rejecting new requests.
+    /// 0 = unlimited. Prevents unbounded queue growth under sustained load.
+    pub max_queue_depth: usize,
+    /// Shed load (reject new requests) when degradation level ≥ this threshold.
+    /// Set to `DegradationLevel::Minimal` to stop accepting new work during
+    /// severe degradation, preserving capacity for in-flight requests.
+    pub shed_at_degradation: DegradationLevel,
 }
 
 impl Default for ContinuousBatchingConfig {
     fn default() -> Self {
         Self {
-            max_batch_size: 8,
-            max_total_sequences: 1024,
+            max_batch_size: 32,
+            max_total_sequences: 4096,
             min_shared_prefix_len: 4,
             enable_prefix_sharing: true,
-            use_paged_cache: false,
+            use_paged_cache: true,
             paged_block_size: 0,
             paged_max_blocks: 0,
             scheduling_policy: SchedulingPolicy::PriorityAging,
-            aging_boost_per_ms: 0.001,
+            aging_boost_per_ms: 0.005,
             enable_dynamic_padding: true,
             padding_wait_ms: 10,
             target_padding_waste: 0.3,
+            enable_adaptive_batching: true,
+            target_tokens_per_sec: 1000.0,
+            min_adaptive_batch_size: 4,
+            throughput_alpha: 0.3,
+            max_queue_depth: 2048,
+            shed_at_degradation: DegradationLevel::Minimal,
         }
     }
 }
@@ -198,6 +227,22 @@ pub struct ContinuousBatchingEngine<M> {
     paged_cache_dim_set: bool,
     /// Shared paged cache instance. All PagedKVCacheProviders use the same pool.
     shared_paged: Option<std::sync::Arc<std::sync::Mutex<crate::paged_cache::PagedKVCache>>>,
+    // ── Adaptive Batching State ──────────────────────────────────────────────
+    /// Exponentially weighted moving average of tokens/sec throughput.
+    throughput_ewma: f64,
+    /// Current dynamically-tuned batch size.
+    adaptive_batch_size: usize,
+    /// Last time throughput was sampled.
+    last_throughput_update: Instant,
+    /// Total steps completed (for EWMA initialization).
+    batch_step_count: u64,
+    // ── Load Shedding State ───────────────────────────────────────────────────
+    /// Whether the engine is currently shedding load (rejecting new requests).
+    shed_load: bool,
+    /// Number of requests rejected due to load shedding.
+    rejected_count: u64,
+    /// Recent tokens processed per step (for throughput calculation).
+    recent_tokens_per_step: VecDeque<usize>,
 }
 
 #[deprecated(note = "renamed to ContinuousBatchingEngine")]
@@ -264,7 +309,11 @@ where
             kv_caches: HashMap::new(),
             model,
             next_seq_id: 1,
-            max_batch_size: config.max_batch_size,
+            max_batch_size: if config.enable_adaptive_batching {
+                config.max_batch_size
+            } else {
+                config.max_batch_size
+            },
             max_total_sequences: config.max_total_sequences,
             samplers: HashMap::new(),
             use_gpu: {
@@ -290,6 +339,13 @@ where
             max_seq_len: 0,
             paged_cache_dim_set: false,
             shared_paged: None,
+            throughput_ewma: 0.0,
+            adaptive_batch_size: config.max_batch_size,
+            last_throughput_update: Instant::now(),
+            batch_step_count: 0,
+            shed_load: false,
+            rejected_count: 0,
+            recent_tokens_per_step: VecDeque::with_capacity(16),
         }
     }
 
@@ -303,6 +359,117 @@ where
     pub fn set_tokenizer(&mut self, tokenizer: Arc<std::sync::Mutex<BpeTokenizer>>) {
         self.tokenizer = Some(tokenizer);
     }
+
+    // ── Load Shedding ────────────────────────────────────────────────────────────
+
+    /// Returns `true` when the engine should reject new requests to protect
+    /// in-flight sequences from degradation. Considers queue depth and
+    /// throughput collapse.
+    pub fn should_shed_load(&self) -> bool {
+        if self.shed_load {
+            return true;
+        }
+        // Hard queue depth limit
+        if self.config.max_queue_depth > 0
+            && self.sequences.len() >= self.config.max_queue_depth
+        {
+            return true;
+        }
+        // Throughput collapse detection: if EWMA drops below 10% of target
+        // and we've processed at least 5 steps (warmup), start shedding.
+        if self.config.enable_adaptive_batching
+            && self.batch_step_count >= 5
+            && self.throughput_ewma > 0.0
+            && self.throughput_ewma < self.config.target_tokens_per_sec * 0.1
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Returns the number of requests rejected by load shedding.
+    pub fn rejected_count(&self) -> u64 {
+        self.rejected_count
+    }
+
+    // ── Adaptive Batch Sizing ─────────────────────────────────────────────────
+
+    /// Update the adaptive batch size based on measured throughput.
+    ///
+    /// Uses an EWMA (Exponentially Weighted Moving Average) of tokens/sec
+    /// to smooth out transient spikes. The batch size is adjusted:
+    ///   `new_batch = clamp(current * throughput / target, min, max)`
+    ///
+    /// Call this after each `step()` with the number of tokens processed.
+    fn update_adaptive_batch_size(&mut self, tokens_processed: usize) {
+        if !self.config.enable_adaptive_batching {
+            return;
+        }
+
+        let elapsed = self.last_throughput_update.elapsed();
+        self.last_throughput_update = Instant::now();
+
+        let elapsed_secs = elapsed.as_secs_f64().max(1e-6);
+        let instant_tps = tokens_processed as f64 / elapsed_secs;
+
+        // Initialize EWMA on first measurement
+        if self.batch_step_count == 0 {
+            self.throughput_ewma = instant_tps;
+        } else {
+            self.throughput_ewma = self.config.throughput_alpha * instant_tps
+                + (1.0 - self.config.throughput_alpha) * self.throughput_ewma;
+        }
+        self.batch_step_count += 1;
+        self.recent_tokens_per_step.push_back(tokens_processed);
+        if self.recent_tokens_per_step.len() > 16 {
+            self.recent_tokens_per_step.pop_front();
+        }
+
+        // Tune batch size: if throughput < target → shrink batch (reduce pressure)
+        // If throughput > target → grow batch (utilize spare capacity)
+        let target = self.config.target_tokens_per_sec;
+        let ratio = if target > 0.0 {
+            (self.throughput_ewma / target).clamp(0.25, 4.0)
+        } else {
+            1.0
+        };
+
+        let current = self.adaptive_batch_size as f64;
+        let new_size = (current * ratio).round() as usize;
+        let clamped = new_size
+            .clamp(self.config.min_adaptive_batch_size, self.config.max_batch_size);
+
+        if clamped != self.adaptive_batch_size {
+            debug!(
+                "Adaptive batch: {} → {} (tps={:.0}, ewma={:.0}, target={:.0}, ratio={:.2})",
+                self.adaptive_batch_size,
+                clamped,
+                instant_tps,
+                self.throughput_ewma,
+                target,
+                ratio
+            );
+            self.adaptive_batch_size = clamped;
+            self.max_batch_size = clamped;
+        }
+
+        // Update load shedding state based on throughput health
+        if self.batch_step_count >= 5 {
+            let health_ratio = self.throughput_ewma / target.max(1.0);
+            self.shed_load = health_ratio < 0.1;
+        }
+    }
+
+    /// Returns the current adaptive batch size for use in `select_ready_sequences`.
+    fn effective_batch_size(&self) -> usize {
+        if self.config.enable_adaptive_batching {
+            self.adaptive_batch_size
+        } else {
+            self.max_batch_size
+        }
+    }
+
+    // ── Prefix Sharing ─────────────────────────────────────────────────────────
 
     /// Copy shared-prefix K/V from previously-prefilled sequences into prefill
     /// sequences that share a prompt prefix. Updates `prompt_pos` to skip the
@@ -504,6 +671,16 @@ where
             );
             return 0;
         }
+        if self.should_shed_load() {
+            self.rejected_count += 1;
+            warn!(
+                "ContinuousBatchingEngine: load shedding active — rejecting request {} (queue={}, rejected={})",
+                self.rejected_count,
+                self.sequences.len(),
+                self.rejected_count
+            );
+            return 0;
+        }
         let seq_id = self.next_seq_id;
         self.next_seq_id += 1;
 
@@ -611,10 +788,11 @@ where
         // Sort by priority descending
         candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
 
-        // Take up to max_batch_size
+        // Take up to effective batch size (may be dynamically tuned)
+        let batch_size = self.effective_batch_size();
         candidates
             .into_iter()
-            .take(self.max_batch_size)
+            .take(batch_size)
             .map(|(id, is_prefill, _)| (id, is_prefill))
             .collect()
     }
@@ -649,8 +827,9 @@ where
 
         // Compute padding waste: fraction of unused batch capacity
         let total_in_batch = prefill_ids.len() + gen_ids.len();
-        let padding_waste = if self.max_batch_size > 0 {
-            1.0 - (total_in_batch as f64 / self.max_batch_size as f64)
+        let effective_bs = self.effective_batch_size();
+        let padding_waste = if effective_bs > 0 {
+            1.0 - (total_in_batch as f64 / effective_bs as f64)
         } else {
             0.0
         };
@@ -969,6 +1148,22 @@ where
         let active_count = self.sequences.values().filter(|s| !s.is_finished()).count();
         let waiting_count = self.sequences.len();
 
+        // Count total tokens processed in this step for throughput tracking
+        let tokens_in_step = {
+            let mut count = 0usize;
+            for sid in prefill_ids.iter().chain(gen_ids.iter()) {
+                if let Some(seq) = self.sequences.get(sid) {
+                    // Prefill: all remaining prompt tokens were processed.
+                    // Generation: 1 new token was generated.
+                    count += seq.total_tokens().saturating_sub(seq.prompt.len().max(seq.prompt_pos));
+                }
+            }
+            count.max(1)
+        };
+
+        // Update adaptive batching and load shedding after each step
+        self.update_adaptive_batch_size(tokens_in_step);
+
         // Update global observability atomics
         crate::inference_trait::SCHEDULER_QUEUE_DEPTH
             .store(waiting_count as i64, std::sync::atomic::Ordering::Relaxed);
@@ -976,6 +1171,12 @@ where
             .fetch_add((padding_waste * 100.0) as u64, std::sync::atomic::Ordering::Relaxed);
         crate::inference_trait::BATCHING_COUNT
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Track load shedding metrics
+        if self.shed_load {
+            crate::inference_trait::SCHEDULER_QUEUE_DEPTH
+                .store(-(self.rejected_count as i64).max(1), std::sync::atomic::Ordering::Relaxed);
+        }
 
         StepResult {
             completed,

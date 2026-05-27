@@ -20,3 +20,8 @@ pub use gpu_watchdog::*;
 
 pub mod gpu_observability;
 pub use gpu_observability::*;
+
+#[cfg(feature = "cuda")]
+pub mod cuda;
+#[cfg(feature = "cuda")]
+pub use cuda::*;

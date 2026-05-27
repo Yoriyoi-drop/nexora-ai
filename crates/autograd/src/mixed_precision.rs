@@ -28,7 +28,7 @@ impl DType {
 
 impl Default for DType {
     fn default() -> Self {
-        DType::F32
+        DType::F16
     }
 }
 

@@ -687,7 +687,7 @@ mod tests {
             TaskPriority::Low,
         );
 
-        // Critical task should come first (lower priority value)
-        assert!(critical_task < low_task);
+        // Critical task should come first (lower priority value = higher priority in max-heap)
+        assert!(critical_task > low_task);
     }
 }

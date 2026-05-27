@@ -7,7 +7,7 @@ use nexora_foundation::oracle::alignment::utils;
 use nexora_foundation::oracle::prelude::*;
 use nexora_foundation::oracle::pretraining;
 use nexora_foundation::oracle::trainer;
-use nexora_foundation::oracle::CodeVerifier;
+use nexora_foundation::oracle::CodeLinter;
 use nexora_foundation::oracle::{
     CodeDpoTrainer, CodeFormatter, CodeMetrics, CodeModel, CodeParser, CodeTokenizer,
     EfficiencyAnalyzer,
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     demo_pretraining_components()?;
     demo_alignment_components()?;
     demo_code_utilities()?;
-    demo_verifiers()?;
+    demo_linters()?;
 
     // 8. Save checkpoint final
     println!("\n💾 Saving final checkpoint...");
@@ -682,13 +682,30 @@ fn demo_code_utilities() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Demo verifiers
-fn demo_verifiers() -> anyhow::Result<()> {
-    println!("\n🔍 Verifiers Demo");
-    println!("==================");
+/// Demo linters
 
-    // Test individual verifiers
-    println!("Testing Individual Verifiers...");
+fn demo_linters() -> anyhow::Result<()> {
+    println!("\n🔍 Linters Demo");
+
+    // Test individual linters
+
+    println!("Testing Individual Linters...");
+
+    let security_linter = SecurityLinter::new();
+    let perf_linter = PerformanceLinter::new();
+    let corr_linter = CorrectnessLinter::new();
+    let style_linter = StyleLinter::new();
+
+    println!(
+        "Created linters: {}, {}, {}, {}",
+        security_linter.linter_name(),
+        perf_linter.linter_name(),
+        corr_linter.linter_name(),
+        style_linter.linter_name()
+    );
+
+    // Test CodeLinterManager
+    let linter_mgr = CodeLinterManager::new();
 
     let secure_code = r#"
 import os
@@ -715,24 +732,22 @@ import subprocess
 
 def insecure_function():
     user_input = input("Enter command: ")
-    os.system(user_input)  # Security vulnerability
+    os.system(user_input)
 
 def main():
     insecure_function()
 "#;
 
-    let verifier = CodeVerifierManager::new();
-
     // Test secure code
     println!("Testing Secure Code:");
-    let secure_score = verifier.verify_code(&secure_code, "python")?;
-    println!("✅ Overall score: {:.3}", secure_score);
+    let secure_score = linter_mgr.verify_code(&secure_code, "python")?;
+    println!("Overall score: {:.3}", secure_score);
 
-    let secure_results = verifier.verify_detailed(&secure_code, "python")?;
+    let secure_results = linter_mgr.verify_detailed(&secure_code, "python")?;
     for result in &secure_results {
         println!(
             "  {}: {:.3} ({} issues)",
-            result.verifier_name,
+            result.linter_name,
             result.score,
             result.issues.len()
         );
@@ -740,14 +755,14 @@ def main():
 
     // Test vulnerable code
     println!("Testing Vulnerable Code:");
-    let vulnerable_score = verifier.verify_code(&vulnerable_code, "python")?;
-    println!("✅ Overall score: {:.3}", vulnerable_score);
+    let vulnerable_score = linter_mgr.verify_code(&vulnerable_code, "python")?;
+    println!("Overall score: {:.3}", vulnerable_score);
 
-    let vulnerable_results = verifier.verify_detailed(&vulnerable_code, "python")?;
+    let vulnerable_results = linter_mgr.verify_detailed(&vulnerable_code, "python")?;
     for result in &vulnerable_results {
         println!(
             "  {}: {:.3} ({} issues)",
-            result.verifier_name,
+            result.linter_name,
             result.score,
             result.issues.len()
         );
@@ -763,10 +778,10 @@ def main():
         }
     }
 
-    // Test verification analysis
-    println!("Testing Verification Analysis...");
-    // Note: verifier_utils::analyze_results not available, skipping analysis
-    println!("✅ Verification completed successfully");
+    // Test lint analysis
+    println!("Testing Lint Analysis...");
+    // Note: linter_utils::analyze_results not available, skipping analysis
+    println!("✅ Lint completed successfully");
 
     Ok(())
 }

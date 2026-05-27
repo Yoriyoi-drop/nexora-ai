@@ -196,7 +196,8 @@ impl ResponseAgent {
         metadata: Option<HashMap<String, Value>>,
     ) -> FormattedResponse {
         let html_content = format!(
-            r#"<html>
+            r#"<!DOCTYPE html>
+<html>
 <head>
     <title>Nexora Response</title>
     <style>

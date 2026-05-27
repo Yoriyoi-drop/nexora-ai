@@ -1,6 +1,7 @@
 use crate::foundation::NxrKronosModel;
 use crate::kronos::classifier;
 use crate::kronos::classifier::TemporalClassifier;
+use nexora_reasoning::SacaEngine;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -62,15 +63,27 @@ pub async fn delegate(prompt: &str) -> String {
     let primary = modes.first().map(|(m, _)| m.as_str()).unwrap_or("evergreen");
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC");
     let framing = classifier::temporal_framing(primary);
+    let context = format!("mode: {primary} | current time: {now}\n{framing}");
 
-    let framed = format!(
-        "[Kronos temporal | mode: {primary} | current time: {now}]\n\
-         {framing}\n\n\
-         Input: {prompt}\n\
-         Temporal analysis and response:"
-    );
-    call(&framed, 512, 0.5).await.unwrap_or_else(|e| {
-        tracing::warn!("kronos delegation call failed: {}", e);
-        format!("[kronos inference error: {}]", e)
-    })
+    // Phase 4: SACA reasoning with temporal context
+    let engine = SacaEngine::new();
+    match engine.reason(prompt, &context).await {
+        Ok(r) if !r.conclusion.is_empty() => {
+            tracing::debug!("kronos SACA reasoning succeeded (mode: {primary})");
+            r.conclusion
+        }
+        _ => {
+            tracing::warn!("kronos SACA reasoning unavailable (mode: {primary}), using prompt-based reasoning");
+            let framed = format!(
+                "[Kronos temporal | mode: {primary} | current time: {now}]\n\
+                 {framing}\n\n\
+                 Input: {prompt}\n\
+                 Temporal analysis and response:"
+            );
+            call(&framed, 512, 0.5).await.unwrap_or_else(|e| {
+                tracing::warn!("kronos delegation call failed: {}", e);
+                format!("[kronos inference error: {}]", e)
+            })
+        }
+    }
 }

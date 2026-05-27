@@ -46,9 +46,7 @@ impl ToxicityFilter {
         for pattern in &self.blocklist {
             let count = pattern.find_iter(text).count() as f64;
             if count > 0.0 {
-                score += count as f64 * 0.25;
-                let severity = count.min(10.0) / 10.0;
-                score += severity * 0.3;
+                score += count * 0.8;
             }
         }
 

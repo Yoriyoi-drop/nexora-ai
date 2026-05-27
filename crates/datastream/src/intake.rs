@@ -388,8 +388,8 @@ mod tests {
         assert!(!prepared[0].id.is_nil());
     }
 
-    #[test]
-    fn test_batched_receiver_new() {
+    #[tokio::test]
+    async fn test_batched_receiver_new() {
         let (tx, rx) = mpsc::channel::<Vec<DataSample>>(16);
         let handle = tokio::spawn(async move {
             tx.send(vec![]).await.ok();

@@ -23,13 +23,8 @@ impl StringUtils {
             s.to_string()
         } else {
             let limit = max_len.saturating_sub(3);
-            let end = s
-                .char_indices()
-                .take_while(|&(i, _)| i < limit)
-                .last()
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            format!("{}...", &s[..end])
+            let truncated: String = s.chars().take(limit).collect();
+            format!("{}...", truncated)
         }
     }
 

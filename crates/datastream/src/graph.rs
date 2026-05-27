@@ -85,12 +85,7 @@ impl ExecutionGraph {
             }
         }
 
-        self.entry_points = self
-            .nodes
-            .keys()
-            .filter(|k| !has_deps.contains(k.as_str()) || is_entry.contains(k.as_str()))
-            .cloned()
-            .collect();
+        self.entry_points = is_entry.iter().cloned().collect();
 
         self.exit_points = self
             .nodes
@@ -512,6 +507,13 @@ mod tests {
     impl Filter for DummyFilter {
         fn name(&self) -> &str {
             &self.name
+        }
+        fn action(&self) -> FilterAction {
+            if self.always_pass {
+                FilterAction::Accept
+            } else {
+                FilterAction::Reject
+            }
         }
         async fn evaluate(&self, sample: &DataSample) -> FilterResult {
             FilterResult {

@@ -4,7 +4,7 @@ use crate::types::InputType;
 #[tokio::test]
 async fn test_core_controller_creation() {
     let controller = CoreController::new();
-    let result = controller.process_request("hello", InputType::Text).await;
+    let result = controller.process_request("buat program", InputType::Text).await;
     assert!(result.is_ok());
 }
 

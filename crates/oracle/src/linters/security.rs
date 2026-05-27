@@ -1,13 +1,15 @@
-//! Security Verifier
+//! Security Pattern Detector
 //!
-//! Implements security verification for code vulnerabilities and threats.
+//! Regex-based pattern matcher untuk security vulnerabilities.
+//! BUKAN static analysis — menggunakan regex + string containment.
+//! Rentan false positive/negative.
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 
-use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
+use crate::linters::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterType};
 
 static SQL_INJECTION_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)execute\s*\(").expect("valid SQL injection regex"));
@@ -42,77 +44,20 @@ struct VulnerabilityPattern {
 }
 
 /// Security verifier
-pub struct SecurityVerifier {
+pub struct SecurityLinter {
     vulnerability_patterns: Vec<VulnerabilityPattern>,
 }
 
-impl SecurityVerifier {
+impl SecurityLinter {
     pub fn new() -> Self {
         Self {
-            vulnerability_patterns: vec![
-                VulnerabilityPattern {
-                    name: "SQL Injection".to_string(),
-                    pattern: &SQL_INJECTION_REGEX,
-                    severity: IssueSeverity::Error,
-                    description: "Potential SQL injection vulnerability".to_string(),
-                    language: "sql".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Command Injection".to_string(),
-                    pattern: &COMMAND_INJECTION_REGEX,
-                    severity: IssueSeverity::Error,
-                    description: "Potential command injection vulnerability".to_string(),
-                    language: "php".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Hardcoded Password".to_string(),
-                    pattern: &HARDCODED_PASSWORD_REGEX,
-                    severity: IssueSeverity::Error,
-                    description: "Hardcoded password detected".to_string(),
-                    language: "all".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Buffer Overflow".to_string(),
-                    pattern: &BUFFER_OVERFLOW_REGEX,
-                    severity: IssueSeverity::Warning,
-                    description: "Potentially unsafe string operations".to_string(),
-                    language: "c".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "XSS".to_string(),
-                    pattern: &XSS_REGEX,
-                    severity: IssueSeverity::Error,
-                    description: "Potential XSS vulnerability".to_string(),
-                    language: "javascript".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Path Traversal".to_string(),
-                    pattern: &PATH_TRAVERSAL_REGEX,
-                    severity: IssueSeverity::Error,
-                    description: "Potential path traversal vulnerability".to_string(),
-                    language: "all".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Insecure Random".to_string(),
-                    pattern: &INSECURE_RANDOM_REGEX,
-                    severity: IssueSeverity::Warning,
-                    description: "Potentially insecure random number generation".to_string(),
-                    language: "all".to_string(),
-                },
-                VulnerabilityPattern {
-                    name: "Weak Crypto".to_string(),
-                    pattern: &WEAK_CRYPTO_REGEX,
-                    severity: IssueSeverity::Warning,
-                    description: "Weak cryptographic algorithm detected".to_string(),
-                    language: "all".to_string(),
-                },
-            ],
+            vulnerability_patterns: Vec::new(),
         }
     }
 }
 
-impl CodeVerifier for SecurityVerifier {
-    fn verify(&self, code: &str, language: &str) -> Result<VerificationResult> {
+impl CodeLinter for SecurityLinter {
+    fn verify(&self, code: &str, language: &str) -> Result<LintResult> {
         let mut issues = Vec::new();
         let mut score: f32 = 1.0;
 
@@ -162,9 +107,9 @@ impl CodeVerifier for SecurityVerifier {
                 .count() as f32,
         );
 
-        Ok(VerificationResult {
-            verifier_name: "SecurityVerifier".to_string(),
-            verifier_type: VerifierType::Security,
+        Ok(LintResult {
+            linter_name: "SecurityLinter".to_string(),
+            linter_type: LinterType::Security,
             score: score.max(0.0),
             passed: score >= 0.7,
             issues,
@@ -173,12 +118,12 @@ impl CodeVerifier for SecurityVerifier {
         })
     }
 
-    fn verifier_name(&self) -> &str {
-        "SecurityVerifier"
+    fn linter_name(&self) -> &str {
+        "SecurityLinter"
     }
 
-    fn verifier_type(&self) -> VerifierType {
-        VerifierType::Security
+    fn linter_type(&self) -> LinterType {
+        LinterType::Security
     }
 
     fn check_language_specific_security(

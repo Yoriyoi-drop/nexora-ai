@@ -8,7 +8,11 @@ pub mod code_utils;
 pub mod pretraining;
 pub mod rope;
 pub mod trainer;
-pub mod verifiers;
+pub mod linters;
+#[deprecated(note = "renamed to linters — accurate naming for regex-based pattern detectors")]
+pub mod verifiers {
+    pub use super::linters::*;
+}
 
 // Re-export main components for easier access
 pub use alignment::*;
@@ -17,7 +21,7 @@ pub use code_utils::*;
 pub use pretraining::*;
 pub use rope::*;
 pub use trainer::*;
-pub use verifiers::*;
+pub use linters::*;
 
 /// Prelude module untuk import umum
 pub mod prelude {
@@ -27,5 +31,5 @@ pub mod prelude {
     pub use super::pretraining::*;
     pub use super::rope::*;
     pub use super::trainer::*;
-    pub use super::verifiers::*;
+    pub use super::linters::*;
 }

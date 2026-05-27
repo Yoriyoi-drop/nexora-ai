@@ -683,17 +683,18 @@ impl BenchmarkUtils {
         let result1 = Self::benchmark(name1, iterations, function1).await;
         let result2 = Self::benchmark(name2, iterations, function2).await;
 
-        let speedup = result1.average_time.as_secs_f64() / result2.average_time.as_secs_f64();
+        let ratio = result1.average_time.as_secs_f64() / result2.average_time.as_secs_f64();
+        let (speedup, winner) = if ratio > 1.0 {
+            (ratio, name2.to_string())
+        } else {
+            (1.0 / ratio, name1.to_string())
+        };
 
         ComparisonResult {
             result1,
             result2,
             speedup,
-            winner: if speedup > 1.0 {
-                name2.to_string()
-            } else {
-                name1.to_string()
-            },
+            winner,
         }
     }
 }
@@ -775,20 +776,20 @@ mod tests {
     #[tokio::test]
     async fn test_comparison() {
         async fn fast_function() -> String {
-            sleep(Duration::from_millis(1)).await;
+            sleep(Duration::from_millis(5)).await;
             "fast".to_string()
         }
 
         async fn slow_function() -> String {
-            sleep(Duration::from_millis(2)).await;
+            sleep(Duration::from_millis(10)).await;
             "slow".to_string()
         }
 
         let comparison =
-            BenchmarkUtils::compare("fast", "slow", 3, fast_function, slow_function).await;
+            BenchmarkUtils::compare("fast", "slow", 5, fast_function, slow_function).await;
         assert_eq!(comparison.result1.name, "fast");
         assert_eq!(comparison.result2.name, "slow");
-        assert!(comparison.speedup > 1.0);
+        assert!(comparison.speedup >= 1.0);
         assert_eq!(comparison.winner, "fast");
     }
 }

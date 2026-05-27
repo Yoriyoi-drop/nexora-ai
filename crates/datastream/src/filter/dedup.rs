@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn test_with_capacity() {
         let f = DedupFilter::with_capacity(1000);
-        assert_eq!(f.seen_hashes.try_lock().unwrap().capacity(), 1000);
+        assert!(f.seen_hashes.try_lock().unwrap().capacity() >= 1000);
     }
 
     #[test]

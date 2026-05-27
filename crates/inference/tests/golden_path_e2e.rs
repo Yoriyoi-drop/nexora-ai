@@ -30,6 +30,10 @@ fn test_model() -> CausalLM {
         rope_theta: 10000.0,
         use_cache: true,
         norm_eps: 1e-6,
+        num_experts: 0,
+        top_k_experts: 0,
+        expert_intermediate_size: 0,
+        use_half_precision: true,
     });
     model.set_keep_on_gpu(false);
     model

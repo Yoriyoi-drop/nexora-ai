@@ -1,28 +1,32 @@
-//! Code Verifier Manager
+//! Pattern Detector Manager
 //!
-//! Main manager for coordinating multiple code verifiers.
+//! Main manager untuk mengkoordinasikan multiple pattern detectors (regex-based).
+//! Catatan: Detectors ini menggunakan regex + string containment, BUKAN static analysis.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{
-    correctness::CorrectnessVerifier, performance::PerformanceVerifier, security::SecurityVerifier,
-    style::StyleVerifier,
+    correctness::CorrectnessLinter, performance::PerformanceLinter, security::SecurityLinter,
+    style::StyleLinter,
 };
 
-/// Code verifier interface
-pub trait CodeVerifier: Send + Sync {
-    fn verify(&self, code: &str, language: &str) -> Result<VerificationResult>;
-    fn verifier_name(&self) -> &str;
-    fn verifier_type(&self) -> VerifierType;
+/// Code linter interface
+pub trait CodeLinter: Send + Sync {
+    fn verify(&self, code: &str, language: &str) -> Result<LintResult>;
+    fn linter_name(&self) -> &str;
+    fn linter_type(&self) -> LinterType;
 
-    // Optional methods for specific verifiers
+    // Optional methods for specific linter types
     fn check_language_specific_security(
         &self,
         code: &str,
-        _language: &str,
+        language: &str,
     ) -> Result<Vec<CodeIssue>> {
+        if !language.is_empty() {
+            tracing::warn!("default security linter ignores language specificity: {language}");
+        }
         let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
 
@@ -161,7 +165,9 @@ pub trait CodeVerifier: Send + Sync {
                     "buffer_overflow" => suggestions.push(
                         "Replace unsafe C string functions with bounded alternatives: strncpy, strncat, snprintf, fgets.".to_string()
                     ),
-                    _ => {}
+                    _ => {
+                        tracing::warn!("unknown security suggestion category: {}", issue.category);
+                    }
                 }
             }
         }
@@ -179,8 +185,11 @@ pub trait CodeVerifier: Send + Sync {
     fn check_language_specific_performance(
         &self,
         code: &str,
-        _language: &str,
+        language: &str,
     ) -> Result<Vec<CodeIssue>> {
+        if !language.is_empty() {
+            tracing::warn!("default performance linter ignores language specificity: {language}");
+        }
         let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
         let code_str = code.to_string();
@@ -289,7 +298,9 @@ pub trait CodeVerifier: Send + Sync {
                     "excessive_to_string" => suggestions.push(
                         "Cache .to_string() results and reuse. Consider using Cow<str> or &str where possible.".to_string()
                     ),
-                    _ => {}
+                    _ => {
+                        tracing::warn!("unknown performance suggestion category: {}", issue.category);
+                    }
                 }
             }
         }
@@ -304,8 +315,11 @@ pub trait CodeVerifier: Send + Sync {
     fn check_language_specific_correctness(
         &self,
         code: &str,
-        _language: &str,
+        language: &str,
     ) -> Result<Vec<CodeIssue>> {
+        if !language.is_empty() {
+            tracing::warn!("default correctness linter ignores language specificity: {language}");
+        }
         let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
 
@@ -393,7 +407,9 @@ pub trait CodeVerifier: Send + Sync {
                     "uninitialized_variable" => suggestions.push(
                         "Initialize variables at declaration with a default value, or use Option.".to_string()
                     ),
-                    _ => {}
+                    _ => {
+                        tracing::warn!("unknown correctness suggestion category: {}", issue.category);
+                    }
                 }
             }
         }
@@ -408,7 +424,10 @@ pub trait CodeVerifier: Send + Sync {
         suggestions
     }
 
-    fn check_language_specific_style(&self, code: &str, _language: &str) -> Result<Vec<CodeIssue>> {
+    fn check_language_specific_style(&self, code: &str, language: &str) -> Result<Vec<CodeIssue>> {
+        if !language.is_empty() {
+            tracing::warn!("default style linter ignores language specificity: {language}");
+        }
         let mut issues = Vec::new();
         let lines: Vec<&str> = code.lines().collect();
         let mut indent_size: Option<usize> = None;
@@ -522,7 +541,9 @@ pub trait CodeVerifier: Send + Sync {
                     "naming_inconsistency" => suggestions.push(
                         "Use snake_case for variables/functions, CamelCase for types, SCREAMING_SNAKE for constants.".to_string()
                     ),
-                    _ => {}
+                    _ => {
+                        tracing::warn!("unknown style suggestion category: {}", issue.category);
+                    }
                 }
             }
         }
@@ -569,20 +590,20 @@ pub trait CodeVerifier: Send + Sync {
     }
 }
 
-/// Types of verifiers
+/// Types of linters
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum VerifierType {
+pub enum LinterType {
     Security,
     Performance,
     Correctness,
     Style,
 }
 
-/// Verification result
+/// Lint result
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerificationResult {
-    pub verifier_name: String,
-    pub verifier_type: VerifierType,
+pub struct LintResult {
+    pub linter_name: String,
+    pub linter_type: LinterType,
     pub score: f32,
     pub passed: bool,
     pub issues: Vec<CodeIssue>,
@@ -603,38 +624,38 @@ pub struct CodeIssue {
 
 pub use nexora_core::types::IssueSeverity;
 
-/// Main code verifier manager
-pub struct CodeVerifierManager {
-    verifiers: Vec<Box<dyn CodeVerifier>>,
+/// Main code linter manager
+pub struct CodeLinterManager {
+    linters: Vec<Box<dyn CodeLinter>>,
 }
 
-impl CodeVerifierManager {
+impl CodeLinterManager {
     pub fn new() -> Self {
         Self {
-            verifiers: vec![
-                Box::new(SecurityVerifier::new()),
-                Box::new(PerformanceVerifier::new()),
-                Box::new(CorrectnessVerifier::new()),
-                Box::new(StyleVerifier::new()),
+            linters: vec![
+                Box::new(SecurityLinter::new()),
+                Box::new(PerformanceLinter::new()),
+                Box::new(CorrectnessLinter::new()),
+                Box::new(StyleLinter::new()),
             ],
         }
     }
 
-    pub fn add_verifier(&mut self, verifier: Box<dyn CodeVerifier>) {
-        self.verifiers.push(verifier);
+    pub fn add_linter(&mut self, linter: Box<dyn CodeLinter>) {
+        self.linters.push(linter);
     }
 
     pub fn verify_code(&self, code: &str, language: &str) -> Result<f32> {
         let mut total_score = 0.0;
         let mut all_issues = Vec::new();
 
-        for verifier in &self.verifiers {
-            let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            let result = linter.verify(code, language)?;
             total_score += result.score;
             all_issues.extend(result.issues);
         }
 
-        let avg_score = total_score / self.verifiers.len() as f32;
+        let avg_score = total_score / self.linters.len() as f32;
 
         // Log issues for debugging
         for issue in &all_issues {
@@ -647,11 +668,11 @@ impl CodeVerifierManager {
         Ok(avg_score)
     }
 
-    pub fn verify_detailed(&self, code: &str, language: &str) -> Result<Vec<VerificationResult>> {
+    pub fn verify_detailed(&self, code: &str, language: &str) -> Result<Vec<LintResult>> {
         let mut results = Vec::new();
 
-        for verifier in &self.verifiers {
-            let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            let result = linter.verify(code, language)?;
             results.push(result);
         }
 
@@ -659,9 +680,9 @@ impl CodeVerifierManager {
     }
 
     pub fn get_security_score(&self, code: &str, language: &str) -> Result<f32> {
-        for verifier in &self.verifiers {
-            if verifier.verifier_type() == VerifierType::Security {
-                let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            if linter.linter_type() == LinterType::Security {
+                let result = linter.verify(code, language)?;
                 return Ok(result.score);
             }
         }
@@ -669,9 +690,9 @@ impl CodeVerifierManager {
     }
 
     pub fn get_performance_score(&self, code: &str, language: &str) -> Result<f32> {
-        for verifier in &self.verifiers {
-            if verifier.verifier_type() == VerifierType::Performance {
-                let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            if linter.linter_type() == LinterType::Performance {
+                let result = linter.verify(code, language)?;
                 return Ok(result.score);
             }
         }
@@ -679,9 +700,9 @@ impl CodeVerifierManager {
     }
 
     pub fn get_correctness_score(&self, code: &str, language: &str) -> Result<f32> {
-        for verifier in &self.verifiers {
-            if verifier.verifier_type() == VerifierType::Correctness {
-                let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            if linter.linter_type() == LinterType::Correctness {
+                let result = linter.verify(code, language)?;
                 return Ok(result.score);
             }
         }
@@ -689,19 +710,19 @@ impl CodeVerifierManager {
     }
 
     pub fn get_style_score(&self, code: &str, language: &str) -> Result<f32> {
-        for verifier in &self.verifiers {
-            if verifier.verifier_type() == VerifierType::Style {
-                let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            if linter.linter_type() == LinterType::Style {
+                let result = linter.verify(code, language)?;
                 return Ok(result.score);
             }
         }
         Ok(1.0)
     }
 
-    pub fn get_verifier_names(&self) -> Vec<String> {
-        self.verifiers
+    pub fn get_linter_names(&self) -> Vec<String> {
+        self.linters
             .iter()
-            .map(|v| v.verifier_name().to_string())
+            .map(|v| v.linter_name().to_string())
             .collect()
     }
 
@@ -713,8 +734,8 @@ impl CodeVerifierManager {
     ) -> Result<Vec<CodeIssue>> {
         let mut filtered_issues = Vec::new();
 
-        for verifier in &self.verifiers {
-            let result = verifier.verify(code, language)?;
+        for linter in &self.linters {
+            let result = linter.verify(code, language)?;
             filtered_issues.extend(
                 result
                     .issues
@@ -726,7 +747,7 @@ impl CodeVerifierManager {
         Ok(filtered_issues)
     }
 
-    pub fn get_summary_report(&self, code: &str, language: &str) -> Result<VerificationSummary> {
+    pub fn get_summary_report(&self, code: &str, language: &str) -> Result<LintSummary> {
         let results = self.verify_detailed(code, language)?;
 
         let mut total_issues = 0;
@@ -750,26 +771,26 @@ impl CodeVerifierManager {
 
         let overall_score = results.iter().map(|r| r.score).sum::<f32>() / results.len() as f32;
 
-        Ok(VerificationSummary {
+        Ok(LintSummary {
             overall_score,
             total_issues,
             error_count,
             warning_count,
             info_count,
             style_count,
-            verifier_results: results,
+            linter_results: results,
         })
     }
 }
 
-/// Verification summary report
+/// Lint summary report
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerificationSummary {
+pub struct LintSummary {
     pub overall_score: f32,
     pub total_issues: usize,
     pub error_count: usize,
     pub warning_count: usize,
     pub info_count: usize,
     pub style_count: usize,
-    pub verifier_results: Vec<VerificationResult>,
+    pub linter_results: Vec<LintResult>,
 }

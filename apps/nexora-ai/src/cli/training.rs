@@ -960,6 +960,10 @@ impl crate::cli::commands::Cli {
                     rope_theta: nxr_config.architecture.rope_theta.unwrap_or(10000.0),
                     use_cache: true,
                     norm_eps: 1e-6,
+                    num_experts: 0,
+                    top_k_experts: 0,
+                    expert_intermediate_size: 0,
+                    use_half_precision: true,
                 };
 
                 info!(
@@ -2668,6 +2672,10 @@ async fn run_parallel_training(
             rope_theta: nxr_config.architecture.rope_theta.unwrap_or(10000.0),
             use_cache: true,
             norm_eps: 1e-6,
+            num_experts: 0,
+            top_k_experts: 0,
+            expert_intermediate_size: 0,
+            use_half_precision: true,
         };
 
         let train_seq = train_sequences.to_vec();

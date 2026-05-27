@@ -17,14 +17,16 @@ fn compile_injection_patterns() -> Vec<Regex> {
             r"(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|directions|commands)",
         )
         .expect("valid injection regex: ignore previous instructions"),
-        Regex::new(r"(?i)you\s+are\s+(now|not\s+)?(chatgpt|gpt|bard|claude|ai\s+assistant)")
+        Regex::new(r"(?i)you\s+are\s+(now|not\s+)?(chatgpt|gpt|bard|claude|ai\s+assistant|dan|evil)")
             .expect("valid injection regex: you are ai"),
         Regex::new(
-            r"(?i)forget\s+(everything|all|your)\s+(previous|prior)\s+(instructions|training|data)",
+            r"(?i)forget\s+(everything|all|your)\s+(previous|prior\s+)?(instructions|training|data|knowledge)?",
         )
         .expect("valid injection regex: forget instructions"),
+        Regex::new(r"(?i)no\s+(limitations|restrictions|rules|boundaries|filter)")
+            .expect("valid injection regex: no limitations short"),
         Regex::new(r"(?i)system\s+prompt[:\-]").expect("valid injection regex: system prompt"),
-        Regex::new(r"(?i)(DAN|STAN|DUDE|JAILBREAK|GHOST)\s*[\:\-]")
+        Regex::new(r"(?i)\b(DAN|STAN|DUDE|JAILBREAK|GHOST)\b")
             .expect("valid injection regex: jailbreak codenames"),
         Regex::new(r"(?i)output\s+(in\s+)?markdown\s+(without\s+)?formatting")
             .expect("valid injection regex: output formatting"),

@@ -142,7 +142,11 @@ impl TextProcessor {
     /// Tokenize text
     pub fn tokenize(text: &str) -> Vec<String> {
         text.split_whitespace()
-            .map(|word| word.to_lowercase())
+            .map(|word| {
+                word.trim_matches(|c: char| c.is_ascii_punctuation())
+                    .to_lowercase()
+            })
+            .filter(|w| !w.is_empty())
             .collect()
     }
 

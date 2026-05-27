@@ -298,8 +298,13 @@ impl FileUtils {
 
     /// Get absolute path
     pub fn get_absolute_path(path: &Path) -> Result<PathBuf> {
-        path.canonicalize()
-            .map_err(|e| anyhow::anyhow!("Failed to get absolute path: {}", e))
+        if path.is_absolute() {
+            Ok(path.to_path_buf())
+        } else {
+            let cwd = std::env::current_dir()
+                .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+            Ok(cwd.join(path))
+        }
     }
 
     /// Get relative path from base to target
@@ -691,12 +696,13 @@ mod tests {
     fn test_path_operations() {
         let temp_dir = tempdir().unwrap();
         let base_path = temp_dir.path();
+        let relative_path = Path::new("test.txt");
         let file_path = base_path.join("test.txt");
 
-        // Test path operations
-        assert!(!FileUtils::is_absolute_path(&file_path));
+        // Test path operations with relative path
+        assert!(!FileUtils::is_absolute_path(relative_path));
 
-        let absolute_path = FileUtils::get_absolute_path(&file_path).unwrap();
+        let absolute_path = FileUtils::get_absolute_path(relative_path).unwrap();
         assert!(FileUtils::is_absolute_path(&absolute_path));
 
         let joined_path = FileUtils::join_paths(base_path, &["subdir", "file.txt"]);

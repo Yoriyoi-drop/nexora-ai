@@ -97,6 +97,34 @@ impl Tensor {
                 }
             }
         }
+        #[cfg(feature = "cuda")]
+        if is_gpu_auto_create() {
+            if let Ok(rt) = crate::gpu::CudaRuntime::init(0) {
+                let flat: Vec<f32> = data.iter().copied().collect();
+                match rt.stream.clone_htod_sync(&flat) {
+                    Ok(buf) => {
+                        let cuda_t = crate::gpu::cuda::CudaTensor {
+                            shape: data.shape().to_vec(),
+                            buffer: buf,
+                            device_id: 0,
+                        };
+                        let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        return Tensor(Arc::new(RwLock::new(TensorInner {
+                            id,
+                            storage: Storage::Cuda(cuda_t),
+                            device: Device::Cuda(0),
+                            dtype: DType::F32,
+                            grad: None,
+                            requires_grad: false,
+                            grad_fn_idx: None,
+                        })));
+                    }
+                    Err(e) => {
+                        tracing::warn!("CUDA upload failed in Tensor::new: {e}");
+                    }
+                }
+            }
+        }
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(RwLock::new(TensorInner {
             id,
@@ -120,6 +148,47 @@ impl Tensor {
             grad: None,
             requires_grad,
             grad_fn_idx: None,
+        })))
+    }
+
+    /// Create tensor from CUDA tensor (no grad tracking)
+    #[cfg(feature = "cuda")]
+    pub fn from_cuda(
+        cuda_tensor: crate::gpu::cuda::CudaTensor,
+        id: usize,
+        requires_grad: bool,
+    ) -> Self {
+        let device_id = cuda_tensor.device_id;
+        Self(Arc::new(RwLock::new(TensorInner {
+            id,
+            storage: Storage::Cuda(cuda_tensor),
+            device: Device::Cuda(device_id),
+            dtype: DType::F32,
+            grad: None,
+            requires_grad,
+            grad_fn_idx: None,
+        })))
+    }
+
+    /// Create CUDA tensor with CPU backward (forward stays on CUDA, backward on CPU).
+    #[cfg(feature = "cuda")]
+    pub(crate) fn from_cuda_with_grad_fn(
+        cuda_tensor: crate::gpu::cuda::CudaTensor,
+        inputs: Vec<Tensor>,
+        saved: Vec<ArrayD<f32>>,
+        backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>,
+    ) -> Self {
+        let device_id = cuda_tensor.device_id;
+        let grad_fn_idx = crate::tape::register_grad_fn(inputs, saved, backward);
+        let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::new(RwLock::new(TensorInner {
+            id,
+            storage: Storage::Cuda(cuda_tensor),
+            device: Device::Cuda(device_id),
+            dtype: DType::F32,
+            grad: None,
+            requires_grad: true,
+            grad_fn_idx: Some(grad_fn_idx),
         })))
     }
 
@@ -160,7 +229,7 @@ impl Tensor {
     }
 
     /// Zero-copy access to CPU data via a guard that holds the read lock.
-    /// Returns `Err` if tensor is on GPU — use `data()` for GPU readback.
+    /// Returns `Err` if tensor is on GPU/CUDA — use `data()` for GPU readback.
     pub fn data_ref(&self) -> Result<DataRef<'_>, &'static str> {
         let guard = self.0.read();
         let ptr: *const ArrayD<f32> = match &guard.storage {
@@ -168,6 +237,10 @@ impl Tensor {
             #[cfg(feature = "gpu")]
             Storage::Gpu(_) => {
                 return Err("data_ref() on GPU tensor — use data() for GPU readback")
+            }
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(_) => {
+                return Err("data_ref() on CUDA tensor — use data() for GPU readback")
             }
         };
         Ok(DataRef {
@@ -252,18 +325,25 @@ impl Tensor {
         }
     }
 
-    /// Check if tensor is on GPU
-    pub fn is_cuda(&self) -> bool {
-        self.is_gpu()
-    }
-
-    /// Check if tensor is on GPU
+    /// Check if tensor is on wgpu GPU
     pub fn is_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]
         {
             matches!(self.0.read().device, Device::Gpu(_))
         }
         #[cfg(not(feature = "gpu"))]
+        {
+            false
+        }
+    }
+
+    /// Check if tensor is on CUDA GPU
+    pub fn is_cuda(&self) -> bool {
+        #[cfg(feature = "cuda")]
+        {
+            matches!(self.0.read().device, Device::Cuda(_))
+        }
+        #[cfg(not(feature = "cuda"))]
         {
             false
         }

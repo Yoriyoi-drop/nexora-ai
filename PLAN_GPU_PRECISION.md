@@ -146,12 +146,31 @@ Goal: Semua model bisa inference di GPU tanpa CPU fallback.
      - parameter_count() + active_parameters() untuk MoE
      - Default vocab_size: 100000
      
-[P3] Ganti wgpu → CUDA backend (atau tambah CUDA). ⏳
-     wgpu bagus untuk portability tapi tidak bisa Tensor Core, NVLink.
+[P3] CUDA backend (via cudarc). ✅ DONE (scaffolding)
+     - cudarc 0.19 sebagai optional dep (feature "cuda")
+     - CudaRuntime: device init, cuBLAS handle, CUDA stream
+     - CudaTensor: shape, buffer (CudaSlice<f32>), reshape
+     - cuBLAS matmul (Gemm via Tensor Cores)
+     - Storage::Cuda, Device::Cuda, Tensor::from_cuda, is_cuda()
+     - Terpisah dari wgpu — dua backend bisa coexist
+     - Ditambahkan: matmul dispatch untuk CUDA di ops/matmul.rs
+     
+     ⏳ SELANJUTNYA: elementwise ops, softmax, RoPE, dll via NVRTC CUDA C kernels
       
 [P3] Embedding lookup GPU-native ✅ SUDAH ADA sejak awal.
      - ctx.embedding(gpu_ids, gpu_w) WGSL kernel
      - GPU backward via embedding_backward_gpu
+
+### Phase A — Complete Progress (27 Mei 2026)
+
+| Item | Status | Files changed |
+|------|--------|--------------|
+| GPU circuit breaker | ✅ | `ops/matmul.rs`, `ops/math.rs` |
+| Memory pool 4GB→80GB | ✅ | `gpu_memory.rs` |
+| Reshape GPU | ✅ | `ops/shape.rs` |
+| fill_constant WGSL kernel | ✅ | `gpu_context.rs`, `gpu_backward.rs` |
+| MoE + model tier presets | ✅ | `transformer/src/config.rs` |
+| CUDA backend scaffold | ✅ | `Cargo.toml`, `gpu/cuda/`, `device.rs`, `tensor.rs` |
 ```
 
 ### Phase B: Single-GPU Inference (JUNI — 2 minggu)

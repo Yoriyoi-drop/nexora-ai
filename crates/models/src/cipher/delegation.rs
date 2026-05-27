@@ -1,10 +1,12 @@
 use crate::cipher::classifier;
 use crate::cipher::classifier::ThreatClassifier;
 use crate::foundation::NxrCipherModel;
-use nexora_oracle::CodeVerifierManager;
+use nexora_oracle::CodeLinterManager;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
+
+static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn foundation() -> &'static NxrCipherModel {
     static F: OnceLock<NxrCipherModel> = OnceLock::new();
@@ -12,11 +14,15 @@ fn foundation() -> &'static NxrCipherModel {
 }
 
 fn init_classifier() {
+    if INITIALIZED.get().is_some() {
+        return;
+    }
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             let embed = model.token_embedding.clone();
             ThreatClassifier::init(embed);
+            let _ = INITIALIZED.set(true);
         }
     }
 }
@@ -76,9 +82,9 @@ pub async fn delegate(prompt: &str) -> String {
 
     let focus = classifier::threat_focus(primary);
 
-    // Phase 4: Run through Oracle security verifier
-    let verifier = CodeVerifierManager::new();
-    let findings = match verifier.verify_detailed(prompt, "text") {
+    // Phase 4: Run through Oracle security linter
+    let linter = CodeLinterManager::new();
+    let findings = match linter.verify_detailed(prompt, "text") {
         Ok(results) => {
             let issues: Vec<String> = results
                 .iter()
@@ -92,8 +98,8 @@ pub async fn delegate(prompt: &str) -> String {
             }
         }
         Err(e) => {
-            tracing::warn!("cipher security verifier failed: {}", e);
-            "Verification unavailable".to_string()
+            tracing::warn!("cipher security linter failed: {}", e);
+            "Lint unavailable".to_string()
         }
     };
 

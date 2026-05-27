@@ -6,7 +6,7 @@
 use super::{config::*, error::*, types::*};
 use futures::future::join_all;
 use nexora_core::async_executor::AsyncTaskExecutor;
-use nexora_oracle::verifiers::performance::PerformanceThresholds;
+use nexora_oracle::linters::performance::PerformanceThresholds;
 use rayon::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, info, warn};

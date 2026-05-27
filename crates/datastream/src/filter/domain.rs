@@ -113,10 +113,8 @@ impl DomainClassifier {
             let word_count = text.split_whitespace().count();
             if word_count > 50 {
                 scores.push((Domain::General, 0.6));
-            } else if word_count > 10 {
-                scores.push((Domain::Conversation, 0.7));
             } else {
-                scores.push((Domain::General, 0.3));
+                scores.push((Domain::Conversation, 0.7));
             }
         }
 

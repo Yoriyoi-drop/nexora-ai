@@ -1,10 +1,12 @@
 use crate::foundation::NxrVortexModel;
 use crate::vortex::analyzer;
 use crate::vortex::analyzer::CodeReviewClassifier;
-use nexora_oracle::CodeVerifierManager;
+use nexora_oracle::CodeLinterManager;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
+
+static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn foundation() -> &'static NxrVortexModel {
     static F: OnceLock<NxrVortexModel> = OnceLock::new();
@@ -12,11 +14,15 @@ fn foundation() -> &'static NxrVortexModel {
 }
 
 fn init_analyzer() {
+    if INITIALIZED.get().is_some() {
+        return;
+    }
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             let embed = model.token_embedding.clone();
             CodeReviewClassifier::init(embed);
+            let _ = INITIALIZED.set(true);
         }
     }
 }
@@ -55,8 +61,8 @@ async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<Strin
     }
 }
 
-fn run_verifiers(code: &str, language: &str) -> String {
-    let mgr = CodeVerifierManager::new();
+fn run_linters(code: &str, language: &str) -> String {
+    let mgr = CodeLinterManager::new();
     match mgr.verify_detailed(code, language) {
         Ok(results) => {
             let mut report = String::new();
@@ -64,7 +70,7 @@ fn run_verifiers(code: &str, language: &str) -> String {
                 let status = if r.passed { "PASS" } else { "FAIL" };
                 report.push_str(&format!(
                     "[{}] {} — score: {:.2}\n",
-                    status, r.verifier_name, r.score
+                    status, r.linter_name, r.score
                 ));
                 for issue in &r.issues {
                     let line = issue
@@ -83,8 +89,8 @@ fn run_verifiers(code: &str, language: &str) -> String {
             report
         }
         Err(e) => {
-            tracing::warn!("vortex code verifier failed: {}", e);
-            format!("[Verification error: {}]", e)
+            tracing::warn!("vortex code linter failed: {}", e);
+            format!("[Lint error: {}]", e)
         }
     }
 }
@@ -95,7 +101,7 @@ pub async fn delegate(prompt: &str) -> String {
     let primary = categories.first().map(|(c, _)| c.as_str()).unwrap_or("general");
     let lang = analyzer::detect_language(prompt);
 
-    let verification = run_verifiers(prompt, lang);
+    let verification = run_linters(prompt, lang);
 
     let framed = format!(
         "[Vortex code review | focus: {primary} | language: {lang}]\n\

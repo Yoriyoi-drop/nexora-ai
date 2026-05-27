@@ -1,39 +1,39 @@
-//! Comprehensive tests for performance verifier
+//! Comprehensive tests for performance linter
 
 use super::*;
-use crate::verifiers::performance::*;
+use crate::linters::performance::*;
 
 #[cfg(test)]
-mod performance_verifier_tests {
+mod performance_linter_tests {
     use super::*;
 
     #[test]
-    fn test_performance_verifier_creation() {
-        let verifier = PerformanceVerifier::new();
-        assert_eq!(verifier.verifier_name(), "PerformanceVerifier");
-        assert_eq!(verifier.verifier_type(), VerifierType::Performance);
+    fn test_performance_linter_creation() {
+        let linter = PerformanceLinter::new();
+        assert_eq!(linter.linter_name(), "PerformanceLinter");
+        assert_eq!(linter.linter_type(), LinterType::Performance);
     }
 
     #[test]
     fn test_empty_code_validation() {
-        let verifier = PerformanceVerifier::new();
-        let result = verifier.verify("", "rust");
+        let verifier = PerformanceLinter::new();
+        let result = linter.verify("", "rust");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("empty"));
     }
 
     #[test]
     fn test_large_code_validation() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let large_code = "x".repeat(1_000_001);
-        let result = verifier.verify(&large_code, "rust");
+        let result = linter.verify(&large_code, "rust");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too large"));
     }
 
     #[test]
     fn test_rust_clone_detection() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code_with_clones = r#"
             let a = vec![1, 2, 3];
             let b = a.clone();
@@ -44,7 +44,7 @@ mod performance_verifier_tests {
             let g = f.clone();
         "#;
         
-        let result = verifier.verify(code_with_clones, "rust");
+        let result = linter.verify(code_with_clones, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -59,13 +59,13 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_rust_intermediate_allocation() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code_with_alloc = r#"
             let data = vec![1, 2, 3, 4, 5];
             let processed: Vec<_> = data.iter().map(|x| x * 2).collect();
         "#;
         
-        let result = verifier.verify(code_with_alloc, "rust");
+        let result = linter.verify(code_with_alloc, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -79,7 +79,7 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_nested_loop_detection() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code_with_nested_loops = r#"
             for i in 0..100 {
                 for j in 0..100 {
@@ -88,7 +88,7 @@ mod performance_verifier_tests {
             }
         "#;
         
-        let result = verifier.verify(code_with_nested_loops, "rust");
+        let result = linter.verify(code_with_nested_loops, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -102,14 +102,14 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_python_range_len_detection() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let python_code = r#"
             items = [1, 2, 3, 4, 5]
             for i in range(len(items)):
                 print(items[i])
         "#;
         
-        let result = verifier.verify(python_code, "python");
+        let result = linter.verify(python_code, "python");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -123,7 +123,7 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_javascript_dom_query_loop() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let js_code = r#"
             for (let i = 0; i < 100; i++) {
                 const element = document.getElementById('item-' + i);
@@ -131,7 +131,7 @@ mod performance_verifier_tests {
             }
         "#;
         
-        let result = verifier.verify(js_code, "javascript");
+        let result = linter.verify(js_code, "javascript");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -164,14 +164,14 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_score_calculation() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let clean_code = r#"
             fn main() {
                 println!("Hello, world!");
             }
         "#;
         
-        let result = verifier.verify(clean_code, "rust");
+        let result = linter.verify(clean_code, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -181,7 +181,7 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_issue_deduplication() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code_with_duplicates = r#"
             for i in 0..10 {
                 for j in 0..10 {
@@ -195,7 +195,7 @@ mod performance_verifier_tests {
             }
         "#;
         
-        let result = verifier.verify(code_with_duplicates, "rust");
+        let result = linter.verify(code_with_duplicates, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -210,7 +210,7 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_performance_suggestions() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code_with_issues = r#"
             let a = vec![1, 2, 3];
             let b = a.clone();
@@ -227,7 +227,7 @@ mod performance_verifier_tests {
             }
         "#;
         
-        let result = verifier.verify(code_with_issues, "rust");
+        let result = linter.verify(code_with_issues, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();
@@ -240,16 +240,16 @@ mod performance_verifier_tests {
 
     #[test]
     fn test_edge_cases() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         
         // Test with special characters
         let special_chars = "fn main() { println!(\"🚀 Hello 🌍\"); }";
-        let result = verifier.verify(special_chars, "rust");
+        let result = linter.verify(special_chars, "rust");
         assert!(result.is_ok());
         
         // Test with very long line
         let long_line = "x".repeat(10000);
-        let result = verifier.verify(&long_line, "rust");
+        let result = linter.verify(&long_line, "rust");
         assert!(result.is_ok());
         
         // Test with comments only
@@ -258,30 +258,30 @@ mod performance_verifier_tests {
             /* This is a block comment */
             /// This is a doc comment
         "#;
-        let result = verifier.verify(comments_only, "rust");
+        let result = linter.verify(comments_only, "rust");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_multiple_languages() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         
         let rust_code = "let x = vec![1,2,3].clone();";
         let python_code = "for i in range(len(x)): pass";
         let js_code = "for(let i=0;i<10;i++) document.getElementById('test');";
         
         for (code, lang) in [(rust_code, "rust"), (python_code, "python"), (js_code, "javascript")] {
-            let result = verifier.verify(code, lang);
+            let result = linter.verify(code, lang);
             assert!(result.is_ok());
         }
     }
 
     #[test]
     fn test_metrics_calculation() {
-        let verifier = PerformanceVerifier::new();
+        let verifier = PerformanceLinter::new();
         let code = "fn main() { println!(\"Hello\"); }";
         
-        let result = verifier.verify(code, "rust");
+        let result = linter.verify(code, "rust");
         assert!(result.is_ok());
         
         let verification_result = result.unwrap();

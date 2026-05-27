@@ -12,6 +12,9 @@ pub enum Device {
     /// Cross-platform GPU (wgpu backend: NVIDIA, AMD, Intel, Apple Silicon)
     #[cfg(feature = "gpu")]
     Gpu(usize),
+    /// NVIDIA CUDA GPU
+    #[cfg(feature = "cuda")]
+    Cuda(usize),
 }
 
 impl Default for Device {
@@ -19,6 +22,11 @@ impl Default for Device {
         #[cfg(feature = "gpu")]
         if crate::gpu::GpuContext::is_available() {
             return Device::Gpu(0);
+        }
+        #[cfg(feature = "cuda")]
+        if let Ok(runtime) = crate::gpu::CudaRuntime::init(0) {
+            let _ = runtime;
+            return Device::Cuda(0);
         }
         Device::Cpu
     }
@@ -30,6 +38,8 @@ impl fmt::Display for Device {
             Device::Cpu => write!(f, "cpu"),
             #[cfg(feature = "gpu")]
             Device::Gpu(id) => write!(f, "gpu:{}", id),
+            #[cfg(feature = "cuda")]
+            Device::Cuda(id) => write!(f, "cuda:{}", id),
         }
     }
 }
@@ -40,6 +50,8 @@ pub enum Storage {
     Cpu(Arc<ArrayD<f32>>),
     #[cfg(feature = "gpu")]
     Gpu(crate::gpu::GpuTensor),
+    #[cfg(feature = "cuda")]
+    Cuda(crate::gpu::cuda::CudaTensor),
 }
 
 impl Clone for Storage {
@@ -48,6 +60,8 @@ impl Clone for Storage {
             Storage::Cpu(arr) => Storage::Cpu(Arc::clone(arr)),
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => Storage::Gpu(t.clone()),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => Storage::Cuda(t.clone()),
         }
     }
 }
@@ -58,6 +72,8 @@ impl Storage {
             Storage::Cpu(arr) => arr.shape().to_vec(),
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.shape(),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => t.shape(),
         }
     }
 
@@ -66,6 +82,8 @@ impl Storage {
             Storage::Cpu(arr) => arr.len(),
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.numel(),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => t.numel(),
         }
     }
 
@@ -78,20 +96,35 @@ impl Storage {
             Storage::Cpu(_) => Device::Cpu,
             #[cfg(feature = "gpu")]
             Storage::Gpu(t) => Device::Gpu(t.device_id()),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => Device::Cuda(t.device_id()),
         }
     }
 
     /// Extract CPU data — clones data. For zero-copy access, use as_cpu() or data_arc().
-    #[cfg(feature = "gpu")]
+    #[cfg(any(feature = "gpu", feature = "cuda"))]
     pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
         match self {
             Storage::Cpu(arr) => Ok(arr.as_ref().clone()),
+            #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.to_cpu(),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => {
+                let rt = crate::gpu::CudaRuntime::global()
+                    .map_err(|e| GpuError::Device(format!("CUDA to_cpu: {e}")))?;
+                let data = rt
+                    .stream
+                    .clone_dtoh_sync(t.buffer())
+                    .map_err(|e| GpuError::Device(format!("CUDA to_cpu readback: {e}")))?;
+                let arr = ArrayD::from_shape_vec(t.shape(), data)
+                    .map_err(|e| GpuError::Device(format!("CUDA to_cpu shape: {e}")))?;
+                Ok(arr)
+            }
         }
     }
 
     /// Extract CPU data — clones data (CPU-only path).
-    #[cfg(not(feature = "gpu"))]
+    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
     pub fn to_cpu(&self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => arr.as_ref().clone(),
@@ -104,6 +137,8 @@ impl Storage {
             Storage::Cpu(arr) => Some(arr.as_ref()),
             #[cfg(feature = "gpu")]
             Storage::Gpu(_) => None,
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(_) => None,
         }
     }
 
@@ -112,18 +147,33 @@ impl Storage {
             Storage::Cpu(arr) => Some(Arc::make_mut(arr)),
             #[cfg(feature = "gpu")]
             Storage::Gpu(_) => None,
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(_) => None,
         }
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(any(feature = "gpu", feature = "cuda"))]
     pub fn into_cpu(self) -> Result<ArrayD<f32>, GpuError> {
         match self {
             Storage::Cpu(arr) => Ok(Arc::unwrap_or_clone(arr)),
+            #[cfg(feature = "gpu")]
             Storage::Gpu(t) => t.to_cpu(),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => {
+                let rt = crate::gpu::CudaRuntime::global()
+                    .map_err(|e| GpuError::Device(format!("CUDA into_cpu: {e}")))?;
+                let data = rt
+                    .stream
+                    .clone_dtoh_sync(t.buffer())
+                    .map_err(|e| GpuError::Device(format!("CUDA into_cpu readback: {e}")))?;
+                let arr = ArrayD::from_shape_vec(t.shape(), data)
+                    .map_err(|e| GpuError::Device(format!("CUDA into_cpu shape: {e}")))?;
+                Ok(arr)
+            }
         }
     }
 
-    #[cfg(not(feature = "gpu"))]
+    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
     pub fn into_cpu(self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => Arc::unwrap_or_clone(arr),
@@ -138,6 +188,18 @@ impl Storage {
             Storage::Gpu(t) => Arc::new(t.to_cpu().unwrap_or_else(|e| {
                 panic!("GPU readback failed in data_arc: {e}");
             })),
+            #[cfg(feature = "cuda")]
+            Storage::Cuda(t) => {
+                let rt = crate::gpu::CudaRuntime::global().expect("CUDA runtime for data_arc");
+                let data = rt
+                    .stream
+                    .clone_dtoh_sync(t.buffer())
+                    .unwrap_or_else(|e| panic!("CUDA readback failed in data_arc: {e}"));
+                Arc::new(
+                    ArrayD::from_shape_vec(t.shape(), data)
+                        .expect("CUDA data_arc shape"),
+                )
+            }
         }
     }
 }

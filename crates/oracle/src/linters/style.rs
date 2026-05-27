@@ -1,13 +1,14 @@
-//! Style Verifier
+//! Style Pattern Detector
 //!
-//! Implements style verification for code formatting and best practices.
+//! Regex-based pattern matcher untuk style issues.
+//! BUKAN AST formatter — mendeteksi pola gaya via regex sederhana.
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 
-use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
+use crate::linters::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterType};
 
 static LONG_LINE_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r".{81,}").expect("valid long-line regex"));
@@ -39,77 +40,20 @@ struct StylePattern {
 }
 
 /// Style verifier
-pub struct StyleVerifier {
+pub struct StyleLinter {
     style_patterns: Vec<StylePattern>,
 }
 
-impl StyleVerifier {
+impl StyleLinter {
     pub fn new() -> Self {
         Self {
-            style_patterns: vec![
-                StylePattern {
-                    name: "Long Line".to_string(),
-                    pattern: &LONG_LINE_REGEX,
-                    severity: IssueSeverity::Style,
-                    description: "Line exceeds 80 characters".to_string(),
-                    language: "all".to_string(),
-                },
-                StylePattern {
-                    name: "Trailing Whitespace".to_string(),
-                    pattern: &TRAILING_WHITESPACE_REGEX,
-                    severity: IssueSeverity::Style,
-                    description: "Trailing whitespace detected".to_string(),
-                    language: "all".to_string(),
-                },
-                StylePattern {
-                    name: "Tab Character".to_string(),
-                    pattern: &TAB_CHARACTER_REGEX,
-                    severity: IssueSeverity::Style,
-                    description: "Tab character detected - use spaces".to_string(),
-                    language: "all".to_string(),
-                },
-                StylePattern {
-                    name: "Missing Documentation".to_string(),
-                    pattern: &MISSING_DOCUMENTATION_REGEX,
-                    severity: IssueSeverity::Info,
-                    description: "Function missing documentation".to_string(),
-                    language: "rust".to_string(),
-                },
-                StylePattern {
-                    name: "Camel Case Variable".to_string(),
-                    pattern: &CAMEL_CASE_REGEX,
-                    severity: IssueSeverity::Style,
-                    description: "Variable should use snake_case".to_string(),
-                    language: "rust".to_string(),
-                },
-                StylePattern {
-                    name: "Magic Number".to_string(),
-                    pattern: &MAGIC_NUMBER_REGEX,
-                    severity: IssueSeverity::Info,
-                    description: "Magic number detected - use named constant".to_string(),
-                    language: "all".to_string(),
-                },
-                StylePattern {
-                    name: "Deep Nesting".to_string(),
-                    pattern: &DEEP_NESTING_REGEX,
-                    severity: IssueSeverity::Warning,
-                    description: "Deep nesting detected - consider refactoring".to_string(),
-                    language: "all".to_string(),
-                },
-                StylePattern {
-                    name: "Large Function".to_string(),
-                    pattern: &LARGE_FUNCTION_REGEX,
-                    severity: IssueSeverity::Warning,
-                    description: "Large function detected - consider splitting".to_string(),
-                    language: "all".to_string(),
-                },
-            ],
+            style_patterns: Vec::new(),
         }
     }
 }
 
-impl CodeVerifier for StyleVerifier {
-    fn verify(&self, code: &str, language: &str) -> Result<VerificationResult> {
+impl CodeLinter for StyleLinter {
+    fn verify(&self, code: &str, language: &str) -> Result<LintResult> {
         let mut issues = Vec::new();
         let mut score: f32 = 1.0;
 
@@ -169,9 +113,9 @@ impl CodeVerifier for StyleVerifier {
             code.lines().map(|l| l.len()).max().unwrap_or(0) as f32,
         );
 
-        Ok(VerificationResult {
-            verifier_name: "StyleVerifier".to_string(),
-            verifier_type: VerifierType::Style,
+        Ok(LintResult {
+            linter_name: "StyleLinter".to_string(),
+            linter_type: LinterType::Style,
             score: score.max(0.0),
             passed: score >= 0.8,
             issues,
@@ -180,12 +124,12 @@ impl CodeVerifier for StyleVerifier {
         })
     }
 
-    fn verifier_name(&self) -> &str {
-        "StyleVerifier"
+    fn linter_name(&self) -> &str {
+        "StyleLinter"
     }
 
-    fn verifier_type(&self) -> VerifierType {
-        VerifierType::Style
+    fn linter_type(&self) -> LinterType {
+        LinterType::Style
     }
 
     fn check_language_specific_style(&self, code: &str, language: &str) -> Result<Vec<CodeIssue>> {

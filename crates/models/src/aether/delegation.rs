@@ -8,17 +8,23 @@ use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 fn foundation() -> &'static NxrAetherModel {
     static F: OnceLock<NxrAetherModel> = OnceLock::new();
     F.get_or_init(NxrAetherModel::new)
 }
 
 fn init_classifier() {
+    if INITIALIZED.get().is_some() {
+        return;
+    }
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             let embed = model.token_embedding.clone();
             classifier::EmotionClassifier::init(embed);
+            let _ = INITIALIZED.set(true);
         }
     }
 }

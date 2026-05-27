@@ -367,18 +367,19 @@ mod tests {
         };
         let mgr = GpuRecoveryManager::new(config);
 
-        let mut call_count = 0;
+        let call_count = std::cell::Cell::new(0);
         let result = mgr.try_execute(|| {
-            call_count += 1;
-            if call_count < 3 {
+            call_count.set(call_count.get() + 1);
+            if call_count.get() < 3 {
                 Err(GpuError::Timeout("transient".into()))
             } else {
                 Ok(42)
             }
         });
 
-        assert_eq!(result, Ok(42));
-        assert_eq!(call_count, 3);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(call_count.get(), 3);
         assert_eq!(mgr.recovered_count.load(Ordering::Relaxed), 1);
     }
 
@@ -391,14 +392,14 @@ mod tests {
         };
         let mgr = GpuRecoveryManager::new(config);
 
-        let mut call_count = 0;
-        let result = mgr.try_execute(|| {
-            call_count += 1;
+        let call_count = std::cell::Cell::new(0);
+        let result: Result<(), GpuError> = mgr.try_execute(|| {
+            call_count.set(call_count.get() + 1);
             Err(GpuError::Buffer("OOM".into()))
         });
 
         assert!(result.is_err());
-        assert_eq!(call_count, 3); // initial + 2 retries = 3 calls
+        assert_eq!(call_count.get(), 3); // initial + 2 retries = 3 calls
     }
 
     #[test]

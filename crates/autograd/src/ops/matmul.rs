@@ -7,6 +7,10 @@ use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
 use crate::gpu::GpuError;
 #[cfg(feature = "gpu")]
 use crate::Storage;
+#[cfg(feature = "cuda")]
+use crate::gpu::cuda::CudaTensor;
+#[cfg(feature = "cuda")]
+use crate::gpu::CudaRuntime;
 use ndarray::ArrayD;
 use tracing::warn;
 
@@ -35,6 +39,26 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
             b_shape[0]
         );
         return Tensor::new(ArrayD::zeros(vec![0]));
+    }
+
+    // ── CUDA matmul via cuBLAS (Tensor Core enabled) ──────────────
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        let b_storage = b.storage();
+        if let (Storage::Cuda(ca), Storage::Cuda(cb)) = (&a_storage, &b_storage) {
+            if let Ok(rt) = CudaRuntime::global() {
+                match rt.matmul(ca, cb) {
+                    Ok(cuda_result) => {
+                        let id = crate::tensor::next_tensor_id();
+                        return Tensor::from_cuda(cuda_result, id, false);
+                    }
+                    Err(e) => {
+                        tracing::warn!("CUDA matmul failed, falling back to CPU: {e}");
+                    }
+                }
+            }
+        }
     }
 
     #[cfg(feature = "gpu")]

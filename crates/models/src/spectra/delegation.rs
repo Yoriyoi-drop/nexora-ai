@@ -8,17 +8,23 @@ use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
+static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 fn foundation() -> &'static NxrSpectraModel {
     static F: OnceLock<NxrSpectraModel> = OnceLock::new();
     F.get_or_init(NxrSpectraModel::new)
 }
 
 fn init_classifier() {
+    if INITIALIZED.get().is_some() {
+        return;
+    }
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             let embed = model.token_embedding.clone();
             StyleClassifier::init(embed);
+            let _ = INITIALIZED.set(true);
         }
     }
 }

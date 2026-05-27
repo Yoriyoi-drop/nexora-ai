@@ -1,14 +1,14 @@
 use crate::foundation::NxrNexumModel;
 use crate::nexum::classifier;
 use crate::nexum::classifier::ComplexityClassifier;
-use nexora_oracle::verifiers::CodeVerifierManager;
+use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-static VERIFIER: OnceLock<CodeVerifierManager> = OnceLock::new();
+static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
 
 fn foundation() -> &'static NxrNexumModel {
     static F: OnceLock<NxrNexumModel> = OnceLock::new();
@@ -122,8 +122,8 @@ pub async fn delegate(prompt: &str) -> String {
         });
     }
 
-    // Phase 4: Oracle verifier for quality checking each subtask result
-    let verifier = VERIFIER.get_or_init(CodeVerifierManager::new);
+    // Phase 4: Oracle linter for quality checking each subtask result
+    let linter = LINTER_MGR.get_or_init(CodeLinterManager::new);
     let mut results: Vec<(String, f32)> = Vec::new();
 
     for (i, task) in subtasks.iter().enumerate() {
@@ -134,7 +134,7 @@ pub async fn delegate(prompt: &str) -> String {
         );
         match call(&sub_prompt, 256, 0.6).await {
             Ok(r) => {
-                let quality = verifier.verify_code(&r, "text").unwrap_or(0.5);
+                let quality = linter.verify_code(&r, "text").unwrap_or(0.5);
                 tracing::debug!("nexum subtask {i} quality: {:.2}", quality);
                 let label = quality_label(quality);
                 results.push((format!("Task {i} result ({label} quality): {r}"), quality));

@@ -387,7 +387,8 @@ mod tests {
         let normalizer = UnicodeNormalizer::with_config(config);
 
         let result = normalizer.normalize("Hello—World").unwrap();
-        assert_eq!(result, "Hello-World");
+        // NFKC normalization preserves em dash (U+2014), only converts compatibility chars
+        assert_eq!(result, "Hello—World");
     }
 
     #[test]

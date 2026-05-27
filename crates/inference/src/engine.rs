@@ -60,10 +60,10 @@ pub struct InferenceConfig {
 impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_requests: 10,
+            max_concurrent_requests: 32,
             default_model_id: "default-model".to_string(),
             enable_queuing: true,
-            queue_size_limit: 100,
+            queue_size_limit: 1000,
             enable_caching: true,
             cache_size_limit_mb: 1024,
             enable_streaming: true,
@@ -78,9 +78,9 @@ impl Default for InferenceConfig {
             use_gpu_cache: true,
             #[cfg(feature = "gpu")]
             use_gpu_resident: true,
-            use_continuous_batching: false,
+            use_continuous_batching: true,
             use_continuous_batching_config: None,
-            use_paged_cache: false,
+            use_paged_cache: true,
             paged_block_size: 0,
             paged_max_blocks: 0,
             checkpoint_path: None,

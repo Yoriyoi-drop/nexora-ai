@@ -21,6 +21,67 @@ pub fn gpu_math_fallback_count() -> u64 {
 }
 
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        let b_storage = b.storage();
+        if matches!(&a_storage, Storage::Cuda(_))
+            && matches!(&b_storage, Storage::Cuda(_))
+        {
+            match (&a_storage, &b_storage) {
+                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                    if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                        match ctx.add(ca, cb) {
+                            Ok(cuda_result) => {
+                                let requires_grad = a.requires_grad() || b.requires_grad();
+                                if !requires_grad {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cuda_result, id, false);
+                                }
+                                let a_shape = a.shape();
+                                let b_shape = b.shape();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cuda_result,
+                                    vec![a.clone(), b.clone()],
+                                    vec![a_shape_saved, b_shape_saved],
+                                    Box::new(|grad, saved| {
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
+                                        let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
+                                        let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
+                                        vec![da, db]
+                                    }),
+                                );
+                            }
+                            Err(e) => {
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(error = %e, "CUDA add failed, falling back");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
@@ -147,6 +208,65 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        let b_storage = b.storage();
+        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+            match (&a_storage, &b_storage) {
+                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                    if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                        match ctx.sub(ca, cb) {
+                            Ok(cuda_result) => {
+                                let requires_grad = a.requires_grad() || b.requires_grad();
+                                if !requires_grad {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cuda_result, id, false);
+                                }
+                                let a_shape = a.shape();
+                                let b_shape = b.shape();
+                                let a_shape_saved = ArrayD::from_shape_vec(
+                                    vec![a_shape.len()],
+                                    a_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
+                                let b_shape_saved = ArrayD::from_shape_vec(
+                                    vec![b_shape.len()],
+                                    b_shape.iter().map(|&x| x as f32).collect(),
+                                )
+                                .unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                });
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cuda_result,
+                                    vec![a.clone(), b.clone()],
+                                    vec![a_shape_saved, b_shape_saved],
+                                    Box::new(|grad, saved| {
+                                        let a_shape: Vec<usize> =
+                                            saved[0].iter().map(|&x| x as usize).collect();
+                                        let b_shape: Vec<usize> =
+                                            saved[1].iter().map(|&x| x as usize).collect();
+                                        let da = broadcast::reduce_grad_for_shape(grad, &a_shape);
+                                        let db = broadcast::reduce_grad_for_shape(grad, &b_shape);
+                                        vec![da, -db]
+                                    }),
+                                );
+                            }
+                            Err(e) => {
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(error = %e, "CUDA sub failed, falling back");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
@@ -273,6 +393,47 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        let b_storage = b.storage();
+        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+            match (&a_storage, &b_storage) {
+                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                    if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                        match ctx.mul(ca, cb) {
+                            Ok(cuda_result) => {
+                                let requires_grad = a.requires_grad() || b.requires_grad();
+                                if !requires_grad {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cuda_result, id, false);
+                                }
+                                let a_cpu = a.data();
+                                let b_cpu = b.data();
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cuda_result,
+                                    vec![a.clone(), b.clone()],
+                                    vec![a_cpu, b_cpu],
+                                    Box::new(|grad, saved| {
+                                        let a_bc = &saved[0];
+                                        let b_bc = &saved[1];
+                                        let da = grad.clone() * b_bc;
+                                        let db = grad.clone() * a_bc;
+                                        vec![da, db]
+                                    }),
+                                );
+                            }
+                            Err(e) => {
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(error = %e, "CUDA mul failed, falling back");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
@@ -358,6 +519,49 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        let b_storage = b.storage();
+        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+            match (&a_storage, &b_storage) {
+                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                    if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                        match ctx.div(ca, cb) {
+                            Ok(cuda_result) => {
+                                let requires_grad = a.requires_grad() || b.requires_grad();
+                                if !requires_grad {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cuda_result, id, false);
+                                }
+                                let a_cpu = a.data();
+                                let b_cpu = b.data();
+                                let result_cpu = &a_cpu / &b_cpu;
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cuda_result,
+                                    vec![a.clone(), b.clone()],
+                                    vec![a_cpu, b_cpu, result_cpu],
+                                    Box::new(|grad, saved| {
+                                        let a_bc = &saved[0];
+                                        let b_bc = &saved[1];
+                                        let result_val = &saved[2];
+                                        let da = grad.clone() / b_bc;
+                                        let db = -grad.clone() * result_val / b_bc;
+                                        vec![da, db]
+                                    }),
+                                );
+                            }
+                            Err(e) => {
+                                GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(error = %e, "CUDA div failed, falling back");
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();
@@ -445,6 +649,38 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn exp(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let input_storage = input.storage();
+        if let Storage::Cuda(cu_input) = &input_storage {
+            if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                match ctx.exp(cu_input) {
+                    Ok(cuda_result) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let result_cpu = input.data().mapv(|x| x.exp());
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![result_cpu],
+                            Box::new(|grad, saved| {
+                                let result_val = &saved[0];
+                                let da = grad.clone() * result_val;
+                                vec![da]
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(error = %e, "CUDA exp failed, falling back");
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let input_storage = input.storage();
@@ -513,6 +749,38 @@ pub fn exp(input: &Tensor) -> Tensor {
 }
 
 pub fn ln(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let input_storage = input.storage();
+        if let Storage::Cuda(cu_input) = &input_storage {
+            if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                match ctx.ln(cu_input) {
+                    Ok(cuda_result) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let input_cpu = input.data();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![input_cpu],
+                            Box::new(|grad, saved| {
+                                let input_val = &saved[0];
+                                let da = grad.clone() / input_val;
+                                vec![da]
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(error = %e, "CUDA ln failed, falling back");
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let input_storage = input.storage();
@@ -581,6 +849,41 @@ pub fn ln(input: &Tensor) -> Tensor {
 }
 
 pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let input_storage = input.storage();
+        if let Storage::Cuda(cu_input) = &input_storage {
+            if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                match ctx.powf(cu_input, exponent) {
+                    Ok(cuda_result) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
+                        let result_cpu = input.data().mapv(|x| x.powf(exponent));
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![exponent_saved, result_cpu],
+                            Box::new(|grad, saved| {
+                                let exp = saved[0][IxDyn(&[])];
+                                let result_val = &saved[1];
+                                let da = grad.clone() * exp * result_val
+                                    / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                vec![da]
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(error = %e, "CUDA powf failed, falling back");
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let input_storage = input.storage();
@@ -659,6 +962,38 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
 }
 
 pub fn sqrt(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let input_storage = input.storage();
+        if let Storage::Cuda(cu_input) = &input_storage {
+            if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                match ctx.sqrt(cu_input) {
+                    Ok(cuda_result) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let result_cpu = input.data().mapv(|x| x.sqrt());
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![result_cpu.clone()],
+                            Box::new(|grad, saved| {
+                                let result_val = &saved[0];
+                                let da = grad.clone() / (2.0 * result_val);
+                                vec![da]
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(error = %e, "CUDA sqrt failed, falling back");
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let input_storage = input.storage();
@@ -727,6 +1062,33 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 }
 
 pub fn neg(a: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let a_storage = a.storage();
+        if let Storage::Cuda(ca) = &a_storage {
+            if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
+                match ctx.neg(ca) {
+                    Ok(cuda_result) => {
+                        let requires_grad = a.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![a.clone()],
+                            vec![],
+                            Box::new(|grad, _saved| vec![-grad.clone()]),
+                        );
+                    }
+                    Err(e) => {
+                        GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(error = %e, "CUDA neg failed, falling back");
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let a_storage = a.storage();

@@ -72,10 +72,10 @@ impl RequestScheduler {
             queue: RwLock::new(VecDeque::new()),
             requests: Arc::new(RwLock::new(HashMap::new())),
             max_concurrent: max_concurrent_requests,
-            max_batch_size: 8,
+            max_batch_size: 32,
             max_queue_time_ms: 5000,
             active_count: RwLock::new(0),
-            batch_collector: Arc::new(RwLock::new(BatchCollector::new(8, 50))),
+            batch_collector: Arc::new(RwLock::new(BatchCollector::new(32, 50))),
             shutdown: AtomicBool::new(false),
             notify: Arc::new(Notify::new()),
             shutdown_tx,
@@ -606,6 +606,6 @@ impl nexora_runtime::Scheduler for RequestScheduler {
 
 impl Default for RequestScheduler {
     fn default() -> Self {
-        Self::new(4)
+        Self::new(16)
     }
 }

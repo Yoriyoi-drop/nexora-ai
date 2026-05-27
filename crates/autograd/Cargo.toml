@@ -22,7 +22,7 @@ pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", optional = true }
 
 # CUDA backend
-cudarc = { version = "0.19", optional = true, default-features = false }
+cudarc = { version = "0.19", optional = true, default-features = false, features = ["dynamic-loading", "cuda-version-from-build-system"] }
 
 [features]
 default = ["std", "serde", "gpu"]

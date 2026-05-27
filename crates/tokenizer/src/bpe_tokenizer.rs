@@ -449,7 +449,7 @@ mod tests {
         assert!(!tokenizer.unicode_to_byte.is_empty());
         assert!(!tokenizer.byte_to_unicode.is_empty());
         assert!(tokenizer.unicode_to_byte.contains_key(&'a'));
-        assert!(tokenizer.unicode_to_byte.contains_key(&' '));
+        assert!(tokenizer.unicode_to_byte.contains_key(&char::from_u32(288).unwrap()));
     }
 
     #[test]

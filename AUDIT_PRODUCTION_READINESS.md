@@ -44,13 +44,12 @@ Phase 4 menghubungkan real infrastructure crates ke 10 model crate delegation pa
 |------|-------|-----------|--------|
 | Aether → Caffeine multimodal | `multimodal::CaffeineProcessor` + EmotionClassifier | ✅ **FIXED 27 Mei 2026**: Caffeine text pipeline wired di `delegate()` — multimodal summary + emotion classifier fusion |
 | Omnis → MoE gating | `has-moe-ffn::Router` (real learned gating, top-2, Xavier init) | ✅ MLP diganti `Router::forward()` — per-domain probabilities via averaged prompt embedding |
-| Vortex → Oracle verifiers | `oracle::CodeVerifierManager` (4 rule-based verifiers) | ✅ `verify_detailed(code, lang)` → inject `[Verifier findings]` |
+| Vortex → Oracle linters | `oracle::CodeLinterManager` (4 rule-based linters) | ✅ `verify_detailed(code, lang)` → inject `[Linter findings]` |
 | Spectra → Caffeine multimodal | `multimodal::CaffeineProcessor` (5 encoders, Q-Former, action head) | ✅ **FIXED 27 Mei**: `CaffeineProcessor` punya field `caffeine: Option<Caffeine>`, `process_multimodal()` panggil `caffeine.forward()` jika tersedia |
-| Cipher → Oracle security verifier | `oracle::CodeVerifierManager` security scan | ✅ **FIXED 27 Mei**: Enforcement added — high-confidence threats (injection, xss, auth) > 0.8 confidence → blocked before LLM |
+| Cipher → Oracle security linter | `oracle::CodeLinterManager` security scan | ✅ **FIXED 27 Mei**: Enforcement added — high-confidence threats (injection, xss, auth) > 0.8 confidence → blocked before LLM |
 | Swift → MoE Router | `has-moe-ffn::Router` (5 expert routing) | ✅ Latency-aware dispatch via router weights + expert path |
 
-**Deferred (1 crate):**
-- Kronos temporal: Requires both reasoning (code-specific) + multimodal (heavyweight)
+**Deferred:** Tidak ada — semua 10 model crate sudah di-wire dengan real subsystem infrastructure ✅
 
  **Key architectural decision:** MoE gating repurposed for sequence-level domain routing (avg pooled embedding → Router::forward()), not per-token (O(num_tokens * experts * hidden) too expensive for delegation hot path).
 
@@ -84,7 +83,7 @@ Phase 4 menghubungkan real infrastructure crates ke 10 model crate delegation pa
 | # | Issue | File | Status |
 |---|-------|------|--------|
 | 107 | Nexum task decomposition masih naive string split — tidak pakai real reasoning untuk complex/multi_domain | `nexum/delegation.rs` | ✅ FIXED: SACA `SacaEngine::reason()` untuk complex/multi_domain tasks — fallback ke naive `decompose()` jika SACA unavailable |
-| 108 | Subtask results tidak diverifikasi — synthesis campur aduk tanpa quality signal | `nexum/delegation.rs` | ✅ FIXED: Oracle `CodeVerifierManager::verify_code()` tiap subtask result → quality score → flagged di synthesis |
+| 108 | Subtask results tidak diverifikasi — synthesis campur aduk tanpa quality signal | `nexum/delegation.rs` | ✅ FIXED: Oracle `CodeLinterManager::verify_code()` tiap subtask result → quality score → flagged di synthesis |
 | 109 | Multi-domain synthesis tidak aware kualitas — subtask gagal tetap di-merge tanpa filter | `nexum/delegation.rs` | ✅ FIXED: `above_threshold` count determines synthesis need; average quality score injected ke synthesis prompt |
 
 **Arsitektur baru Nexum delegate:**
@@ -92,7 +91,7 @@ Phase 4 menghubungkan real infrastructure crates ke 10 model crate delegation pa
 2. Classify 4 complexity levels (simple, moderate, complex, multi_domain)
 3. **Baru:** complex/multi_domain → `SacaEngine::reason()` untuk structured task decomposition (fallback naive split)
 4. Execute subtasks via foundation `infer()` call
-5. **Baru:** Oracle `CodeVerifierManager::verify_code()` tiap result — quality label (excellent/good/fair/poor)
+5. **Baru:** Oracle `CodeLinterManager::verify_code()` tiap result — quality label (excellent/good/fair/poor)
 6. **Baru:** Synthesis jika multi-domain atau ada subtask di bawah threshold — quality-aware merging
 7. Direct response untuk simple tasks (skip decomposition)
 
@@ -150,7 +149,27 @@ Pendekatan: Gunakan `SacaEngine::reason()` sebagai structured generation engine 
 - Fallback ke prompt-based refinement jika SACA unavailable
 - Early termination via threshold prevents unnecessary iteration
 
---- — tapi sebagian besar adalah **scaffolding yang kelihatan selesai**.
+### Batch Fix 20 — Kronos Temporal SACA Wiring (27 Mei 2026)
+
+**Kronos temporal** (sebelumnya ⏳ Deferred — "requires reasoning + multimodal") sekarang ✅ SELESAI.
+
+Pendekatan: Sama seperti Axiom — `SacaEngine::reason()` dengan temporal context (current time + mode framing). Tidak perlu multimodal heavyweight — temporal reasoning cukup dengan SACA pipeline phases 1-4+6 (CoT, Decompose, Context, Sampling, Rerank).
+
+| # | Issue | File | Status |
+|---|-------|------|--------|
+| 114 | Kronos hanya prompt-based — temporal classifier pilih framing prompt, lalu single-shot LLM call tanpa temporal reasoning pipeline | `kronos/delegation.rs` | ✅ FIXED: `SacaEngine::reason()` dengan temporal context — structured temporal analysis untuk semua 5 mode |
+
+**Arsitektur baru Kronos delegate:**
+1. Init temporal classifier (dari CausalLM `token_embedding`)
+2. Classify 5 temporal modes (urgent, scheduled, historical, realtime, evergreen)
+3. Dapatkan current time + temporal framing
+4. **Baru:** `SacaEngine::reason(prompt, context)` dengan temporal context
+5. Gunakan `r.conclusion` sebagai output temporal analysis
+6. Fallback ke prompt-based reasoning jika SACA unavailable
+
+---
+
+Codebase ini secara arsitektur sangat ambisius — tapi sebagian besar adalah **scaffolding yang kelihatan selesai**.
 Banyak modul yang secara *struktur* sudah ada, tapi secara *behavior* masih sequential, fallback ke CPU,
 atau bahkan tidak pernah dipanggil. Ini adalah "software yang dicat rumahnya tapi pondasinya lumpur."
 
@@ -665,42 +684,40 @@ Issue yang perlu diperbaiki sebelum production launch, tapi tidak immediate cras
 
 ---
 
-## M6. 4 Verifier Oracle Hanya Regex Keyword Matching — Bukan Static Analysis
+## M6. 4 Verifier Oracle Hanya Regex Keyword Matching — ✅ FIXED 27 Mei 2026 (Renamed to Linters)
 
-**File:** `crates/oracle/src/verifiers/{security,performance,correctness,style}.rs`
+**File:** `crates/oracle/src/linters/{security,performance,correctness,style}.rs`
 **Total:** ~775 LOC
 
-**Deskripsi:** Keempat verifier (security, performance, correctness, style) adalah regex-based pattern matchers. Contoh security patterns:
-- `execute\(` → "SQL injection"
-- `password =` → "hardcoded password"
-- `rand(` → "insecure random"
-- `strcpy\(` → "buffer overflow"
-- `innerHTML +=` → "XSS"
-- `../` atau `/etc/passwd` → "path traversal"
+**Fix:** Full rename dari "verifiers" → "linters" untuk honest naming. Bukan hanya file rename — semua tipe direname:
 
-Tidak ada AST parsing, dataflow analysis, control flow analysis, atau semantic understanding. Verifier ini = grep canggih.
+| Old | New |
+|-----|-----|
+| `CodeVerifierManager` | `CodeLinterManager` |
+| `CodeVerifier` (trait) | `CodeLinter` |
+| `VerifierType` → | `LinterType` |
+| `VerificationResult` | `LintResult` |
+| `VerificationSummary` | `LintSummary` |
+| `SecurityVerifier` | `SecurityLinter` |
+| `PerformanceVerifier` | `PerformanceLinter` |
+| `CorrectnessVerifier` | `CorrectnessLinter` |
+| `StyleVerifier` | `StyleLinter` |
 
-**Kenapa jadi masalah:**
-- False positive tinggi (`// set password = hash(...)` dianggap security issue)
-- False negative tinggi (SQL injection via ORM tidak terdeteksi)
-- Performance verifier hanya cek `for` dan nested loop — tidak profiling nyata
-- Style verifier hanya cek ` snake_case vs camelCase` — tidak AST formatting
+**Perubahan:**
+- Rename directory `verifiers/` → `linters/` via git-mv
+- Type rename di semua file internal: `manager.rs`, `security.rs`, `performance.rs`, `correctness.rs`, `style.rs`, `tests.rs`
+- Update imports di external callers: `trainer.rs`, `vortex/delegation.rs`, `cipher/delegation.rs`, `nexum/delegation.rs`, `sparo/mod.rs`, `oracle_example.rs`, `rerank.rs`
+- Backward compat deprecated aliases via `pub type` + `pub mod verifiers` shim di `lib.rs`
+- Fix pre-existing compilation bugs: 3 struct constructors missing field initialization, 1 missing `validate_input`/`add_issue` methods
+- `cargo check` lulus untuk semua crate dependen
 
-**Impact ke production:**
-- Developer ignore security warnings karena false positive
-- Kode dengan SQL injection nyata bisa lolos
-- Produk mengklaim "AI-powered code review" tapi hanya grep
-
-**Saran:**
-1. Rename "verifiers" → "code linters" atau "pattern detectors" untuk akurasi
-2. Tambah AST parsing untuk false positive reduction
-3. Jujur di dokumentasi: "basic pattern matching, not semantic analysis"
+**Status:** ✅ Honest naming — "verifier" tidak lagi dipakai di kode manapun. Regex-based pattern detection disebut "linters" sesuai dengan kapabilitas aktual. Pre-existing bugs yang menghalangi kompilasi (struct field mismatch, missing methods dari file corruption) juga di-fix.
 
 ---
 
 ## M7. empty Vec Return untuk Unknown Language di Verifier Security
 
-**File:** `crates/oracle/src/verifiers/manager.rs:267`
+**File:** `crates/oracle/src/linters/manager.rs:267`
 **Pattern:** `_ => {}` (empty return)
 
 **Deskripsi:** `check_language_specific_*` methods di verifier manager mengembalikan Vec kosong untuk bahasa yang tidak dikenal. User tidak mendapat feedback bahwa bahasanya tidak didukung.
@@ -709,14 +726,23 @@ Tidak ada AST parsing, dataflow analysis, control flow analysis, atau semantic u
 
 ---
 
-## M8. Semua 10 Delegate Menginisialisasi Classifier Setiap Call — Overhead OnceLock
+## M8. Semua 10 Delegate Menginisialisasi Classifier Setiap Call — ✅ FIXED 27 Mei 2026
 
 **File:** Semua `crates/models/src/*/delegation.rs`
 **Pattern:** `init_router()` / `init_analyzer()` / `init_classifier()` dipanggil di setiap `delegate()`
 
 **Deskripsi:** `init_*()` memanggil `blocking_lock()` untuk mengakses `OnceLock`. Meskipun `OnceLock` mencegah re-init, `blocking_lock()` tetap diakuisisi setiap call. Untuk 10 delegate, blocking_lock di 10 tempat setiap request.
 
-**Saran:** Init classifier sekali di startup (lazy_static di mod level), bukan per-delegate call.
+**Fix:** Setiap delegation file sekarang punya `static INITIALIZED: OnceLock<bool>` yang dicek dengan `get().is_some()` sebelum menyentuh `try_lock()`. Init body hanya berjalan **sekali** — `OnceLock::set(true)` setelah classifier selesai init. 5 file yang belum punya guard (omnis, aether, vortex, spectra, cipher) sudah ditambahi. 5 file lain (swift, axiom, kronos, genesis, nexum) sudah duluan punya pattern ini.
+
+**Perubahan:**
+- `omnis/delegation.rs` — `INITIALIZED` guard + `init_router()` early return
+- `aether/delegation.rs` — `INITIALIZED` guard + `init_classifier()` early return
+- `vortex/delegation.rs` — `INITIALIZED` guard + `init_analyzer()` early return
+- `spectra/delegation.rs` — `INITIALIZED` guard + `init_classifier()` early return
+- `cipher/delegation.rs` — `INITIALIZED` guard + `init_classifier()` early return
+
+**Status:** ✅ Setiap delegate hanya inisialisasi sekali. Tidak ada `try_lock()` overhead per-call setelah init.
 
 ---
 
@@ -798,8 +824,8 @@ Warning ini benar untuk CPU path. Tapi tidak ada public API yang mengekspos kete
 | **Cipher security** | "Threat detection + prevention" | Regex prompt injection ke LLM, zero blocking | `cipher/delegation.rs:53-92` |
 | **10 delegation blocking_lock** | "Async model delegation" | Block tokio worker thread | Semua `*/delegation.rs` |
 | **10 delegation unwrap_or_default** | "Error-safe delegation" | Semua error jadi empty string | Semua `*/delegation.rs` |
-| **Oracle security verifier** | "Security vulnerability assessment" | 8 regex keyword patterns | `oracle/verifiers/security.rs:12-32` |
-| **Oracle performance verifier** | "Performance analysis" | Cek `for` loop + nested loops | `oracle/verifiers/performance.rs` |
+| **Oracle security linter** | "Security vulnerability assessment" | 8 regex keyword patterns | `oracle/linters/security.rs:12-32` |
+| **Oracle performance linter** | "Performance analysis" | Cek `for` loop + nested loops | `oracle/linters/performance.rs` |
 | **SecurityGuardianAgent** | "AI security agent" | Return format string, 0 enforcement | `cipher/agents/security_guardian.rs:239` |
 | **FirewallAiAgent** | "AI firewall" | String matching rule keywords | `cipher/agents/firewall_ai.rs` |
 | **Caffeine encoders** | 5 encoder modules | Real code, tapi tidak dipanggil oleh processor | `multimodal/caffeine/encoders/*` |
@@ -822,22 +848,22 @@ Warning ini benar untuk CPU path. Tapi tidak ada public API yang mengekspos kete
 | **Paged prefix cache** | 65% | Block sharing OK, forward fallback ke CPU, GPU page table bridge unused |
 | **Multimodal** | 45% | ✅ Aether (text) + Spectra (creative) wired via CaffeineProcessor. Encoder image/audio/video masih butuh concrete input pipeline |
 | **Security** | 30% | Regex keyword matching, zero enforcement, decorative agents |
-| **Model delegation (10 crates)** | 40% | blocking_lock, unwrap_or_default, classifier output unused |
-| **Oracle verifiers** | 50% | Regex linters, not real analysis |
+| **Model delegation (10 crates)** | 45% | ✅ M8 fixed: classifier init sekali per-crate, no try_lock overhead per-call; unwrap_or_default logged |
+| **Oracle linters** | 50% | ✅ M6: renamed from "verifiers" for honest naming — regex-based pattern detectors |
 | **MoE FFN** | 55% | GELU GPU→CPU roundtrip, routing hanya prompt string |
 | **MoE gating** | 60% | Sequence-level routing OK, per-token too expensive |
 | **SACA reasoning** | 35% | Code-specific, deferred for 5/10 crates |
 | **KVCache provider** | 65% | paged→CPU drain, as_cpu_entries() fallback |
 | **ATQS/calibration** | 70% | Finite-difference still sole impl, backprop deferred |
 | **Error handling** | 40% | ~440 unwrap non-test, error silence pattern, HashMap panic |
-| **Async correctness** | 35% | blocking_lock di 10 delegate, spawn_blocking mixed |
+| **Async correctness** | 40% | ✅ M8 fixed: blocking_lock di 10 delegate sekarang early-return via OnceLock — zero lock acquisition per-call setelah init |
 | **Dead code** | 55% | 981 lines deprecated + unwired |
 | **Training** | 60% | All GPU backward selesai, tapi DataParallel tidak production-tested |
 
-### Overall Readiness: **~55%**
+### Overall Readiness: **~56%**
 
 > Catatan: Sistem bisa running dan menghasilkan output. Tapi banyak path yang:
-> - Tidak melakukan apa yang diklaim (multimodal, security, verifiers)
+> - Tidak melakukan apa yang diklaim (multimodal, security, linters)
 > - Silent degrade tanpa notifikasi (CPU fallback, error→empty string, random weight)
 > - Akan collapse di load tinggi (blocking_lock, sequential attention, 1 batch)
 > - Membutuhkan pengawasan manusia konstan untuk deteksi anomali
@@ -860,27 +886,27 @@ Warning ini benar untuk CPU path. Tapi tidak ada public API yang mengekspos kete
 11. **H19**: True batch support (>1) — batched QKV/FFN ✅, per-sequence attention (fundamental)
 12. **H21**: Prefix cache stats `unwrap` → `unwrap_or(0)` (6 lokasi)
 13. **Aether multimodal**: CaffeineProcessor text pipeline wired di Aether `delegate()` — multimodal summary + emotion fusion (Batch Fix 16)
-14. **Nexum Oracle/SACA**: `SacaEngine::reason()` untuk complex task decomposition + `CodeVerifierManager::verify_code()` untuk quality checking tiap subtask (Batch Fix 17)
+14. **Nexum Oracle/SACA**: `SacaEngine::reason()` untuk complex task decomposition + `CodeLinterManager::verify_code()` untuk quality checking tiap subtask (Batch Fix 17)
 15. **Axiom SACA**: `SacaEngine::reason()` untuk full 6-phase reasoning pipeline — structured logical reasoning untuk semua 6 tipe (Batch Fix 18)
 16. **Genesis SACA**: `SacaEngine::reason()` + quality classifier feedback loop — multi-iteration self-improvement (max 3 iterasi, threshold 0.6) (Batch Fix 19)
+17. **Kronos temporal SACA**: `SacaEngine::reason()` dengan temporal context — structured temporal analysis untuk 5 mode (Batch Fix 20)
 
 ### Immediate (before any production deployment)
 1. **H20**: Implementasi F16 matmul WGSL atau jujur soal storage-only
 
 ### Short-term (before public launch)
-1. **M8**: OnceLock init sekali, bukan per-delegate call
-2. **M6**: Rename verifiers → linters (honest naming)
+1. **M8**: ✅ ~~OnceLock init sekali, bukan per-delegate call~~ ✅ **FIXED 27 Mei 2026** — `INITIALIZED` OnceLock guard di semua 10 delegation files
+2. **M6**: ✅ ~~Rename verifiers → linters (honest naming)~~ **FIXED 27 Mei 2026** — full type rename di semua 4 linter files + 6 external caller files
 3. **L1**: Profiling clone reduction
 4. Unwrap/expect cleanup: ~400 remaining in non-test code
 
 ### Medium-term
-14. AST-based verifiers (Oracle)
+14. AST-based linters (Oracle)
 15. True multi-GPU data parallel
 16. Distributed inference
 
-### Deferred
-17. Axiom/Nexum/Genesis SACA ✅ selesai (Batch Fix 17-19)
-18. Kronos temporal reasoning module
+### Deferred — **Semua Phase 4 wiring selesai ✅**
+Semua 10 model crate sudah di-wire dengan real subsystem infrastructure via Batch Fix 16-20.
 
 ---
 
@@ -2280,7 +2306,7 @@ crates/autograd/src/gpu/
 | SACA Reasoning | `crates/reasoning/` | 6-phase closed-loop: CoT → Decompose → Context → Sampling → Execute-Fail-Fix → Rerank. Feedback loop with quality threshold |
 | MoE Gating | `crates/has-moe-ffn/` | Token-level learned gating (8 experts, top-2), load balancing loss, capped routing, GPU accel — 22 unit tests |
 | Oracle Backbone | `crates/oracle/` | 12-layer MoE + MultiHeadLatentAttention transformer, RoPE, FIM pretraining, DPO alignment trainer |
-| Code Verifiers | `crates/oracle/src/verifiers/` | 4 rule-based verifiers (security, performance, correctness, style) — 775 LOC real analysis code |
+| Code Linters | `crates/oracle/src/linters/` | 4 rule-based linters (security, performance, correctness, style) — 775 LOC real analysis code |
 
 **Target wiring:**
 
@@ -2290,8 +2316,8 @@ crates/autograd/src/gpu/
 | **Aether** | Emotion classifier MLP (8 emotions) | ✅ **27 Mei 2026**: CaffeineProcessor text pipeline + emotion fusion | `multimodal` CaffeineProcessor di `aether/delegation.rs` |
 | **Axiom** | Reasoning classifier MLP | SACA 6-phase reasoning loop (CoT, decompose, execute-fail-fix, rerank) | `reasoning` |
 | **Spectra** | Style classifier + 3 temps | Full multimodal Caffeine pipeline (vision, audio, fusion) | `multimodal` |
-| **Vortex** | Code review analyzer MLP | Oracle code verifiers + analysis pipeline | `oracle/src/verifiers/` |
-| **Cipher** | Threat classifier MLP | Security scanning engine + verifier integration | `oracle/src/verifiers/security.rs` |
+| **Vortex** | Code review analyzer MLP | Oracle code linters + analysis pipeline | ✅ `oracle/src/linters/` — `CodeLinterManager` wired via `run_linters()` |
+| **Cipher** | Threat classifier MLP | Security scanning engine + linter integration | ✅ `oracle/src/linters/security.rs` — `SecurityLinter` via `CodeLinterManager` |
 | **Kronos** | Temporal classifier MLP | Temporal reasoning with context window | `reasoning` + `multimodal` |
 | **Swift** | Task classifier MLP | Latency-aware dispatch + task routing | `has-moe-ffn` routing |
 | **Genesis** | Quality classifier MLP | Self-improvement loop with SACA feedback | `reasoning` feedback system |

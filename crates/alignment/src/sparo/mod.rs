@@ -211,11 +211,11 @@ impl ContentEmbeddingAnalyzer {
 /// Oracle-based content verifier (feature-gated).
 #[cfg(feature = "oracle")]
 fn oracle_assess(behavior: &str, _context: &str) -> f32 {
-    use nexora_oracle::verifiers::security::SecurityVerifier;
-    use nexora_oracle::verifiers::CodeVerifier;
+    use nexora_oracle::linters::security::SecurityLinter;
+    use nexora_oracle::linters::CodeLinter;
 
-    let verifier = SecurityVerifier::new();
-    match verifier.verify(behavior, "text") {
+    let linter = SecurityLinter::new();
+    match linter.verify(behavior, "text") {
         Ok(result) => {
             if result.passed {
                 0.0 // no issues from oracle

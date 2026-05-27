@@ -1,13 +1,14 @@
-//! Correctness Verifier
+//! Correctness Pattern Detector
 //!
-//! Implements correctness verification for code logic and bugs.
+//! Regex-based pattern matcher untuk correctness issues.
+//! BUKAN semantic analysis — mendeteksi pola berbahaya umum via regex.
 
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
-use crate::verifiers::{CodeIssue, CodeVerifier, IssueSeverity, VerificationResult, VerifierType};
+use crate::linters::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterType};
 
 /// Correctness pattern
 #[derive(Debug, Clone)]
@@ -40,11 +41,11 @@ static PY_BARE_EXCEPT_REGEX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"except\s*:").expect("valid Python bare-except regex"));
 
 /// Correctness verifier
-pub struct CorrectnessVerifier {
+pub struct CorrectnessLinter {
     correctness_patterns: Vec<CorrectnessPattern>,
 }
 
-impl CorrectnessVerifier {
+impl CorrectnessLinter {
     pub fn new() -> Self {
         Self {
             correctness_patterns: vec![
@@ -99,15 +100,14 @@ impl CorrectnessVerifier {
 
     fn add_issue(issues: &mut Vec<CodeIssue>, seen: &mut HashSet<String>, issue: CodeIssue) {
         let key = format!("{}:{}", issue.rule_id, issue.line_number.unwrap_or(0));
-
         if seen.insert(key) {
             issues.push(issue);
         }
     }
 }
 
-impl CodeVerifier for CorrectnessVerifier {
-    fn verify(&self, code: &str, language: &str) -> Result<VerificationResult> {
+impl CodeLinter for CorrectnessLinter {
+    fn verify(&self, code: &str, language: &str) -> Result<LintResult> {
         let mut issues = Vec::new();
         let mut seen = HashSet::new();
         let mut score: f32 = 1.0;
@@ -163,9 +163,9 @@ impl CodeVerifier for CorrectnessVerifier {
                 .count() as f32,
         );
 
-        Ok(VerificationResult {
-            verifier_name: "CorrectnessVerifier".to_string(),
-            verifier_type: VerifierType::Correctness,
+        Ok(LintResult {
+            linter_name: "CorrectnessLinter".to_string(),
+            linter_type: LinterType::Correctness,
             score,
             passed: score >= 0.75,
             issues,
@@ -174,12 +174,12 @@ impl CodeVerifier for CorrectnessVerifier {
         })
     }
 
-    fn verifier_name(&self) -> &str {
-        "CorrectnessVerifier"
+    fn linter_name(&self) -> &str {
+        "CorrectnessLinter"
     }
 
-    fn verifier_type(&self) -> VerifierType {
-        VerifierType::Correctness
+    fn linter_type(&self) -> LinterType {
+        LinterType::Correctness
     }
 
     fn check_language_specific_correctness(

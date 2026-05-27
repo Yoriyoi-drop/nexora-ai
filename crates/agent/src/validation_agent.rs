@@ -239,8 +239,9 @@ impl ValidationAgent {
             "I am an AI",
         ];
 
+        let content_lower = content.to_lowercase();
         for issue in &obvious_issues {
-            if content.to_lowercase().contains(issue) {
+            if content_lower.contains(&issue.to_lowercase()) {
                 return Ok(false);
             }
         }
