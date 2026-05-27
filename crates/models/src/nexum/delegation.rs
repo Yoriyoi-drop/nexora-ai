@@ -1,11 +1,14 @@
 use crate::foundation::NxrNexumModel;
 use crate::nexum::classifier;
 use crate::nexum::classifier::ComplexityClassifier;
+use nexora_oracle::verifiers::CodeVerifierManager;
+use nexora_reasoning::SacaEngine;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static VERIFIER: OnceLock<CodeVerifierManager> = OnceLock::new();
 
 fn foundation() -> &'static NxrNexumModel {
     static F: OnceLock<NxrNexumModel> = OnceLock::new();
@@ -71,6 +74,13 @@ fn decompose(text: &str, complexity: &str) -> Vec<String> {
     }
 }
 
+fn quality_label(score: f32) -> &'static str {
+    if score >= 0.9 { "excellent" }
+    else if score >= 0.7 { "good" }
+    else if score >= 0.5 { "fair" }
+    else { "poor" }
+}
+
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let levels = classify_complexity(prompt);
@@ -84,7 +94,27 @@ pub async fn delegate(prompt: &str) -> String {
         });
     }
 
-    let subtasks = decompose(prompt, primary);
+    // Phase 4: SACA reasoning for smarter decomposition on complex tasks
+    let subtasks = if primary == "complex" || primary == "multi_domain" {
+        let engine = SacaEngine::new();
+        match engine.reason(prompt, strategy).await {
+            Ok(r) if r.conclusion.len() > 20 => {
+                let tasks: Vec<String> = r.conclusion
+                    .split('\n')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| s.len() > 15)
+                    .collect();
+                if tasks.len() > 1 { tasks } else { decompose(prompt, primary) }
+            }
+            _ => {
+                tracing::warn!("nexum SACA reasoning unavailable, using naive decomposition");
+                decompose(prompt, primary)
+            }
+        }
+    } else {
+        decompose(prompt, primary)
+    };
+
     if subtasks.len() <= 1 {
         return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
@@ -92,24 +122,47 @@ pub async fn delegate(prompt: &str) -> String {
         });
     }
 
-    let mut results = Vec::new();
+    // Phase 4: Oracle verifier for quality checking each subtask result
+    let verifier = VERIFIER.get_or_init(CodeVerifierManager::new);
+    let mut results: Vec<(String, f32)> = Vec::new();
+
     for (i, task) in subtasks.iter().enumerate() {
         let sub_prompt = format!(
             "[Nexum subtask {i} | complexity: {primary}]\n\
              {strategy}\n\n\
              {task}"
         );
-        if let Ok(r) = call(&sub_prompt, 256, 0.6).await {
-            results.push(format!("Task {i} result: {r}"));
+        match call(&sub_prompt, 256, 0.6).await {
+            Ok(r) => {
+                let quality = verifier.verify_code(&r, "text").unwrap_or(0.5);
+                tracing::debug!("nexum subtask {i} quality: {:.2}", quality);
+                let label = quality_label(quality);
+                results.push((format!("Task {i} result ({label} quality): {r}"), quality));
+            }
+            Err(e) => {
+                tracing::warn!("nexum subtask {i} failed: {}", e);
+            }
         }
     }
 
-    if results.len() > 1 && primary == "multi_domain" {
-        let merged = results.join("\n");
+    if results.is_empty() {
+        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+            tracing::warn!("nexum delegation call failed: {}", e);
+            format!("[nexum inference error: {}]", e)
+        });
+    }
+
+    let above_threshold = results.iter().filter(|(_, q)| *q >= 0.5).count();
+    let needs_synthesis = results.len() > 1 && (primary == "multi_domain" || above_threshold < results.len());
+
+    if needs_synthesis {
+        let merged: String = results.iter().map(|(r, _)| r.as_str()).collect::<Vec<_>>().join("\n");
+        let avg_quality: f32 = results.iter().map(|(_, q)| q).sum::<f32>() / results.len() as f32;
         let synthesis = call(
             &format!(
-                "[Nexum synthesis | multi-domain]\n\
-                 Synthesize these partial results into a coherent response.\n\n\
+                "[Nexum synthesis | multi-domain | avg quality: {avg_quality:.2}]\n\
+                 Synthesize these partial results into a coherent response.\n\
+                 Some results may have lower quality — prioritize high-quality ones.\n\n\
                  {merged}",
             ),
             512,
@@ -119,6 +172,6 @@ pub async fn delegate(prompt: &str) -> String {
         .unwrap_or(merged);
         synthesis
     } else {
-        results.join("\n")
+        results.into_iter().map(|(r, _)| r).collect::<Vec<_>>().join("\n")
     }
 }

@@ -1,6 +1,9 @@
 use crate::aether::classifier;
 use crate::aether::classifier::EmotionClassifier;
 use crate::foundation::NxrAetherModel;
+use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
+use nexora_multimodal::MultiModalInputs;
+use nexora_multimodal::MultimodalResult;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -63,8 +66,28 @@ pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let emotions = classify(prompt);
     let dominant = dominant_emotion(&emotions);
+
+    // Phase 4: Run through Caffeine multimodal pipeline for sentiment enrichment
+    let mut mm = CaffeineProcessor::with_caffeine(CaffeineConfig::default()).unwrap_or_default();
+    let multimodal = MultiModalInputs {
+        text: Some(nexora_multimodal::TextInput {
+            text: prompt.to_string(),
+            tokens: None,
+            language: "en".into(),
+        }),
+        image: None,
+        audio: None,
+        video: None,
+        context: None,
+    };
+    let mm_result = mm.process_multimodal(&multimodal).await.unwrap_or_else(|e| {
+        tracing::warn!("aether multimodal processing failed: {}", e);
+        MultimodalResult::default()
+    });
+    let mm_summary = mm_result.processing_summary;
+
     let framed = format!(
-        "[Empathetic response | detected emotion: {dominant}]\n\
+        "[Empathetic response | detected emotion: {dominant} | multimodal: {mm_summary}]\n\
          Consider the emotional context and psychological aspects.\n\
          User input: {prompt}\n\
          Response (empathetic, emotionally aware):"

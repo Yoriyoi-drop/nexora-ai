@@ -1,6 +1,7 @@
 use crate::axiom::classifier;
 use crate::axiom::classifier::ReasoningClassifier;
 use crate::foundation::NxrAxiomModel;
+use nexora_reasoning::SacaEngine;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -62,14 +63,38 @@ pub async fn delegate(prompt: &str) -> String {
     let primary = types.first().map(|(r, _)| r.as_str()).unwrap_or("analytical");
     let focus = classifier::reasoning_prompt(primary);
 
-    let framed = format!(
-        "[Axiom reasoning | type: {primary}]\n\
-         {focus}\n\n\
-         Input: {prompt}\n\
-         Conclusion:"
-    );
-    call(&framed, 512, 0.3).await.unwrap_or_else(|e| {
-        tracing::warn!("axiom delegation call failed: {}", e);
-        format!("[axiom inference error: {}]", e)
-    })
+    // Phase 4: SACA 6-phase reasoning pipeline for structured logical reasoning
+    let engine = SacaEngine::new();
+    match engine.reason(prompt, focus).await {
+        Ok(r) if !r.conclusion.is_empty() => {
+            tracing::debug!("axiom SACA reasoning succeeded (type: {primary})");
+            r.conclusion
+        }
+        Ok(r) => {
+            tracing::warn!("axiom SACA reasoning returned empty conclusion (type: {primary}), falling back");
+            let framed = format!(
+                "[Axiom reasoning | type: {primary}]\n\
+                 {focus}\n\n\
+                 Input: {prompt}\n\
+                 Conclusion:"
+            );
+            call(&framed, 512, 0.3).await.unwrap_or_else(|e| {
+                tracing::warn!("axiom delegation call failed: {}", e);
+                format!("[axiom inference error: {}]", e)
+            })
+        }
+        Err(e) => {
+            tracing::warn!("axiom SACA reasoning unavailable (type: {primary}): {e}, using prompt-based reasoning");
+            let framed = format!(
+                "[Axiom reasoning | type: {primary}]\n\
+                 {focus}\n\n\
+                 Input: {prompt}\n\
+                 Conclusion:"
+            );
+            call(&framed, 512, 0.3).await.unwrap_or_else(|e| {
+                tracing::warn!("axiom delegation call failed: {}", e);
+                format!("[axiom inference error: {}]", e)
+            })
+        }
+    }
 }

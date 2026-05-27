@@ -246,15 +246,15 @@ Semua delegation memanggil `crate::foundation::Nxr*Model::infer()` via `OnceLock
 | Crate | Current (Phase 3) | Phase 4 Target | Subsystem | Status |
 |-------|-------------------|----------------|-----------|--------|
 | **Omnis** | Expert router MLP + prompt | Real MoE gating + Oracle reasoning backbone | `has-moe-ffn` + `oracle` | ✅ MoE gating wired |
-| **Aether** | Emotion classifier MLP (8 emotions) | Sentiment + intent + emotional state pipeline | `multimodal` encoders + classifier | ⏳ Deferred (no lightweight sentiment API yet) |
-| **Axiom** | Reasoning classifier MLP | SACA 6-phase reasoning loop (CoT, decompose, execute-fail-fix, rerank) | `reasoning` | ⏳ Deferred (SACA is code-specific) |
+| **Aether** | Emotion classifier MLP (8 emotions) | Sentiment + intent + emotional state pipeline | `multimodal` encoders + classifier | ✅ CaffeineProcessor text pipeline wired (27 Mei 2026) — emotion + multimodal fusion |
+| **Axiom** | Reasoning classifier MLP | SACA 6-phase reasoning loop (CoT, decompose, execute-fail-fix, rerank) | `reasoning` | ✅ SACA reasoning wired (27 Mei 2026) |
 | **Spectra** | Style classifier + 3 temps | Full multimodal Caffeine pipeline (vision, audio, fusion) | `multimodal` | ✅ CaffeineProcessor wired |
 | **Vortex** | Code review analyzer MLP | Oracle code verifiers + analysis pipeline | `oracle/src/verifiers/` | ✅ CodeVerifierManager wired |
 | **Cipher** | Threat classifier MLP | Security scanning engine + verifier integration | `oracle/src/verifiers/security.rs` | ✅ Security verifier wired |
 | **Kronos** | Temporal classifier MLP | Temporal reasoning with context window | `reasoning` + `multimodal` | ⏳ Deferred |
 | **Swift** | Task classifier MLP | Latency-aware dispatch + task routing | `has-moe-ffn` routing | ✅ MoE Router wired |
-| **Genesis** | Quality classifier MLP | Self-improvement loop with SACA feedback | `reasoning` feedback system | ⏳ Deferred (SACA is code-specific) |
-| **Nexum** | Complexity classifier MLP | Automatic task decomposition + Oracle sub-tasks | `oracle` + `reasoning` | ⏳ Deferred |
+| **Genesis** | Quality classifier MLP | Self-improvement loop with SACA feedback | `reasoning` feedback system | ✅ Multi-iteration quality-based refinement wired (27 Mei 2026) |
+| **Nexum** | Complexity classifier MLP | Automatic task decomposition + Oracle sub-tasks | `oracle` + `reasoning` | ✅ Oracle verifier + SACA reasoning wired (27 Mei 2026) |
 
 ### Phase 4 Wiring Detail
 
@@ -265,12 +265,17 @@ Semua delegation memanggil `crate::foundation::Nxr*Model::infer()` via `OnceLock
 | **Cipher** | `CodeVerifierManager::verify_detailed()` for general text security scan. Findings injected as `[Oracle security scan: ...]` in prompt. | `crates/models/src/cipher/delegation.rs` |
 | **Spectra** | `CaffeineProcessor::process_multimodal()` via `nexora-multimodal` crate. Multimodal summary injected alongside style-framed creative generation. | `crates/models/src/spectra/delegation.rs` |
 | **Swift** | `nexora_has_moe_ffn::Router` creates expert routing (5 experts → task types). MoE weights determine best expert path. Latency-aware dispatch via router weights. | `crates/models/src/swift/delegation.rs` |
+| **Aether** | `CaffeineProcessor::process_multimodal()` via `nexora-multimodal` crate (text modality). Multimodal summary + emotion classifier fusion injected as prompt context. Graceful fallback jika Caffeine unavailable. | `crates/models/src/aether/delegation.rs` |
+| **Nexum** | `SacaEngine::reason()` replaces naive string split for complex/multi_domain tasks. `CodeVerifierManager::verify_code()` scores each subtask result → quality label injected. Synthesis prompt includes avg quality score; low-quality subtasks deprioritized. Fallback to naive decompose if SACA unavailable. | `crates/models/src/nexum/delegation.rs` |
+| **Axiom** | `SacaEngine::reason()` replaces single-shot LLM call with full 6-phase reasoning pipeline. Reasoning type + focus prompt injected as SACA context. Fallback to prompt-based reasoning if SACA unavailable. | `crates/models/src/axiom/delegation.rs` |
+| **Genesis** | `SacaEngine::reason()` for structured generation + 6-dimension quality classifier as feedback signal. Multi-iteration refinement loop (max 3, threshold 0.6) with quality-based early termination. Fallback to prompt-based refinement if SACA unavailable. | `crates/models/src/genesis/delegation.rs` |
 
 ### Phase 4 Decisions
 
 1. **MoE gating repurposed for sequence-level routing**: Per-token routing (`O(num_tokens * experts * hidden)`) too expensive for delegation hot path. Use averaged prompt embedding → `Router::forward()` → per-expert probabilities.
-2. **SACA deferred for Axiom/Genesis/Nexum**: SACA pipeline is code-specific (`CodingTask`, execute-fail-fix, rerank). Not suitable for general reasoning/quality/complexity tasks until a non-code API exists.
-3. **Aether multimodal deferred**: `Caffeine` encoders require concrete input tensors (image pixel data, audio samples). No lightweight sentiment-only API available without full pipeline overhead.
+2. **SACA deferred for Axiom/Genesis/Nexum**: SACA pipeline is code-specific (`CodingTask`, execute-fail-fix, rerank). Nexum ✅ works via `SacaEngine::reason()` API — conclusion text split for task decomposition. Axiom ✅ works via full SACA pipeline — phases 1-4+6 usable for general reasoning; Execute-Fail-Fix noise minimal. Genesis still needs non-code API for self-improvement feedback loop.
+3. **SACA wiring resolved**: Nexum (task decomposition), Axiom (reasoning pipeline), dan Genesis (self-improvement loop) ✅ semua selesai 27 Mei 2026 via `SacaEngine::reason()` — bukan `FeedbackSystem::generate_feedback()` yang code-specific. Genesis menggunakan quality classifier MLP sebagai feedback signal dengan multi-iteration loop.
+3. **Aether multimodal**: ✅ **FIXED 27 Mei 2026** — CaffeineProcessor text pipeline wired di `aether/delegation.rs`. Lightweight text-only path via `MultiModalInputs { text: Some(TextInput { ... }) }`. Tidak butuh pixel/audio input — graceful fallback ke emotion-only jika Caffeine tidak tersedia.
 4. **Kronos temporal reasoning deferred**: Requires both `reasoning` (code-specific) and `multimodal` (heavyweight). Cleanest approach waits for a dedicated temporal reasoning module.
 
 ## Phase 5a — Memory Architecture (Paged Cache + Prefix DAG)

@@ -1,14 +1,16 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::tensor::Tensor;
+#[cfg(feature = "gpu")]
+use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuError;
 #[cfg(feature = "gpu")]
 use crate::Storage;
 use ndarray::ArrayD;
 use tracing::warn;
 
 pub(crate) static GPU_MATMUL_FALLBACKS: AtomicU64 = AtomicU64::new(0);
-const GPU_FALLBACK_THRESHOLD: u64 = 50;
-static GPU_CIRCUIT_BROKEN: AtomicBool = AtomicBool::new(false);
 
 pub fn gpu_matmul_fallback_count() -> u64 {
     GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed)
@@ -40,12 +42,13 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = crate::gpu::GpuContext::global() {
                         match ctx.matmul(ga, gb) {
                             Ok(gpu_result) => {
+                                RECOVERY_MANAGER.record_recovery();
                                 let requires_grad = a.requires_grad() || b.requires_grad();
                                 if !requires_grad {
                                     // Full GPU residency: return tensor with Storage::Gpu
@@ -121,17 +124,11 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, "GPU matmul failed, falling back to CPU");
                                 GPU_MATMUL_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed)
-                                    >= GPU_FALLBACK_THRESHOLD
-                                {
-                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!(
-                                        "GPU_MATMUL circuit breaker tripped after {} fallbacks",
-                                        GPU_FALLBACK_THRESHOLD
-                                    );
-                                }
+                                RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                    "GPU matmul failed: {e}"
+                                )));
+                                tracing::warn!(error = %e, "GPU matmul failed, falling back to CPU (fallback #{})", GPU_MATMUL_FALLBACKS.load(Ordering::Relaxed));
                             }
                         }
                     }

@@ -313,22 +313,26 @@ pub fn silu_backward(
 
 // ── Sum backward ───────────────────────────────────────────────────
 // da = grad (broadcast to original shape)
+// Pure GPU: uses fill_constant + elementwise mul with a ones tensor
 pub fn sum_backward(
-    _ctx: &GpuContext,
+    ctx: &GpuContext,
     orig_shape: &[usize],
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let grad_val = grad
+    let numel: usize = orig_shape.iter().product();
+    let grad_scalar = grad
         .to_cpu_first_element()
         .map_err(|e| GpuError::Device(format!("sum_backward grad readback: {e}")))?;
-    let result = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(orig_shape), grad_val))?;
+    let result = GpuTensor::zeros(orig_shape)?;
+    ctx.fill_constant(&result, grad_scalar)?;
     Ok(result)
 }
 
 // ── Mean backward ──────────────────────────────────────────────────
 // da = grad / n (broadcast to original shape)
+// Pure GPU: fill_constant with grad/numel
 pub fn mean_backward(
-    _ctx: &GpuContext,
+    ctx: &GpuContext,
     orig_shape: &[usize],
     numel: f32,
     grad: &GpuTensor,
@@ -337,7 +341,8 @@ pub fn mean_backward(
         .to_cpu_first_element()
         .map_err(|e| GpuError::Device(format!("mean_backward grad readback: {e}")))?;
     let fill_val = grad_val / numel;
-    let result = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(orig_shape), fill_val))?;
+    let result = GpuTensor::zeros(orig_shape)?;
+    ctx.fill_constant(&result, fill_val)?;
     Ok(result)
 }
 

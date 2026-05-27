@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ndarray::{ArrayD, IxDyn};
 use tracing::{debug, warn};
@@ -6,15 +6,15 @@ use tracing::{debug, warn};
 use super::super::broadcast;
 use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
+use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
+#[cfg(feature = "gpu")]
 use crate::gpu::{ElemOp, GpuContext, GpuTensor};
+#[cfg(feature = "gpu")]
+use crate::gpu::GpuError;
 #[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
 pub(crate) static GPU_MATH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
-
-const GPU_FALLBACK_THRESHOLD: u64 = 100;
-
-static GPU_CIRCUIT_BROKEN: AtomicBool = AtomicBool::new(false);
 
 pub fn gpu_math_fallback_count() -> u64 {
     GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
@@ -26,12 +26,13 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.add(ga, gb) {
                             Ok(gpu_result) => {
+                                RECOVERY_MANAGER.record_recovery();
                                 let requires_grad = a.requires_grad() || b.requires_grad();
                                 if !requires_grad {
                                     let id = next_tensor_id();
@@ -81,17 +82,11 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, "GPU add failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
-                                    >= GPU_FALLBACK_THRESHOLD
-                                {
-                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!(
-                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                        GPU_FALLBACK_THRESHOLD
-                                    );
-                                }
+                                RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                    "GPU add failed: {e}"
+                                )));
+                                tracing::warn!(error = %e, "GPU add failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                             }
                         }
                     }
@@ -101,13 +96,9 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                         "add: non-GPU storage despite on_gpu check — falling back to CPU"
                     );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
-                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!(
-                            "GPU_MATH circuit breaker tripped after {} fallbacks",
-                            GPU_FALLBACK_THRESHOLD
-                        );
-                    }
+                    RECOVERY_MANAGER.record_failure(&GpuError::Device(
+                        "add: non-GPU storage despite on_gpu check".into(),
+                    ));
                 }
             }
         }
@@ -161,12 +152,13 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.sub(ga, gb) {
                             Ok(gpu_result) => {
+                                RECOVERY_MANAGER.record_recovery();
                                 let requires_grad = a.requires_grad() || b.requires_grad();
                                 if !requires_grad {
                                     let id = next_tensor_id();
@@ -216,17 +208,11 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, "GPU sub failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
-                                    >= GPU_FALLBACK_THRESHOLD
-                                {
-                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!(
-                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                        GPU_FALLBACK_THRESHOLD
-                                    );
-                                }
+                                RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                    "GPU sub failed: {e}"
+                                )));
+                                tracing::warn!(error = %e, "GPU sub failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                             }
                         }
                     }
@@ -236,13 +222,9 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
                         "sub: non-GPU storage despite on_gpu check — falling back to CPU"
                     );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
-                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!(
-                            "GPU_MATH circuit breaker tripped after {} fallbacks",
-                            GPU_FALLBACK_THRESHOLD
-                        );
-                    }
+                    RECOVERY_MANAGER.record_failure(&GpuError::Device(
+                        "sub: non-GPU storage despite on_gpu check".into(),
+                    ));
                 }
             }
         }
@@ -296,12 +278,13 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.mul(ga, gb) {
                             Ok(gpu_result) => {
+                                RECOVERY_MANAGER.record_recovery();
                                 let requires_grad = a.requires_grad() || b.requires_grad();
                                 if !requires_grad {
                                     let id = next_tensor_id();
@@ -331,17 +314,11 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, "GPU mul failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
-                                    >= GPU_FALLBACK_THRESHOLD
-                                {
-                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!(
-                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                        GPU_FALLBACK_THRESHOLD
-                                    );
-                                }
+                                RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                    "GPU mul failed: {e}"
+                                )));
+                                tracing::warn!(error = %e, "GPU mul failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                             }
                         }
                     }
@@ -351,13 +328,9 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
                         "mul: non-GPU storage despite on_gpu check — falling back to CPU"
                     );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
-                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!(
-                            "GPU_MATH circuit breaker tripped after {} fallbacks",
-                            GPU_FALLBACK_THRESHOLD
-                        );
-                    }
+                    RECOVERY_MANAGER.record_failure(&GpuError::Device(
+                        "mul: non-GPU storage despite on_gpu check".into(),
+                    ));
                 }
             }
         }
@@ -390,12 +363,13 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
         let a_storage = a.storage();
         let b_storage = b.storage();
         let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
-        if on_gpu && !GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
+        if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga), Storage::Gpu(gb)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.div(ga, gb) {
                             Ok(gpu_result) => {
+                                RECOVERY_MANAGER.record_recovery();
                                 let requires_grad = a.requires_grad() || b.requires_grad();
                                 if !requires_grad {
                                     let id = next_tensor_id();
@@ -426,17 +400,11 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                 );
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, "GPU div failed, falling back to CPU");
                                 GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                                if GPU_MATH_FALLBACKS.load(Ordering::Relaxed)
-                                    >= GPU_FALLBACK_THRESHOLD
-                                {
-                                    GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                    tracing::warn!(
-                                        "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                        GPU_FALLBACK_THRESHOLD
-                                    );
-                                }
+                                RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                    "GPU div failed: {e}"
+                                )));
+                                tracing::warn!(error = %e, "GPU div failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                             }
                         }
                     }
@@ -446,13 +414,9 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                         "div: non-GPU storage despite on_gpu check — falling back to CPU"
                     );
                     GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                    if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD {
-                        GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                        tracing::warn!(
-                            "GPU_MATH circuit breaker tripped after {} fallbacks",
-                            GPU_FALLBACK_THRESHOLD
-                        );
-                    }
+                    RECOVERY_MANAGER.record_failure(&GpuError::Device(
+                        "div: non-GPU storage despite on_gpu check".into(),
+                    ));
                 }
             }
         }
@@ -483,13 +447,13 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
 pub fn exp(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
-        } else {
-            let input_storage = input.storage();
+        let input_storage = input.storage();
+        if !RECOVERY_MANAGER.is_circuit_open() {
             if let Storage::Gpu(gpu_input) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.exp(gpu_input) {
                         Ok(gpu_result) => {
+                            RECOVERY_MANAGER.record_recovery();
                             let requires_grad = input.requires_grad();
                             if !requires_grad {
                                 let id = next_tensor_id();
@@ -518,16 +482,11 @@ pub fn exp(input: &Tensor) -> Tensor {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
-                            {
-                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!(
-                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                    GPU_FALLBACK_THRESHOLD
-                                );
-                            }
+                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                "GPU exp failed: {e}"
+                            )));
+                            tracing::warn!(error = %e, "GPU exp failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                         }
                     }
                 }
@@ -556,13 +515,13 @@ pub fn exp(input: &Tensor) -> Tensor {
 pub fn ln(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
-        } else {
-            let input_storage = input.storage();
+        let input_storage = input.storage();
+        if !RECOVERY_MANAGER.is_circuit_open() {
             if let Storage::Gpu(gpu_input) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.elementwise_unary(gpu_input, ElemOp::Ln) {
                         Ok(gpu_result) => {
+                            RECOVERY_MANAGER.record_recovery();
                             let requires_grad = input.requires_grad();
                             if !requires_grad {
                                 let id = next_tensor_id();
@@ -591,16 +550,11 @@ pub fn ln(input: &Tensor) -> Tensor {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
-                            {
-                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!(
-                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                    GPU_FALLBACK_THRESHOLD
-                                );
-                            }
+                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                "GPU ln failed: {e}"
+                            )));
+                            tracing::warn!(error = %e, "GPU ln failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                         }
                     }
                 }
@@ -629,14 +583,14 @@ pub fn ln(input: &Tensor) -> Tensor {
 pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
-        } else {
-            let input_storage = input.storage();
+        let input_storage = input.storage();
+        if !RECOVERY_MANAGER.is_circuit_open() {
             if let Storage::Gpu(gpu_input) = &input_storage {
                 if let Ok(_ctx) = GpuContext::global() {
                     let result_arr = input.data().mapv(|x| x.powf(exponent));
                     match GpuTensor::from_cpu(&result_arr) {
                         Ok(gpu_result) => {
+                            RECOVERY_MANAGER.record_recovery();
                             let requires_grad = input.requires_grad();
                             if !requires_grad {
                                 let id = next_tensor_id();
@@ -673,16 +627,11 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
-                            {
-                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!(
-                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                    GPU_FALLBACK_THRESHOLD
-                                );
-                            }
+                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                "GPU powf failed: {e}"
+                            )));
+                            tracing::warn!(error = %e, "GPU powf failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                         }
                     }
                 }
@@ -712,13 +661,13 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
 pub fn sqrt(input: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
-        } else {
-            let input_storage = input.storage();
+        let input_storage = input.storage();
+        if !RECOVERY_MANAGER.is_circuit_open() {
             if let Storage::Gpu(gpu_input) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.sqrt(gpu_input) {
                         Ok(gpu_result) => {
+                            RECOVERY_MANAGER.record_recovery();
                             let requires_grad = input.requires_grad();
                             if !requires_grad {
                                 let id = next_tensor_id();
@@ -747,16 +696,11 @@ pub fn sqrt(input: &Tensor) -> Tensor {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
-                            {
-                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!(
-                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                    GPU_FALLBACK_THRESHOLD
-                                );
-                            }
+                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                "GPU sqrt failed: {e}"
+                            )));
+                            tracing::warn!(error = %e, "GPU sqrt failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                         }
                     }
                 }
@@ -785,13 +729,13 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 pub fn neg(a: &Tensor) -> Tensor {
     #[cfg(feature = "gpu")]
     {
-        if GPU_CIRCUIT_BROKEN.load(Ordering::Acquire) {
-        } else {
-            let a_storage = a.storage();
+        let a_storage = a.storage();
+        if !RECOVERY_MANAGER.is_circuit_open() {
             if let Storage::Gpu(ga) = &a_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.elementwise_unary(ga, ElemOp::Neg) {
                         Ok(gpu_result) => {
+                            RECOVERY_MANAGER.record_recovery();
                             let requires_grad = a.requires_grad();
                             if !requires_grad {
                                 let id = next_tensor_id();
@@ -811,16 +755,11 @@ pub fn neg(a: &Tensor) -> Tensor {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "GPU math op failed, falling back to CPU");
                             GPU_MATH_FALLBACKS.fetch_add(1, Ordering::Relaxed);
-                            if GPU_MATH_FALLBACKS.load(Ordering::Relaxed) >= GPU_FALLBACK_THRESHOLD
-                            {
-                                GPU_CIRCUIT_BROKEN.store(true, Ordering::Release);
-                                tracing::warn!(
-                                    "GPU_MATH circuit breaker tripped after {} fallbacks",
-                                    GPU_FALLBACK_THRESHOLD
-                                );
-                            }
+                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
+                                "GPU neg failed: {e}"
+                            )));
+                            tracing::warn!(error = %e, "GPU neg failed, falling back to CPU (fallback #{})", GPU_MATH_FALLBACKS.load(Ordering::Relaxed));
                         }
                     }
                 }

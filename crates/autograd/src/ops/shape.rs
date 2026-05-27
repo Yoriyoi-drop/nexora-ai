@@ -5,9 +5,61 @@ use super::super::tensor::Tensor;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuContext;
 #[cfg(feature = "gpu")]
+use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
+#[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
 pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
+    let new_vec = new_shape.to_vec();
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            match gpu_input.reshape(new_vec.clone()) {
+                Ok(gpu_result) => {
+                    RECOVERY_MANAGER.record_recovery();
+                    let requires_grad = input.requires_grad();
+                    if !requires_grad {
+                        let id = next_tensor_id();
+                        return Tensor::from_gpu(gpu_result, id, false);
+                    }
+                    let orig_shape = input.shape();
+                    let gpu_clone = gpu_result.clone();
+                    return Tensor::from_gpu_with_grad_fn(
+                        gpu_result,
+                        vec![input.clone()],
+                        vec![ArrayD::from_shape_vec(
+                            vec![orig_shape.len()],
+                            orig_shape.iter().map(|&x| x as f32).collect(),
+                        )
+                        .unwrap_or_else(|_| ArrayD::zeros(vec![0]))],
+                        vec![gpu_clone],
+                        Box::new(|grad, saved| {
+                            let shape_data: Vec<f32> = saved[0].iter().copied().collect();
+                            let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                            let reshaped = grad.clone().into_shape(orig_shape.clone());
+                            match reshaped {
+                                Ok(t) => vec![t],
+                                Err(e) => {
+                                    tracing::error!("Reshape backward failed: {e}");
+                                    vec![ArrayD::zeros(orig_shape)]
+                                }
+                            }
+                        }),
+                        Some(Box::new(move |_saved_gpu, grad_gpu, _ctx| {
+                            grad_gpu
+                                .reshape(orig_shape.clone())
+                                .map(|t| vec![t])
+                                .map_err(|e| format!("GPU reshape backward failed: {e}"))
+                        })),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("GPU reshape failed, falling back to CPU: {e}");
+                }
+            }
+        }
+    }
     let data = input.data();
     let new_len: usize = new_shape.iter().product();
     if data.len() != new_len {

@@ -498,6 +498,7 @@ impl GpuContext {
         self.compile_fused_attention()?;
         self.compile_fused_attention_backward()?;
         self.compile_fill_zero()?;
+        self.compile_fill_constant()?;
         self.compile_fill_zero_u32()?;
         self.compile_scale_inplace()?;
         self.compile_gradient_allreduce()?;
@@ -535,6 +536,15 @@ impl GpuContext {
             &[storage_binding(0, false)],
             std::borrow::Cow::Borrowed(FILL_ZERO_WGSL),
             "fill_zero_main",
+        )
+    }
+
+    fn compile_fill_constant(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "fill_constant",
+            &[storage_binding(0, false), uniform_binding(1)],
+            std::borrow::Cow::Borrowed(FILL_CONSTANT_WGSL),
+            "fill_constant_main",
         )
     }
 
@@ -735,6 +745,40 @@ impl GpuContext {
             }],
         });
         self.dispatch(pipeline, &bg, ((u32_count + 255) / 256, 1, 1));
+        Ok(())
+    }
+
+    /// Fill a GPU tensor buffer with a constant value in-place.
+    pub fn fill_constant(&self, t: &GpuTensor, value: f32) -> Result<(), GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("fill_constant")
+            .ok_or_else(|| GpuError::Pipeline("fill_constant not compiled".into()))?;
+        let numel = u32::try_from(t.numel()).unwrap_or(u32::MAX);
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fill_const_cfg"),
+            size: 8,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 2] = [numel, f32::to_bits(value)];
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fill_const_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: t.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: cfg_buf.as_entire_binding(),
+                },
+            ],
+        });
+        self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
         Ok(())
     }
 
@@ -6091,6 +6135,20 @@ const FILL_ZERO_WGSL: &str = r#"
 @compute @workgroup_size(256)
 fn fill_zero_main(@builtin(global_invocation_id) id: vec3<u32>) {
     buf[id.x] = 0.0;
+}
+"#;
+
+const FILL_CONSTANT_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> buf: array<f32>;
+@group(0) @binding(1) var<uniform> cfg: vec2<u32>;
+
+@compute @workgroup_size(256)
+fn fill_constant_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let numel = cfg.x;
+    let value = bitcast<f32>(cfg.y);
+    if (id.x < numel) {
+        buf[id.x] = value;
+    }
 }
 "#;
 
