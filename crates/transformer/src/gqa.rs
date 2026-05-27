@@ -928,7 +928,7 @@ impl GQA {
     }
 
     /// Forward pass using a paged KV cache (reads K/V from blocks per position).
-    /// batch_size is always 1 for autoregressive generation.
+    /// Supports batch_size >= 1 for batched paged attention.
     pub fn forward_with_paged(
         &self,
         x: &Array2<f32>,
@@ -940,10 +940,6 @@ impl GQA {
         sin: &[f32],
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
-        debug_assert_eq!(
-            batch_size, 1,
-            "forward_with_paged only supports batch_size=1"
-        );
 
         let q_proj = x.dot(&self.wq.t());
         let k_proj = x.dot(&self.wk.t());
@@ -1168,7 +1164,8 @@ impl GQA {
         use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
-        let batch_size = 1;
+        let shape_v = x_gpu.shape();
+        let batch_size = shape_v.first().copied().unwrap_or(1);
 
         // 1. Ensure GPU weights are initialized
         self.ensure_weights_gpu()?;
@@ -1318,7 +1315,8 @@ impl GQA {
         use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
-        let batch_size = 1;
+        let shape_v = x_gpu.shape();
+        let batch_size = shape_v.first().copied().unwrap_or(1);
 
         // 1. Ensure GPU weights are initialized
         self.ensure_weights_gpu()?;
@@ -1386,7 +1384,8 @@ impl GQA {
         use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
-        let batch_size = 1;
+        let shape_v = x_gpu.shape();
+        let batch_size = shape_v.first().copied().unwrap_or(1);
 
         // 1. Ensure GPU weights are initialized
         self.ensure_weights_gpu()?;
@@ -1468,7 +1467,8 @@ impl GQA {
         use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
-        let batch_size = 1;
+        let shape_v = x_gpu.shape();
+        let batch_size = shape_v.first().copied().unwrap_or(1);
 
         // 1. Ensure GPU weights are initialized
         self.ensure_weights_gpu()?;

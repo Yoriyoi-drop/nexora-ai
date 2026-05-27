@@ -480,6 +480,7 @@ impl GpuContext {
         self.compile_matmul_tiled(tile)?;
         self.compile_matmul_int8_tiled(tile)?;
         self.compile_matmul_int8_weight(tile)?;
+        self.compile_matmul_f16_tiled(tile)?;
         self.compile_elementwise()?;
         self.compile_reduce(ReduceOp::Sum)?;
         self.compile_reduce(ReduceOp::Max)?;
@@ -2039,6 +2040,19 @@ impl GpuContext {
             return Err(GpuError::MatMulShape(a_shape, b_shape));
         }
 
+        // Auto-dispatch to F16 matmul kernel when weight tensor is packed F16.
+        // Activation (a) stays f32 — no upconversion needed.
+        if a.dtype == GpuDtype::F32 && b.dtype == GpuDtype::F16 {
+            return self.matmul_f16(a, b);
+        }
+        // Both f32: standard path
+        if a.dtype != GpuDtype::F32 || b.dtype != GpuDtype::F32 {
+            return Err(GpuError::Unsupported(format!(
+                "matmul: unsupported dtypes a={:?} b={:?}",
+                a.dtype, b.dtype
+            )));
+        }
+
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
@@ -2102,6 +2116,116 @@ impl GpuContext {
 
         Ok(GpuTensor {
             shape: vec![a_shape[0], b_shape[1]],
+            buffer: c_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  PHASE 1.1b: F16 PACKED WEIGHT MATMUL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    fn compile_matmul_f16_tiled(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_f16_tiled") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_F16_TILED_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_f16_tiled",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            wgsl,
+            "matmul_f16_main",
+        )
+    }
+
+    /// F16 packed weight matmul: activation (f32) × weight (packed F16).
+    /// Weight is stored as packed F16 (2 f16 per u32), halving VRAM reads.
+    /// Accumulation stays in f32 for precision.
+    /// Output is f32 with shape [a.shape[0], b_packed.shape[1]].
+    pub fn matmul_f16(&self, a: &GpuTensor, b_packed: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        let a_shape = a.shape();
+        let b_shape = b_packed.shape();
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+        // b is packed F16: [K, N] in f32 terms, but stored as u32 with 2 f16 per u32
+        // a_flat = M*K f32 elements, b_flat = K*N/2 u32 elements
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+        if b_packed.dtype != GpuDtype::F16 {
+            return Err(GpuError::Unsupported(
+                "matmul_f16: b_packed must have dtype F16".into(),
+            ));
+        }
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let dims_buf = self.alloc_or_create_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
+        self.queue
+            .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+
+        let pipeline = self
+            .pipelines
+            .get("matmul_f16_tiled")
+            .ok_or_else(|| GpuError::Pipeline("matmul_f16_tiled not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("matmul_f16_tiled_bind_group"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b_packed.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dims_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let wgx = (m_u32 + tile_u32 - 1) / tile_u32;
+        let wgy = (n_u32 + tile_u32 - 1) / tile_u32;
+        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+
+        Ok(GpuTensor {
+            shape: vec![m, n],
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
@@ -4572,6 +4696,108 @@ fn matmul_int8_main(@builtin(local_invocation_id) lid: vec3<u32>,
         workgroupBarrier();
 
         // ── Accumulate ──
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < uniforms.M && col < uniforms.N) {
+        c[row * uniforms.N + col] = sum;
+    }
+}
+"#;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PHASE 1.2a: F16 PACKED WEIGHT MATMUL (activation f32 × packed f16 weight)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Activation (a) is f32, weight (b) is packed F16 (2 values per u32).
+// Weight buffer is half the size of f32 equivalent — saves VRAM bandwidth.
+// On read: unpack 2 f16 per u32 → convert to f32 → accumulate in f32.
+// Output C is f32 (same precision as regular matmul).
+//
+// The shader follows the same tiled structure as MATMUL_TILED_WGSL but with
+// packed F16 reads for the B (weight) matrix. Only the weight matrix is F16 —
+// activation and output remain f32 for precision during accumulation.
+
+const MATMUL_F16_TILED_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+
+// A is f32 activations [M, K]; B is packed f16 weights [K, N] (2 f16 per u32);
+// C is f32 output [M, N].
+@group(0) @binding(0) var<storage, read> a: array<f32>;
+@group(0) @binding(1) var<storage, read> b_packed: array<u32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Uniforms {
+    M: u32,
+    K: u32,
+    N: u32,
+    Tile: u32,
+};
+
+@group(0) @binding(3) var<uniform> uniforms: Uniforms;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn f16_bits_to_f32(f16_bits: u32) -> f32 {
+    let sign = (f16_bits >> 15u) & 0x1u;
+    var exp = (f16_bits >> 10u) & 0x1Fu;
+    let mant = f16_bits & 0x3FFu;
+    var f32_bits: u32;
+    if (exp == 0u) {
+        f32_bits = sign << 31u;
+    } else if (exp == 31u) {
+        f32_bits = (u32(sign) << 31u) | (0xFFu << 23u) | (mant << 13u);
+    } else {
+        f32_bits = (u32(sign) << 31u) | ((exp - 15u + 127u) << 23u) | (mant << 13u);
+    }
+    return bitcast<f32>(f32_bits);
+}
+
+fn unpack_f16(packed: u32, idx: u32) -> f32 {
+    let shift = idx * 16u;
+    let f16_bits = (packed >> shift) & 0xFFFFu;
+    return f16_bits_to_f32(f16_bits);
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_f16_main(@builtin(local_invocation_id) lid: vec3<u32>,
+                   @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (uniforms.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        // ── Load tile of A (f32 activation) ──
+        let a_global_row = row;
+        let a_global_col = t * TILE_SIZE + lid.y;
+        if (a_global_row < uniforms.M && a_global_col < uniforms.K) {
+            tile_a[lid.x][lid.y] = a[a_global_row * uniforms.K + a_global_col];
+        } else {
+            tile_a[lid.x][lid.y] = 0.0;
+        }
+
+        // ── Load tile of B (packed f16 weight → f32) ──
+        let b_global_row = t * TILE_SIZE + lid.x;
+        let b_global_col = col;
+        if (b_global_row < uniforms.K && b_global_col < uniforms.N) {
+            let b_flat_idx = b_global_row * uniforms.N + b_global_col;
+            let packed_idx = b_flat_idx / 2u;
+            let sub_idx = b_flat_idx % 2u;
+            tile_b[lid.x][lid.y] = unpack_f16(b_packed[packed_idx], sub_idx);
+        } else {
+            tile_b[lid.x][lid.y] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        // ── Accumulate in f32 ──
         for (var i = 0u; i < TILE_SIZE; i++) {
             sum += tile_a[lid.x][i] * tile_b[i][lid.y];
         }
