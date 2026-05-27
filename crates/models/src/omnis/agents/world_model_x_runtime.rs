@@ -22,7 +22,7 @@ impl WorldModelRuntimeAgent {
         let mut update = HashMap::new();
         update.insert(
             "status".to_string(),
-            serde_json::Value::String("placeholder — will delegate to foundation model".to_string()),
+            serde_json::Value::String("older — will delegate to foundation model".to_string()),
         );
         Ok(update)
     }

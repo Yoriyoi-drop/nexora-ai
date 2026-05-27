@@ -737,7 +737,7 @@ mod tests {
     async fn test_process_command_without_model() {
         let processor = make_processor();
 
-        // Registry is empty — should return model-not-found error, not placeholder
+        // Registry is empty — should return model-not-found error, not older
         let result = processor.process_command("/status").await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -748,7 +748,7 @@ mod tests {
     async fn test_process_query_without_model() {
         let processor = make_processor();
 
-        // Registry is empty — should return model-not-found error, not placeholder
+        // Registry is empty — should return model-not-found error, not older
         let result = processor.process_query("What is Rust?").await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();

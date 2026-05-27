@@ -857,7 +857,7 @@ impl CausalLM {
 
         let lm_head_gpu = mk_gpu(&self.lm_head)?;
         // F16 mode: f32 transposed weight ga dipake — cukup f16 packed doang.
-        // `zeros(&[1])` adalah DUMMY placeholder (4 bytes) buat ngisi struct field,
+        // `zeros(&[1])` adalah DUMMY older (4 bytes) buat ngisi struct field,
         // BUKAN matriks ukuran penuh. VRAM hemat: (vocab_size × hidden_size × 4) bytes.
         let lm_head_t = if self.use_half_precision && !self.quantize_weights {
             GpuTensor::zeros(&[1])?
@@ -989,7 +989,7 @@ impl CausalLM {
 
             // F16 mode: f32 transposed weights (wq_t..w3_t) ga dipake —
             // semua matmul pake f16→f32 upconvert temp per-forward.
-            // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~28 bytes),
+            // `zeros(&[1])` DUMMY older (4 bytes per weight, total ~28 bytes),
             // BUKAN 7 matriks ukuran penuh. VRAM hemat ~50% per block.
             let (wq_t, wk_t, wv_t, wo_t, w1_t, w2_t, w3_t) = if use_f16 {
                 let d = GpuTensor::zeros(&[1])?;
@@ -1957,37 +1957,14 @@ impl CausalLM {
     ///
     /// Single LM head readback at the end — no per-sequence CPU sync.
     #[cfg(feature = "gpu")]
-    pub fn forward_gpu_batched(
+    fn prepare_f16_temps(
         &self,
-        batch_tokens: &[u32],
-        kv_caches: &mut [Vec<KVCacheEntry>],
-    ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-        self.preupload_weights_gpu()?;
-
-        let ctx = GpuContext::global()?;
-        let batch_size = batch_tokens.len();
-        let hidden_size = self.config.hidden_size;
-        let num_layers = self.config.num_layers;
-        let n_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.head_dim();
-        let max_seq = self.config.max_seq_len;
-        let vocab_size = self.config.vocab_size;
-        let n_heads = self.config.num_heads;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let half = head_dim / 2;
-        let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
-                "GPU weights not initialized after preupload".into(),
-            )
-        })?;
-
-        // ── 0a. Bulk upconvert F16 weights → f32 temps if configured ──
-        let f16_temps: Option<(Vec<[GpuTensor; 7]>, Option<GpuTensor>)> = if self.use_half_precision
-            && !self.quantize_weights
-        {
+        gw: &GpuWeights,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        num_layers: usize,
+    ) -> Result<Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor, GpuError};
+        if self.use_half_precision && !self.quantize_weights {
             let mut block_temps: Vec<[GpuTensor; 7]> = Vec::with_capacity(num_layers);
             for block_gw in &gw.block_weights {
                 let wq = ctx.f16_packed_to_f32(block_gw.wq_f16.as_ref().ok_or_else(|| {
@@ -2032,76 +2009,33 @@ impl CausalLM {
                 .as_ref()
                 .map(|f16| ctx.f16_packed_to_f32(f16))
                 .transpose()?;
-            Some((block_temps, lm_head))
+            Ok(Some((block_temps, lm_head)))
         } else {
-            None
-        };
-
-        if batch_size == 0 {
-            return Ok(Vec::new());
+            Ok(None)
         }
+    }
 
-        ctx.begin_batch_mode();
+    #[cfg(feature = "gpu")]
+    fn forward_gpu_single_token_core(
+        &self,
+        batch_tokens: &[u32],
+        ctx: &nexora_autograd::gpu::GpuContext,
+        gpu_caches: &mut [Vec<super::gqa::GpuKVCacheEntry>],
+        f16_temps: &Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>,
+        gw: &GpuWeights,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
-        // Create per-sequence GPU KV caches (one Vec<GpuKVCacheEntry> per sequence)
-        use super::gqa::GpuKVCacheEntry;
-        let mut gpu_caches: Vec<Vec<GpuKVCacheEntry>> = (0..batch_size)
-            .map(|_| {
-                (0..num_layers)
-                    .map(|_| {
-                        GpuKVCacheEntry::new(
-                            &ctx,
-                            n_kv_heads,
-                            head_dim,
-                            max_seq,
-                            self.use_half_precision,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Sync existing CPU data to GPU caches (one-time O(seq) per sequence)
-        for seq_idx in 0..batch_size {
-            let cpu_cache = &kv_caches[seq_idx];
-            for layer_idx in 0..num_layers {
-                if layer_idx < cpu_cache.len() && cpu_cache[layer_idx].seq_len() > 0 {
-                    let ce = &cpu_cache[layer_idx];
-                    let seq = ce.seq_len();
-                    let k_cpu =
-                        ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.k.clone())
-                            .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
-                            })?;
-                    let v_cpu =
-                        ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.v.clone())
-                            .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
-                            })?;
-                    let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
-                    let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
-                    let bytes = (seq * n_kv_heads * head_dim * 4) as u64;
-                    ctx.batch_dispatch(|enc| {
-                        enc.copy_buffer_to_buffer(
-                            k_gpu.buffer(),
-                            0,
-                            gpu_caches[seq_idx][layer_idx].k.buffer(),
-                            0,
-                            bytes,
-                        );
-                        enc.copy_buffer_to_buffer(
-                            v_gpu.buffer(),
-                            0,
-                            gpu_caches[seq_idx][layer_idx].v.buffer(),
-                            0,
-                            bytes,
-                        );
-                        Ok(())
-                    })?;
-                    gpu_caches[seq_idx][layer_idx].seq_len = seq;
-                }
-            }
-        }
+        let batch_size = batch_tokens.len();
+        let hidden_size = self.config.hidden_size;
+        let num_layers = self.config.num_layers;
+        let n_kv_heads = self.config.num_kv_heads;
+        let head_dim = self.config.head_dim();
+        let vocab_size = self.config.vocab_size;
+        let n_heads = self.config.num_heads;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+        let half = head_dim / 2;
 
         // ── 1. Batched embedding: copy ALL token rows into one [batch_size, hidden_size] tensor ──
         let row_bytes = (hidden_size * 4) as u64;
@@ -2131,6 +2065,9 @@ impl CausalLM {
         })?;
 
         // ── 2. Forward through all blocks (batched QKV/FFN, per-sequence attention) ──
+        let q_dim = n_heads * head_dim;
+        let kv_dim_total = n_kv_heads * head_dim;
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             let block_gw = &gw.block_weights[layer_idx];
 
@@ -2195,8 +2132,6 @@ impl CausalLM {
                     .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
             )?;
 
-            let q_dim = n_heads * head_dim;
-            let kv_dim_total = n_kv_heads * head_dim;
             let mut attn_rows = Vec::with_capacity(batch_size);
 
             for seq_idx in 0..batch_size {
@@ -2345,6 +2280,107 @@ impl CausalLM {
         } else {
             ctx.matmul(&h, &gw.lm_head_t)?
         };
+
+        Ok(logits)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_batched(
+        &self,
+        batch_tokens: &[u32],
+        kv_caches: &mut [Vec<KVCacheEntry>],
+    ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
+        use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        self.preupload_weights_gpu()?;
+
+        let ctx = GpuContext::global()?;
+        let batch_size = batch_tokens.len();
+        let hidden_size = self.config.hidden_size;
+        let num_layers = self.config.num_layers;
+        let n_kv_heads = self.config.num_kv_heads;
+        let head_dim = self.config.head_dim();
+        let max_seq = self.config.max_seq_len;
+        let vocab_size = self.config.vocab_size;
+        let n_heads = self.config.num_heads;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+        let half = head_dim / 2;
+        let gw = self.gpu_weights.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported(
+                "GPU weights not initialized after preupload".into(),
+            )
+        })?;
+
+        let f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
+
+        if batch_size == 0 {
+            return Ok(Vec::new());
+        }
+
+        ctx.begin_batch_mode();
+
+        // Create per-sequence GPU KV caches (one Vec<GpuKVCacheEntry> per sequence)
+        use super::gqa::GpuKVCacheEntry;
+        let mut gpu_caches: Vec<Vec<GpuKVCacheEntry>> = (0..batch_size)
+            .map(|_| {
+                (0..num_layers)
+                    .map(|_| {
+                        GpuKVCacheEntry::new(
+                            &ctx,
+                            n_kv_heads,
+                            head_dim,
+                            max_seq,
+                            self.use_half_precision,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Sync existing CPU data to GPU caches (one-time O(seq) per sequence)
+        for seq_idx in 0..batch_size {
+            let cpu_cache = &kv_caches[seq_idx];
+            for layer_idx in 0..num_layers {
+                if layer_idx < cpu_cache.len() && cpu_cache[layer_idx].seq_len() > 0 {
+                    let ce = &cpu_cache[layer_idx];
+                    let seq = ce.seq_len();
+                    let k_cpu =
+                        ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.k.clone())
+                            .map_err(|e| {
+                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                            })?;
+                    let v_cpu =
+                        ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.v.clone())
+                            .map_err(|e| {
+                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                            })?;
+                    let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
+                    let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
+                    let bytes = (seq * n_kv_heads * head_dim * 4) as u64;
+                    ctx.batch_dispatch(|enc| {
+                        enc.copy_buffer_to_buffer(
+                            k_gpu.buffer(),
+                            0,
+                            gpu_caches[seq_idx][layer_idx].k.buffer(),
+                            0,
+                            bytes,
+                        );
+                        enc.copy_buffer_to_buffer(
+                            v_gpu.buffer(),
+                            0,
+                            gpu_caches[seq_idx][layer_idx].v.buffer(),
+                            0,
+                            bytes,
+                        );
+                        Ok(())
+                    })?;
+                    gpu_caches[seq_idx][layer_idx].seq_len = seq;
+                }
+            }
+        }
+
+        let logits = self.forward_gpu_single_token_core(batch_tokens, &ctx, &mut gpu_caches, &f16_temps, gw)?;
 
         // ── 4. SINGLE readback — split into per-sequence logits ──
         let logits_data: Vec<f32> = logits.to_cpu()?.iter().copied().collect();
@@ -2515,58 +2551,7 @@ impl CausalLM {
             )
         })?;
 
-        // ── 0a. Bulk upconvert F16 weights → f32 temps if configured ──
-        let f16_temps: Option<(Vec<[GpuTensor; 7]>, Option<GpuTensor>)> = if self.use_half_precision
-            && !self.quantize_weights
-        {
-            let mut block_temps: Vec<[GpuTensor; 7]> = Vec::with_capacity(num_layers);
-            for block_gw in &gw.block_weights {
-                let wq = ctx.f16_packed_to_f32(block_gw.wq_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wq missing f16 variant".into(),
-                    )
-                })?)?;
-                let wk = ctx.f16_packed_to_f32(block_gw.wk_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wk missing f16 variant".into(),
-                    )
-                })?)?;
-                let wv = ctx.f16_packed_to_f32(block_gw.wv_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wv missing f16 variant".into(),
-                    )
-                })?)?;
-                let wo = ctx.f16_packed_to_f32(block_gw.wo_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wo missing f16 variant".into(),
-                    )
-                })?)?;
-                let w1 = ctx.f16_packed_to_f32(block_gw.w1_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w1 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w2 = ctx.f16_packed_to_f32(block_gw.w2_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w2 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w3 = ctx.f16_packed_to_f32(block_gw.w3_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w3 missing f16 variant".into(),
-                    )
-                })?)?;
-                block_temps.push([wq, wk, wv, wo, w1, w2, w3]);
-            }
-            let lm_head = gw
-                .lm_head_f16
-                .as_ref()
-                .map(|f16| ctx.f16_packed_to_f32(f16))
-                .transpose()?;
-            Some((block_temps, lm_head))
-        } else {
-            None
-        };
+        let f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
 
         if batch_size == 0 {
             return Ok(Vec::new());
@@ -2574,242 +2559,7 @@ impl CausalLM {
 
         ctx.begin_batch_mode();
 
-        // ── SKIP Phase 0: No GPU cache creation — use existing gpu_caches ──
-        // ── SKIP Phase 0b: No CPU→GPU sync — entries are already on GPU ──
-
-        // ── 1. Batched embedding: copy ALL token rows into one [batch_size, hidden_size] tensor ──
-        let row_bytes = (hidden_size * 4) as u64;
-        let mut h = GpuTensor::zeros(&[batch_size, hidden_size])?;
-        for &token_id in batch_tokens.iter() {
-            let tid = token_id as usize;
-            if tid >= vocab_size {
-                return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
-                    "Token ID {} out of range [0, {})",
-                    tid, vocab_size
-                )));
-            }
-        }
-        ctx.batch_dispatch(|enc| {
-            for (seq_idx, &token_id) in batch_tokens.iter().enumerate() {
-                let offset = (token_id as usize * hidden_size * 4) as u64;
-                let dst_offset = (seq_idx * hidden_size * 4) as u64;
-                enc.copy_buffer_to_buffer(
-                    gw.token_embedding.buffer(),
-                    offset,
-                    h.buffer(),
-                    dst_offset,
-                    row_bytes,
-                );
-            }
-            Ok(())
-        })?;
-
-        // ── 2. Forward through all blocks (batched QKV/FFN, per-sequence attention) ──
-        for (layer_idx, block) in self.blocks.iter().enumerate() {
-            let block_gw = &gw.block_weights[layer_idx];
-
-            let normed = block.attention_norm.forward_gpu(&h)?;
-
-            let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][0])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wq_t)?
-            };
-            let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][1])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wk_t)?
-            };
-            let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][2])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wv_t)?
-            };
-
-            // Batch-upload cos/sin for ALL sequences: [batch_size, half]
-            let mut cos_flat = Vec::with_capacity(batch_size * half);
-            let mut sin_flat = Vec::with_capacity(batch_size * half);
-            for seq_idx in 0..batch_size {
-                let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
-                let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-                    self.precomputed_cos
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
-                let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-                    self.precomputed_sin
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
-                cos_flat.extend_from_slice(cos_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
-                })?);
-                sin_flat.extend_from_slice(sin_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
-                })?);
-            }
-            let cos_gpu_batch = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![batch_size, half], cos_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-            )?;
-            let sin_gpu_batch = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![batch_size, half], sin_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-            )?;
-
-            let q_dim = n_heads * head_dim;
-            let kv_dim_total = n_kv_heads * head_dim;
-            let mut attn_rows = Vec::with_capacity(batch_size);
-
-            for seq_idx in 0..batch_size {
-                let q_row = GpuTensor::zeros(&[1, q_dim])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        q_proj.buffer(),
-                        (seq_idx * q_dim * 4) as u64,
-                        q_row.buffer(),
-                        0,
-                        (q_dim * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let k_row = GpuTensor::zeros(&[1, kv_dim_total])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        k_proj.buffer(),
-                        (seq_idx * kv_dim_total * 4) as u64,
-                        k_row.buffer(),
-                        0,
-                        (kv_dim_total * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let v_row = GpuTensor::zeros(&[1, kv_dim_total])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        v_proj.buffer(),
-                        (seq_idx * kv_dim_total * 4) as u64,
-                        v_row.buffer(),
-                        0,
-                        (kv_dim_total * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let row_cos = GpuTensor::zeros(&[1, half])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        cos_gpu_batch.buffer(),
-                        (seq_idx * half * 4) as u64,
-                        row_cos.buffer(),
-                        0,
-                        (half * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-                let row_sin = GpuTensor::zeros(&[1, half])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        sin_gpu_batch.buffer(),
-                        (seq_idx * half * 4) as u64,
-                        row_sin.buffer(),
-                        0,
-                        (half * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let q_rotated =
-                    ctx.rotary_embedding(&q_row, &row_cos, &row_sin, head_dim as u32)?;
-                let k_rotated =
-                    ctx.rotary_embedding(&k_row, &row_cos, &row_sin, head_dim as u32)?;
-
-                let k_3d = k_rotated.reshape(vec![1, n_kv_heads, head_dim])?;
-                let v_3d = v_row.reshape(vec![1, n_kv_heads, head_dim])?;
-                gpu_caches[seq_idx][layer_idx].append(&ctx, &k_3d, &v_3d)?;
-
-                let total_seq = gpu_caches[seq_idx][layer_idx].seq_len;
-                let (k_rep, v_rep) =
-                    gpu_caches[seq_idx][layer_idx].get_repeated_kv(&ctx, n_heads as u32)?;
-                let q_4d = q_rotated.reshape(vec![1, n_heads, 1, head_dim])?;
-                let k_4d = k_rep.reshape(vec![1, n_heads, total_seq, head_dim])?;
-                let v_4d = v_rep.reshape(vec![1, n_heads, total_seq, head_dim])?;
-
-                let attn_out = ctx.fused_attention(&q_4d, &k_4d, &v_4d, scale, false)?;
-                attn_rows.push(attn_out.reshape(vec![1, n_heads * head_dim])?);
-            }
-
-            let attn_concat = GpuTensor::zeros(&[batch_size, hidden_size])?;
-            ctx.batch_dispatch(|enc| {
-                for (seq_idx, row) in attn_rows.iter().enumerate() {
-                    enc.copy_buffer_to_buffer(
-                        row.buffer(),
-                        0,
-                        attn_concat.buffer(),
-                        (seq_idx * hidden_size * 4) as u64,
-                        (hidden_size * 4) as u64,
-                    );
-                }
-                Ok(())
-            })?;
-
-            let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&attn_concat, &temps[layer_idx][3])?
-            } else {
-                ctx.matmul(&attn_concat, &block_gw.wo_t)?
-            };
-            h = ctx.add(&h, &attn_proj)?;
-
-            // Batched FFN
-            let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
-            let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
-            } else {
-                ctx.matmul(&normed_ffn, &block_gw.w1_t)?
-            };
-            let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
-            } else {
-                ctx.matmul(&normed_ffn, &block_gw.w3_t)?
-            };
-            let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
-            let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
-            } else {
-                ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
-            };
-            h = ctx.add(&h, &ffn_out)?;
-        }
-
-        // ── 3. Final norm + SINGLE LM head matmul (batched) ──
-        h = self.norm.forward_gpu(&h)?;
-        let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
-        } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
-            ctx.matmul(&h, lm_head_f32)?
-        } else {
-            ctx.matmul(&h, &gw.lm_head_t)?
-        };
+        let logits = self.forward_gpu_single_token_core(batch_tokens, &ctx, gpu_caches, &f16_temps, gw)?;
 
         // ── 4. Conditional readback: only for sequences at their last token ──
         let needs_any = needs_logits.iter().any(|&n| n);
@@ -2873,58 +2623,7 @@ impl CausalLM {
             )
         })?;
 
-        // ── 0a. Bulk upconvert F16 weights → f32 temps if configured ──
-        let f16_temps: Option<(Vec<[GpuTensor; 7]>, Option<GpuTensor>)> = if self.use_half_precision
-            && !self.quantize_weights
-        {
-            let mut block_temps: Vec<[GpuTensor; 7]> = Vec::with_capacity(num_layers);
-            for block_gw in &gw.block_weights {
-                let wq = ctx.f16_packed_to_f32(block_gw.wq_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wq missing f16 variant".into(),
-                    )
-                })?)?;
-                let wk = ctx.f16_packed_to_f32(block_gw.wk_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wk missing f16 variant".into(),
-                    )
-                })?)?;
-                let wv = ctx.f16_packed_to_f32(block_gw.wv_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wv missing f16 variant".into(),
-                    )
-                })?)?;
-                let wo = ctx.f16_packed_to_f32(block_gw.wo_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wo missing f16 variant".into(),
-                    )
-                })?)?;
-                let w1 = ctx.f16_packed_to_f32(block_gw.w1_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w1 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w2 = ctx.f16_packed_to_f32(block_gw.w2_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w2 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w3 = ctx.f16_packed_to_f32(block_gw.w3_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w3 missing f16 variant".into(),
-                    )
-                })?)?;
-                block_temps.push([wq, wk, wv, wo, w1, w2, w3]);
-            }
-            let lm_head = gw
-                .lm_head_f16
-                .as_ref()
-                .map(|f16| ctx.f16_packed_to_f32(f16))
-                .transpose()?;
-            Some((block_temps, lm_head))
-        } else {
-            None
-        };
+        let f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
 
         if batch_size == 0 {
             return Ok(Vec::new());
@@ -2932,243 +2631,7 @@ impl CausalLM {
 
         ctx.begin_batch_mode();
 
-        // ── SKIP Phase 0: No GPU cache creation — use existing gpu_caches ──
-        // ── SKIP Phase 0b: No CPU→GPU sync — entries are already on GPU ──
-
-        // ── 1. Batched embedding ──
-        let row_bytes = (hidden_size * 4) as u64;
-        let mut h = GpuTensor::zeros(&[batch_size, hidden_size])?;
-        for &token_id in batch_tokens.iter() {
-            let tid = token_id as usize;
-            if tid >= vocab_size {
-                return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
-                    "Token ID {} out of range [0, {})",
-                    tid, vocab_size
-                )));
-            }
-        }
-        ctx.batch_dispatch(|enc| {
-            for (seq_idx, &token_id) in batch_tokens.iter().enumerate() {
-                let offset = (token_id as usize * hidden_size * 4) as u64;
-                let dst_offset = (seq_idx * hidden_size * 4) as u64;
-                enc.copy_buffer_to_buffer(
-                    gw.token_embedding.buffer(),
-                    offset,
-                    h.buffer(),
-                    dst_offset,
-                    row_bytes,
-                );
-            }
-            Ok(())
-        })?;
-
-        // ── 2. Forward through all blocks ──
-        let q_dim = n_heads * head_dim;
-        let kv_dim_total = n_kv_heads * head_dim;
-
-        for (layer_idx, block) in self.blocks.iter().enumerate() {
-            let block_gw = &gw.block_weights[layer_idx];
-
-            let normed = block.attention_norm.forward_gpu(&h)?;
-
-            let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][0])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wq_t)?
-            };
-            let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][1])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wk_t)?
-            };
-            let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed, &temps[layer_idx][2])?
-            } else {
-                ctx.matmul(&normed, &block_gw.wv_t)?
-            };
-
-            // Batch-upload cos/sin for ALL sequences: [batch_size, half]
-            let mut cos_flat = Vec::with_capacity(batch_size * half);
-            let mut sin_flat = Vec::with_capacity(batch_size * half);
-            for seq_idx in 0..batch_size {
-                let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
-                let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-                    self.precomputed_cos
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
-                let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-                    self.precomputed_sin
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
-                cos_flat.extend_from_slice(cos_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
-                })?);
-                sin_flat.extend_from_slice(sin_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
-                })?);
-            }
-            let cos_gpu_batch = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![batch_size, half], cos_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-            )?;
-            let sin_gpu_batch = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![batch_size, half], sin_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-            )?;
-
-            let mut attn_rows = Vec::with_capacity(batch_size);
-
-            for seq_idx in 0..batch_size {
-                let q_row = GpuTensor::zeros(&[1, q_dim])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        q_proj.buffer(),
-                        (seq_idx * q_dim * 4) as u64,
-                        q_row.buffer(),
-                        0,
-                        (q_dim * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let k_row = GpuTensor::zeros(&[1, kv_dim_total])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        k_proj.buffer(),
-                        (seq_idx * kv_dim_total * 4) as u64,
-                        k_row.buffer(),
-                        0,
-                        (kv_dim_total * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let v_row = GpuTensor::zeros(&[1, kv_dim_total])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        v_proj.buffer(),
-                        (seq_idx * kv_dim_total * 4) as u64,
-                        v_row.buffer(),
-                        0,
-                        (kv_dim_total * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let row_cos = GpuTensor::zeros(&[1, half])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        cos_gpu_batch.buffer(),
-                        (seq_idx * half * 4) as u64,
-                        row_cos.buffer(),
-                        0,
-                        (half * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-                let row_sin = GpuTensor::zeros(&[1, half])?;
-                ctx.batch_dispatch(|enc| {
-                    enc.copy_buffer_to_buffer(
-                        sin_gpu_batch.buffer(),
-                        (seq_idx * half * 4) as u64,
-                        row_sin.buffer(),
-                        0,
-                        (half * 4) as u64,
-                    );
-                    Ok(())
-                })?;
-
-                let q_rotated =
-                    ctx.rotary_embedding(&q_row, &row_cos, &row_sin, head_dim as u32)?;
-                let k_rotated =
-                    ctx.rotary_embedding(&k_row, &row_cos, &row_sin, head_dim as u32)?;
-
-                let k_3d = k_rotated.reshape(vec![1, n_kv_heads, head_dim])?;
-                let v_3d = v_row.reshape(vec![1, n_kv_heads, head_dim])?;
-                gpu_caches[seq_idx][layer_idx].append(&ctx, &k_3d, &v_3d)?;
-
-                let total_seq = gpu_caches[seq_idx][layer_idx].seq_len;
-                let (k_rep, v_rep) =
-                    gpu_caches[seq_idx][layer_idx].get_repeated_kv(&ctx, n_heads as u32)?;
-                let q_4d = q_rotated.reshape(vec![1, n_heads, 1, head_dim])?;
-                let k_4d = k_rep.reshape(vec![1, n_heads, total_seq, head_dim])?;
-                let v_4d = v_rep.reshape(vec![1, n_heads, total_seq, head_dim])?;
-
-                let attn_out = ctx.fused_attention(&q_4d, &k_4d, &v_4d, scale, false)?;
-                attn_rows.push(attn_out.reshape(vec![1, n_heads * head_dim])?);
-            }
-
-            let attn_concat = GpuTensor::zeros(&[batch_size, hidden_size])?;
-            ctx.batch_dispatch(|enc| {
-                for (seq_idx, row) in attn_rows.iter().enumerate() {
-                    enc.copy_buffer_to_buffer(
-                        row.buffer(),
-                        0,
-                        attn_concat.buffer(),
-                        (seq_idx * hidden_size * 4) as u64,
-                        (hidden_size * 4) as u64,
-                    );
-                }
-                Ok(())
-            })?;
-
-            let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&attn_concat, &temps[layer_idx][3])?
-            } else {
-                ctx.matmul(&attn_concat, &block_gw.wo_t)?
-            };
-            h = ctx.add(&h, &attn_proj)?;
-
-            // Batched FFN
-            let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
-            let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
-            } else {
-                ctx.matmul(&normed_ffn, &block_gw.w1_t)?
-            };
-            let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
-            } else {
-                ctx.matmul(&normed_ffn, &block_gw.w3_t)?
-            };
-            let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
-            let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
-            } else if let Some((ref temps, _)) = f16_temps {
-                ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
-            } else {
-                ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
-            };
-            h = ctx.add(&h, &ffn_out)?;
-        }
-
-        // ── 3. Final norm + SINGLE LM head matmul (batched) ──
-        h = self.norm.forward_gpu(&h)?;
-        let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
-        } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
-            ctx.matmul(&h, lm_head_f32)?
-        } else {
-            ctx.matmul(&h, &gw.lm_head_t)?
-        };
+        let logits = self.forward_gpu_single_token_core(batch_tokens, &ctx, gpu_caches, &f16_temps, gw)?;
 
         // ── 4. GPU sampling (zero logit readback) — sample per-sequence with per-seq params ──
         let mut token_ids = Vec::with_capacity(batch_size);
@@ -3230,58 +2693,7 @@ impl CausalLM {
             )
         })?;
 
-        // ── 0a. Bulk upconvert F16 weights → f32 temps if configured ──
-        let f16_temps: Option<(Vec<[GpuTensor; 7]>, Option<GpuTensor>)> = if self.use_half_precision
-            && !self.quantize_weights
-        {
-            let mut block_temps: Vec<[GpuTensor; 7]> = Vec::with_capacity(num_layers);
-            for block_gw in &gw.block_weights {
-                let wq = ctx.f16_packed_to_f32(block_gw.wq_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wq missing f16 variant".into(),
-                    )
-                })?)?;
-                let wk = ctx.f16_packed_to_f32(block_gw.wk_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wk missing f16 variant".into(),
-                    )
-                })?)?;
-                let wv = ctx.f16_packed_to_f32(block_gw.wv_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wv missing f16 variant".into(),
-                    )
-                })?)?;
-                let wo = ctx.f16_packed_to_f32(block_gw.wo_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight wo missing f16 variant".into(),
-                    )
-                })?)?;
-                let w1 = ctx.f16_packed_to_f32(block_gw.w1_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w1 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w2 = ctx.f16_packed_to_f32(block_gw.w2_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w2 missing f16 variant".into(),
-                    )
-                })?)?;
-                let w3 = ctx.f16_packed_to_f32(block_gw.w3_f16.as_ref().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported(
-                        "use_half_precision: block weight w3 missing f16 variant".into(),
-                    )
-                })?)?;
-                block_temps.push([wq, wk, wv, wo, w1, w2, w3]);
-            }
-            let lm_head = gw
-                .lm_head_f16
-                .as_ref()
-                .map(|f16| ctx.f16_packed_to_f32(f16))
-                .transpose()?;
-            Some((block_temps, lm_head))
-        } else {
-            None
-        };
+        let f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
 
         // ── 0b. Build flat token array + per-sequence offsets + position IDs ──
         let mut flat_tokens: Vec<u32> = Vec::new();

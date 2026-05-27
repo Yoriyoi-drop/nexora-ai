@@ -267,6 +267,45 @@ impl GpuKVCacheEntry {
         Ok(())
     }
 
+    /// Read back a single token's K/V from this GPU cache entry into CPU f32 slices.
+    /// Returns (k_vec, v_vec) each of length `kv_heads * head_dim`.
+    /// This is a small readback (typically ~4KB for 8×128) — acceptable for
+    /// sync-back after GPU forward to keep the paged cache blocks consistent.
+    pub fn read_token_cpu(&self, pos: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+        if pos >= self.seq_len {
+            return None;
+        }
+        let kv_elems = self.kv_heads * self.head_dim;
+        let elem_size: usize = if self.f16_storage { 2 } else { 4 };
+        let token_bytes = kv_elems * elem_size;
+        let offset = (pos * token_bytes) as u64;
+
+        let k_raw = self.k.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
+        let v_raw = self.v.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
+
+        if self.f16_storage {
+            let k_f32: Vec<f32> = k_raw
+                .chunks_exact(2)
+                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                .collect();
+            let v_f32: Vec<f32> = v_raw
+                .chunks_exact(2)
+                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                .collect();
+            Some((k_f32, v_f32))
+        } else {
+            let k_f32: Vec<f32> = k_raw
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            let v_f32: Vec<f32> = v_raw
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            Some((k_f32, v_f32))
+        }
+    }
+
     /// Clear the cache (reset sequence length).
     /// Does NOT deallocate buffers — memset to zero.
     /// Uses u32 zero fill for F16 storage, f32 zero fill for F32 storage.
@@ -301,7 +340,7 @@ impl Clone for GpuKVCacheEntry {
 /// Unified trait for KV cache — supports both CPU (Vec<KVCacheEntry>) and GPU (GpuKVCacheEntry).
 /// Enables the inference engine to transparently switch between CPU and GPU KV cache
 /// without changing the model forward path.
-pub trait KVCacheProvider: Send {
+pub trait KVCacheProvider: Send + 'static {
     /// Append a new token's K/V for a given layer.
     /// `k` and `v` are flat slices of length num_kv_heads * head_dim.
     fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]);
@@ -335,6 +374,11 @@ pub trait KVCacheProvider: Send {
     fn as_gpu_entries(&mut self) -> Option<&mut Vec<GpuKVCacheEntry>> {
         None
     }
+
+    /// Downcast to `&mut dyn Any` for type-specific operations.
+    /// Required for type-safe downcasting from `Box<dyn KVCacheProvider>`.
+    #[doc(hidden)]
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// CPU implementation of [`KVCacheProvider`].
@@ -352,6 +396,10 @@ impl CpuKVCache {
 }
 
 impl KVCacheProvider for CpuKVCache {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
         let kv_dim = k.len();
         if layer_idx < self.entries.len() {
@@ -458,6 +506,10 @@ impl GpuKVCache {
 
 #[cfg(feature = "gpu")]
 impl KVCacheProvider for GpuKVCache {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
         if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
             if layer_idx < self.entries.len() {
@@ -1055,7 +1107,7 @@ impl GQA {
         };
         // F16 mode: f32 transposed QKV+O weights ga dipake —
         // forward_gpu upconvert f16→f32 temp per-call.
-        // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~16 bytes),
+        // `zeros(&[1])` DUMMY older (4 bytes per weight, total ~16 bytes),
         // BUKAN 4 matriks perhatian ukuran penuh. VRAM hemat: (4 × hidden × dim) bytes.
         let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;

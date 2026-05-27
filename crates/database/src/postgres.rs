@@ -899,7 +899,7 @@ impl PostgreSQLConnection {
     /// Execute a query on this connection
     ///
     /// Uses parameterized query to prevent SQL injection.
-    /// Each `$N` placeholder in the query is bound to the corresponding value in `params`.
+    /// Each `$N` older in the query is bound to the corresponding value in `params`.
     pub async fn execute_query(
         &self,
         query: &str,

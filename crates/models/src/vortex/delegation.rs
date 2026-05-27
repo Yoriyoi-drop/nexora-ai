@@ -84,7 +84,7 @@ fn run_verifiers(code: &str, language: &str) -> String {
         }
         Err(e) => {
             tracing::warn!("vortex code verifier failed: {}", e);
-            String::new()
+            format!("[Verification error: {}]", e)
         }
     }
 }

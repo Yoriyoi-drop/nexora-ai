@@ -221,6 +221,11 @@ pub struct PagedKVCache {
 }
 
 impl PagedKVCache {
+    /// Access the cache configuration (dimensions, block size, etc.).
+    pub fn config(&self) -> &PagedCacheConfig {
+        &self.config
+    }
+
     /// Create a new paged KV cache with the given config
     pub fn new(config: PagedCacheConfig) -> Self {
         let num_layers = config.num_layers;

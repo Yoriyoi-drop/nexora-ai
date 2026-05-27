@@ -139,19 +139,10 @@ impl Expert {
         .ok()?;
 
         let hidden_gpu = ctx.matmul(&input_gpu, &w1t_gpu).ok()?;
-        let hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
+        let mut hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
 
-        // GELU on CPU (GELU GPU kernel not assumed available)
-        let hidden_cpu = hidden_gpu.to_cpu().ok()?;
-        let hidden_slice: Vec<f32> = hidden_cpu.iter().copied().collect();
-        let activated: Vec<f32> = hidden_slice.iter().map(|&x| gelu(x)).collect();
-
-        // Dropout (CPU, same as original)
-        let dropped = if self.config.use_dropout {
-            self.apply_dropout(&activated)
-        } else {
-            activated
-        };
+        // GELU in-place on GPU (no CPU roundtrip)
+        ctx.gelu_inplace(&mut hidden_gpu).ok()?;
 
         // fc2 weights: [hidden_size, intermediate_size] → transpose → [intermediate_size, hidden_size]
         let fc2_w: Vec<f32> = self
@@ -160,8 +151,9 @@ impl Expert {
             .flat_map(|r| r.iter())
             .copied()
             .collect();
+        let inter_size = self.fc2_weights.len();
         let w2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.fc2_weights.len(), dropped.len()], fc2_w).ok()?,
+            &ArrayD::from_shape_vec(vec![inter_size, dim], fc2_w).ok()?,
         )
         .ok()?;
         let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
@@ -169,11 +161,20 @@ impl Expert {
             &ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?,
         )
         .ok()?;
-        let dropped_gpu =
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?)
-                .ok()?;
 
-        let out_gpu = ctx.matmul(&dropped_gpu, &w2t_gpu).ok()?;
+        let act_gpu = if self.config.use_dropout {
+            let hidden_cpu = hidden_gpu.to_cpu().ok()?;
+            let hidden_slice: Vec<f32> = hidden_cpu.iter().copied().collect();
+            let dropped = self.apply_dropout(&hidden_slice);
+            GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?,
+            )
+            .ok()?
+        } else {
+            hidden_gpu
+        };
+
+        let out_gpu = ctx.matmul(&act_gpu, &w2t_gpu).ok()?;
         let out_gpu = ctx.add(&out_gpu, &b2_gpu).ok()?;
 
         let out_cpu = out_gpu.to_cpu().ok()?;

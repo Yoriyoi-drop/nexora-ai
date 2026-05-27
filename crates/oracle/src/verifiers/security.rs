@@ -263,7 +263,15 @@ impl CodeVerifier for SecurityVerifier {
                 }
             }
             _ => {
-                // Generic checks for other languages
+                tracing::warn!("Unknown language in security verifier: {language}");
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Info,
+                    category: "Security".to_string(),
+                    message: format!("Language '{language}' is not supported by the security verifier"),
+                    line_number: None,
+                    column_number: None,
+                    rule_id: "lang_unsupported".to_string(),
+                });
             }
         }
 

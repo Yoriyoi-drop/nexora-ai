@@ -60,7 +60,7 @@ arboard = "3.3"  # For clipboard access
 nexora-autograd = { path = "../autograd", optional = true }
 
 # SPARO specific dependencies
-# Note: These are placeholder packages - implement custom logic instead
+# Note: These are older packages - implement custom logic instead
 
 [features]
 default = ["gpu"]

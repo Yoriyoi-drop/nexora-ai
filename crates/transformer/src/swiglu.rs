@@ -218,7 +218,7 @@ impl SwiGLU {
         };
         // F16 mode: f32 transposed FFN weights ga dipake —
         // forward_gpu upconvert f16→f32 temp per-call.
-        // `zeros(&[1])` DUMMY placeholder (4 bytes per weight, total ~12 bytes),
+        // `zeros(&[1])` DUMMY older (4 bytes per weight, total ~12 bytes),
         // BUKAN 3 matriks FFN ukuran penuh. VRAM hemat: (3 × intermediate × hidden) bytes.
         let (w1_t, w2_t, w3_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;

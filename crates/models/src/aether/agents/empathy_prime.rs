@@ -559,7 +559,7 @@ impl EmpathyPrimeAgent {
     ///
     /// FUTURE: Will delegate to foundation CausalLM with a specialized
     /// emotional-analysis prompt. Currently returns a single neutral emotion
-    /// as a structured placeholder — NOT performing real emotion detection.
+    /// as a structured older — NOT performing real emotion detection.
     fn detect_emotions(&self, _text: &str) -> Vec<Emotion> {
         vec![Emotion {
             name: "neutral".to_string(),

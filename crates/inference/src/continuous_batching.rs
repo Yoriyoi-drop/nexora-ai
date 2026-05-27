@@ -6,6 +6,7 @@ use ndarray::Array1;
 use nexora_tokenizer::BpeTokenizer;
 use tracing::{debug, warn};
 
+use crate::paged_provider::PagedKVCacheProvider;
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
@@ -815,6 +816,12 @@ where
                     for (i, tok) in gpu_results.into_iter().enumerate() {
                         gpu_tokens[i] = tok;
                     }
+                    #[cfg(feature = "gpu")]
+                    if self.config.use_paged_cache {
+                        PagedKVCacheProvider::sync_all_gpu_to_paged_slice(
+                            &mut gen_boxed_caches,
+                        );
+                    }
                     vec![Array1::zeros(gen_ids.len())]
                 } else {
                     // Fallback: extract CPU entries for full logit readback
@@ -843,6 +850,12 @@ where
                         seed.wrapping_add(0),
                     ) {
                         gpu_tokens[0] = Some(tok);
+                        #[cfg(feature = "gpu")]
+                        if self.config.use_paged_cache {
+                            PagedKVCacheProvider::sync_all_gpu_to_paged_slice(
+                                &mut gen_boxed_caches,
+                            );
+                        }
                         vec![Array1::zeros(1)]
                     } else {
                         let mut caches: Vec<CpuKVCache> = gen_boxed_caches

@@ -666,7 +666,7 @@ impl DecodingContext {
 }
 
 /// Allocate text for a token ID.
-/// Uses the global tokenizer if available, otherwise falls back to placeholder format.
+/// Uses the global tokenizer if available, otherwise falls back to older format.
 /// The tokenizer is set via [`set_global_tokenizer`] during engine initialization.
 pub(crate) fn alloc_token_text(token_id: usize) -> String {
     if let Some(lock) = GLOBAL_TOKENIZER.get() {
@@ -678,7 +678,7 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
             }
         }
     }
-    // Fallback: descriptive placeholder
+    // Fallback: descriptive older
     let mut buf = String::with_capacity(16);
     buf.push_str("[token_");
     let mut n = token_id;

@@ -298,6 +298,17 @@ impl GpuTensor {
         Ok(result)
     }
 
+    /// Read back a slice of raw bytes from the buffer at a given offset.
+    /// Useful for reading individual token positions from KV cache buffers
+    /// without reading the full tensor (avoids large PCIe transfers).
+    pub fn to_cpu_raw_bytes_slice(&self, offset: u64, size: u64) -> Result<Vec<u8>, GpuError> {
+        let ctx = Self::ctx()?;
+        ctx.flush();
+        let (data, staging) = self.readback_inner(offset, size)?;
+        Self::return_staging(ctx, staging, size, true);
+        Ok(data)
+    }
+
     /// Read back raw bytes (for u32 output buffers like sampler tokens)
     pub fn to_cpu_raw_bytes(&self) -> Result<Vec<u8>, GpuError> {
         let ctx = Self::ctx()?;

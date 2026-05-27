@@ -316,7 +316,15 @@ impl CodeVerifier for StyleVerifier {
                 }
             }
             _ => {
-                // Generic checks for other languages
+                tracing::warn!("Unknown language in style verifier: {language}");
+                issues.push(CodeIssue {
+                    severity: IssueSeverity::Info,
+                    category: "Style".to_string(),
+                    message: format!("Language '{language}' is not supported by the style verifier"),
+                    line_number: None,
+                    column_number: None,
+                    rule_id: "lang_unsupported".to_string(),
+                });
             }
         }
 
