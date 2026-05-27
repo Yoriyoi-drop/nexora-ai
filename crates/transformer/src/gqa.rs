@@ -12,11 +12,24 @@ use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuTensor};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
+/// Temporary f32 weights upconverted from f16 storage at forward start.
+/// Dropped at end of each forward pass — GPU memory reclaimed.
+pub(crate) struct GqaGpuTemps {
+    pub wq_t: nexora_autograd::gpu::GpuTensor,
+    pub wk_t: nexora_autograd::gpu::GpuTensor,
+    pub wv_t: nexora_autograd::gpu::GpuTensor,
+    pub wo_t: nexora_autograd::gpu::GpuTensor,
+}
+
 pub(crate) struct GqaGpuWeights {
     pub wq_t: nexora_autograd::gpu::GpuTensor,
     pub wk_t: nexora_autograd::gpu::GpuTensor,
     pub wv_t: nexora_autograd::gpu::GpuTensor,
     pub wo_t: nexora_autograd::gpu::GpuTensor,
+    pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_f16: Option<nexora_autograd::gpu::GpuTensor>,
 }
 
 /// GPU-resident KV cache entry.
@@ -520,6 +533,7 @@ pub struct GQA {
     pub(crate) gpu_weights: OnceLock<GqaGpuWeights>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_scratch: parking_lot::RwLock<Option<GpuKVCacheEntry>>,
+    pub(crate) use_half_precision: bool,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -535,6 +549,7 @@ impl Clone for GQA {
             wk: self.wk.clone(),
             wv: self.wv.clone(),
             wo: self.wo.clone(),
+            use_half_precision: self.use_half_precision,
         }
     }
 }
@@ -554,6 +569,7 @@ impl Clone for GQA {
             wo: self.wo.clone(),
             gpu_weights: OnceLock::new(),
             gpu_scratch: parking_lot::RwLock::new(None),
+            use_half_precision: self.use_half_precision,
         }
     }
 }
@@ -607,6 +623,7 @@ impl GQA {
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_scratch: parking_lot::RwLock::new(None),
+            use_half_precision: false,
         }
     }
 
@@ -999,6 +1016,87 @@ impl GQA {
 
 #[cfg(feature = "gpu")]
 impl GQA {
+    fn ensure_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        if self.gpu_weights.get().is_some() {
+            return Ok(());
+        }
+        let ctx = GpuContext::global()?;
+        let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
+            let shape = vec![arr.shape()[0], arr.shape()[1]];
+            let data = arr
+                .as_slice()
+                .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
+                .to_vec();
+            Ok(GpuTensor::from_cpu(
+                &ndarray::ArrayD::from_shape_vec(shape, data)
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+            )?)
+        };
+        let wq = mk(&self.wq)?;
+        let wk = mk(&self.wk)?;
+        let wv = mk(&self.wv)?;
+        let wo = mk(&self.wo)?;
+        let use_f16 = self.use_half_precision;
+        let (wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
+            let wq_t = ctx.transpose(&wq)?;
+            let wk_t = ctx.transpose(&wk)?;
+            let wv_t = ctx.transpose(&wv)?;
+            let wo_t = ctx.transpose(&wo)?;
+            (
+                Some(ctx.f32_to_f16_packed(&wq_t)?),
+                Some(ctx.f32_to_f16_packed(&wk_t)?),
+                Some(ctx.f32_to_f16_packed(&wv_t)?),
+                Some(ctx.f32_to_f16_packed(&wo_t)?),
+            )
+        } else {
+            (None, None, None, None)
+        };
+        let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
+            let d = GpuTensor::zeros(&[1])?;
+            (d.clone(), d.clone(), d.clone(), d)
+        } else {
+            (
+                ctx.transpose(&wq)?,
+                ctx.transpose(&wk)?,
+                ctx.transpose(&wv)?,
+                ctx.transpose(&wo)?,
+            )
+        };
+        let _ = self.gpu_weights.set(GqaGpuWeights {
+            wq_t,
+            wk_t,
+            wv_t,
+            wo_t,
+            wq_f16,
+            wk_f16,
+            wv_f16,
+            wo_f16,
+        });
+        Ok(())
+    }
+
+    fn gqa_upconvert_f16(
+        cached: &GqaGpuWeights,
+        ctx: &nexora_autograd::gpu::GpuContext,
+    ) -> Result<GqaGpuTemps, nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuError;
+        Ok(GqaGpuTemps {
+            wq_t: ctx.f16_packed_to_f32(cached.wq_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("GQA f16 missing wq".into())
+            })?)?,
+            wk_t: ctx.f16_packed_to_f32(cached.wk_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("GQA f16 missing wk".into())
+            })?)?,
+            wv_t: ctx.f16_packed_to_f32(cached.wv_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("GQA f16 missing wv".into())
+            })?)?,
+            wo_t: ctx.f16_packed_to_f32(cached.wo_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("GQA f16 missing wo".into())
+            })?)?,
+        })
+    }
+
     /// GPU forward with pre-uploaded cos/sin GPU tensors.
     /// cos_gpu / sin_gpu must be shape [1, half] — uploaded once per step, not per-layer.
     /// Uses GPU-resident KV cache — no O(n²) CPU round-trip.
@@ -1015,40 +1113,29 @@ impl GQA {
         let ctx = GpuContext::global()?;
         let batch_size = 1;
 
-        // 1. Lazy-init cached GPU weights
-        if self.gpu_weights.get().is_none() {
-            let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
-                let shape = vec![arr.shape()[0], arr.shape()[1]];
-                let data = arr
-                    .as_slice()
-                    .ok_or_else(|| GpuError::Unsupported("non-contiguous weight".into()))?
-                    .to_vec();
-                Ok(GpuTensor::from_cpu(
-                    &ndarray::ArrayD::from_shape_vec(shape, data)
-                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
-                )?)
-            };
-            let wq = mk(&self.wq)?;
-            let wk = mk(&self.wk)?;
-            let wv = mk(&self.wv)?;
-            let wo = mk(&self.wo)?;
-            let _ = self.gpu_weights.set(GqaGpuWeights {
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-            });
-        }
+        // 1. Ensure GPU weights are initialized
+        self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after lazy init".into(),
             )
         })?;
 
+        // 1b. Upconvert f16 → f32 temps if half precision
+        let _f16_temps = if self.use_half_precision {
+            Some(Self::gqa_upconvert_f16(cached, &ctx)?)
+        } else {
+            None
+        };
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+
         // 2. QKV projection on GPU
-        let q_proj = ctx.matmul(x_gpu, &cached.wq_t)?;
-        let k_proj = ctx.matmul(x_gpu, &cached.wk_t)?;
-        let v_proj = ctx.matmul(x_gpu, &cached.wv_t)?;
+        let q_proj = ctx.matmul(x_gpu, wq_t)?;
+        let k_proj = ctx.matmul(x_gpu, wk_t)?;
+        let v_proj = ctx.matmul(x_gpu, wv_t)?;
 
         // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin
         let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;

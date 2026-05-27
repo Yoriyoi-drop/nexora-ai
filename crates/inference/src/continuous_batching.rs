@@ -1013,12 +1013,13 @@ mod tests {
         let mut engine = ContinuousBatchingEngine::new(model, 4);
         engine.add_request(test_request(vec![1, 2], 4));
 
+        // prompt=[1,2] (2 tokens) + max_tokens=4 total
+        // Step 1: prefill 2 prompt + generate 1 → total=3, not done
         let r = engine.step();
         assert!(r.completed.is_empty());
+        // Step 2: generate 1 more → total=4 >= max_tokens=4 → finished
         let r = engine.step();
-        assert!(r.completed.is_empty());
-        let r = engine.step();
-        assert!(!r.completed.is_empty());
+        assert!(!r.completed.is_empty(), "expected completion at step 2 (total=4 >= max=4)");
         assert_eq!(r.completed[0].finish_reason, FinishReason::MaxTokens);
     }
 

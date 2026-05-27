@@ -9,6 +9,8 @@ pub mod beam_search;
 pub mod blaa_integration;
 pub mod continuous_batching;
 pub mod decoding;
+pub mod degradation;
+pub mod self_healing;
 pub mod engine;
 pub mod inference_trait;
 pub mod kv_cache;
@@ -34,7 +36,9 @@ pub use continuous_batching::{
     ContinuousBatchingConfig, ContinuousBatchingEngine, SequentialBatchingEngine, StepResult,
 };
 pub use decoding::{DecodingConfig, DecodingStrategy};
+pub use degradation::{DegradationConfig, DegradationLevel, DegradationManager, DegradationStats};
 pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
+pub use self_healing::{SelfHealingConfig, SelfHealingWorker, WorkerHealth};
 pub use inference_trait::InferenceEngine;
 pub use latency::{LatencyStats, LatencyTracker};
 pub use metrics::{InferenceMetrics, MetricsCollector};

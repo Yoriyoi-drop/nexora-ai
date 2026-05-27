@@ -6,11 +6,7 @@
 pub mod agents;
 pub mod classifier;
 pub mod delegation;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-pub mod architecture;
+
 pub mod capabilities;
 pub mod config;
 pub mod identity;
@@ -38,15 +34,9 @@ use self::{
     identity::CipherIdentity,
 };
 
-#[cfg(feature = "simulated-models")]
-use self::architecture::CipherArchitecture;
-
 pub struct NxrCipherModel {
     base: nexora_shared::base_model::BaseNxrModel<CipherConfig, CipherMetrics, CipherState>,
     identity: CipherIdentity,
-    /// Architecture implementation (simulated — see architecture module docs)
-    #[cfg(feature = "simulated-models")]
-    architecture: CipherArchitecture,
     capabilities: CipherCapabilities,
     components: FoundationComponents,
     config: CipherConfig,
@@ -130,8 +120,6 @@ impl NxrCipherModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: CipherArchitecture::new(&config),
             capabilities,
             components: FoundationComponents::new(),
             config,
@@ -407,11 +395,6 @@ impl NxrModel for NxrCipherModel {
         config
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        // Initialize architecture (simulated — only with `simulated-models` feature)
-        #[cfg(feature = "simulated-models")]
-        self.architecture
-            .initialize(&config)
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())

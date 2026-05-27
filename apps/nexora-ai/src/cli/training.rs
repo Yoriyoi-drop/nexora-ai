@@ -413,6 +413,7 @@ impl crate::cli::commands::Cli {
         resume: bool,
         model_id: &str,
         parallel: bool,
+        half_precision: bool,
     ) -> Result<()> {
         info!("=== NEXORA TRAINING ===");
         info!("Data: {:?}", data);
@@ -445,6 +446,7 @@ impl crate::cli::commands::Cli {
                 gpu,
                 seq_length,
                 resume,
+                half_precision,
             )
             .await;
         }
@@ -903,6 +905,7 @@ impl crate::cli::commands::Cli {
                 seq_length,
                 &stop_flag,
                 sys_mem_gb,
+                half_precision,
             )
             .await?
         } else {
@@ -976,10 +979,11 @@ impl crate::cli::commands::Cli {
                 let sf = stop_flag.clone();
                 let model_name_c = model_name.clone();
 
+                let hp = half_precision;
                 let result = tokio::task::spawn_blocking(move || {
                     train_nxr_model_pre_tokenized(
                         model_id, model_name, tf_config, cfg, &train_seq, &val_seq, &out, epochs,
-                        seq_length, sf,
+                        seq_length, sf, hp,
                     )
                 })
                 .await;
@@ -1087,6 +1091,7 @@ impl crate::cli::commands::Cli {
         gpu: bool,
         seq_length: usize,
         _resume: bool,
+        half_precision: bool,
     ) -> Result<()> {
         init_gpu(gpu);
 
@@ -1316,6 +1321,9 @@ impl crate::cli::commands::Cli {
                 output_safetensors.display()
             );
             let mut model = CausalLM::new(model_config);
+            if half_precision {
+                model = model.with_half_precision();
+            }
             Trainer::load(&mut model, &output_safetensors.to_string_lossy())?;
             let mut t = Trainer::with_model(model, trainer_config);
             t.prepare();
@@ -1323,7 +1331,10 @@ impl crate::cli::commands::Cli {
             t
         } else {
             info!("  No checkpoint found, starting fresh");
-            let model = CausalLM::new(model_config);
+            let mut model = CausalLM::new(model_config);
+            if half_precision {
+                model = model.with_half_precision();
+            }
             let param_count = model.parameter_count();
             info!("  Model: {}M parameters", param_count / 1_000_000);
             let mut t = Trainer::with_model(model, trainer_config);
@@ -1781,6 +1792,7 @@ fn train_nxr_model_pre_tokenized(
     epochs: usize,
     seq_length: usize,
     stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    half_precision: bool,
 ) -> Result<serde_json::Value> {
     let total_train = train_sequences.len();
     let total_val = val_sequences.len();
@@ -1874,7 +1886,10 @@ fn train_nxr_model_pre_tokenized(
     );
 
     let mut trainer = {
-        let model = CausalLM::new(tf_config);
+        let mut model = CausalLM::new(tf_config);
+        if half_precision {
+            model = model.with_half_precision();
+        }
         let param_count = model.parameter_count();
         info!(
             "    📐 {} params: {}M ({:.2}M trainable)",
@@ -2602,6 +2617,7 @@ async fn run_parallel_training(
     seq_length: usize,
     stop_flag: &Arc<std::sync::atomic::AtomicBool>,
     sys_mem_gb: f64,
+    half_precision: bool,
 ) -> Result<Vec<serde_json::Value>> {
     let total_models = model_ids.len();
     let mut handles = Vec::with_capacity(total_models);
@@ -2661,9 +2677,11 @@ async fn run_parallel_training(
         let sf = stop_flag.clone();
         let mn = model_name.clone();
 
+        let hp = half_precision;
         handles.push(tokio::task::spawn_blocking(move || {
             train_nxr_model_pre_tokenized(
                 model_id, mn, tf_config, cfg, &train_seq, &val_seq, &out, epochs, seq_length, sf,
+                hp,
             )
         }));
     }

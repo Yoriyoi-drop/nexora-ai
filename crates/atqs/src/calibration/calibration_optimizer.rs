@@ -328,10 +328,21 @@ fn compute_layer_gradients(
     Ok(layer_gradients)
 }
 
+/// Maximum time (seconds) for finite-difference gradient computation.
+/// Beyond this limit the gradient computation returns zero gradients
+/// with a warning to avoid hanging the server.
+const FD_GRADIENT_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum number of parameters for finite-difference gradient computation.
+/// Above this threshold we return zero gradients since even a single
+/// finite-difference iteration would require millions of forward passes.
+const FD_MAX_PARAMS: usize = 10_000;
+
 /// Compute weight gradients using finite differences.
 ///
-/// For models with >10K parameters this is infeasible (>20K forward passes per iteration),
-/// so we log a warning and return zero gradients as a safe no-op fallback.
+/// For models with >FD_MAX_PARAMS parameters this is infeasible (>2*N forward passes
+/// per iteration), so we log an error and return zero gradients as a safe no-op fallback.
+/// A hard timeout (FD_GRADIENT_TIMEOUT_SECS) prevents infinite hangs.
 fn compute_weight_gradients(
     model: &mut dyn crate::FoundationModel,
     layer_idx: usize,
@@ -340,15 +351,13 @@ fn compute_weight_gradients(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     let num_params = weights.len();
 
-    if num_params > 10_000 {
-        tracing::warn!(
-            "compute_weight_gradients: layer {} has {} parameters. \
-             Finite-difference gradient computation requires {} forward passes. \
-             This will be extremely slow. Returning zero gradients as a safe fallback. \
-             Consider using backpropagation via compute_gradients() instead.",
-            layer_idx,
-            num_params,
-            num_params * 2
+    if num_params > FD_MAX_PARAMS {
+        tracing::error!(
+            "compute_weight_gradients: layer {} has {} parameters (max={}). \
+             Finite-difference would require {} forward passes — INFEASIBLE. \
+             Returning zero gradients. Calibration will not update this layer. \
+             Use backpropagation via autograd engine for real training.",
+            layer_idx, num_params, FD_MAX_PARAMS, num_params * 2
         );
         return Ok(Array::zeros(weights.shape()));
     }
@@ -357,8 +366,18 @@ fn compute_weight_gradients(
     let mut gradients = Array::zeros(weights.shape());
 
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
 
     for (idx, _) in weights.indexed_iter() {
+        if std::time::Instant::now() > deadline {
+            tracing::error!(
+                "Finite-difference gradient computation timed out after {}s for layer {} ({} params). \
+                 Returning partial (incomplete) gradients.",
+                FD_GRADIENT_TIMEOUT_SECS, layer_idx, num_params
+            );
+            return Ok(gradients);
+        }
+
         let mut perturbed_weights = weights.clone();
         perturbed_weights[&idx] += epsilon;
 
@@ -372,7 +391,7 @@ fn compute_weight_gradients(
     Ok(gradients)
 }
 
-/// Compute bias gradients
+/// Compute bias gradients with timeout
 fn compute_bias_gradients(
     model: &mut dyn crate::FoundationModel,
     layer_idx: usize,
@@ -382,23 +401,26 @@ fn compute_bias_gradients(
     let epsilon = 1e-6;
     let mut gradients = Array::zeros(biases.shape());
 
-    // Compute original loss
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
 
-    // Compute gradients for each bias
     for (idx, &_bias) in biases.indexed_iter() {
-        // Perturb bias
+        if std::time::Instant::now() > deadline {
+            tracing::error!(
+                "Finite-difference bias gradient computation timed out after {}s for layer {} ({} biases). \
+                 Returning partial gradients.",
+                FD_GRADIENT_TIMEOUT_SECS, layer_idx, biases.len()
+            );
+            return Ok(gradients);
+        }
+
         let mut perturbed_biases = biases.clone();
         perturbed_biases[&idx] += epsilon;
 
-        // Temporarily update biases
         update_layer_biases(model, layer_idx, &perturbed_biases)?;
         let perturbed_loss = compute_layer_loss(model, layer_idx, batch)?;
-
-        // Restore original biases
         update_layer_biases(model, layer_idx, biases)?;
 
-        // Compute gradient
         gradients[&idx] = (perturbed_loss - original_loss) / epsilon;
     }
 
@@ -736,7 +758,7 @@ impl AdamOptimizer {
             epsilon: 1e-8,
             m: HashMap::new(),
             v: HashMap::new(),
-            t: 0,
+            t: 1,
         }
     }
 }
@@ -1033,7 +1055,7 @@ impl LAMBOptimizer {
             beta1: 0.9,
             beta2: 0.999,
             epsilon: 1e-6,
-            t: 0,
+            t: 1,
         }
     }
 }

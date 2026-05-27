@@ -10,6 +10,9 @@ use uuid::Uuid;
 use crate::continuous_batching::ContinuousBatchingConfig;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
+use crate::paged_cache::{PagedCacheConfig, PagedKVCache};
+use crate::paged_provider::PagedKVCacheProvider;
+use std::sync::Mutex as StdMutex;
 use crate::prefix_cache::PrefixCache;
 use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
@@ -38,6 +41,7 @@ pub struct InferenceConfig {
     pub default_timeout_seconds: u64,
     pub generation_timeout_seconds: u64,
     pub cleanup_interval_seconds: u64,
+    pub drain_timeout_seconds: u64,
     pub recv_timeout_millis: u64,
     pub metrics_interval_seconds: u64,
     pub use_gpu: bool,
@@ -47,6 +51,9 @@ pub struct InferenceConfig {
     pub use_gpu_resident: bool,
     pub use_continuous_batching: bool,
     pub use_continuous_batching_config: Option<ContinuousBatchingConfig>,
+    pub use_paged_cache: bool,
+    pub paged_block_size: usize,
+    pub paged_max_blocks: usize,
     pub checkpoint_path: Option<String>,
 }
 
@@ -63,6 +70,7 @@ impl Default for InferenceConfig {
             default_timeout_seconds: 30,
             generation_timeout_seconds: 60,
             cleanup_interval_seconds: 30,
+            drain_timeout_seconds: 15,
             recv_timeout_millis: 50,
             metrics_interval_seconds: 60,
             use_gpu: true,
@@ -72,6 +80,9 @@ impl Default for InferenceConfig {
             use_gpu_resident: true,
             use_continuous_batching: false,
             use_continuous_batching_config: None,
+            use_paged_cache: false,
+            paged_block_size: 0,
+            paged_max_blocks: 0,
             checkpoint_path: None,
         }
     }
@@ -87,6 +98,7 @@ pub struct InferenceEngine {
     tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
+    shared_paged: Option<Arc<StdMutex<PagedKVCache>>>,
     request_tx: mpsc::Sender<InferenceRequest>,
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
@@ -132,6 +144,8 @@ impl InferenceEngine {
             model.parameter_count()
         );
 
+        let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
+
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
             scheduler: Arc::new(RwLock::new(RequestScheduler::new(
@@ -147,6 +161,7 @@ impl InferenceEngine {
                 None
             },
             prefix_cache: Arc::new(PrefixCache::default()),
+            shared_paged,
             request_tx,
             request_rx: Arc::new(Mutex::new(Some(request_rx))),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
@@ -173,6 +188,8 @@ impl InferenceEngine {
             model.parameter_count()
         );
 
+        let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
+
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
             scheduler: Arc::new(RwLock::new(RequestScheduler::new(
@@ -188,6 +205,7 @@ impl InferenceEngine {
                 None
             },
             prefix_cache: Arc::new(PrefixCache::default()),
+            shared_paged,
             request_tx,
             request_rx: Arc::new(Mutex::new(Some(request_rx))),
             active_requests: Arc::new(RwLock::new(HashMap::new())),
@@ -196,6 +214,93 @@ impl InferenceEngine {
             model_ready: true,
             memory: None,
         }
+    }
+
+    fn maybe_init_paged_cache(
+        config: &InferenceConfig,
+        model: Option<&Arc<CausalLM>>,
+    ) -> Option<Arc<StdMutex<PagedKVCache>>> {
+        if !config.use_paged_cache {
+            return None;
+        }
+        if let Some(model) = model {
+            let c = &model.config;
+            let block_size = if config.paged_block_size > 0 {
+                config.paged_block_size
+            } else {
+                PagedCacheConfig::suggest_block_size(c.head_dim(), c.num_kv_heads)
+            };
+            let max_blocks = if config.paged_max_blocks > 0 {
+                config.paged_max_blocks
+            } else {
+                ((c.max_seq_len / block_size).max(64) * 4).min(65536)
+            };
+            let pc_config = PagedCacheConfig {
+                block_size,
+                max_blocks,
+                num_layers: c.num_layers,
+                num_kv_heads: c.num_kv_heads,
+                head_dim: c.head_dim(),
+                max_seq_len: c.max_seq_len,
+            };
+            info!(
+                "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}",
+                block_size, max_blocks, c.num_layers
+            );
+            Some(Arc::new(StdMutex::new(PagedKVCache::new(pc_config))))
+        } else {
+            warn!("Paged cache requested but model not loaded yet — deferred to first cache creation");
+            Some(Arc::new(StdMutex::new(PagedKVCache::new(PagedCacheConfig {
+                num_layers: 1,
+                block_size: 16,
+                max_blocks: 64,
+                num_kv_heads: 1,
+                head_dim: 64,
+                max_seq_len: 2048,
+            }))))
+        }
+    }
+
+    /// Generate a unique sequence ID for paged cache registration.
+    fn next_seq_id() -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Create the appropriate KVCacheProvider based on engine config.
+    fn make_kv_provider(
+        model: &CausalLM,
+        use_gpu_cache: bool,
+        shared_paged: &Option<Arc<StdMutex<PagedKVCache>>>,
+    ) -> Box<dyn KVCacheProvider> {
+        // Paged cache takes priority: block-based, copy-on-write, prefix sharing
+        if let Some(ref paged) = shared_paged {
+            let seq_id = Self::next_seq_id();
+            let num_layers = model.config.num_layers;
+            info!(
+                "Creating PagedKVCacheProvider seq_id={}, layers={}",
+                seq_id, num_layers
+            );
+            return Box::new(PagedKVCacheProvider::new_shared(
+                seq_id,
+                paged.clone(),
+                num_layers,
+            ));
+        }
+
+        // GPU-resident cache
+        #[cfg(feature = "gpu")]
+        if use_gpu_cache {
+            let num_layers = model.config.num_layers;
+            let n_kv_heads = model.config.num_kv_heads;
+            let head_dim = model.config.head_dim();
+            let max_seq = model.config.max_seq_len;
+            return Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq));
+        }
+
+        // Default: flat CPU cache
+        Box::new(model.reset_cache())
     }
 
     pub async fn initialize(&mut self) -> Result<()> {
@@ -297,6 +402,7 @@ impl InferenceEngine {
         let use_gpu = self.config.use_gpu;
         #[cfg(feature = "gpu")]
         let use_gpu_cache = self.config.use_gpu_cache;
+        let shared_paged = self.shared_paged.clone();
         let _scheduler = self.scheduler.clone();
         let se_clone = se.clone();
         let active = self.active_requests.clone();
@@ -346,19 +452,7 @@ impl InferenceEngine {
                 }
             };
 
-            let cpu_cache = model.reset_cache();
-            #[cfg(feature = "gpu")]
-            let mut kv_state: Box<dyn KVCacheProvider> = if use_gpu_cache {
-                let num_layers = model.config.num_layers;
-                let n_kv_heads = model.config.num_kv_heads;
-                let head_dim = model.config.head_dim();
-                let max_seq = model.config.max_seq_len;
-                Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-            } else {
-                Box::new(cpu_cache)
-            };
-            #[cfg(not(feature = "gpu"))]
-            let mut kv_state = Box::new(cpu_cache);
+            let mut kv_state = Self::make_kv_provider(&model, use_gpu_cache, &shared_paged);
             let max_gen = max_tokens.min(2048) as usize;
             let mut generated_ids: Vec<u32> = Vec::with_capacity(max_gen);
             let mut sampler = crate::sampler::Sampler::new(crate::sampler::SamplingConfig {
@@ -830,20 +924,12 @@ impl InferenceEngine {
             );
         }
 
-        // Use GPU-resident KV cache when configured
-        let mut cpu_cache = self.model.reset_cache();
-        #[cfg(feature = "gpu")]
-        let mut kv_state: Box<dyn KVCacheProvider> = if self.config.use_gpu_cache {
-            let num_layers = self.model.config.num_layers;
-            let n_kv_heads = self.model.config.num_kv_heads;
-            let head_dim = self.model.config.head_dim();
-            let max_seq = self.model.config.max_seq_len;
-            Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-        } else {
-            Box::new(cpu_cache)
-        };
-        #[cfg(not(feature = "gpu"))]
-        let mut kv_state = Box::new(cpu_cache);
+        // Use paged/GPU/CPU KV cache based on config
+        let mut kv_state = Self::make_kv_provider(
+            &self.model,
+            self.config.use_gpu_cache,
+            &self.shared_paged,
+        );
 
         // Restore KV cache from prefix match if available — avoids recomputing K/V for prefix tokens
         if !prefix_kv_cache.is_empty() {
@@ -1118,26 +1204,38 @@ impl InferenceEngine {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        info!("Shutting down inference engine");
+        info!("Shutting down inference engine (drain timeout: {}s)", self.config.drain_timeout_seconds);
         *self.state.write().await = EngineState::ShuttingDown;
 
-        // Drain and await all active handles with a timeout
-        let handles: Vec<_> = self
-            .active_requests
-            .write()
-            .await
-            .drain()
-            .map(|(_, h)| h)
-            .collect();
-        for h in handles {
-            let _ = tokio::time::timeout(Duration::from_secs(5), h).await;
+        let drain_duration = Duration::from_secs(self.config.drain_timeout_seconds);
+        let drain_start = std::time::Instant::now();
+        let total_active = self.active_requests.read().await.len();
+
+        {
+            let mut active = self.active_requests.write().await;
+            active.retain(|_, h| !h.is_finished());
+            let in_flight = active.len();
+            if in_flight > 0 {
+                info!("Draining {} in-flight requests (timeout: {}s)", in_flight, self.config.drain_timeout_seconds);
+                let remaining = drain_duration.saturating_sub(drain_start.elapsed());
+                let handles: Vec<_> = active.drain().map(|(_, h)| h).collect();
+                drop(active);
+                for h in handles {
+                    if tokio::time::timeout(remaining, h).await.is_err() {
+                        warn!("Request handle timed out during drain");
+                    }
+                }
+            } else {
+                info!("No in-flight requests to drain");
+            }
         }
+
         self.scheduler.write().await.shutdown().await?;
         if let Some(se) = &self.streaming_engine {
             se.write().await.shutdown().await?;
         }
         *self.state.write().await = EngineState::Shutdown;
-        info!("Inference engine shutdown complete");
+        info!("Inference engine shutdown complete (drained {}/{} active)", total_active - self.active_requests.read().await.len(), total_active);
         Ok(())
     }
 
@@ -1152,6 +1250,7 @@ impl InferenceEngine {
             use_gpu: self.config.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
+            shared_paged: self.shared_paged.clone(),
             prefix_cache: self.prefix_cache.clone(),
             batch_semaphore,
             generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
@@ -1184,6 +1283,7 @@ impl InferenceEngine {
             use_gpu: self.config.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: self.config.use_gpu_cache,
+            shared_paged: self.shared_paged.clone(),
             prefix_cache: self.prefix_cache.clone(),
             batch_semaphore: Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT)),
             generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
@@ -1283,6 +1383,7 @@ impl InferenceEngine {
             use_gpu: engine.use_gpu,
             #[cfg(feature = "gpu")]
             use_gpu_cache: engine.use_gpu_cache,
+            shared_paged: engine.shared_paged.clone(),
             prefix_cache: engine.prefix_cache.clone(),
             batch_semaphore: engine.batch_semaphore.clone(),
             generation_timeout: engine.generation_timeout,
@@ -1539,6 +1640,7 @@ struct InferenceEngineHandle {
     use_gpu: bool,
     #[cfg(feature = "gpu")]
     use_gpu_cache: bool,
+    shared_paged: Option<Arc<StdMutex<PagedKVCache>>>,
     prefix_cache: Arc<PrefixCache>,
     batch_semaphore: Arc<Semaphore>,
     generation_timeout: Duration,
@@ -1582,6 +1684,7 @@ impl InferenceEngineHandle {
             let use_gpu = self.use_gpu;
             #[cfg(feature = "gpu")]
             let use_gpu_cache = self.use_gpu_cache;
+            let shared_paged = self.shared_paged.clone();
             let generation_timeout = self.generation_timeout;
             let _permit = match self.batch_semaphore.clone().acquire_owned().await {
                 Ok(p) => p,
@@ -1654,19 +1757,7 @@ impl InferenceEngineHandle {
                     );
                 }
 
-                let cpu_cache = model.reset_cache();
-                #[cfg(feature = "gpu")]
-                let mut kv_state: Box<dyn KVCacheProvider> = if use_gpu_cache {
-                    let num_layers = model.config.num_layers;
-                    let n_kv_heads = model.config.num_kv_heads;
-                    let head_dim = model.config.head_dim();
-                    let max_seq = model.config.max_seq_len;
-                    Box::new(GpuKVCache::new(num_layers, n_kv_heads, head_dim, max_seq))
-                } else {
-                    Box::new(cpu_cache)
-                };
-                #[cfg(not(feature = "gpu"))]
-                let mut kv_state = Box::new(cpu_cache);
+                let mut kv_state = InferenceEngine::make_kv_provider(&model, use_gpu_cache, &shared_paged);
 
                 // Restore KV cache from prefix match if available
                 if !prefix_kv_cache.is_empty() {

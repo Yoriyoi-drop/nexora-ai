@@ -1,6 +1,7 @@
 use crate::gpu::{GpuContext, GpuTensor};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub fn compile_nan_check_pipeline(
     ctx: &mut GpuContext,
@@ -198,7 +199,7 @@ pub fn has_nan_or_inf_gpu(
             slice.map_async(wgpu::MapMode::Read, |_| {});
             ctx.device.poll(wgpu::PollType::Wait {
                 submission_index: None,
-                timeout: None,
+                timeout: Some(Duration::from_secs(30)),
             });
 
             let data = slice.get_mapped_range();
@@ -243,7 +244,7 @@ pub fn has_nan_or_inf_gpu(
         slice.map_async(wgpu::MapMode::Read, |_| {});
         ctx.device.poll(wgpu::PollType::Wait {
             submission_index: None,
-            timeout: None,
+            timeout: Some(Duration::from_secs(30)),
         });
 
         let data = slice.get_mapped_range();

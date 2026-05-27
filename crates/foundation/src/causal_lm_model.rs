@@ -214,6 +214,7 @@ pub struct CausalLmModel {
     initialized: Arc<RwLock<bool>>,
     statistics: Arc<RwLock<ModelStatistics>>,
     use_gpu: AtomicBool,
+    use_half_precision: AtomicBool,
     echo_net_config: Option<EchoNetInjectionConfig>,
     sedc_enabled: bool,
     sedc_report: Arc<RwLock<Option<String>>>,
@@ -249,6 +250,7 @@ impl CausalLmModel {
             initialized: Arc::new(RwLock::new(false)),
             statistics: Arc::new(RwLock::new(ModelStatistics::default())),
             use_gpu: AtomicBool::new(true),
+            use_half_precision: AtomicBool::new(false),
             echo_net_config: None,
             sedc_enabled: false,
             sedc_report: Arc::new(RwLock::new(None)),
@@ -265,9 +267,17 @@ impl CausalLmModel {
         self
     }
 
+    pub fn with_half_precision(mut self) -> Self {
+        self.use_half_precision = AtomicBool::new(true);
+        self
+    }
+
     pub async fn load_model(&self) -> NxrModelResult<()> {
         let tc = self.transformer_config.read().await;
         let mut model = CausalLM::new((*tc).clone());
+        if self.use_half_precision.load(Ordering::Relaxed) {
+            model = model.with_half_precision();
+        }
 
         // Attach EchoNet injector if configured
         if let Some(echo_cfg) = &self.echo_net_config {
@@ -354,6 +364,10 @@ impl CausalLmModel {
 
     pub fn set_use_gpu(&self, enabled: bool) {
         self.use_gpu.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn set_use_half_precision(&self, enabled: bool) {
+        self.use_half_precision.store(enabled, Ordering::Relaxed);
     }
 
     pub async fn generate_text(

@@ -48,21 +48,12 @@ impl CompiledExecutor {
 
         match self.backend {
             ExecutionBackend::CPU => CpuBackend::execute(ir, inputs),
-            ExecutionBackend::CUDA => self.execute_cuda(ir, inputs),
-            ExecutionBackend::Vulkan => Err(crate::DeepLearningError::Computation {
-                reason: "Vulkan backend is not yet implemented".into(),
-            }),
-            ExecutionBackend::TPU => Err(crate::DeepLearningError::Computation {
-                reason: "TPU backend is not yet implemented".into(),
-            }),
-            ExecutionBackend::WebGPU => Err(crate::DeepLearningError::Computation {
-                reason: "WebGPU backend is not yet implemented".into(),
-            }),
+            ExecutionBackend::WGPU => self.execute_gpu(ir, inputs),
         }
     }
 
     /// Execute compiled graph on GPU via the wgpu-based GpuContext.
-    fn execute_cuda(
+    fn execute_gpu(
         &self,
         ir: &GraphIR,
         inputs: HashMap<String, Tensor>,
@@ -261,8 +252,8 @@ mod tests {
 
     #[test]
     fn test_compiled_executor_new() {
-        let exec = CompiledExecutor::new(ExecutionBackend::CUDA);
-        assert_eq!(exec.backend, ExecutionBackend::CUDA);
+        let exec = CompiledExecutor::new(ExecutionBackend::WGPU);
+        assert_eq!(exec.backend, ExecutionBackend::WGPU);
     }
 
     #[test]

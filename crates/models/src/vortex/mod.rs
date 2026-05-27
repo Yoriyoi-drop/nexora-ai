@@ -27,19 +27,13 @@ use nexora_shared::{
 
 // Include all Vortex modules
 mod agents;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-mod architecture;
+
 mod capabilities;
 mod config;
 mod identity;
 
 // Re-export all components
 pub use agents::*;
-#[cfg(feature = "simulated-models")]
-pub use architecture::*;
 pub use capabilities::*;
 pub use config::*;
 pub use identity::*;
@@ -50,9 +44,6 @@ pub struct NxrVortexModel {
     base: nexora_shared::base_model::BaseNxrModel<VortexConfig, VortexMetrics, VortexState>,
     /// Model identity
     identity: VortexIdentity,
-    /// Architecture implementation (simulated — see architecture module docs)
-    #[cfg(feature = "simulated-models")]
-    architecture: VortexArchitecture,
     /// Agent system
     agents: VortexAgents,
     /// Capabilities
@@ -327,35 +318,6 @@ impl VortexIdentity {
     }
 }
 
-/// NXR-VORTEX Architecture
-pub struct VortexArchitecture {
-    initialized: bool,
-    config: Option<VortexConfig>,
-}
-
-impl VortexArchitecture {
-    pub fn new() -> Self {
-        Self {
-            initialized: false,
-            config: None,
-        }
-    }
-
-    pub async fn initialize(&mut self) -> NxrModelResult<()> {
-        self.initialized = true;
-        Ok(())
-    }
-
-    pub async fn validate(&self) -> NxrModelResult<()> {
-        if !self.initialized {
-            return Err(nexora_shared::base_model::NxrModelError::NotInitialized(
-                "VortexArchitecture not initialized".to_string(),
-            ));
-        }
-        Ok(())
-    }
-}
-
 /// NXR-VORTEX Agents
 pub struct VortexAgents {
     code_sentinel: CodeSentinelAgent,
@@ -503,8 +465,6 @@ impl NxrVortexModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: VortexArchitecture::new(),
             agents: VortexAgents::new(),
             capabilities,
             components: FoundationComponents::new().with_moe_config(HasMoeFFNConfig {
@@ -686,11 +646,6 @@ impl NxrModel for NxrVortexModel {
         config
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        #[cfg(feature = "simulated-models")]
-        self.architecture
-            .initialize()
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.agents
             .initialize()
             .await
@@ -739,11 +694,6 @@ impl NxrModel for NxrVortexModel {
 
         if !self.base.is_initialized().await {
             errors.push("Model not initialized".to_string());
-        }
-
-        #[cfg(feature = "simulated-models")]
-        if let Err(e) = self.architecture.validate().await {
-            errors.push(format!("Architecture validation failed: {}", e));
         }
 
         if let Err(e) = self.agents.validate().await {

@@ -6,11 +6,7 @@
 pub mod agents;
 pub mod delegation;
 pub mod router;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-pub mod architecture;
+
 pub mod capabilities;
 pub mod config;
 pub mod identity;
@@ -35,8 +31,6 @@ use nexora_shared::{
 };
 use nexora_vogp::VOGPConfig;
 
-#[cfg(feature = "simulated-models")]
-use self::architecture::OmnisArchitecture;
 use self::{
     agents::OmnisAgents, capabilities::OmnisCapabilities, config::OmnisConfig,
     identity::OmnisIdentity,
@@ -48,9 +42,6 @@ pub struct NxrOmnisModel {
     base: nexora_shared::base_model::BaseNxrModel<OmnisConfig, OmnisMetrics, OmnisState>,
     /// Model identity
     identity: OmnisIdentity,
-    /// Architecture implementation (simulated — see architecture module docs)
-    #[cfg(feature = "simulated-models")]
-    architecture: OmnisArchitecture,
     /// Agent system
     agents: OmnisAgents,
     /// Capabilities
@@ -254,8 +245,6 @@ impl NxrOmnisModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
             components,
@@ -296,8 +285,6 @@ impl NxrOmnisModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: OmnisArchitecture::new(&config),
             agents: OmnisAgents::new(&config),
             capabilities,
             components,
@@ -579,13 +566,6 @@ impl NxrModel for NxrOmnisModel {
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e.to_string()))?;
 
-        // Initialize architecture (simulated — only with `simulated-models` feature)
-        #[cfg(feature = "simulated-models")]
-        self.architecture
-            .initialize(&config)
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
-
         // Initialize agents
         self.agents
             .initialize(&config)
@@ -642,12 +622,6 @@ impl NxrModel for NxrOmnisModel {
         // Check initialization
         if !self.base.is_initialized().await {
             errors.push("Model not initialized".to_string());
-        }
-
-        // Validate architecture (simulated — only with `simulated-models` feature)
-        #[cfg(feature = "simulated-models")]
-        if let Err(e) = self.architecture.validate().await {
-            errors.push(format!("Architecture validation failed: {}", e));
         }
 
         // Validate agents

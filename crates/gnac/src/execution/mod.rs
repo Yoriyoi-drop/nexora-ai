@@ -20,37 +20,24 @@ pub use optimizer::*;
 /// Backend target untuk eksekusi.
 ///
 /// # Realita
-/// - **CPU** — satu-satunya backend yang berfungsi penuh.
-/// - **CUDA** — menggunakan `GpuContext` (wgpu), bukan CUDA runtime sungguhan.
-///   Tidak ada `cuda_runtime`/`cublas`/`cudnn` dependency.
-/// - **Vulkan, TPU, WebGPU** — dideklarasikan untuk pengembangan masa depan,
-///   tapi belum ada implementasi. Memilih backend ini akan return error.
+/// - **CPU** — implementasi penuh, 16 op (MatMul, Add, Mul, Relu, Gelu, Softmax, dll).
+/// - **WGPU** — GPU compute via wgpu-based `GpuContext`. Bukan CUDA runtime.
+///   Support: MatMul, Add, Mul, Relu, Gelu, Softmax, Transpose, LayerNorm.
+///   Op lain fallback ke CPU (download→compute→upload).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExecutionBackend {
     /// GPU execution via wgpu-based GpuContext.
-    /// BUKAN CUDA sungguhan — tidak pakai cuda_runtime/cublas/cudnn.
-    /// Berfungsi untuk GPU compute, tapi mungkin lebih lambat dari CPU untuk beberapa op.
-    CUDA,
-    /// ❌ Belum diimplementasikan. Akan return error.
-    #[deprecated(note = "Vulkan backend is not yet implemented. Use CPU or CUDA instead.")]
-    Vulkan,
-    /// ❌ Belum diimplementasikan. Akan return error.
-    #[deprecated(note = "TPU backend is not yet implemented. Use CPU or CUDA instead.")]
-    TPU,
-    /// ❌ Belum diimplementasikan. Akan return error.
-    #[deprecated(note = "WebGPU backend is not yet implemented. Use CPU or CUDA instead.")]
-    WebGPU,
-    /// Satu-satunya backend dengan implementasi penuh.
+    /// BUKAN CUDA — tidak pakai cuda_runtime/cublas/cudnn.
+    /// Support GPU compute via WGSL shaders.
+    WGPU,
+    /// Implementasi CPU penuh.
     CPU,
 }
 
 impl ExecutionBackend {
     pub fn name(&self) -> &str {
         match self {
-            ExecutionBackend::CUDA => "CUDA (wgpu-based)",
-            ExecutionBackend::Vulkan => "Vulkan (unimplemented)",
-            ExecutionBackend::TPU => "TPU (unimplemented)",
-            ExecutionBackend::WebGPU => "WebGPU (unimplemented)",
+            ExecutionBackend::WGPU => "WGPU (wgpu-based GPU)",
             ExecutionBackend::CPU => "CPU",
         }
     }
@@ -62,14 +49,7 @@ mod tests {
 
     #[test]
     fn test_execution_backend_name() {
-        assert_eq!(ExecutionBackend::CUDA.name(), "CUDA (wgpu-based)");
+        assert_eq!(ExecutionBackend::WGPU.name(), "WGPU (wgpu-based GPU)");
         assert_eq!(ExecutionBackend::CPU.name(), "CPU");
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_execution_backend_debug() {
-        let b = ExecutionBackend::Vulkan;
-        assert!(!format!("{:?}", b).is_empty());
     }
 }

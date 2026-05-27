@@ -273,6 +273,37 @@ Semua delegation memanggil `crate::foundation::Nxr*Model::infer()` via `OnceLock
 3. **Aether multimodal deferred**: `Caffeine` encoders require concrete input tensors (image pixel data, audio samples). No lightweight sentiment-only API available without full pipeline overhead.
 4. **Kronos temporal reasoning deferred**: Requires both `reasoning` (code-specific) and `multimodal` (heavyweight). Cleanest approach waits for a dedicated temporal reasoning module.
 
+## Phase 5a — Memory Architecture (Paged Cache + Prefix DAG)
+
+### Completed (27 Mei 2026)
+
+| Component | What changed | File |
+|-----------|-------------|------|
+| **PagedKVCacheProvider** | New `KVCacheProvider` impl wrapping `PagedKVCache`. Bridges block-based paged cache with engine's trait-based cache interface. Lazy flat mirror for `as_cpu_entries()` backward compat. | `crates/inference/src/paged_provider.rs` |
+| **Shared paged cache pool** | `ContinuousBatchingEngine.shared_paged: Arc<Mutex<PagedKVCache>>`. All sequences share the same block pool via `PagedKVCacheProvider::new_shared()`. Initialized in `set_model_dims()`. | `crates/inference/src/continuous_batching.rs` |
+| **`share_prefix_in_blocks`** | Block-level prefix sharing: copies block table entries from source to destination sequence, increments `ref_count` on shared physical blocks. Subsequent divergent appends trigger copy-on-write deep copy in `get_or_alloc_block`. | `crates/inference/src/paged_cache.rs` |
+| **`try_paged_prefix_sharing`** | Wired into CB engine's Phase 0 (pre-share) alongside existing GPU prefix sharing. Finds shared prefix via `PrefixTrie`, calls `share_prefix_in_blocks`, advances `prompt_pos`. | `crates/inference/src/continuous_batching.rs` |
+| **Engine dimensions unconditional** | `num_layers`, `num_kv_heads`, `head_dim`, `max_seq_len` moved out of `#[cfg(feature = "gpu")]` — needed by paged cache regardless of GPU. | `crates/inference/src/continuous_batching.rs` |
+| **Config toggle** | `ContinuousBatchingConfig.use_paged_cache`, `paged_block_size`, `paged_max_blocks`. | `crates/inference/src/continuous_batching.rs` |
+
+### How PrefixDAG works
+
+```
+Sequence A (prompt=abcdef):  blocks [0:a, 1:b, 2:c, 3:d, 4:e, 5:f]  ref_count=1 each
+Sequence B (prompt=abcxyz):  prefix_trie finds match at depth 3 ("abc")
+                             share_prefix_in_blocks copies block 0,1,2 from A→B
+                             B's block table: [0→phys0, 1→phys1, 2→phys2]
+                             phys0, phys1, phys2 ref_count=2 now
+                             When B appends token 3, get_or_alloc_block sees ref_count>1
+                             → deep copy block 3 for B (copy-on-write)
+                             A retains original block 3, unaffected
+```
+
+### Next Steps (5b+)
+- **Distributed scheduler**: Multi-node request dispatch with load-aware routing.
+- **Observability**: KV fragmentation ratio, token/sec tracing.
+- **Agent ecosystem**: Planner-worker hierarchy with persistent state.
+
 ## Notable quirks
 
 - `Cargo.lock` in `.gitignore` — every `cargo build` resolves from scratch unless a lockfile exists locally.

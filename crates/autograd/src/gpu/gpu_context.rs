@@ -2244,6 +2244,8 @@ impl GpuContext {
                 storage_binding(1, true),
                 storage_binding(2, false),
                 uniform_binding(3),
+                storage_binding(4, true),
+                storage_binding(5, true),
             ],
             wgsl,
             "matmul_int8_weight_main",
@@ -2263,7 +2265,8 @@ impl GpuContext {
         &self,
         a: &GpuTensor,
         b: &GpuTensor,
-        scale: f32,
+        scales: &GpuTensor,
+        zero_points: &GpuTensor,
     ) -> Result<GpuTensor, GpuError> {
         if b.dtype() != GpuDtype::I8 {
             return Err(GpuError::Dtype(format!(
@@ -2304,14 +2307,11 @@ impl GpuContext {
         );
 
         let dims_buf = self.alloc_or_create_buffer(
-            20,
+            16,
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
-        let mut uniform_bytes = Vec::with_capacity(20);
-        uniform_bytes.extend_from_slice(bytemuck::cast_slice(&dims_data));
-        uniform_bytes.extend_from_slice(bytemuck::bytes_of(&scale));
-        self.queue.write_buffer(&dims_buf, 0, &uniform_bytes);
+        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
         let pipeline = self
             .pipelines
@@ -2337,6 +2337,14 @@ impl GpuContext {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: dims_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: scales.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: zero_points.buffer().as_entire_binding(),
                 },
             ],
         });
@@ -4489,22 +4497,23 @@ struct Uniforms {
     K: u32,
     N: u32,
     Tile: u32,
-    scale: f32,
 };
 
 @group(0) @binding(3) var<uniform> uniforms: Uniforms;
+@group(0) @binding(4) var<storage, read> scales: array<f32>;
+@group(0) @binding(5) var<storage, read> zero_points: array<f32>;
 
 var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
 var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
 
-fn unpack_int8_weight(packed: u32, byte_idx: u32) -> f32 {
+fn unpack_int8_weight(packed: u32, byte_idx: u32, col: u32) -> f32 {
     let shift = byte_idx * 8u;
     let byte = (packed >> shift) & 0xFFu;
     var val = f32(byte);
     if (byte > 127u) {
         val = val - 256.0;
     }
-    return val * uniforms.scale;
+    return val * scales[col] + zero_points[col];
 }
 
 @compute @workgroup_size(TILE_SIZE, TILE_SIZE)
@@ -4534,7 +4543,7 @@ fn matmul_int8_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
             let b_flat_idx = b_j * uniforms.K + b_k;
             let packed_idx = b_flat_idx / 4u;
             let byte_off = b_flat_idx % 4u;
-            tile_b[lid.x][lid.y] = unpack_int8_weight(b_packed[packed_idx], byte_off);
+            tile_b[lid.x][lid.y] = unpack_int8_weight(b_packed[packed_idx], byte_off, b_j);
         } else {
             tile_b[lid.x][lid.y] = 0.0;
         }

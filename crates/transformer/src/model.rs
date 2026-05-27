@@ -196,7 +196,8 @@ pub(crate) struct GpuWeights {
     pub token_embedding: nexora_autograd::gpu::GpuTensor,
     pub lm_head_t: nexora_autograd::gpu::GpuTensor,
     pub lm_head_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub lm_head_scale: f32,
+    pub lm_head_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub lm_head_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
     pub lm_head_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub norm_weight: nexora_autograd::gpu::GpuTensor,
     pub block_weights: Vec<BlockGpuWeights>,
@@ -221,13 +222,20 @@ pub(crate) struct BlockGpuWeights {
     pub w1_i8: Option<nexora_autograd::gpu::GpuTensor>,
     pub w2_i8: Option<nexora_autograd::gpu::GpuTensor>,
     pub w3_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub scale_wq: f32,
-    pub scale_wk: f32,
-    pub scale_wv: f32,
-    pub scale_wo: f32,
-    pub scale_w1: f32,
-    pub scale_w2: f32,
-    pub scale_w3: f32,
+    pub wq_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wq_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
     pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
@@ -370,6 +378,14 @@ impl CausalLM {
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
         }
+    }
+
+    /// Enable half-precision (f16) weight storage on GPU.
+    /// Weights disimpan dalam packed f16 (2× VRAM hemat),
+    /// lalu di-upconvert ke f32 tiap forward pass.
+    pub fn with_half_precision(mut self) -> Self {
+        self.use_half_precision = true;
+        self
     }
 
     pub fn forward(
@@ -730,36 +746,68 @@ impl CausalLM {
         Ok(model)
     }
 
-    /// Symmetric per-tensor int8 quantization.
-    /// Returns (packed u32 data, scale) where each u32 holds 4 int8 values
-    /// in little-endian byte order.
+    /// Per-channel asymmetric int8 quantization.
+    /// Returns (packed u32 data, per-channel scales, per-channel zero_points)
+    /// where:
+    ///   - packed: each u32 holds 4 int8 values in little-endian byte order
+    ///   - scales[f32; N]: per-output-channel scale factor
+    ///   - zero_points[f32; N]: per-output-channel dequant bias (precomputed as -zp_i8 * scale)
+    /// Dequant formula in shader: val = q_i8 * scales[col] + zero_points[col]
     #[cfg(feature = "gpu")]
-    fn quantize_weight(weight: &Array2<f32>) -> (Vec<u32>, f32) {
-        let numel = weight.len();
-        let mut max_abs = 0.0f32;
-        for &v in weight.iter() {
-            max_abs = max_abs.max(v.abs());
-        }
-        if max_abs == 0.0 {
-            return (vec![0u32; (numel + 3) / 4], 0.0);
-        }
-        let scale = max_abs / 127.0f32;
-        let inv_scale = 1.0 / scale;
+    fn quantize_weight(weight: &Array2<f32>) -> (Vec<u32>, Vec<f32>, Vec<f32>) {
+        let shape = weight.shape();
+        let n = shape[0];
+        let k = shape[1];
 
-        let mut packed = Vec::with_capacity((numel + 3) / 4);
-        let mut word: u32 = 0;
-        for (i, &v) in weight.iter().enumerate() {
-            let q = (v * inv_scale).round().clamp(-128.0, 127.0) as i32 as i8 as u8;
-            word |= (q as u32) << ((i % 4) * 8);
-            if i % 4 == 3 {
-                packed.push(word);
-                word = 0;
+        let mut packed = Vec::with_capacity((n * k + 3) / 4);
+        let mut scales = Vec::with_capacity(n);
+        let mut zero_points = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let row = weight.row(i);
+            let mut min_val = f32::MAX;
+            let mut max_val = f32::MIN;
+            for &v in row.iter() {
+                min_val = min_val.min(v);
+                max_val = max_val.max(v);
+            }
+
+            let (scale_i, dequant_bias_i) = if max_val == min_val {
+                (1.0, 0.0)
+            } else {
+                let s = (max_val - min_val) / 255.0;
+                let inv_s = 1.0 / s;
+                // Compute int8 zero_point: q = round(v / s + 128), then convert to signed
+                // so that q = zero_point_i8 + round(v / s) and zero_point_i8 maps to v=0 in [-128,127] range
+                // Standard: zero_point = round(-min / s), then q = round(v/s + zero_point), clamp to [-128,127]
+                let zp_f32 = (-min_val * inv_s).round().clamp(-128.0, 127.0);
+                let zp_i8 = zp_f32 as i32 as i8;
+                // Precompute dequant bias: -zp_i8 * s
+                (s, -(zp_i8 as f32) * s)
+            };
+
+            scales.push(scale_i);
+            zero_points.push(dequant_bias_i);
+
+            // Pack this row
+            let inv_scale_i = 1.0 / scale_i;
+            for (j, &v) in row.iter().enumerate() {
+                // Asymmetric: q_i8 = round(v / s + zero_point_i8), clamped to [-128, 127]
+                let q_f32 = (v * inv_scale_i).round().clamp(-128.0, 127.0);
+                let q = q_f32 as i32 as i8 as u8;
+                let idx = i * k + j;
+                let word_idx = idx / 4;
+                let byte_off = idx % 4;
+                if byte_off == 0 {
+                    if word_idx >= packed.len() {
+                        packed.push(0);
+                    }
+                }
+                packed[word_idx] |= (q as u32) << (byte_off * 8);
             }
         }
-        if numel % 4 != 0 {
-            packed.push(word);
-        }
-        (packed, scale)
+
+        (packed, scales, zero_points)
     }
 
     /// Pre-upload ALL model weights to GPU persistent buffer.
@@ -805,14 +853,23 @@ impl CausalLM {
         let token_embedding = mk_gpu(&self.token_embedding)?;
 
         let lm_head_gpu = mk_gpu(&self.lm_head)?;
-        let lm_head_t = ctx.transpose(&lm_head_gpu)?;
-
-        let (lm_head_i8, lm_head_scale) = if self.quantize_weights {
-            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
-            let (packed, s) = Self::quantize_weight(&self.lm_head);
-            (Some(GpuTensor::from_cpu_i8_packed(shape, &packed)?), s)
+        let lm_head_t = if self.use_half_precision && !self.quantize_weights {
+            GpuTensor::zeros(&[1])?
         } else {
-            (None, 0.0)
+            ctx.transpose(&lm_head_gpu)?
+        };
+
+        let (lm_head_i8, lm_head_scales, lm_head_zero_points) = if self.quantize_weights {
+            let shape = vec![self.lm_head.shape()[0], self.lm_head.shape()[1]];
+            let (packed, sc, zp) = Self::quantize_weight(&self.lm_head);
+            let n_out = sc.len();
+            let sc_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], sc)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
+            let zp_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], zp)
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
+            (Some(GpuTensor::from_cpu_i8_packed(shape, &packed)?), Some(sc_t), Some(zp_t))
+        } else {
+            (None, None, None)
         };
 
         let norm_weight = mk_gpu_1d(&self.norm.weight)?;
@@ -830,103 +887,126 @@ impl CausalLM {
             let w2 = mk_gpu(&block.ffn.w2)?;
             let w3 = mk_gpu(&block.ffn.w3)?;
 
-            let (wq_i8, scale_wq) = if self.quantize_weights {
-                let shape = vec![block.attention.wq.shape()[0], block.attention.wq.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.attention.wq);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
-            } else {
-                (None, 0.0)
+            let mk_scale_zp = |arr: &Array2<f32>| -> Result<_, GpuError> {
+                let (p, sc, zp) = Self::quantize_weight(arr);
+                let shape = vec![arr.shape()[0], arr.shape()[1]];
+                let n_out = sc.len();
+                let sc_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], sc)
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
+                let zp_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], zp)
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
+                let i8_t = GpuTensor::from_cpu_i8_packed(shape, &p)?;
+                Ok((i8_t, sc_t, zp_t))
             };
-            let (wk_i8, scale_wk) = if self.quantize_weights {
-                let shape = vec![block.attention.wk.shape()[0], block.attention.wk.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.attention.wk);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+
+            let (wq_i8, wq_scales, wq_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.attention.wq)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
             };
-            let (wv_i8, scale_wv) = if self.quantize_weights {
-                let shape = vec![block.attention.wv.shape()[0], block.attention.wv.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.attention.wv);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            let (wk_i8, wk_scales, wk_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.attention.wk)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
             };
-            let (wo_i8, scale_wo) = if self.quantize_weights {
-                let shape = vec![block.attention.wo.shape()[0], block.attention.wo.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.attention.wo);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            let (wv_i8, wv_scales, wv_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.attention.wv)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
             };
-            let (w1_i8, scale_w1) = if self.quantize_weights {
-                let shape = vec![block.ffn.w1.shape()[0], block.ffn.w1.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.ffn.w1);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            let (wo_i8, wo_scales, wo_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.attention.wo)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
             };
-            let (w2_i8, scale_w2) = if self.quantize_weights {
-                let shape = vec![block.ffn.w2.shape()[0], block.ffn.w2.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.ffn.w2);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            let (w1_i8, w1_scales, w1_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.ffn.w1)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
             };
-            let (w3_i8, scale_w3) = if self.quantize_weights {
-                let shape = vec![block.ffn.w3.shape()[0], block.ffn.w3.shape()[1]];
-                let (p, s) = Self::quantize_weight(&block.ffn.w3);
-                (Some(GpuTensor::from_cpu_i8_packed(shape, &p)?), s)
+            let (w2_i8, w2_scales, w2_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.ffn.w2)?;
+                (Some(t), Some(s), Some(z))
             } else {
-                (None, 0.0)
+                (None, None, None)
+            };
+            let (w3_i8, w3_scales, w3_zero_points) = if self.quantize_weights {
+                let (t, s, z) = mk_scale_zp(&block.ffn.w3)?;
+                (Some(t), Some(s), Some(z))
+            } else {
+                (None, None, None)
             };
 
             let use_f16 = self.use_half_precision && !self.quantize_weights;
+            // Fix: transpose dulu, BARU pack f16 — matmul WGSL expect transposed weights.
+            // Ini benerin bug: dulu f16 di-pack tanpa transpose, hasil matmul salah.
             let wq_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&wq)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wq)?)?)
             } else {
                 None
             };
             let wk_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&wk)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wk)?)?)
             } else {
                 None
             };
             let wv_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&wv)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wv)?)?)
             } else {
                 None
             };
             let wo_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&wo)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wo)?)?)
             } else {
                 None
             };
             let w1_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&w1)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w1)?)?)
             } else {
                 None
             };
             let w2_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&w2)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w2)?)?)
             } else {
                 None
             };
             let w3_f16 = if use_f16 {
-                Some(ctx.f32_to_f16_packed(&w3)?)
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w3)?)?)
             } else {
                 None
+            };
+
+            // F16 mode: skip f32 transposed weights — VRAM hemat ~50%.
+            let (wq_t, wk_t, wv_t, wo_t, w1_t, w2_t, w3_t) = if use_f16 {
+                let d = GpuTensor::zeros(&[1])?;
+                (d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d)
+            } else {
+                (
+                    ctx.transpose(&wq)?,
+                    ctx.transpose(&wk)?,
+                    ctx.transpose(&wv)?,
+                    ctx.transpose(&wo)?,
+                    ctx.transpose(&w1)?,
+                    ctx.transpose(&w2)?,
+                    ctx.transpose(&w3)?,
+                )
             };
 
             block_weights.push(BlockGpuWeights {
                 attention_norm_weight,
                 ffn_norm_weight,
-                wq_t: ctx.transpose(&wq)?,
-                wk_t: ctx.transpose(&wk)?,
-                wv_t: ctx.transpose(&wv)?,
-                wo_t: ctx.transpose(&wo)?,
-                w1_t: ctx.transpose(&w1)?,
-                w2_t: ctx.transpose(&w2)?,
-                w3_t: ctx.transpose(&w3)?,
+                wq_t,
+                wk_t,
+                wv_t,
+                wo_t,
+                w1_t,
+                w2_t,
+                w3_t,
                 wq_i8,
                 wk_i8,
                 wv_i8,
@@ -934,13 +1014,20 @@ impl CausalLM {
                 w1_i8,
                 w2_i8,
                 w3_i8,
-                scale_wq,
-                scale_wk,
-                scale_wv,
-                scale_wo,
-                scale_w1,
-                scale_w2,
-                scale_w3,
+                wq_scales,
+                wk_scales,
+                wv_scales,
+                wo_scales,
+                w1_scales,
+                w2_scales,
+                w3_scales,
+                wq_zero_points,
+                wk_zero_points,
+                wv_zero_points,
+                wo_zero_points,
+                w1_zero_points,
+                w2_zero_points,
+                w3_zero_points,
                 wq_f16,
                 wk_f16,
                 wv_f16,
@@ -952,7 +1039,7 @@ impl CausalLM {
         }
 
         let lm_head_f16 = if self.use_half_precision && !self.quantize_weights {
-            Some(ctx.f32_to_f16_packed(&lm_head_gpu)?)
+            Some(ctx.f32_to_f16_packed(&ctx.transpose(&lm_head_gpu)?)?)
         } else {
             None
         };
@@ -962,7 +1049,8 @@ impl CausalLM {
                 token_embedding,
                 lm_head_t,
                 lm_head_i8,
-                lm_head_scale,
+                lm_head_scales,
+                lm_head_zero_points,
                 lm_head_f16,
                 norm_weight,
                 block_weights,
@@ -2042,21 +2130,21 @@ impl CausalLM {
 
             // Batched QKV projection: 3 matmuls with [batch_size, hidden_size]
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.scale_wq)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.scale_wk)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.scale_wv)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -2204,7 +2292,7 @@ impl CausalLM {
 
             // Batched output projection + residual
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.scale_wo)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -2215,14 +2303,14 @@ impl CausalLM {
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.scale_w1)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.scale_w3)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -2230,7 +2318,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.scale_w2)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -2242,7 +2330,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scale)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -2514,21 +2602,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.scale_wq)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.scale_wk)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.scale_wv)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -2669,7 +2757,7 @@ impl CausalLM {
             })?;
 
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.scale_wo)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -2680,14 +2768,14 @@ impl CausalLM {
             // Batched FFN
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.scale_w1)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.scale_w3)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -2695,7 +2783,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.scale_w2)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -2707,7 +2795,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scale)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -2875,21 +2963,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.scale_wq)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.scale_wk)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.scale_wv)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -3028,7 +3116,7 @@ impl CausalLM {
             })?;
 
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.scale_wo)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -3039,14 +3127,14 @@ impl CausalLM {
             // Batched FFN
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.scale_w1)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.scale_w3)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -3054,7 +3142,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.scale_w2)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -3066,7 +3154,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scale)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -3279,21 +3367,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.scale_wq)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.scale_wk)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.scale_wv)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -3348,7 +3436,7 @@ impl CausalLM {
 
             // ── 2e. Batched Wo + residual ──
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.scale_wo)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -3359,14 +3447,14 @@ impl CausalLM {
             // ── 2f. Batched FFN ──
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.scale_w1)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.scale_w3)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -3374,7 +3462,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.scale_w2)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -3386,7 +3474,7 @@ impl CausalLM {
         // ── 3. Final norm + batched LM head ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scale)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {

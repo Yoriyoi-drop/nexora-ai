@@ -178,6 +178,10 @@ pub enum Commands {
         /// Enable GPU acceleration (default: enabled). Use --gpu false for CPU.
         #[arg(short = 'g', long, default_value_t = true)]
         gpu: bool,
+
+        /// Enable half-precision (f16) GPU weights — 2x VRAM savings
+        #[arg(long)]
+        half_precision: bool,
     },
 
     /// Collect dataset from web sources and save as .arrow
@@ -258,6 +262,10 @@ pub enum Commands {
         /// Train all models in parallel
         #[arg(short = 'P', long)]
         parallel: bool,
+
+        /// Enable half-precision (f16) GPU weights — 2x VRAM savings
+        #[arg(long)]
+        half_precision: bool,
     },
 
     /// Evaluate model

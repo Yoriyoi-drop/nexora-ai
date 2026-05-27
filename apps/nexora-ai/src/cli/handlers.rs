@@ -210,6 +210,7 @@ impl Cli {
                         val_data,
                         parallel,
                         gpu,
+                        half_precision,
                     } => self
                         .run_train_foundation(
                             &nexora,
@@ -223,6 +224,7 @@ impl Cli {
                             val_data,
                             *parallel,
                             *gpu,
+                            *half_precision,
                         )
                         .await
                         .map_err(|e| {
@@ -293,6 +295,7 @@ impl Cli {
                         resume,
                         model_id,
                         parallel,
+                        half_precision,
                     } => self
                         .run_train(
                             &nexora,
@@ -307,6 +310,7 @@ impl Cli {
                             *resume,
                             model_id,
                             *parallel,
+                            *half_precision,
                         )
                         .await
                         .map_err(|e| {
@@ -526,6 +530,7 @@ impl Cli {
         val_data: &Option<PathBuf>,
         parallel: bool,
         gpu: bool,
+        half_precision: bool,
     ) -> NexoraResult<()> {
         info!("=== FOUNDATION TRAINING ===");
         info!("Data: {:?}, Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", data, model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
@@ -621,6 +626,7 @@ impl Cli {
                 let tc = trainer_cfg.clone();
                 let reg = registry.clone();
                 let out = out_path.clone();
+                let hp = half_precision;
                 handles.push(tokio::spawn(async move {
                     let raw = reg
                         .get_model_raw(&mid)
@@ -631,6 +637,10 @@ impl Cli {
                         .map_err(|_| "Failed to downcast".to_string())?;
                     if gpu {
                         model.set_use_gpu(true);
+                    }
+                    if hp {
+                        model.set_use_half_precision(true);
+                        model.load_model().await.map_err(|e| format!("Half-precision reload failed: {}", e))?;
                     }
                     let val_opt: Option<&[String]> = if vr.is_empty() { None } else { Some(&vr) };
                     let report = model
@@ -682,6 +692,11 @@ impl Cli {
                 // Enable GPU on model if requested
                 if gpu {
                     model.set_use_gpu(true);
+                }
+
+                if half_precision {
+                    model.set_use_half_precision(true);
+                    model.load_model().await.map_err(|e| NexoraError::model(format!("Half-precision reload failed: {}", e)))?;
                 }
 
                 let report = model

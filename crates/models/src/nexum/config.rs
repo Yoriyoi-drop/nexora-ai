@@ -1111,30 +1111,6 @@ impl NexumConfig {
         Ok(())
     }
 
-    /// Get resource requirements for agent count
-    #[cfg(feature = "simulated-models")]
-    pub fn get_resource_requirements_for_agent_count(
-        &self,
-        agent_count: usize,
-    ) -> super::architecture::ResourceRequirements {
-        let base_memory = 16.0; // Base memory in GB
-        let base_compute = 32; // Base compute units
-
-        let memory_per_agent = 0.5; // Additional memory per agent
-        let compute_per_agent = 2; // Additional compute per agent
-
-        let total_memory = base_memory + (agent_count as f64 * memory_per_agent);
-        let total_compute = base_compute + (agent_count * compute_per_agent);
-
-        super::architecture::ResourceRequirements {
-            cpu_requirement: total_compute as f32,
-            memory_requirement: total_memory as f32,
-            network_requirement: if agent_count > 1 { 1.0 } else { 0.0 },
-            storage_requirement: total_memory * 2.0,
-            gpu_requirement: if agent_count > 100 { 16.0 } else { 0.0 },
-        }
-    }
-
     /// Optimize configuration for workload
     pub fn optimize_for_workload(&self, workload: &WorkloadCharacteristics) -> NexumConfig {
         let mut optimized_config = self.clone();

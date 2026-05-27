@@ -583,7 +583,6 @@ impl PagedKVCache {
                 }
             }
         }
-        drop(dst_table);
 
         // Increment refcounts (separate borrow from sequences)
         for (layer_idx, phys) in refcount_increments {

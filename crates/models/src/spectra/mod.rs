@@ -25,11 +25,7 @@ use nexora_shared::{
 
 // Include all Spectra modules
 pub mod agents;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-pub mod architecture;
+
 pub mod capabilities;
 pub mod config;
 pub mod coordinator;
@@ -37,8 +33,6 @@ pub mod identity;
 
 // Re-export all components
 pub use agents::*;
-#[cfg(feature = "simulated-models")]
-pub use architecture::*;
 pub use capabilities::*;
 pub use config::*;
 pub use coordinator::*;

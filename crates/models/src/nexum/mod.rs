@@ -26,18 +26,13 @@ use nexora_shared::{
 
 // Include all Nexum modules
 pub mod agents;
-/// Simulated architecture — NOT a real neural network.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-mod architecture;
+
 mod capabilities;
 mod config;
 mod identity;
 
 // Re-export all components (non-conflicting)
 pub use agents::*;
-#[cfg(feature = "simulated-models")]
-pub use architecture::*;
 pub use capabilities::*;
 pub use identity::*;
 

@@ -6,11 +6,7 @@
 pub mod agents;
 pub mod classifier;
 pub mod delegation;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-pub mod architecture;
+
 pub mod capabilities;
 pub mod config;
 pub mod identity;
@@ -37,15 +33,9 @@ use self::{
     identity::SwiftIdentity,
 };
 
-#[cfg(feature = "simulated-models")]
-use self::architecture::SwiftArchitecture;
-
 pub struct NxrSwiftModel {
     base: nexora_shared::base_model::BaseNxrModel<SwiftConfig, SwiftMetrics, SwiftState>,
     identity: SwiftIdentity,
-    /// Architecture implementation (simulated — see architecture module docs)
-    #[cfg(feature = "simulated-models")]
-    architecture: SwiftArchitecture,
     agents: SwiftAgents,
     capabilities: SwiftCapabilities,
     components: FoundationComponents,
@@ -130,8 +120,6 @@ impl NxrSwiftModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: SwiftArchitecture::new(&config),
             agents: SwiftAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
@@ -369,11 +357,6 @@ impl NxrModel for NxrSwiftModel {
         config
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        #[cfg(feature = "simulated-models")]
-        self.architecture
-            .initialize(&config)
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())

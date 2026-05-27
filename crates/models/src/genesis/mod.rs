@@ -6,11 +6,7 @@
 pub mod agents;
 pub mod classifier;
 pub mod delegation;
-/// Simulated architecture — NOT a real neural network.
-/// Uses keyword matching and template responses, not tensor computation.
-/// Gated behind `simulated-models` feature (default: off).
-#[cfg(feature = "simulated-models")]
-pub mod architecture;
+
 pub mod capabilities;
 pub mod config;
 pub mod identity;
@@ -38,15 +34,9 @@ use self::{
     identity::GenesisIdentity,
 };
 
-#[cfg(feature = "simulated-models")]
-use self::architecture::GenesisArchitecture;
-
 pub struct NxrGenesisModel {
     base: nexora_shared::base_model::BaseNxrModel<GenesisConfig, GenesisMetrics, GenesisState>,
     identity: GenesisIdentity,
-    /// Architecture implementation (simulated — see architecture module docs)
-    #[cfg(feature = "simulated-models")]
-    architecture: GenesisArchitecture,
     _agents: GenesisAgents,
     capabilities: GenesisCapabilities,
     components: FoundationComponents,
@@ -153,8 +143,6 @@ impl NxrGenesisModel {
                 initial_metrics,
             ),
             identity,
-            #[cfg(feature = "simulated-models")]
-            architecture: GenesisArchitecture::new(&config),
             _agents: GenesisAgents::new(&config),
             capabilities,
             components: FoundationComponents::new(),
@@ -454,12 +442,6 @@ impl NxrModel for NxrGenesisModel {
         config
             .validate()
             .map_err(|e| nexora_shared::base_model::NxrModelError::Configuration(e))?;
-        // Initialize architecture (simulated — only with `simulated-models` feature)
-        #[cfg(feature = "simulated-models")]
-        self.architecture
-            .initialize(&config)
-            .await
-            .map_err(|e| nexora_shared::base_model::NxrModelError::Internal(e.to_string()))?;
         self.base.mark_initialized().await;
         self.config = config;
         Ok(())
