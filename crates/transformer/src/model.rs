@@ -2139,21 +2139,21 @@ impl CausalLM {
 
             // Batched QKV projection: 3 matmuls with [batch_size, hidden_size]
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -2301,7 +2301,7 @@ impl CausalLM {
 
             // Batched output projection + residual
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -2312,14 +2312,14 @@ impl CausalLM {
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -2327,7 +2327,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -2339,7 +2339,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -2611,21 +2611,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -2766,7 +2766,7 @@ impl CausalLM {
             })?;
 
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -2777,14 +2777,14 @@ impl CausalLM {
             // Batched FFN
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -2792,7 +2792,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -2804,7 +2804,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -2972,21 +2972,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -3125,7 +3125,7 @@ impl CausalLM {
             })?;
 
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -3136,14 +3136,14 @@ impl CausalLM {
             // Batched FFN
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -3151,7 +3151,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -3163,7 +3163,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {
@@ -3376,21 +3376,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().unwrap(), block_gw.wq_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][0])?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().unwrap(), block_gw.wk_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][1])?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().unwrap(), block_gw.wv_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed, &temps[layer_idx][2])?
             } else {
@@ -3445,7 +3445,7 @@ impl CausalLM {
 
             // ── 2e. Batched Wo + residual ──
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().unwrap(), block_gw.wo_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&attn_concat, &temps[layer_idx][3])?
             } else {
@@ -3456,14 +3456,14 @@ impl CausalLM {
             // ── 2f. Batched FFN ──
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().unwrap(), block_gw.w1_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][4])?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().unwrap(), block_gw.w3_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&normed_ffn, &temps[layer_idx][6])?
             } else {
@@ -3471,7 +3471,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().unwrap(), block_gw.w2_zero_points.as_ref().unwrap())?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some((ref temps, _)) = f16_temps {
                 ctx.matmul(&ffn_silu_mul, &temps[layer_idx][5])?
             } else {
@@ -3483,7 +3483,7 @@ impl CausalLM {
         // ── 3. Final norm + batched LM head ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().unwrap(), gw.lm_head_zero_points.as_ref().unwrap())?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some((_, Some(ref lm_head_f32))) = f16_temps {
             ctx.matmul(&h, lm_head_f32)?
         } else {

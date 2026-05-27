@@ -13,10 +13,11 @@ fn foundation() -> &'static NxrSwiftModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        TaskClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            TaskClassifier::init(embed);
+        }
     }
 }
 
@@ -85,5 +86,8 @@ pub async fn delegate(prompt: &str) -> String {
          Process this input efficiently:\n\
          {prompt}"
     );
-    call(&framed, max_tokens, temperature).await.unwrap_or_default()
+    call(&framed, max_tokens, temperature).await.unwrap_or_else(|e| {
+        tracing::warn!("swift delegation call failed: {}", e);
+        format!("[swift inference error: {}]", e)
+    })
 }

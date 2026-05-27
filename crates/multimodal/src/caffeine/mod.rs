@@ -42,18 +42,44 @@ pub struct MultimodalResult {
     pub processing_summary: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct CaffeineProcessor;
+pub struct CaffeineProcessor {
+    caffeine: Option<Caffeine>,
+}
+
+impl Default for CaffeineProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CaffeineProcessor {
     pub fn new() -> Self {
-        Self
+        Self { caffeine: None }
+    }
+
+    pub fn with_caffeine(config: CaffeineConfig) -> crate::caffeine::error::Result<Self> {
+        let caffeine = Caffeine::new(config)?;
+        Ok(Self { caffeine: Some(caffeine) })
     }
 
     pub async fn process_multimodal(
-        &self,
+        &mut self,
         inputs: &crate::MultiModalInputs,
     ) -> std::result::Result<MultimodalResult, CaffeineError> {
+        if let Some(ref mut caffeine) = self.caffeine {
+            let outputs = caffeine.forward(inputs).await?;
+            return Ok(MultimodalResult {
+                processing_summary: format!(
+                    "caffeine multimodal: text={}, image={}, audio={}, video={}, actions={}",
+                    outputs.text.is_some(),
+                    outputs.image.is_some(),
+                    outputs.audio.is_some(),
+                    outputs.video.is_some(),
+                    outputs.actions.len(),
+                ),
+            });
+        }
+
         let mut parts = Vec::new();
         if inputs.text.is_some() {
             parts.push("text");
@@ -64,9 +90,15 @@ impl CaffeineProcessor {
         if inputs.audio.is_some() {
             parts.push("audio");
         }
+        if inputs.video.is_some() {
+            parts.push("video");
+        }
 
         Ok(MultimodalResult {
-            processing_summary: format!("processed {}", parts.join(", ")),
+            processing_summary: format!(
+                "input modalities: {} (Caffeine not initialized)",
+                parts.join(", "),
+            ),
         })
     }
 }

@@ -12,10 +12,11 @@ fn foundation() -> &'static NxrOmnisModel {
 
 fn init_router() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        OmnisMoERouter::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            OmnisMoERouter::init(embed);
+        }
     }
 }
 
@@ -69,7 +70,10 @@ pub async fn delegate(prompt: &str) -> String {
          Response:"
     );
 
-    let primary_result = call(&framed, 512, 0.7).await.unwrap_or_default();
+    let primary_result = call(&framed, 512, 0.7).await.unwrap_or_else(|e| {
+        tracing::warn!("omnis delegation call failed: {}", e);
+        format!("[omnis inference error: {}]", e)
+    });
 
     if let Some(sec_domain) = secondary {
         let sec_system = router::domain_system_prompt(sec_domain);
@@ -79,7 +83,10 @@ pub async fn delegate(prompt: &str) -> String {
              User input: {prompt}\n\
              Response:"
         );
-        let sec_result = call(&sec_framed, 512, 0.7).await.unwrap_or_default();
+        let sec_result = call(&sec_framed, 512, 0.7).await.unwrap_or_else(|e| {
+            tracing::warn!("omnis delegation call failed: {}", e);
+            format!("[omnis inference error: {}]", e)
+        });
         let synthesis = call(
             &format!(
                 "[Omnis synthesis | domains: {primary}, {sec_domain}]\n\
@@ -92,7 +99,10 @@ pub async fn delegate(prompt: &str) -> String {
             0.7,
         )
         .await
-        .unwrap_or_else(|_| format!("{primary_result}\n\n{sec_result}"));
+        .unwrap_or_else(|e| {
+            tracing::warn!("omnis synthesis call failed: {}", e);
+            format!("{primary_result}\n\n{sec_result}")
+        });
         synthesis
     } else {
         primary_result

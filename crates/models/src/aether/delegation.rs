@@ -12,24 +12,26 @@ fn foundation() -> &'static NxrAetherModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        classifier::EmotionClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            classifier::EmotionClassifier::init(embed);
+        }
     }
 }
 
 fn classify(text: &str) -> Vec<(String, f32)> {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let tokenizer = f.tokenizer.as_ref();
-        let ids = tokenizer.map_or_else(
-            || crate::foundation::byte_encode(text),
-            |tk| tk.read().encode(text),
-        );
-        let clf = EmotionClassifier::global();
-        return clf.predict(&ids);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let tokenizer = f.tokenizer.as_ref();
+            let ids = tokenizer.map_or_else(
+                || crate::foundation::byte_encode(text),
+                |tk| tk.read().encode(text),
+            );
+            let clf = EmotionClassifier::global();
+            return clf.predict(&ids);
+        }
     }
     vec![("neutral".to_string(), 1.0)]
 }
@@ -67,5 +69,8 @@ pub async fn delegate(prompt: &str) -> String {
          User input: {prompt}\n\
          Response (empathetic, emotionally aware):"
     );
-    call(&framed, 512, 0.8).await.unwrap_or_default()
+    call(&framed, 512, 0.8).await.unwrap_or_else(|e| {
+        tracing::warn!("aether delegation call failed: {}", e);
+        format!("[aether inference error: {}]", e)
+    })
 }

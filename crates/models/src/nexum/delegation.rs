@@ -12,10 +12,11 @@ fn foundation() -> &'static NxrNexumModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        ComplexityClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            ComplexityClassifier::init(embed);
+        }
     }
 }
 
@@ -71,12 +72,18 @@ pub async fn delegate(prompt: &str) -> String {
     let strategy = classifier::decomposition_strategy(primary);
 
     if primary == "simple" {
-        return call(prompt, 512, 0.6).await.unwrap_or_default();
+        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+            tracing::warn!("nexum delegation call failed: {}", e);
+            format!("[nexum inference error: {}]", e)
+        });
     }
 
     let subtasks = decompose(prompt, primary);
     if subtasks.len() <= 1 {
-        return call(prompt, 512, 0.6).await.unwrap_or_default();
+        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+            tracing::warn!("nexum delegation call failed: {}", e);
+            format!("[nexum inference error: {}]", e)
+        });
     }
 
     let mut results = Vec::new();

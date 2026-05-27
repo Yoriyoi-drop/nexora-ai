@@ -92,7 +92,7 @@ impl CaffeineSpectraIntegration {
     }
 
     pub async fn enhanced_multimodal_processing(
-        &self,
+        &mut self,
         inputs: &MultimodalInputs,
     ) -> std::result::Result<EnhancedMultimodalResult, Box<dyn std::error::Error>> {
         let mut result = EnhancedMultimodalResult::new();

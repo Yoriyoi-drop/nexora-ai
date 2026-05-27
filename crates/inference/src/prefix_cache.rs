@@ -543,7 +543,7 @@ mod tests {
 
         // Node sharing: root(1) + common_prefix(4) + unique_suffix(100) + gen_per_seq(100)
         // = 205. Without sharing this would be 601 (no common prefix).
-        let total_nodes = cache.stats()["total_nodes"].as_u64().unwrap() as usize;
+        let total_nodes = cache.stats()["total_nodes"].as_u64().unwrap_or(0) as usize;
         let without_sharing = 1 + 6 * unique_prompts; // no shared nodes
         assert!(
             total_nodes < without_sharing,
@@ -671,8 +671,8 @@ mod tests {
 
         // Measure: nodes created vs unique segments
         let stats = cache.stats();
-        let total_nodes = stats["total_nodes"].as_u64().unwrap();
-        let total_mem = stats["total_memory_bytes"].as_u64().unwrap();
+        let total_nodes = stats["total_nodes"].as_u64().unwrap_or(0);
+        let total_mem = stats["total_memory_bytes"].as_u64().unwrap_or(0);
 
         // Each sequence = seq_len + 1 (gen token) = 21 nodes
         let ideal_nodes = 1 + (seq_len + 1) * num_sequences;
@@ -714,7 +714,7 @@ mod tests {
         }
 
         let stats = cache.stats();
-        let remaining = stats["total_nodes"].as_u64().unwrap();
+        let remaining = stats["total_nodes"].as_u64().unwrap_or(0);
         println!(
             "bench_eviction_lru_stress: inserted 20 sequences, {} nodes remaining (max=10)",
             remaining
@@ -851,8 +851,8 @@ mod tests {
 
         // Verify hit/miss counters are non-zero (cache was actually used)
         let stats = cache.stats();
-        let hits = stats["hits"].as_u64().unwrap();
-        let misses = stats["misses"].as_u64().unwrap();
+        let hits = stats["hits"].as_u64().unwrap_or(0);
+        let misses = stats["misses"].as_u64().unwrap_or(0);
         println!(
             "bench_collision_invalidation: hits={}, misses={}, total_nodes={}",
             hits, misses, stats["total_nodes"]

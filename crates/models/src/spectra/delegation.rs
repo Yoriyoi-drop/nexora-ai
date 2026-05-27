@@ -1,8 +1,9 @@
 use crate::foundation::NxrSpectraModel;
 use crate::spectra::classifier;
 use crate::spectra::classifier::StyleClassifier;
-use nexora_multimodal::caffeine::CaffeineProcessor;
+use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
+use nexora_multimodal::MultimodalResult;
 use nexora_shared::base_model::{InputData, NxrInput, OutputData};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -14,10 +15,11 @@ fn foundation() -> &'static NxrSpectraModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        StyleClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            StyleClassifier::init(embed);
+        }
     }
 }
 
@@ -68,7 +70,7 @@ pub async fn delegate(prompt: &str) -> String {
     let framing = classifier::style_framing(primary);
 
     // Phase 4: Run through Caffeine multimodal pipeline
-    let mm = CaffeineProcessor::new();
+    let mut mm = CaffeineProcessor::with_caffeine(CaffeineConfig::default()).unwrap_or_default();
     let multimodal = MultiModalInputs {
         text: Some(nexora_multimodal::TextInput {
             text: prompt.to_string(),
@@ -80,8 +82,11 @@ pub async fn delegate(prompt: &str) -> String {
         video: None,
         context: None,
     };
-    let mm_result = mm.process_multimodal(&multimodal).await.ok();
-    let mm_summary = mm_result.map(|r| r.processing_summary).unwrap_or_default();
+    let mm_result = mm.process_multimodal(&multimodal).await.unwrap_or_else(|e| {
+        tracing::warn!("spectra multimodal processing failed: {}", e);
+        MultimodalResult::default()
+    });
+    let mm_summary = mm_result.processing_summary;
 
     let temps = [base_temp - 0.1, base_temp, base_temp + 0.2];
     let mut results: Vec<(String, f64)> = Vec::new();

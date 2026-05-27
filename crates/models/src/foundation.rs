@@ -455,8 +455,6 @@ macro_rules! define_foundation_model {
                 let prompt_ids = self.encode_text(&text);
                 let input_id = input.id;
 
-                // Ensure model is loaded before spawning
-                { self.get_or_init_model(); }
 
                 let model_arc = self.model.clone();
                 let tokenizer = self.tokenizer.clone();
@@ -466,7 +464,7 @@ macro_rules! define_foundation_model {
                     let guard = model_arc.blocking_lock();
                     let model = match guard.as_ref() {
                         Some(m) => m,
-                        None => return Ok(0usize),
+                        None => return Err(NxrModelError::NotInitialized("Model not initialized".to_string())),
                     };
 
                     let mut cache = model.reset_cache();

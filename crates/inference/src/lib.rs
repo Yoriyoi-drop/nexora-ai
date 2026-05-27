@@ -24,10 +24,8 @@ pub mod sampler;
 pub mod scheduler;
 pub mod sequence_state;
 pub mod session;
-pub mod speculative_decoding;
 pub mod stop_conditions;
 pub mod streaming;
-pub mod token_loop;
 
 // Re-export main types
 pub use beam_search::{BeamHypothesis, BeamSearchConfig};
@@ -53,7 +51,6 @@ pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
 pub use sequence_state::{SeqState, Sequence};
 pub use session::{InferenceSession, SessionConfig, SessionEntry, SessionState};
 pub use stop_conditions::{StopCondition, StopConditions};
-pub use token_loop::{TokenLoop, TokenLoopConfig};
 
 /// Versi inference engine
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

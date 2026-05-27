@@ -12,10 +12,11 @@ fn foundation() -> &'static NxrAxiomModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        ReasoningClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            ReasoningClassifier::init(embed);
+        }
     }
 }
 
@@ -61,5 +62,8 @@ pub async fn delegate(prompt: &str) -> String {
          Input: {prompt}\n\
          Conclusion:"
     );
-    call(&framed, 512, 0.3).await.unwrap_or_default()
+    call(&framed, 512, 0.3).await.unwrap_or_else(|e| {
+        tracing::warn!("axiom delegation call failed: {}", e);
+        format!("[axiom inference error: {}]", e)
+    })
 }

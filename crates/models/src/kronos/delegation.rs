@@ -12,10 +12,11 @@ fn foundation() -> &'static NxrKronosModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        TemporalClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            TemporalClassifier::init(embed);
+        }
     }
 }
 
@@ -62,5 +63,8 @@ pub async fn delegate(prompt: &str) -> String {
          Input: {prompt}\n\
          Temporal analysis and response:"
     );
-    call(&framed, 512, 0.5).await.unwrap_or_default()
+    call(&framed, 512, 0.5).await.unwrap_or_else(|e| {
+        tracing::warn!("kronos delegation call failed: {}", e);
+        format!("[kronos inference error: {}]", e)
+    })
 }

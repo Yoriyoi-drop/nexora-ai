@@ -13,10 +13,11 @@ fn foundation() -> &'static NxrVortexModel {
 
 fn init_analyzer() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        CodeReviewClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            CodeReviewClassifier::init(embed);
+        }
     }
 }
 
@@ -81,7 +82,10 @@ fn run_verifiers(code: &str, language: &str) -> String {
             }
             report
         }
-        Err(_) => String::new(),
+        Err(e) => {
+            tracing::warn!("vortex code verifier failed: {}", e);
+            String::new()
+        }
     }
 }
 
@@ -101,5 +105,8 @@ pub async fn delegate(prompt: &str) -> String {
          ```\n{prompt}\n```\n\n\
          Code review:"
     );
-    call(&framed, 512, 0.4).await.unwrap_or_default()
+    call(&framed, 512, 0.4).await.unwrap_or_else(|e| {
+        tracing::warn!("vortex delegation call failed: {}", e);
+        format!("[vortex inference error: {}]", e)
+    })
 }

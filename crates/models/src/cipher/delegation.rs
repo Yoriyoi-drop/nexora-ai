@@ -13,10 +13,11 @@ fn foundation() -> &'static NxrCipherModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        ThreatClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            ThreatClassifier::init(embed);
+        }
     }
 }
 
@@ -54,14 +55,31 @@ pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let threats = classify_threat(prompt);
     let primary = threats.first().map(|(t, _)| t.as_str()).unwrap_or("injection");
+
+    // ENFORCEMENT: Block high-confidence dangerous threats
+    if let Some((threat_type, confidence)) = threats.first() {
+        let dangerous = ["injection", "xss", "auth"];
+        if *confidence > 0.8 && dangerous.contains(&threat_type.as_str()) {
+            tracing::warn!(
+                "CIPHER SECURITY BLOCK: threat={}, confidence={:.2}, prompt={:.50}",
+                threat_type,
+                confidence,
+                prompt
+            );
+            return format!(
+                "[Cipher security] Request blocked: detected {} threat (confidence: {:.1}%)",
+                threat_type,
+                confidence * 100.0
+            );
+        }
+    }
+
     let focus = classifier::threat_focus(primary);
 
     // Phase 4: Run through Oracle security verifier
     let verifier = CodeVerifierManager::new();
-    let findings = verifier
-        .verify_detailed(prompt, "text")
-        .ok()
-        .map(|results| {
+    let findings = match verifier.verify_detailed(prompt, "text") {
+        Ok(results) => {
             let issues: Vec<String> = results
                 .iter()
                 .flat_map(|r| r.issues.iter())
@@ -72,8 +90,12 @@ pub async fn delegate(prompt: &str) -> String {
             } else {
                 issues.join("; ")
             }
-        })
-        .unwrap_or_else(|| "Verification unavailable".to_string());
+        }
+        Err(e) => {
+            tracing::warn!("cipher security verifier failed: {}", e);
+            "Verification unavailable".to_string()
+        }
+    };
 
     let checklist = format!(
         "[Cipher security | primary threat: {primary}]\n\
@@ -89,5 +111,8 @@ pub async fn delegate(prompt: &str) -> String {
          {prompt}\n\n\
          Security findings:"
     );
-    call(&checklist, 512, 0.3).await.unwrap_or_default()
+    call(&checklist, 512, 0.3).await.unwrap_or_else(|e| {
+        tracing::warn!("cipher delegation call failed: {}", e);
+        format!("[cipher inference error: {}]", e)
+    })
 }

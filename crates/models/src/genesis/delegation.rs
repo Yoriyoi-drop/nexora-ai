@@ -12,10 +12,11 @@ fn foundation() -> &'static NxrGenesisModel {
 
 fn init_classifier() {
     let f = foundation();
-    let guard = f.model.blocking_lock();
-    if let Some(ref model) = *guard {
-        let embed = model.token_embedding.clone();
-        QualityClassifier::init(embed);
+    if let Ok(guard) = f.model.try_lock() {
+        if let Some(ref model) = *guard {
+            let embed = model.token_embedding.clone();
+            QualityClassifier::init(embed);
+        }
     }
 }
 
@@ -55,7 +56,10 @@ pub async fn delegate(prompt: &str) -> String {
     let primary = dimensions.first().map(|(d, _)| d.as_str()).unwrap_or("clarity");
     let focus = classifier::refinement_focus(primary);
 
-    let first = call(prompt, 256, 0.8).await.unwrap_or_default();
+    let first = call(prompt, 256, 0.8).await.unwrap_or_else(|e| {
+        tracing::warn!("genesis delegation call failed: {}", e);
+        format!("[genesis inference error: {}]", e)
+    });
     if first.is_empty() {
         return first;
     }
