@@ -6,6 +6,35 @@ use tracing::{debug, warn};
 
 use nexora_transformer::KVCacheEntry;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrefixCacheStats {
+    pub total_nodes: usize,
+    pub total_memory_bytes: usize,
+    pub hits: usize,
+    pub misses: usize,
+    pub hit_rate: f32,
+    pub max_nodes: usize,
+    pub max_cache_bytes: usize,
+}
+
+impl From<&PrefixCache> for PrefixCacheStats {
+    fn from(cache: &PrefixCache) -> Self {
+        let hits = cache.hits.load(Ordering::Relaxed);
+        let misses = cache.misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        let hit_rate = if total == 0 { 0.0 } else { hits as f32 / total as f32 };
+        Self {
+            total_nodes: cache.total_nodes.load(Ordering::Relaxed),
+            total_memory_bytes: cache.total_memory.load(Ordering::Relaxed),
+            hits,
+            misses,
+            hit_rate,
+            max_nodes: cache.config.max_prefix_nodes,
+            max_cache_bytes: cache.config.max_cache_size,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PrefixCacheConfig {
     pub max_cache_size: usize,
@@ -163,7 +192,13 @@ impl PrefixCache {
                 }
                 None => {
                     let new_id = Self::alloc_id();
-                    let depth = nodes.get(&current_id).map(|n| n.depth + 1).unwrap_or(1);
+                    let depth = match nodes.get(&current_id) {
+                        Some(n) => n.depth + 1,
+                        None => {
+                            warn!("prefix_cache: parent {} missing for depth calc, using 1", current_id);
+                            1
+                        }
+                    };
                     let mut new_node =
                         RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
                     if tokens.last().map_or(false, |t| token == *t) {
@@ -377,16 +412,8 @@ impl PrefixCache {
         }
     }
 
-    pub fn stats(&self) -> serde_json::Value {
-        serde_json::json!({
-            "total_nodes": self.total_nodes.load(Ordering::Relaxed),
-            "total_memory_bytes": self.total_memory.load(Ordering::Relaxed),
-            "hits": self.hits.load(Ordering::Relaxed),
-            "misses": self.misses.load(Ordering::Relaxed),
-            "hit_rate": self.hit_rate(),
-            "max_nodes": self.config.max_prefix_nodes,
-            "max_cache_bytes": self.config.max_cache_size,
-        })
+    pub fn stats(&self) -> PrefixCacheStats {
+        PrefixCacheStats::from(self)
     }
 }
 
@@ -543,8 +570,8 @@ mod tests {
 
         // Node sharing: root(1) + common_prefix(4) + unique_suffix(100) + gen_per_seq(100)
         // = 205. Without sharing this would be 601 (no common prefix).
-        let total_nodes = cache.stats()["total_nodes"].as_u64().unwrap_or(0) as usize;
-        let without_sharing = 1 + 6 * unique_prompts; // no shared nodes
+        let total_nodes = cache.stats().total_nodes;
+        let without_sharing = 1 + 6 * unique_prompts;
         assert!(
             total_nodes < without_sharing,
             "shared prefix should reduce node count, got {} vs {} without sharing",
@@ -671,8 +698,8 @@ mod tests {
 
         // Measure: nodes created vs unique segments
         let stats = cache.stats();
-        let total_nodes = stats["total_nodes"].as_u64().unwrap_or(0);
-        let total_mem = stats["total_memory_bytes"].as_u64().unwrap_or(0);
+        let total_nodes = stats.total_nodes;
+        let total_mem = stats.total_memory_bytes;
 
         // Each sequence = seq_len + 1 (gen token) = 21 nodes
         let ideal_nodes = 1 + (seq_len + 1) * num_sequences;
@@ -713,8 +740,7 @@ mod tests {
             insert_seq(&cache, &prompt, &[i * 10 + 3], logit_size).await;
         }
 
-        let stats = cache.stats();
-        let remaining = stats["total_nodes"].as_u64().unwrap_or(0);
+        let remaining = cache.stats().total_nodes;
         println!(
             "bench_eviction_lru_stress: inserted 20 sequences, {} nodes remaining (max=10)",
             remaining
@@ -851,12 +877,10 @@ mod tests {
 
         // Verify hit/miss counters are non-zero (cache was actually used)
         let stats = cache.stats();
-        let hits = stats["hits"].as_u64().unwrap_or(0);
-        let misses = stats["misses"].as_u64().unwrap_or(0);
         println!(
             "bench_collision_invalidation: hits={}, misses={}, total_nodes={}",
-            hits, misses, stats["total_nodes"]
+            stats.hits, stats.misses, stats.total_nodes
         );
-        assert!(hits > 0 || misses > 0, "cache counters should be non-zero");
+        assert!(stats.hits > 0 || stats.misses > 0, "cache counters should be non-zero");
     }
 }

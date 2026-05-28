@@ -1375,14 +1375,18 @@ impl GQA {
         let k_proj = ctx.matmul(x_gpu, wk_t)?;
         let v_proj = ctx.matmul(x_gpu, wv_t)?;
 
-        // 3. Apply RoPE on GPU using PRE-UPLOADED cos/sin
-        let q_rotated = ctx.rotary_embedding(&q_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
-        let k_rotated = ctx.rotary_embedding(&k_proj, cos_gpu, sin_gpu, self.head_dim as u32)?;
+        // 3. Reshape Q/K to per-head [total_heads, head_dim] before RoPE
+        let q_heads = q_proj.reshape(vec![batch_size * self.num_heads, self.head_dim])?;
+        let k_heads = k_proj.reshape(vec![batch_size * self.num_kv_heads, self.head_dim])?;
 
-        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        // 4. Apply RoPE on GPU using PRE-UPLOADED cos/sin (per-head)
+        let q_rotated = ctx.rotary_embedding(&q_heads, cos_gpu, sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_heads, cos_gpu, sin_gpu, self.head_dim as u32)?;
+
+        // 5. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
         let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
 
-        // 5. Append K/V to GPU-resident cache
+        // 6. Append K/V to GPU-resident cache
         let k_3d = k_rotated.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
         let v_3d = v_proj.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
         cache.append(&ctx, &k_3d, &v_3d)?;
@@ -1455,14 +1459,18 @@ impl GQA {
                 .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
 
-        // Apply RoPE on GPU for Q and K
-        let q_rotated = ctx.rotary_embedding(&q_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
-        let k_rotated = ctx.rotary_embedding(&k_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        // 4. Reshape Q/K to per-head [total_heads, head_dim] before RoPE
+        let q_heads = q_proj.reshape(vec![batch_size * self.num_heads, self.head_dim])?;
+        let k_heads = k_proj.reshape(vec![batch_size * self.num_kv_heads, self.head_dim])?;
 
-        // 4. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
+        // Apply RoPE on GPU for Q and K (per-head)
+        let q_rotated = ctx.rotary_embedding(&q_heads, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_heads, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+
+        // 5. Reshape Q to [1, num_heads, 1, head_dim] for fused_attention
         let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
 
-        // 5. Append K/V to GPU-resident cache
+        // 6. Append K/V to GPU-resident cache
         let k_3d = k_rotated.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
         let v_3d = v_proj.reshape(vec![batch_size, self.num_kv_heads, self.head_dim])?;
         cache.append(&ctx, &k_3d, &v_3d)?;
@@ -1538,10 +1546,14 @@ impl GQA {
                 .map_err(|e| GpuError::Unsupported(e.to_string()))?,
         )?;
 
-        let q_rotated = ctx.rotary_embedding(&q_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
-        let k_rotated = ctx.rotary_embedding(&k_proj, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        // 4. Reshape Q/K to per-head [total_heads, head_dim] before RoPE
+        let q_heads = q_proj.reshape(vec![batch_size * self.num_heads, self.head_dim])?;
+        let k_heads = k_proj.reshape(vec![batch_size * self.num_kv_heads, self.head_dim])?;
 
-        // 4. Reshape Q to [1, num_heads, 1, head_dim]
+        let q_rotated = ctx.rotary_embedding(&q_heads, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+        let k_rotated = ctx.rotary_embedding(&k_heads, &cos_gpu, &sin_gpu, self.head_dim as u32)?;
+
+        // 5. Reshape Q to [1, num_heads, 1, head_dim]
         let q_4d = q_rotated.reshape(vec![batch_size, self.num_heads, 1, self.head_dim])?;
 
         // 5. GPU-side KV cache (no CPU round-trip)
@@ -1707,11 +1719,14 @@ impl GQA {
             };
             let map_result =
                 map_result.map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
-            let mapped = slice.get_mapped_range();
-            let out: Vec<f32> = mapped
-                .chunks_exact(4)
-                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let out: Vec<f32> = {
+                let mapped = slice.get_mapped_range();
+                let result = mapped
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                result
+            };
             staging.unmap();
             Ok(out)
         };

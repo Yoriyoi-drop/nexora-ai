@@ -22,7 +22,9 @@ fn init_classifier() {
         if let Some(ref model) = *guard {
             let embed = model.token_embedding.clone();
             ThreatClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if INITIALIZED.set(true).is_err() {
+                tracing::warn!("cipher: INITIALIZED already set (race condition)");
+            }
         }
     }
 }
@@ -60,7 +62,13 @@ async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<Strin
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let threats = classify_threat(prompt);
-    let primary = threats.first().map(|(t, _)| t.as_str()).unwrap_or("injection");
+    let primary = match threats.first() {
+        Some((t, _)) => t.as_str(),
+        None => {
+            tracing::warn!("cipher: no threats classified, defaulting to 'injection'");
+            "injection"
+        }
+    };
 
     // ENFORCEMENT: Block high-confidence dangerous threats
     if let Some((threat_type, confidence)) = threats.first() {

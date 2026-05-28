@@ -13,7 +13,24 @@
 
 /// Set to `true` to make it impossible to ignore: this crate stores weights in
 /// INT8/INT4 format but converts back to FP32 for every operation. No speed gain.
+/// Note: For GPU inference, `nexora-autograd` provides actual INT8 matmul kernels
+/// (`GpuContext::matmul_int8_weight()`) — this CPU-side crate is storage-only.
 pub const QUANTIZATION_IS_STORAGE_ONLY: bool = true;
+
+static QUANT_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Warn the user at runtime that CPU quantization is storage-only.
+/// Call this once at the start of any quantization pipeline.
+/// The warning is logged only on the first call (rate-limited to 1).
+pub fn warn_storage_only() {
+    if !QUANT_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(
+            "nexora-quantization: CPU quantization is STORAGE-ONLY — no performance benefit. \
+             Use GPU int8 matmul (nexora-autograd) for actual quantized compute. \
+             See QUANTIZATION_IS_STORAGE_ONLY constant."
+        );
+    }
+}
 
 use ndarray::Array2;
 
@@ -302,6 +319,7 @@ pub fn dequantize_int4_groupwise_to_f32(
 
 /// Quantize an f32 weight matrix into a `QuantizedTensor`.
 pub fn quantize_linear(weights: &Array2<f32>, dtype: QuantizedDtype) -> QuantizedTensor {
+    warn_storage_only();
     let shape = weights.dim();
     match dtype {
         QuantizedDtype::Int8 => {
@@ -339,6 +357,7 @@ pub fn quantize_linear(weights: &Array2<f32>, dtype: QuantizedDtype) -> Quantize
 
 /// Dequantize a `QuantizedTensor` back to f32.
 pub fn dequantize_linear(tensor: &QuantizedTensor) -> Array2<f32> {
+    warn_storage_only();
     let (rows, cols) = tensor.shape;
     match tensor.dtype {
         QuantizedDtype::Int8 => {

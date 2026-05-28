@@ -256,6 +256,7 @@ pub trait CodeLinter: Send + Sync {
     fn calculate_complexity(&self, code: &str) -> f32 {
         let lines = code.lines().count() as f32;
         if lines < 1.0 {
+            tracing::warn!("calculate_complexity: empty code, returning 1.0");
             return 1.0;
         }
         let branching_keywords = [
@@ -657,9 +658,8 @@ impl CodeLinterManager {
 
         let avg_score = total_score / self.linters.len() as f32;
 
-        // Log issues for debugging
         for issue in &all_issues {
-            println!(
+            tracing::info!(
                 "Issue: {} - {} (Line: {:?})",
                 issue.category, issue.message, issue.line_number
             );

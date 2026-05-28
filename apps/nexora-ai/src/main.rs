@@ -10,7 +10,11 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() {
     std::panic::set_hook(Box::new(|panic_info| {
+        use std::io::Write;
         tracing::error!(target: "panic", "Panic: {}", panic_info);
+        let bt = std::backtrace::Backtrace::force_capture();
+        tracing::error!(target: "panic", "Backtrace:\n{:?}", bt);
+        let _ = std::io::stderr().flush();
     }));
 
     let cli = match Cli::try_parse() {

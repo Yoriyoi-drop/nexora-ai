@@ -150,6 +150,13 @@ impl AdaptivePhaseSeparationStabilizer {
         let num_tokens = wave.amplitude.shape()[0];
         let phase_dim = wave.phase.shape()[1];
 
+        // Clear stale history from previous batch sizes
+        if let Some(last) = self.phase_history.last() {
+            if last.shape() != wave.phase.shape() {
+                self.phase_history.clear();
+            }
+        }
+
         for i in 0..num_tokens {
             let mut phase_adjustment: Array1<f32> = Array1::zeros(phase_dim);
 
@@ -191,7 +198,11 @@ impl AdaptivePhaseSeparationStabilizer {
             let current_phase = wave.phase.slice(s![i, ..]).to_owned();
             let momentum_correction = if self.phase_history.len() > 0 {
                 let last_phase = &self.phase_history[self.phase_history.len() - 1];
-                let last_phase_i = last_phase.slice(s![i, ..]).to_owned();
+                let last_phase_i = if i < last_phase.shape()[0] {
+                    last_phase.slice(s![i, ..]).to_owned()
+                } else {
+                    Array1::zeros(phase_dim)
+                };
 
                 let mut momentum = Array1::zeros(phase_dim);
                 for k in 0..phase_dim {

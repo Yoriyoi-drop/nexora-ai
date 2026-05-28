@@ -257,7 +257,7 @@ fn estimate_model_memory_gb(hidden_size: usize, num_layers: usize, vocab_size: u
     total_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
-const CPU_TARGET_PERCENT: usize = 70;
+const CPU_TARGET_PERCENT: usize = 100;
 
 fn capped_cpu_threads(ncores: usize) -> usize {
     ((ncores * CPU_TARGET_PERCENT) / 100).max(1)

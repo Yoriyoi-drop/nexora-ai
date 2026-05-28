@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub mod api;
 pub mod cli;
@@ -119,6 +119,23 @@ impl NexoraAI {
             .validate()
             .map_err(|e| NexoraError::config(format!("Configuration validation failed: {}", e)))?;
 
+        // Step 0: Initialize GPU context — if unavailable, all GPU paths are disabled
+        #[cfg(feature = "gpu")]
+        let gpu_ok = {
+            match nexora_deeplearning::gpu::GpuContext::init() {
+                Ok(ctx) => {
+                    info!("GPU initialized: {}", ctx.adapter_info().name);
+                    true
+                }
+                Err(e) => {
+                    warn!("GPU initialization failed ({}), disabling GPU inference paths", e);
+                    false
+                }
+            }
+        };
+        #[cfg(not(feature = "gpu"))]
+        let gpu_ok = false;
+
         // Step 1: Initialize foundation models — all 10 NXR models get real CausalLM instances
         nexora_foundation::init::initialize_foundation_models()
             .await
@@ -219,9 +236,9 @@ impl NexoraAI {
             default_model_id: active_model_id.to_string(),
             max_concurrent_requests: 4,
             enable_streaming: true,
-            use_gpu: false,
+            use_gpu: gpu_ok,
             #[cfg(feature = "gpu")]
-            use_gpu_resident: true,
+            use_gpu_resident: gpu_ok,
             ..Default::default()
         };
         let inference_engine = Arc::new(

@@ -129,11 +129,11 @@ impl GpuContext {
             .map_err(|_| GpuError::Timeout("gradient clip readback timed out after 30s".into()))?
             .map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
 
-        let mapped = slice.get_mapped_range();
-        let data: &[f32] = bytemuck::cast_slice(&*mapped);
-        let norm_val = data[0];
-        let scale_factor = data[2];
-        let clipped = data[3] as u32 != 0;
+        let (norm_val, scale_factor, clipped) = {
+            let mapped = slice.get_mapped_range();
+            let data: &[f32] = bytemuck::cast_slice(&*mapped);
+            (data[0], data[2], data[3] as u32 != 0)
+        };
         staging.buffer.unmap();
 
         Ok(GpuGradClipResult {

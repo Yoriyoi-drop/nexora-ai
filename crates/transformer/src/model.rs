@@ -370,7 +370,16 @@ impl CausalLM {
             precomputed_cos,
             precomputed_sin,
             injectors: Vec::new(),
-            keep_on_gpu: true,
+            keep_on_gpu: {
+                #[cfg(feature = "gpu")]
+                {
+                    nexora_autograd::gpu::GpuContext::is_available()
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    false
+                }
+            },
             quantize_weights: false,
             use_half_precision: false,
             #[cfg(feature = "gpu")]
@@ -397,24 +406,26 @@ impl CausalLM {
         kv_cache: &mut dyn KVCacheProvider,
     ) -> TransformerResult<Array1<f32>> {
         #[cfg(feature = "gpu")]
-        if self.keep_on_gpu {
+        let gpu_available = nexora_autograd::gpu::GpuContext::global().is_ok();
+
+        #[cfg(feature = "gpu")]
+        if gpu_available && self.keep_on_gpu {
             match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
                 Ok(logits) => return Ok(logits),
                 Err(e) => {
-                    tracing::error!("keep_on_gpu forward failed: {e}");
-                    return Err(TransformerError::Implementation(format!(
-                        "GPU forward failed: {e}"
-                    )));
+                    tracing::warn!("keep_on_gpu forward failed, falling back to CPU: {e}");
                 }
             }
         }
 
         #[cfg(feature = "gpu")]
-        match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
-            Ok(logits) => return Ok(logits),
-            Err(e) => {
-                tracing::error!(error = %e, "GPU forward pass failed");
-                GPU_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
+        if gpu_available {
+            match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
+                Ok(logits) => return Ok(logits),
+                Err(e) => {
+                    tracing::error!(error = %e, "GPU forward pass failed");
+                    GPU_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
 
@@ -461,6 +472,14 @@ impl CausalLM {
 
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let half = self.config.head_dim() / 2;
+        if pos * half + half > self.precomputed_cos.len() && !self.precomputed_cos.is_empty() {
+            return Err(TransformerError::Implementation(format!(
+                "RoPE cos position {} out of range (len={}, half={})",
+                pos,
+                self.precomputed_cos.len(),
+                half
+            )));
+        }
         let cos_slice: &[f32] = if pos * half < self.precomputed_cos.len() {
             &self.precomputed_cos.as_slice().unwrap_or(&[])[pos * half..(pos + 1) * half]
         } else {
@@ -471,6 +490,23 @@ impl CausalLM {
         } else {
             &[]
         };
+
+        // Validate token_embedding shape vs config
+        let (embed_vocab, embed_hidden) = self.token_embedding.dim();
+        if embed_vocab != self.config.vocab_size || embed_hidden != self.config.hidden_size {
+            return Err(TransformerError::Implementation(format!(
+                "token_embedding shape ({},{}) != config ({},{})",
+                embed_vocab, embed_hidden, self.config.vocab_size, self.config.hidden_size
+            )));
+        }
+        // Validate lm_head shape vs config
+        let (lm_vocab, lm_hidden) = self.lm_head.dim();
+        if lm_vocab != self.config.vocab_size || lm_hidden != self.config.hidden_size {
+            return Err(TransformerError::Implementation(format!(
+                "lm_head shape ({},{}) != config ({},{})",
+                lm_vocab, lm_hidden, self.config.vocab_size, self.config.hidden_size
+            )));
+        }
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward(&h, kv_cache, layer_idx, cos_slice, sin_slice);
@@ -745,7 +781,16 @@ impl CausalLM {
             block.ffn.w3 = to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned();
         }
         model.injectors = Vec::new();
-        model.keep_on_gpu = true;
+        model.keep_on_gpu = {
+            #[cfg(feature = "gpu")]
+            {
+                nexora_autograd::gpu::GpuContext::is_available()
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                false
+            }
+        };
         Ok(model)
     }
 
@@ -1509,20 +1554,23 @@ impl CausalLM {
                             .map_err(|e| {
                                 nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                             })?;
-                        let mapped = slice.get_mapped_range();
-                        let out: Vec<f32> = if is_f16 {
-                            mapped
-                                .chunks_exact(2)
-                                .map(|c| {
-                                    let bits = u16::from_ne_bytes([c[0], c[1]]);
-                                    half::f16::from_bits(bits).to_f32()
-                                })
-                                .collect()
-                        } else {
-                            mapped
-                                .chunks_exact(4)
-                                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                                .collect()
+                        let out: Vec<f32> = {
+                            let mapped = slice.get_mapped_range();
+                            let result = if is_f16 {
+                                mapped
+                                    .chunks_exact(2)
+                                    .map(|c| {
+                                        let bits = u16::from_ne_bytes([c[0], c[1]]);
+                                        half::f16::from_bits(bits).to_f32()
+                                    })
+                                    .collect()
+                            } else {
+                                mapped
+                                    .chunks_exact(4)
+                                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                                    .collect()
+                            };
+                            result
                         };
                         staging.unmap();
                         Ok(out)
@@ -1557,7 +1605,9 @@ impl CausalLM {
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
-            Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
+            Err(_) => {
+                return self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false)
+            }
         };
 
         // Create GPU-resident cache for all layers (zero CPU round-trip)
@@ -1574,7 +1624,9 @@ impl CausalLM {
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(cache) => cache,
-            Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
+            Err(_) => {
+                return self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false)
+            }
         };
 
         ctx.flush();
@@ -1585,7 +1637,8 @@ impl CausalLM {
                 .forward_gpu_with_cache(&[token_id], &mut gpu_cache)
                 .is_err()
             {
-                let (tokens, _) = self.generate(prompt_ids, max_tokens, temperature, top_k);
+                let (tokens, _) =
+                    self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false);
                 return (tokens, Vec::new());
             }
         }
@@ -2389,29 +2442,32 @@ impl CausalLM {
                         let map_result = map_result.map_err(|e| {
                             nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                         })?;
-                        let mapped = slice.get_mapped_range();
-                        let out: Vec<f32> = if is_f16 {
-                            mapped
-                                .chunks_exact(2)
-                                .map(|c| {
-                                    let bits = u16::from_ne_bytes([c[0], c[1]]);
-                                    half::f16::from_bits(bits).to_f32()
-                                })
-                                .collect()
-                        } else {
-                            mapped
-                                .chunks_exact(4)
-                                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                                .collect()
+                        let out: Vec<f32> = {
+                            let mapped = slice.get_mapped_range();
+                            let result = if is_f16 {
+                                mapped
+                                    .chunks_exact(2)
+                                    .map(|c| {
+                                        let bits = u16::from_ne_bytes([c[0], c[1]]);
+                                        half::f16::from_bits(bits).to_f32()
+                                    })
+                                    .collect()
+                            } else {
+                                mapped
+                                    .chunks_exact(4)
+                                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                                    .collect()
+                            };
+                            result
                         };
                         staging.unmap();
                         Ok(out)
                     };
 
-                let new_k = read_back(&staging_k, gpu_entry.f16_storage)?;
-                let new_v = read_back(&staging_v, gpu_entry.f16_storage)?;
+                    let new_k = read_back(&staging_k, gpu_entry.f16_storage)?;
+                    let new_v = read_back(&staging_v, gpu_entry.f16_storage)?;
 
-                if layer_idx < cpu_cache.len() {
+                    if layer_idx < cpu_cache.len() {
                     let entry = &mut cpu_cache[layer_idx];
                     entry.k.extend_from_slice(&new_k);
                     entry.v.extend_from_slice(&new_v);
@@ -2932,8 +2988,8 @@ impl CausalLM {
                 seed,
             ),
             Err(_) => {
-                tracing::warn!("GPU context unavailable for GPU-resident generation, falling back to generate_with_gpu");
-                self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, true)
+                tracing::warn!("GPU context unavailable for GPU-resident generation, falling back to CPU generation");
+                self.generate_with_gpu(prompt_ids, max_tokens, temperature, top_k, false)
             }
         }
     }

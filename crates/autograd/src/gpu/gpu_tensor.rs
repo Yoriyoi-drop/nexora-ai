@@ -273,6 +273,7 @@ impl GpuTensor {
 
         let mapped = slice.get_mapped_range();
         let data = mapped.to_vec();
+        drop(mapped);
         staging.unmap();
 
         crate::gpu::gpu_observability::PCIE_READ_BYTES

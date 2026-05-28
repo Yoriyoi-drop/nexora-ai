@@ -8,6 +8,14 @@ use crate::gpu_caps::GpuCapabilities;
 use super::gpu_tensor::{readback_with_timeout, GpuDtype, GpuTensor};
 use super::gpu_types::*;
 
+/// Maximum workgroups per dimension for wgpu/WebGPU (65535).
+/// Any dispatch exceeding this must be chunked across multiple dispatches
+/// using buffer-slice bindings with per-chunk offsets.
+const MAX_WORKGROUPS_PER_DIM: u32 = 65535;
+
+/// Default workgroup size used by most Nexora WGSL shaders.
+const DEFAULT_WORKGROUP_SIZE: u32 = 256;
+
 impl GpuContext {
     // ── Memory pool helpers ─────────────────────────────────────────────────────
 
@@ -620,26 +628,12 @@ impl GpuContext {
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("gradient_allreduce_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: grad_buffers.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: out.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        self.dispatch(pipeline, &bind_group, ((numel + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, grad_buffers.buffer()), (1, out.buffer())],
+            &[(2, &cfg_buf)],
+            numel, 256, 4,
+        );
         Ok(())
     }
 
@@ -730,15 +724,7 @@ impl GpuContext {
             .get("fill_zero")
             .ok_or_else(|| GpuError::Pipeline("fill_zero not compiled".into()))?;
         let numel = u32::try_from(t.numel()).unwrap_or(u32::MAX);
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fill_zero_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: t.buffer().as_entire_binding(),
-            }],
-        });
-        self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[], numel, 256, 4);
         Ok(())
     }
 
@@ -751,15 +737,7 @@ impl GpuContext {
             .ok_or_else(|| GpuError::Pipeline("fill_zero_u32 not compiled".into()))?;
         let buf_size = t.buffer().size();
         let u32_count = u32::try_from(buf_size / 4).unwrap_or(u32::MAX);
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fill_zero_u32_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: t.buffer().as_entire_binding(),
-            }],
-        });
-        self.dispatch(pipeline, &bg, ((u32_count + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[], u32_count, 256, 4);
         Ok(())
     }
 
@@ -779,21 +757,7 @@ impl GpuContext {
         let cfg: [u32; 2] = [numel, f32::to_bits(value)];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fill_const_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: t.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-        self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
         Ok(())
     }
 
@@ -813,21 +777,7 @@ impl GpuContext {
         let cfg: [u32; 2] = [numel, f32::to_bits(scale)];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("scale_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: t.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-        self.dispatch(pipeline, &bg, ((numel + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
         Ok(())
     }
 
@@ -982,22 +932,13 @@ impl GpuContext {
             ];
             self.queue
                 .write_buffer(&temp_buf.buffer, 0, bytemuck::cast_slice(&temp_cfg));
-            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("temp_scale_bg"),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: work_buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: temp_buf.buffer.as_entire_binding(),
-                    },
-                ],
-            });
             let workgroups = u32::try_from(numel).unwrap_or(u32::MAX);
-            self.dispatch(pipeline, &bg, ((workgroups + 255) / 256, 1, 1));
+            self.dispatch_1d_chunked(
+                pipeline,
+                &[(0, &work_buf)],
+                &[(1, &temp_buf.buffer)],
+                workgroups, 256, 4,
+            );
         }
 
         // Step 2: softmax (via ctx.softmax — uses reusable encoder internally)
@@ -1352,7 +1293,40 @@ impl GpuContext {
     /// Dispatch a compute shader using the reusable command encoder.
     /// Accumulates dispatches in the reusable encoder instead of creating a new encoder per op.
     /// Automatically flushes (submits + recreates) after `auto_flush_ops` dispatches.
+    ///
+    /// # Panics
+    /// Panics with a clear diagnostic if any workgroup dimension exceeds
+    /// `MAX_WORKGROUPS_PER_DIM` (65535). Use [`dispatch_1d_chunked`] for
+    /// element-wise ops on large tensors — it automatically splits into
+    /// multiple dispatches with buffer-slice bindings.
     pub(crate) fn dispatch(
+        &self,
+        pipeline: &CompiledPipeline,
+        bind_group: &wgpu::BindGroup,
+        workgroups: (u32, u32, u32),
+    ) {
+        let (gx, gy, gz) = workgroups;
+        let gx = gx.max(1);
+        let gy = gy.max(1);
+        let gz = gz.max(1);
+
+        assert!(
+            gx <= MAX_WORKGROUPS_PER_DIM
+                && gy <= MAX_WORKGROUPS_PER_DIM
+                && gz <= MAX_WORKGROUPS_PER_DIM,
+            "GPU dispatch overflow: workgroups ({}, {}, {}) exceeds limit {} per dimension. \
+             This is caused by dispatching {} workgroups in X (with workgroup_size={}, \
+             numel≈{}). Use dispatch_1d_chunked() for element-wise ops or reduce tensor size.",
+            gx, gy, gz,
+            MAX_WORKGROUPS_PER_DIM,
+            gx, DEFAULT_WORKGROUP_SIZE, gx as u64 * DEFAULT_WORKGROUP_SIZE as u64,
+        );
+
+        self.dispatch_impl(pipeline, bind_group, (gx, gy, gz));
+    }
+
+    /// Raw dispatch without validation — called by `dispatch` and `dispatch_1d_chunked`.
+    fn dispatch_impl(
         &self,
         pipeline: &CompiledPipeline,
         bind_group: &wgpu::BindGroup,
@@ -1364,6 +1338,100 @@ impl GpuContext {
             cpass.set_bind_group(0, bind_group, &[]);
             cpass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
         });
+    }
+
+    /// Safe 1D element-wise dispatch with automatic chunking.
+    ///
+    /// When the total workgroup count exceeds `MAX_WORKGROUPS_PER_DIM` (65535),
+    /// automatically splits into multiple dispatches. Each chunk uses a
+    /// buffer-slice [`wgpu::BufferBinding`] with the appropriate byte offset,
+    /// so shaders using `@builtin(global_invocation_id).x` to index into
+    /// storage buffers process a different slice per chunk — no shader changes
+    /// are required.
+    ///
+    /// # Arguments
+    /// * `storage_bindings` — `(binding_index, &buffer)` for every storage buffer
+    ///   that must be sliced per chunk (e.g. input, output, or in-place data).
+    ///   All sliced buffers must use the same `element_size`.
+    /// * `uniform_bindings` — `(binding_index, &buffer)` for uniform/config buffers
+    ///   that are shared across all chunks (no slicing).
+    /// * `numel` — total number of logical elements to process.
+    /// * `workgroup_size` — the WGSL `@workgroup_size(...)` value (typically 256).
+    /// * `element_size` — bytes per element (4 for f32/u32, 2 for f16, 1 for i8).
+    pub(crate) fn dispatch_1d_chunked(
+        &self,
+        pipeline: &CompiledPipeline,
+        storage_bindings: &[(u32, &wgpu::Buffer)],
+        uniform_bindings: &[(u32, &wgpu::Buffer)],
+        numel: u32,
+        workgroup_size: u32,
+        element_size: u64,
+    ) {
+        let wg_size = workgroup_size.max(1);
+        let total_groups = (numel + wg_size - 1) / wg_size;
+
+        if total_groups <= MAX_WORKGROUPS_PER_DIM {
+            let mut entries = Vec::with_capacity(storage_bindings.len() + uniform_bindings.len());
+            for &(binding, buf) in storage_bindings {
+                entries.push(wgpu::BindGroupEntry {
+                    binding,
+                    resource: buf.as_entire_binding(),
+                });
+            }
+            for &(binding, buf) in uniform_bindings {
+                entries.push(wgpu::BindGroupEntry {
+                    binding,
+                    resource: buf.as_entire_binding(),
+                });
+            }
+            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("dispatch_1d"),
+                layout: &pipeline.bind_group_layout,
+                entries: &entries,
+            });
+            self.dispatch_impl(pipeline, &bg, (total_groups, 1, 1));
+            return;
+        }
+
+        // Chunked path: split into MAX_WORKGROUPS_PER_DIM workgroups per chunk
+        let elements_per_chunk = MAX_WORKGROUPS_PER_DIM * wg_size;
+        let mut remaining = numel as i64;
+        let mut byte_offset: u64 = 0;
+
+        while remaining > 0 {
+            let chunk_elems = (remaining as u32).min(elements_per_chunk);
+            let chunk_groups = (chunk_elems + wg_size - 1) / wg_size;
+            let chunk_bytes = (chunk_elems as u64) * element_size;
+
+            let mut entries = Vec::with_capacity(storage_bindings.len() + uniform_bindings.len());
+            for &(binding, buf) in storage_bindings {
+                entries.push(wgpu::BindGroupEntry {
+                    binding,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: buf,
+                        offset: byte_offset,
+                        size: Some(wgpu::BufferSize::new(chunk_bytes).unwrap()),
+                    }),
+                });
+            }
+            for &(binding, buf) in uniform_bindings {
+                entries.push(wgpu::BindGroupEntry {
+                    binding,
+                    resource: buf.as_entire_binding(),
+                });
+            }
+
+            let chunk_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("dispatch_1d_chunk"),
+                layout: &pipeline.bind_group_layout,
+                entries: &entries,
+            });
+
+            self.dispatch_impl(pipeline, &chunk_bg, (chunk_groups, 1, 1));
+
+            remaining -= chunk_elems as i64;
+            byte_offset += chunk_bytes;
+        }
     }
 
     /// Slice tensor GPU — mengambil sub-view [pos..pos+len] dari dimension 0
@@ -2627,31 +2695,12 @@ impl GpuContext {
             .get("elementwise")
             .ok_or_else(|| GpuError::Pipeline("elementwise not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("elementwise_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: a.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: a.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let wg = (numel as u32 + 255) / 256;
-        self.dispatch(pipeline, &bind_group, (wg, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, a.buffer()), (1, a.buffer()), (2, &out_buffer)],
+            &[(3, &cfg_buf)],
+            numel as u32, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: shape.to_vec(),
@@ -2682,24 +2731,12 @@ impl GpuContext {
             .get("elementwise_inplace")
             .ok_or_else(|| GpuError::Pipeline("elementwise_inplace not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("elementwise_inplace_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: tensor.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let wg = (numel as u32 + 255) / 256;
-        self.dispatch(pipeline, &bind_group, (wg, 1, 1));
-
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, tensor.buffer())],
+            &[(1, &cfg_buf)],
+            numel as u32, 256, 4,
+        );
         Ok(())
     }
 
@@ -2741,31 +2778,12 @@ impl GpuContext {
             .get("elementwise")
             .ok_or_else(|| GpuError::Pipeline("elementwise not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("elementwise_binary_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: a.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: b.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let wg = (numel as u32 + 255) / 256;
-        self.dispatch(pipeline, &bind_group, (wg, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, a.buffer()), (1, b.buffer()), (2, &out_buffer)],
+            &[(3, &cfg_buf)],
+            numel as u32, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: a_shape.to_vec(),
@@ -2866,23 +2884,12 @@ impl GpuContext {
             .get("elementwise_inplace")
             .ok_or_else(|| GpuError::Pipeline("elementwise_inplace not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("leaky_relu_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: tensor.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let wg = (numel as u32 + 255) / 256;
-        self.dispatch(pipeline, &bind_group, (wg, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, tensor.buffer())],
+            &[(1, &cfg_buf)],
+            numel as u32, 256, 4,
+        );
         Ok(())
     }
 
@@ -2957,31 +2964,13 @@ impl GpuContext {
             .get("rotary_embedding")
             .ok_or_else(|| GpuError::Pipeline("rotary_embedding not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rotary_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: cos.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: sin.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
         let num_pairs = total_rows * half;
-        self.dispatch(pipeline, &bind_group, ((num_pairs + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, &out_buffer), (1, cos.buffer()), (2, sin.buffer())],
+            &[(3, &cfg_buf)],
+            num_pairs, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: shape.clone(),
@@ -3035,29 +3024,11 @@ impl GpuContext {
             .get("repeat_heads")
             .ok_or_else(|| GpuError::Pipeline("repeat_heads not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("repeat_heads_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: src.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: dst_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        self.dispatch(
+        self.dispatch_1d_chunked(
             pipeline,
-            &bind_group,
-            ((numel_dst as u32 + 255) / 256, 1, 1),
+            &[(0, src.buffer()), (1, &dst_buffer)],
+            &[(2, &cfg_buf)],
+            numel_dst as u32, 256, 4,
         );
 
         Ok(GpuTensor {
@@ -3133,6 +3104,7 @@ impl GpuContext {
 
         loop {
             let num_groups = (current_numel + 255) / 256;
+            let num_groups_u32 = num_groups as u32;
 
             let out_size = (num_groups * 4) as u64;
             let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -3144,36 +3116,107 @@ impl GpuContext {
                 mapped_at_creation: false,
             });
 
-            let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("reduce_cfg"),
-                size: 8,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let cfg_data: [u32; 2] = [current_numel as u32, num_groups as u32];
-            self.queue
-                .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+            let needs_chunking = num_groups_u32 > MAX_WORKGROUPS_PER_DIM;
 
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("{}_bind_group", key)),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: current_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: out_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: cfg_buf.as_entire_binding(),
-                    },
-                ],
-            });
+            if needs_chunking {
+                let elems_per_full_chunk = MAX_WORKGROUPS_PER_DIM as u64 * 256;
+                let mut input_offset: u64 = 0;
+                let mut output_offset: u64 = 0;
+                let mut remaining = current_numel as u64;
 
-            self.dispatch(pipeline, &bind_group, (num_groups as u32, 1, 1));
+                while remaining > 0 {
+                    let chunk_elems = remaining.min(elems_per_full_chunk);
+                    let chunk_groups = ((chunk_elems + 255) / 256) as u32;
+                    let chunk_bytes = chunk_elems * 4;
+                    let chunk_out_bytes = chunk_groups as u64 * 4;
+
+                    let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("reduce_cfg_chunk"),
+                        size: 8,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    let cfg_data: [u32; 2] = [chunk_elems as u32, chunk_groups];
+                    self.queue
+                        .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
+                    let bind_group = self.device.create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some(&format!("{}_bind_group_chunk", key)),
+                            layout: &pipeline.bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::Buffer(
+                                        wgpu::BufferBinding {
+                                            buffer: &current_buffer,
+                                            offset: input_offset,
+                                            size: Some(
+                                                wgpu::BufferSize::new(chunk_bytes).unwrap(),
+                                            ),
+                                        },
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::Buffer(
+                                        wgpu::BufferBinding {
+                                            buffer: &out_buffer,
+                                            offset: output_offset,
+                                            size: Some(
+                                                wgpu::BufferSize::new(chunk_out_bytes).unwrap(),
+                                            ),
+                                        },
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: cfg_buf.as_entire_binding(),
+                                },
+                            ],
+                        },
+                    );
+
+                    self.dispatch_impl(pipeline, &bind_group, (chunk_groups, 1, 1));
+
+                    input_offset += chunk_bytes;
+                    output_offset += chunk_out_bytes;
+                    remaining -= chunk_elems;
+                }
+            } else {
+                let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("reduce_cfg"),
+                    size: 8,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let cfg_data: [u32; 2] = [current_numel as u32, num_groups as u32];
+                self.queue
+                    .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
+                let bind_group = self.device.create_bind_group(
+                    &wgpu::BindGroupDescriptor {
+                        label: Some(&format!("{}_bind_group", key)),
+                        layout: &pipeline.bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: current_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: out_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: cfg_buf.as_entire_binding(),
+                            },
+                        ],
+                    },
+                );
+
+                self.dispatch(pipeline, &bind_group, (num_groups as u32, 1, 1));
+            }
 
             if num_groups == 1 {
                 return Ok(GpuTensor {
@@ -3782,34 +3825,12 @@ impl GpuContext {
             .get("cross_entropy_backward")
             .ok_or_else(|| GpuError::Pipeline("cross_entropy_backward not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("cross_entropy_bwd_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: softmax.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: grad.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: targets.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        self.dispatch(pipeline, &bind_group, ((total + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, softmax.buffer()), (1, grad.buffer()), (2, targets.buffer()), (3, &out_buffer)],
+            &[(4, &cfg_buf)],
+            total, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: shape.clone(),
@@ -3895,31 +3916,13 @@ impl GpuContext {
             .get("embedding_backward")
             .ok_or_else(|| GpuError::Pipeline("embedding_backward not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("embedding_backward_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ids.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: grad.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: d_weight_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
         let total_threads = (num_ids * dim) as u32;
-        self.dispatch(pipeline, &bind_group, ((total_threads + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, ids.buffer()), (1, grad.buffer()), (2, &d_weight_buf)],
+            &[(3, &cfg_buf)],
+            total_threads, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: vec![vocab_size, dim],
@@ -3966,30 +3969,12 @@ impl GpuContext {
             .get("embedding")
             .ok_or_else(|| GpuError::Pipeline("embedding not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("embedding_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ids.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: weight.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        self.dispatch(pipeline, &bind_group, ((seq_len * dim + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, ids.buffer()), (1, weight.buffer()), (2, &out_buffer)],
+            &[(3, &cfg_buf)],
+            seq_len * dim, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: vec![seq_len as usize, dim as usize],
@@ -4151,26 +4136,12 @@ impl GpuContext {
             .get("transpose")
             .ok_or_else(|| GpuError::Pipeline("transpose not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("transpose_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: out_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: cfg_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        self.dispatch(pipeline, &bind_group, ((numel as u32 + 255) / 256, 1, 1));
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, input.buffer()), (1, &out_buffer)],
+            &[(2, &cfg_buf)],
+            numel as u32, 256, 4,
+        );
 
         Ok(GpuTensor {
             shape: vec![cols as usize, rows as usize],
@@ -4306,7 +4277,22 @@ impl GpuContext {
         });
 
         let num_wg = batch * heads * seq_len;
-        self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
+        let mut cfg2_mut: [u32; 4] = [f32::to_bits(scale), causal_flag, 0, 0];
+        if num_wg > MAX_WORKGROUPS_PER_DIM {
+            let mut remaining = num_wg;
+            let mut base: u32 = 0;
+            while remaining > 0 {
+                let chunk = remaining.min(MAX_WORKGROUPS_PER_DIM);
+                cfg2_mut[2] = base;
+                self.queue
+                    .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2_mut));
+                self.dispatch_impl(pipeline, &bind_group, (chunk, 1, 1));
+                base += chunk;
+                remaining -= chunk;
+            }
+        } else {
+            self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
+        }
 
         Ok(GpuTensor {
             shape: q_shape.clone(),
@@ -4425,9 +4411,9 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let cfg2: [u32; 4] = [causal_flag, 0, 0, 0];
+        let mut cfg2_mut: [u32; 4] = [causal_flag, 0, 0, 0];
         self.queue
-            .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2));
+            .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2_mut));
 
         let pipeline = self
             .pipelines
@@ -4478,7 +4464,21 @@ impl GpuContext {
         });
 
         let num_wg = batch * heads * seq_len;
-        self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
+        if num_wg > MAX_WORKGROUPS_PER_DIM {
+            let mut remaining = num_wg;
+            let mut base: u32 = 0;
+            while remaining > 0 {
+                let chunk = remaining.min(MAX_WORKGROUPS_PER_DIM);
+                cfg2_mut[1] = base;
+                self.queue
+                    .write_buffer(&cfg2_buf, 0, bytemuck::cast_slice(&cfg2_mut));
+                self.dispatch_impl(pipeline, &bind_group, (chunk, 1, 1));
+                base += chunk;
+                remaining -= chunk;
+            }
+        } else {
+            self.dispatch(pipeline, &bind_group, (num_wg, 1, 1));
+        }
 
         let dq = GpuTensor {
             shape: shape.clone(),
@@ -5738,7 +5738,8 @@ fn fused_attention_main(
 
     let tid = lid.x;
 
-    let wg_flat = wg_id.x;
+    let wg_base = cfg2.z;
+    let wg_flat = wg_base + wg_id.x;
     let q_pos = wg_flat % seq_len;
     let head = (wg_flat / seq_len) % heads;
     let batch_idx = wg_flat / (seq_len * heads);
@@ -5897,7 +5898,8 @@ fn fused_attn_backward_main(
     let causal = cfg2.x;
 
     let tid = lid.x;
-    let wg_flat = wg_id.x;
+    let wg_base = cfg2.y;
+    let wg_flat = wg_base + wg_id.x;
     let q_pos = wg_flat % seq_len;
     let head = wg_flat / seq_len;
     if (head >= batch_heads) { return; }
