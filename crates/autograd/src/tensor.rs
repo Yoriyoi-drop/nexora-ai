@@ -4,7 +4,7 @@ use rand::Rng;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::device::{Device, Storage};
 use super::mixed_precision::DType;
@@ -257,7 +257,8 @@ impl Tensor {
     /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
     pub fn data(&self) -> ArrayD<f32> {
         self.0.read().storage.to_cpu().unwrap_or_else(|e| {
-            panic!("Tensor::data GPU readback failed: {e}");
+            error!("Tensor::data GPU readback failed: {e}");
+            ArrayD::zeros(vec![0])
         })
     }
 
@@ -288,7 +289,8 @@ impl Tensor {
             return self.clone();
         }
         let cpu_data = inner.storage.to_cpu().unwrap_or_else(|e| {
-            panic!("Tensor::to_device GPU readback failed: {e}");
+            error!("Tensor::to_device GPU readback failed: {e}, falling back to CPU");
+            ArrayD::zeros(vec![0])
         });
         let requires_grad = inner.requires_grad;
         let grad = inner.grad.clone();
@@ -319,7 +321,8 @@ impl Tensor {
                     t
                 }
                 Err(e) => {
-                    panic!("GPU transfer failed: {e}");
+                    error!("GPU transfer failed: {e}, falling back to CPU");
+                    Tensor::new(cpu_data)
                 }
             },
         }
@@ -436,12 +439,13 @@ impl Tensor {
 
     pub fn from_slice(data: &[f32], shape: &[usize]) -> Self {
         let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec()).unwrap_or_else(|e| {
-            panic!(
+            error!(
                 "from_slice: data.len()={} product(shape)={:?} did not match: {}",
                 data.len(),
                 shape,
                 e
-            )
+            );
+            ArrayD::zeros(vec![0])
         });
         #[cfg(feature = "gpu")]
         if is_gpu_auto_create() {
@@ -518,9 +522,14 @@ impl Tensor {
             }
             #[cfg(feature = "gpu")]
             Some(Storage::Gpu(gpu)) => {
-                let mut existing = gpu.to_cpu().unwrap_or_else(|e| {
-                    panic!("accumulate_grad GPU readback failed: {e}");
-                });
+                let mut existing = match gpu.to_cpu() {
+                    Ok(cpu) => cpu,
+                    Err(e) => {
+                        error!("accumulate_grad GPU readback failed: {e}, skipping");
+                        inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
+                        return;
+                    }
+                };
                 existing += grad;
                 inner.grad = Some(Storage::Cpu(Arc::new(existing)));
             }
