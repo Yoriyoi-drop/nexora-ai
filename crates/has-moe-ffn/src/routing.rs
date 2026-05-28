@@ -69,6 +69,8 @@ pub struct Router {
     last_aux_loss: f32,
     #[cfg(feature = "gpu")]
     router_weights_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "cuda")]
+    router_weights_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Router {
@@ -98,6 +100,8 @@ impl Router {
             last_aux_loss: 0.0,
             #[cfg(feature = "gpu")]
             router_weights_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            router_weights_cuda: std::sync::OnceLock::new(),
         }
     }
 
@@ -122,6 +126,8 @@ impl Router {
             last_aux_loss: 0.0,
             #[cfg(feature = "gpu")]
             router_weights_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            router_weights_cuda: std::sync::OnceLock::new(),
         }
     }
 
@@ -172,6 +178,10 @@ impl Router {
 
     /// Forward pass through router (GPU-accelerated if available)
     pub fn forward(&self, input: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
+        #[cfg(feature = "cuda")]
+        if let Some(result) = self.forward_cuda(input) {
+            return result;
+        }
         #[cfg(feature = "gpu")]
         if let Some(result) = self.forward_gpu(input) {
             return result;
@@ -222,6 +232,51 @@ impl Router {
         let probs = ctx.softmax(&scores).ok()?;
         let cpu_d = probs.to_cpu().ok()?;
         cpu_d.into_dimensionality::<ndarray::Ix2>().ok()
+    }
+
+    /// Lazily upload router weights to CUDA — cached via OnceLock.
+    /// Weight matrix is stored as [hidden_size, num_experts] (transposed for cuBLAS matmul).
+    #[cfg(feature = "cuda")]
+    fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<&nexora_autograd::gpu::cuda::CudaTensor> {
+        use nexora_autograd::gpu::cuda::CudaTensor;
+        let entry = self.router_weights_cuda.get_or_init(|| {
+            let num_experts = self.config.num_experts;
+            let hidden_size = self.config.hidden_size;
+            let flat: Vec<f32> = self.router_weights.iter().flatten().copied().collect();
+            CudaTensor::from_cpu(&cuda.device, vec![num_experts, hidden_size], &flat).ok()
+        });
+        entry.as_ref()
+    }
+
+    /// CUDA-accelerated forward: matmul via cuBLAS + softmax via JIT kernel, then readback.
+    /// Returns None if CUDA unavailable.
+    #[cfg(feature = "cuda")]
+    fn forward_cuda(&self, input: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+
+        let weights = self.ensure_weights_cuda(cuda)?;
+        // weights stored as [num_experts, hidden_size]; transpose to [hidden_size, num_experts]
+        let weights_t = cuda.transpose(weights).ok()?;
+
+        let n = input.shape()[0];
+        let dim = input.shape()[1];
+        let input_flat: Vec<f32> = input.iter().copied().collect();
+        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+            &cuda.device, vec![n, dim], &input_flat,
+        ).ok()?;
+
+        // scores = input @ weights_t → [batch, num_experts]
+        let scores = cuda.matmul(&input_gpu, &weights_t).ok()?;
+        let probs = cuda.softmax(&scores).ok()?;
+
+        let out_cpu = probs.to_cpu_vec(&cuda.device).ok()?;
+        let out_shape = vec![n, self.config.num_experts];
+        ndarray::Array2::from_shape_vec(out_shape, out_cpu).ok()
     }
 
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {

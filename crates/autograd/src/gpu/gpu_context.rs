@@ -438,7 +438,7 @@ impl GpuContext {
 
         // Prefer CUDA backend if feature is enabled and the CUDA device can be initialized.
         #[cfg(feature = "cuda")]
-        let cuda_runtime = crate::gpu::cuda::CudaRuntime::try_init().ok();
+        let cuda_runtime = crate::gpu::cuda::CudaRuntime::try_init();
         #[cfg(feature = "cuda")]
         let backend = if cuda_runtime.is_some() {
             GpuBackend::Cuda
@@ -1231,6 +1231,7 @@ impl GpuContext {
         GpuAdapterInfo {
             name: self.caps.device_name.clone(),
             backend: self.caps.backend,
+            compute_backend: self.backend,
         }
     }
 
@@ -5363,16 +5364,6 @@ const RMSNORM_BACKWARD_WGSL: &str = r#"
 const BLOCK_SIZE = 256u;
 var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
-fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
-    loop {
-        let old_bits = atomicLoad(atom);
-        let old_val = bitcast<f32>(old_bits);
-        let new_bits = bitcast<u32>(old_val + val);
-        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
-        if (res.old == old_bits) { break; }
-    }
-}
-
 @compute @workgroup_size(BLOCK_SIZE)
 fn rms_norm_bwd_main(
     @builtin(local_invocation_id) lid: vec3<u32>,
@@ -5434,7 +5425,14 @@ fn rms_norm_bwd_main(
         let gv = grad[base + i];
         let wv = weight[i];
         dx[base + i] = gv * wv * inv_rms + wv * xv * rms_grad_factor * row_sum_x_g;
-        atomic_add_f32(&dw[i], gv * xv * inv_rms);
+        // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
+        loop {
+            let prev_bits = atomicLoad(&dw[i]);
+            let prev_val = bitcast<f32>(prev_bits);
+            let new_bits = bitcast<u32>(prev_val + gv * xv * inv_rms);
+            let res = atomicCompareExchangeWeak(&dw[i], prev_bits, new_bits);
+            if (res.old_value == prev_bits) { break; }
+        }
         i += BLOCK_SIZE;
     }
 }
@@ -5578,19 +5576,6 @@ const EMBEDDING_BACKWARD_WGSL: &str = r#"
 @group(0) @binding(2) var<storage, read_write> d_weight: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
 
-fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
-    let new_val = val;
-    loop {
-        let old_bits = atomicLoad(atom);
-        let old_val = bitcast<f32>(old_bits);
-        let new_bits = bitcast<u32>(old_val + new_val);
-        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
-        if (res.old == old_bits) {
-            break;
-        }
-    }
-}
-
 @compute @workgroup_size(256u)
 fn embedding_backward_main(
     @builtin(global_invocation_id) gid: vec3<u32>,
@@ -5608,7 +5593,15 @@ fn embedding_backward_main(
     let token_id = ids[s];
     if (token_id < vocab_size) {
         let g = grad[idx];
-        atomic_add_f32(&d_weight[token_id * dim + d], g);
+        // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
+        let atom_ptr = &d_weight[token_id * dim + d];
+        loop {
+            let prev_bits = atomicLoad(atom_ptr);
+            let prev_val = bitcast<f32>(prev_bits);
+            let new_bits = bitcast<u32>(prev_val + g);
+            let res = atomicCompareExchangeWeak(atom_ptr, prev_bits, new_bits);
+            if (res.old_value == prev_bits) { break; }
+        }
     }
 }
 "#;
@@ -5892,19 +5885,6 @@ var<workgroup> score_scratch: array<f32, TILE_SIZE>;
 var<workgroup> exp_scratch: array<f32, TILE_SIZE>;
 var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
-fn atomic_add_f32(atomic_ref: ptr<storage, atomic<u32>, read_write>, val: f32) {
-    let val_bits = bitcast<u32>(val);
-    var old = atomicLoad(atomic_ref);
-    loop {
-        let old_f = bitcast<f32>(old);
-        let new_f = old_f + val;
-        let new_bits = bitcast<u32>(new_f);
-        let res = atomicCompareExchangeWeak(atomic_ref, old, new_bits);
-        if (res.exchanged) { break; }
-        old = res.old_value;
-    }
-}
-
 @compute @workgroup_size(BLOCK_SIZE)
 fn fused_attn_backward_main(
     @builtin(local_invocation_id) lid: vec3<u32>,
@@ -6127,12 +6107,28 @@ fn fused_attn_backward_main(
             dq_acc += dS * kv_scratch[tid] / scale;
 
             // dV[k, d] += P_k * dO[q, d]  (atomic)
-            let dv_off = (base + k_pos * dim + tid) as u32;
-            atomic_add_f32(&dv[dv_off], P_k * dO[q_off + tid]);
+            let dv_off = base + k_pos * dim + tid;
+            let dv_val = P_k * dO[q_off + tid];
+            // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
+            loop {
+                let prev_bits = atomicLoad(&dv[dv_off]);
+                let prev_val = bitcast<f32>(prev_bits);
+                let new_bits = bitcast<u32>(prev_val + dv_val);
+                let res = atomicCompareExchangeWeak(&dv[dv_off], prev_bits, new_bits);
+                if (res.exchanged) { break; }
+            }
 
             // dK[k, d] += dS * Q[q, d] / scale  (atomic)
-            let dk_off = (base + k_pos * dim + tid) as u32;
-            atomic_add_f32(&dk[dk_off], dS * q_scratch[tid] / scale);
+            let dk_off = base + k_pos * dim + tid;
+            let dk_val = dS * q_scratch[tid] / scale;
+            // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
+            loop {
+                let prev_bits = atomicLoad(&dk[dk_off]);
+                let prev_val = bitcast<f32>(prev_bits);
+                let new_bits = bitcast<u32>(prev_val + dk_val);
+                let res = atomicCompareExchangeWeak(&dk[dk_off], prev_bits, new_bits);
+                if (res.exchanged) { break; }
+            }
         }
 
         m = m_new;
@@ -6675,16 +6671,6 @@ const LAYERNORM_BACKWARD_WGSL: &str = r#"
 const BLOCK_SIZE = 256u;
 var<workgroup> scratch: array<f32, BLOCK_SIZE>;
 
-fn atomic_add_f32(atom: ptr<storage, atomic<u32>, read_write>, val: f32) {
-    loop {
-        let old_bits = atomicLoad(atom);
-        let old_val = bitcast<f32>(old_bits);
-        let new_bits = bitcast<u32>(old_val + val);
-        let res = atomicCompareExchangeWeak(atom, old_bits, new_bits);
-        if (res.old == old_bits) { break; }
-    }
-}
-
 @compute @workgroup_size(BLOCK_SIZE)
 fn layer_norm_bwd_main(
     @builtin(local_invocation_id) lid: vec3<u32>,
@@ -6775,8 +6761,21 @@ fn layer_norm_bwd_main(
         let gv = grad[base + i];
         let wv = weight[i];
         dx[base + i] = inv_sigma * (gv - row_sum_dy * inv_n - x_hat * row_sum_dy_xhat * inv_n);
-        atomic_add_f32(&dw[i], gv * x_hat);
-        atomic_add_f32(&db[i], gv);
+        // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
+        loop {
+            let prev_bits = atomicLoad(&dw[i]);
+            let prev_val = bitcast<f32>(prev_bits);
+            let new_bits = bitcast<u32>(prev_val + gv * x_hat);
+            let res = atomicCompareExchangeWeak(&dw[i], prev_bits, new_bits);
+            if (res.old_value == prev_bits) { break; }
+        }
+        loop {
+            let prev_bits = atomicLoad(&db[i]);
+            let prev_val = bitcast<f32>(prev_bits);
+            let new_bits = bitcast<u32>(prev_val + gv);
+            let res = atomicCompareExchangeWeak(&db[i], prev_bits, new_bits);
+            if (res.old_value == prev_bits) { break; }
+        }
         i += BLOCK_SIZE;
     }
 }

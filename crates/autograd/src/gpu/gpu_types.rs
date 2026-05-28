@@ -182,8 +182,9 @@ pub struct GpuContext {
     pub(crate) backend: GpuBackend,
     /// Optional CUDA runtime — available only when `cuda` feature is enabled
     /// and an NVIDIA GPU with CUDA toolkit is detected at runtime.
+    /// Uses `'static` lifetime because it borrows from the global singleton (`OnceCell<Arc<CudaRuntime>>`).
     #[cfg(feature = "cuda")]
-    pub(crate) cuda: Option<crate::gpu::cuda::CudaRuntime>,
+    pub(crate) cuda: Option<&'static crate::gpu::cuda::CudaRuntime>,
 }
 
 impl GpuContext {
@@ -194,8 +195,8 @@ impl GpuContext {
 
     /// Returns a reference to the CUDA runtime if available.
     #[cfg(feature = "cuda")]
-    pub fn cuda_runtime(&self) -> Option<&crate::gpu::cuda::CudaRuntime> {
-        self.cuda.as_ref()
+    pub fn cuda_runtime(&self) -> Option<&'static crate::gpu::cuda::CudaRuntime> {
+        self.cuda
     }
 }
 
@@ -209,6 +210,7 @@ pub(crate) struct CompiledPipeline {
 pub struct GpuAdapterInfo {
     pub name: String,
     pub backend: wgpu::Backend,
+    pub compute_backend: GpuBackend,
 }
 
 // ─── Element-wise op codes ─────────────────────────────────────────────────────

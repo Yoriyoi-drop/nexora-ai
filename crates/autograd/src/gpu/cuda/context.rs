@@ -37,8 +37,8 @@ impl CudaRuntime {
 
     /// Try to initialize CUDA runtime on device 0.
     /// Returns `None` if no CUDA device is available (graceful fallback).
-    pub fn try_init() -> Result<Arc<Self>, String> {
-        Self::new(0).map(Arc::new)
+    pub fn try_init() -> Option<&'static Self> {
+        Self::init(0).ok()
     }
 
     fn new(device_id: usize) -> Result<Self, String> {

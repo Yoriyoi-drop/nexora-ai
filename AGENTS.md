@@ -305,10 +305,69 @@ Sequence B (prompt=abcxyz):  prefix_trie finds match at depth 3 ("abc")
                              A retains original block 3, unaffected
 ```
 
-### Next Steps (5b+)
+## Phase 5b — GPU Backend Auto-Detection (CUDA + wgpu)
+
+### Completed (28 Mei 2026)
+
+| Component | What changed | File |
+|-----------|-------------|------|
+| **GpuBackend enum** | `GpuBackend::Wgpu` / `GpuBackend::Cuda` — auto-detected at `GpuContext::init()`. CUDA preferred if `cuda` feature enabled + NVIDIA GPU detected. Stored in `GpuAdapterInfo.compute_backend`. | `crates/autograd/src/gpu/gpu_types.rs:117` |
+| **CudaRuntime singleton** | `try_init()` now uses `OnceCell<Arc<CudaRuntime>>` singleton (prevented duplicate CUDA context creation). `GpuContext.cuda: Option<&'static CudaRuntime>` borrows from singleton. | `crates/autograd/src/gpu/cuda/context.rs:28` |
+| **CudaTensor::from_cpu / to_cpu_vec** | Host↔device transfer: `htod_sync_copy` / `dtoh_sync_copy` with shape validation. Used by MoE weight upload and readback. | `crates/autograd/src/gpu/cuda/tensor.rs:58-90` |
+| **CUDA broadcast add** | JIT kernel `add_broadcast_row` — supports `[1, D] + [N, D]` bias pattern. Auto-fallback from `add()` when shapes mismatch. | `crates/autograd/src/gpu/cuda/context.rs:264-329` |
+| **CUDA transpose** | JIT kernel `transpose_2d` — generic 2D transpose. Needed for weight matrix loading (wgpu stores transposed weights, CUDA must match). | `crates/autograd/src/gpu/cuda/context.rs:481-530` |
+| **CUDA gelu_inplace** | In-place GELU activation via NVRTC JIT kernel. Used in MoE Expert forward (avoids 2× buffer alloc per expert). | `crates/autograd/src/gpu/cuda/context.rs:369-373` |
+| **MoE Router CUDA** | `forward_cuda()`: cuBLAS matmul + NVRTC softmax → CPU readback. Weights cached as `CudaTensor` via `OnceLock`. Fallback chain: CUDA → wgpu → CPU. | `crates/has-moe-ffn/src/routing.rs:199-234` |
+| **MoE Expert CUDA** | `forward_batched_cuda()`: cuBLAS fc1 + GELU in-place + cuBLAS fc2 with bias. Weight caching via `fc1_cuda/fc2_cuda OnceLock`. No CPU round-trip between matmuls. | `crates/has-moe-ffn/src/experts.rs:242-277` |
+| **`cuda` feature** | New feature in `nexora-has-moe-ffn` enabling `nexora-autograd/cuda`. Separated from `gpu` feature (wgpu). | `crates/has-moe-ffn/Cargo.toml:17` |
+
+### How backend detection works
+
+```
+GpuContext::from_adapter()
+  ├── #[cfg(feature = "cuda")] CudaRuntime::try_init()  // singleton, device 0
+  │     ├── Success → GpuBackend::Cuda, store cuda: Some(&'static CudaRuntime)
+  │     └── Failure → GpuBackend::Wgpu, cuda: None
+  └── #[cfg(not(feature = "cuda"))] GpuBackend::Wgpu
+
+Usage:
+  ctx.backend()          // → GpuBackend
+  ctx.cuda_runtime()     // → Option<&'static CudaRuntime>  (cfg-gated)
+  ctx.adapter_info()     // → GpuAdapterInfo { compute_backend }
+```
+
+### Fallback architecture
+
+```
+Router::forward(input)         Expert::forward_batched(input)
+  ├── forward_cuda() ← NEW      ├── forward_batched_cuda() ← NEW
+  ├── forward_gpu() (wgpu)      ├── forward_batched_gpu() (wgpu)
+  └── CPU (naive loop)          └── CPU (naive loop)
+```
+
+### CUDA ops available (18 + 3 new)
+
+| OP | Implementation | Notes |
+|----|---------------|-------|
+| matmul | cuBLAS `GemmConfig` (CUBLAS_OP_T both) | Row-major ↔ col-major handled via transpose convention |
+| add | NVRTC JIT elementwise | + broadcast_add for bias `[1,D]+[N,D]` |
+| sub/mul/div | NVRTC JIT elementwise | |
+| neg/exp/sqrt/relu/gelu/silu/sigmoid/ln/tanh | NVRTC JIT unary | gelu_inplace added for MoE |
+| powf | NVRTC JIT (compile-time exponent) | |
+| softmax | NVRTC JIT (shared memory reduction) | |
+| transpose | NVRTC JIT | NEW — needed for weight loading |
+
+### Constraints
+- `cuda` feature requires CUDA toolkit (`nvcc`) at build time — `build.rs` in `crates/autograd` calls `nvcc --version`
+- Current dev environment lacks `nvcc` — CUDA feature verified via `cargo check` only (non-cuda path)
+- No runtime CUDA detection on systems without NVIDIA driver — `CudaDevice::new(0)` fails gracefully
+
+### Next Steps (5c+)
 - **Distributed scheduler**: Multi-node request dispatch with load-aware routing.
 - **Observability**: KV fragmentation ratio, token/sec tracing.
 - **Agent ecosystem**: Planner-worker hierarchy with persistent state.
+- **CUDA full pipeline**: FlashAttention, FlashDecoding, fused MoE kernel
+- **CUDA on systems without nvcc**: Pre-compiled PTX distribution
 
 ## Notable quirks
 

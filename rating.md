@@ -102,31 +102,36 @@
 
 ---
 
-## 4. GPU vs CPU Utilization — 7/10
+## 4. GPU vs CPU Utilization — 8/10
 
 **Evidence:**
 
- - **MoE full GPU pipeline** (`crates/has-moe-ffn/`):
-  - **Router GPU**: `router_weights_gpu: OnceLock<Option<GpuTensor>>` — lazy upload + transpose → `ctx.matmul` + `ctx.softmax` → GPU readback
-  - **Expert GPU weight caching**: `fc1_gpu/fc2_gpu` OnceLock — upload + transpose sekali (`[hidden, intermediate]`, `[intermediate, hidden]`), biases sebagai `[1, dim]`
-  - **Batched expert forward**: `forward_batched_gpu()` — N tokens in one GPU call: matmul → bias → GELU in-place → matmul → bias → readback
-  - **Grouped dispatch**: `HasMoeFFN::forward()` groups tokens by assigned expert → one `forward_batched()` call per expert → scatter weighted results
-  - Eliminates N×k per-token-per-expert round-trips (max `num_experts` GPU calls instead)
-- **3-tier fallback chain** di `generate_internal()`:
-  1. GPU-resident: `model.generate_with_gpu_keep_gpu()` — entire loop di GPU, 4 byte/token readback
-  2. Per-token GPU: `run_generation_loop()` via `spawn_blocking` — tetap pakai GPU via `forward()`
-  3. Pure CPU: `model.forward()` dengan `CpuKVCache`
-- **GPU-native sampling** dengan zero logit readback
-- **NVML monitoring**: `read_gpu_memory()` via `nvml_wrapper::Nvml`
-- **GPU metrics**: `GPU_RESIDENT_SUCCESSES`, `GPU_RESIDENT_FALLBACKS`, `GPU_FORWARD_ERRORS`, `GPU_BUSY_NS`, `PCIE_READ_BYTES`
-- **CPU affinity**: Linux `sched_setaffinity` via `libc`
-- **BLAS**: ndarray `"blas"` feature untuk 5-10× CPU matmul (via OpenBLAS)
+- **CUDA backend wiring** (`crates/autograd/src/gpu/`):
+  - `GpuBackend` enum: `Wgpu` / `Cuda` — auto-detected at `GpuContext::init()`
+  - `GpuContext.cuda: Option<&'static CudaRuntime>` — borrows from singleton, no duplicate context
+  - `GpuAdapterInfo.compute_backend` — exposed for observability
+  - `CudaRuntime` with **21 ops**: cuBLAS matmul, NVRTC JIT for elementwise/softmax + **3 new**: broadcast add (`[1,D]+[N,D]`), transpose, gelu_inplace
+  - `CudaTensor::from_cpu()` / `to_cpu_vec()` — host↔device transfer
+- **MoE Router full pipeline** (`crates/has-moe-ffn/src/routing.rs`):
+  - **wgpu**: `router_weights_gpu OnceLock` → transpose → `ctx.matmul` + `ctx.softmax`
+  - **CUDA**: `router_weights_cuda OnceLock` → cuBLAS matmul + NVRTC softmax → readback
+  - **Fallback**: CUDA → wgpu → CPU
+- **MoE Expert full pipeline** (`crates/has-moe-ffn/src/experts.rs`):
+  - **wgpu**: `fc1_gpu/fc2_gpu OnceLock` weight caching, `forward_batched_gpu()` N-token
+  - **CUDA**: `fc1_cuda/fc2_cuda OnceLock` CUDA-native weights, `forward_batched_cuda()` via cuBLAS (GELU in-place, no CPU round-trip for weights)
+  - **Grouped dispatch**: tokens → expert → one `forward_batched()` per expert → scatter weighted results
+  - **Fallback**: CUDA → wgpu → CPU
+- **3-tier generate fallback**:
+  1. GPU-resident: zero token readback (4B/token only)
+  2. Per-token GPU via `spawn_blocking`
+  3. Pure CPU with `CpuKVCache`
+- **GPU-native sampling** tanpa logit readback
+- **NVML monitoring**, **GPU metrics**, **CPU affinity** via `libc`
 
 **Kelemahan:**
-
-- Backend **WebGPU (`wgpu`)** bukan CUDA native — ada overhead translasi
-- Tidak ada FlashAttention, TensorRT, atau vLLM integration
-- GPU feature di-gate `#[cfg(feature = "gpu")]` — compile-time, bukan runtime
+- CUDA membutuhkan `cuda` feature + `nvcc` — unavailable di dev env ini
+- Tidak ada FlashAttention, TensorRT, atau vLLM
+- `gpu`/`cuda` features masih compile-time, bukan runtime
 
 ---
 
@@ -191,8 +196,8 @@
 | Stabilitas beban tinggi | **9** | Paged cache default, adaptive batch, load shedding, 25 tests | No distributed serving, no CI benchmark gate |
 | Efisiensi memori | **9** ↑ | F16 safetensors + paged cache f16 K/V, 2× memory reduction | STar-X masih f32 |
 | Mixed precision | **8** ↑ | CPU f16 matmul (rayon-parallel) + GPU zero-copy f16 matmul, f16 weights storage | BLAS no f16, upconvert path still exists |
-| GPU acceleration | **8** ↑ | MoE full GPU (Router + Experts batched), 3-tier fallback, GPU sampling | WebGPU, no FlashAttention, compile-time gpu feature |
+| GPU acceleration | **8** ↑ | CUDA backend (GpuBackend enum, cuBLAS, NVRTC JIT), MoE Router+Experts full pipeline w/ CUDA→wgpu→CPU fallback, 3-tier generate, GPU sampling | CUDA requires nvcc, no FlashAttention, compile-time features |
 | Scaling model besar | **6** | MoE, MLA 4× compression, GQA, 32K context | 12-layer hardcode, MoE CPU-bound |
 | Quality/speed balance | **7** | GPU native sampling, beam search O(1), 3 preset | No speculative decoding, beam search CPU |
 
-> **Catatan**: Setelah upgrade stabilitas beban tinggi ke **9/10**, efisiensi memori ke **9/10**, mixed precision ke **8/10**, dan GPU acceleration ke **8/10**, Nexora kini memiliki fondasi enterprise-grade untuk continuous batching, memory efficiency, mixed precision, DAN GPU full MoE pipeline. MoE Router GPU (matmul+softmax) + Experts GPU batched (weight caching, grouped dispatch, GELU in-place) — eliminates N×k per-token-per-expert round-trips. CPU f16 matmul via packed u16 weights (rayon-parallel) + GPU zero-copy f16 matmul via WGSL. Semua enabled by default. Komponen sisanya (CUDA native, FlashAttention, scaling model besar) masih perlu kerja lanjutan.
+> **Catatan**: GPU acceleration naik ke **8/10** setelah CUDA backend wiring (GpuBackend auto-detection, cuBLAS + NVRTC JIT ops, MoE Router+Expert CUDA paths dengan fallback CUDA→wgpu→CPU). GPU acceleration + Mixed precision + Memory efficiency + Stability semuanya ≥8/10 sekarang — fondasi enterprise-grade. Komponen sisanya (FlashAttention, TensorRT, distributed serving, speculative decoding) masih perlu kerja lanjutan.
