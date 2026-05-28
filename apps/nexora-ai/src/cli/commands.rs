@@ -139,9 +139,22 @@ pub enum Commands {
     /// Train foundation model in-place (updates registered model weights)
     #[command(aliases = &["tf"])]
     TrainFoundation {
-        /// Training data (.arrow or text)
+        /// Training data (.arrow or text). Optional jika --hf-dataset digunakan.
         #[arg(short, long)]
-        data: PathBuf,
+        data: Option<PathBuf>,
+
+        /// HuggingFace dataset name (contoh: wikitext, tiny_shakespeare, dair-ai/emotion).
+        /// Jika diisi, data diambil live dari HuggingFace, --data tidak diperlukan.
+        #[arg(long)]
+        hf_dataset: Option<String>,
+
+        /// HuggingFace split (train, validation, test). Default: train
+        #[arg(long, default_value = "train")]
+        hf_split: String,
+
+        /// Max samples dari HuggingFace (0 = semua)
+        #[arg(long, default_value = "0")]
+        hf_max_samples: usize,
 
         /// Model ID to train (default: omnis). Use "all" for all models.
         #[arg(short = 'm', long, default_value = "omnis")]
@@ -219,13 +232,26 @@ pub enum Commands {
     /// Train a model
     #[command(aliases = &["t"])]
     Train {
-        /// Training data file
+        /// Training data file (.arrow/.txt). Optional jika --hf-dataset digunakan.
         #[arg(short, long)]
-        data: PathBuf,
+        data: Option<PathBuf>,
 
         /// Model output path
         #[arg(short, long)]
         output: PathBuf,
+
+        /// HuggingFace dataset name (contoh: wikitext, tiny_shakespeare).
+        /// Jika diisi, data diambil live dari HuggingFace.
+        #[arg(long)]
+        hf_dataset: Option<String>,
+
+        /// HuggingFace split (train, validation, test). Default: train
+        #[arg(long, default_value = "train")]
+        hf_split: String,
+
+        /// Max samples dari HuggingFace (0 = semua)
+        #[arg(long, default_value = "0")]
+        hf_max_samples: usize,
 
         /// Tokenizer path (load or save)
         #[arg(short = 'T', long)]

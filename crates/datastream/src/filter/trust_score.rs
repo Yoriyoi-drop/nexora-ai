@@ -88,6 +88,7 @@ impl TrustScoreFilter {
             SourceCategory::Medical => 0.95,
             SourceCategory::Legal => 0.85,
             SourceCategory::Education => 0.88,
+            SourceCategory::HuggingFace => 0.90,
             SourceCategory::Other => self.default_trust,
         }
     }

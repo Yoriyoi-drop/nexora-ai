@@ -11,8 +11,10 @@ use crate::{NexoraAI, NexoraConfig};
 
 use nexora_datastream::{
     filter::{DedupFilter, LengthFilter, QualityFilter},
+    source::huggingface::HuggingFaceDatasetProvider,
     DataSample, ExecutionResult, SourceCategory, SourceInfo,
 };
+use nexora_datastream::source::SourceProvider;
 
 /// Supported extensions for auto-detection.
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -201,6 +203,9 @@ impl Cli {
                     } => self.run_process(&nexora, input, format, output).await,
                     Commands::TrainFoundation {
                         data,
+                        hf_dataset,
+                        hf_split,
+                        hf_max_samples,
                         model_id,
                         steps,
                         batch_size,
@@ -215,6 +220,9 @@ impl Cli {
                         .run_train_foundation(
                             &nexora,
                             data,
+                            hf_dataset,
+                            hf_split,
+                            *hf_max_samples,
                             model_id,
                             *steps,
                             *batch_size,
@@ -286,6 +294,9 @@ impl Cli {
                     Commands::Train {
                         data,
                         output,
+                        hf_dataset,
+                        hf_split,
+                        hf_max_samples,
                         tokenizer,
                         epochs,
                         batch_size,
@@ -301,6 +312,9 @@ impl Cli {
                             &nexora,
                             data,
                             output,
+                            hf_dataset,
+                            hf_split,
+                            *hf_max_samples,
                             tokenizer,
                             *epochs,
                             *batch_size,
@@ -520,7 +534,10 @@ impl Cli {
     async fn run_train_foundation(
         &self,
         _nexora: &NexoraAI,
-        data: &PathBuf,
+        data: &Option<PathBuf>,
+        hf_dataset: &Option<String>,
+        hf_split: &str,
+        hf_max_samples: usize,
         model_id: &str,
         steps: usize,
         batch_size: usize,
@@ -533,19 +550,33 @@ impl Cli {
         half_precision: bool,
     ) -> NexoraResult<()> {
         info!("=== FOUNDATION TRAINING ===");
-        info!("Data: {:?}, Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", data, model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
+        info!("Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
 
-        if !data.exists() {
-            return Err(NexoraError::Io {
-                source: std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("Training data not found: {:?}", data),
-                ),
-            });
-        }
-        info!("[1/2] Loading + filtering dataset via DataStream DAG pipeline...");
-        let raw_samples = load_dataset_raw(data).await?;
-        let lines = filter_dataset(raw_samples).await?;
+        let lines = if let Some(hf) = hf_dataset {
+            info!("[1/2] Fetching dataset '{}' from HuggingFace live...", hf);
+            let provider = HuggingFaceDatasetProvider::new(hf, hf_max_samples.max(1))
+                .with_split(hf_split);
+            let samples = provider.fetch_samples().await;
+            info!("  Fetched {} raw samples from HuggingFace", samples.len());
+            let lines = filter_dataset(samples).await?;
+            info!("  {} samples passed filter", lines.len());
+            lines
+        } else {
+            let data = data.as_ref().ok_or_else(|| {
+                NexoraError::validation("data", "Either --data or --hf-dataset is required".to_string())
+            })?;
+            if !data.exists() {
+                return Err(NexoraError::Io {
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("Training data not found: {:?}", data),
+                    ),
+                });
+            }
+            info!("[1/2] Loading + filtering dataset via DataStream DAG pipeline...");
+            let raw_samples = load_dataset_raw(data).await?;
+            filter_dataset(raw_samples).await?
+        };
 
         let val_lines: Vec<String> = match val_data {
             Some(path) if path.exists() => {

@@ -49,6 +49,7 @@ pub enum SourceCategory {
     Medical,
     Legal,
     Education,
+    HuggingFace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -214,6 +215,7 @@ impl Default for TrustScoreMap {
         m.insert("apnews.com".to_string(), 0.80);
         m.insert("bbc.com".to_string(), 0.82);
         m.insert("nature.com".to_string(), 0.96);
+        m.insert("huggingface.co".to_string(), 0.90);
         Self(m)
     }
 }

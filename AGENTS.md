@@ -155,6 +155,34 @@ cargo run --bin nexora -- train \
   --learning-rate 0.001
 ```
 
+### HuggingFace dataset live fetching
+
+`train` dan `train-foundation` bisa ambil data langsung dari HuggingFace via `--hf-dataset` — tanpa file `.arrow` lokal.
+
+| Flag | Deskripsi | Default |
+|---|---|---|
+| `--hf-dataset` | Nama dataset HuggingFace (contoh: `wikitext`, `tiny_shakespeare`, `dair-ai/emotion`) | — |
+| `--hf-split` | Split dataset (`train`, `validation`, `test`) | `train` |
+| `--hf-max-samples` | Maks sample yang di-fetch (0 = 10000) | `0` |
+
+Provider di `crates/datastream/src/source/huggingface.rs` — fetch via Datasets Server API `datasets-server.huggingface.co/rows` dengan pagination otomatis.
+
+```sh
+# Train dari HuggingFace langsung
+cargo run --bin nexora -- train \
+  --hf-dataset wikitext \
+  --hf-split train \
+  --hf-max-samples 5000 \
+  --output ./checkpoints/model \
+  --epochs 3
+
+# Train foundation dari HuggingFace
+cargo run --bin nexora -- train-foundation \
+  --hf-dataset dair-ai/emotion \
+  --model-id omnis \
+  --steps 200
+```
+
 ## Fake Architecture Cleanup
 
 Phase 1-3 complete. Tiap model crate punya `delegation.rs` dengan pola unik: Tiap model crate punya `delegation.rs` dengan pola unik:

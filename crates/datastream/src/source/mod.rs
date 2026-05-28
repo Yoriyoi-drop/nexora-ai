@@ -46,6 +46,7 @@ pub trait SourceProvider: Send + Sync {
 }
 
 pub mod fetcher;
+pub mod huggingface;
 
 pub struct SourceRegistry {
     providers: HashMap<String, Box<dyn SourceProvider>>,
