@@ -6,3 +6,4 @@ description = "Weight quantization helpers — INT8 and INT4 (packed/groupwise)"
 
 [dependencies]
 ndarray.workspace = true
+tracing.workspace = true

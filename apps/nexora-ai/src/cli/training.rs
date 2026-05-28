@@ -650,7 +650,7 @@ impl crate::cli::commands::Cli {
         );
         info!(
             "{}",
-            dim!("    │  Streaming DAG: length → quality → dedup (MinHash, 13-gram)       │")
+            dim!("    │  Streaming DAG: length → quality → dedup (MinHash, 7-gram)        │")
         );
         info!(
             "{}",
@@ -662,10 +662,10 @@ impl crate::cli::commands::Cli {
         );
         info!("     ├─ QualityFilter:  min_quality_score=0.1, min_unique_word_ratio=0.1");
         info!(
-            "     └─ DedupFilter:    ngram=13, hash_count=13, similarity_threshold=0.5, max_seen=50M"
+            "     └─ DedupFilter:    ngram=7, hash_count=64, similarity_threshold=0.75, max_seen=50M"
         );
         info!(
-            "  📚 Referensi: LLaMA 2 (13-gram), FineWeb (MinHash 5-gram, 75% sim), RedPajama (MinHash LSH)"
+            "  📚 Referensi: FineWeb (MinHash 5-gram, 75% sim), LLaMA 2 (13-gram), RedPajama (MinHash LSH)"
         );
         let mut graph = nexora_datastream::ExecutionGraph::new();
         graph.add_node(
@@ -764,6 +764,17 @@ impl crate::cli::commands::Cli {
         }
 
         info!("  Mempersiapkan tokenizer...");
+        let tokenizer_corpus: String = samples
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<&str>>()
+            .join("\n");
+        info!(
+            "  Korpus tokenizer: {} chars, {} samples, {:.1} MB",
+            tokenizer_corpus.len(),
+            samples.len(),
+            tokenizer_corpus.len() as f64 / 1_048_576.0,
+        );
         let tokenizer: Arc<RwLock<BpeTokenizer>> = if let Some(tok_path) = tokenizer_path {
             if tok_path.exists() {
                 info!("  Load existing tokenizer dari {:?}", tok_path);
@@ -774,7 +785,7 @@ impl crate::cli::commands::Cli {
             } else {
                 info!("  Train new tokenizer ke {:?}", tok_path);
                 let mut tok = BpeTokenizer::default();
-                tok.train(&raw_text)
+                tok.train(&tokenizer_corpus)
                     .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
                 info!("  Vocab size setelah training: {}", tok.vocab_size());
                 tok.save(tok_path)
@@ -782,9 +793,9 @@ impl crate::cli::commands::Cli {
                 Arc::new(RwLock::new(tok))
             }
         } else {
-            info!("  No tokenizer path — training default tokenizer dari corpus");
+            info!("  No tokenizer path — training default tokenizer dari filtered corpus");
             let mut tok = BpeTokenizer::default();
-            tok.train(&raw_text)
+            tok.train(&tokenizer_corpus)
                 .map_err(|e| anyhow::anyhow!("Gagal train tokenizer: {}", e))?;
             info!("  Vocab size: {}", tok.vocab_size());
             Arc::new(RwLock::new(tok))

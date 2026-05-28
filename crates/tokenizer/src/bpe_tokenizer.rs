@@ -76,9 +76,14 @@ impl BpeTokenizer {
     }
 
     pub fn train(&mut self, corpus: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let train_start = std::time::Instant::now();
+        let corpus_chars = corpus.len();
+        let corpus_lines = corpus.lines().count();
+        let corpus_words = corpus.split_whitespace().count();
+
         info!(
-            "Starting BPE training with vocab size: {}",
-            self.config.vocab_size
+            "Starting BPE training: vocab_size={}, corpus={} chars, {} lines, {} words",
+            self.config.vocab_size, corpus_chars, corpus_lines, corpus_words,
         );
 
         let mut vocab_set: HashSet<String> = HashSet::with_capacity(self.config.vocab_size);
@@ -96,7 +101,16 @@ impl BpeTokenizer {
             }
         }
 
-        info!("Initial vocabulary size: {}", vocab_set.len());
+        let unique_chars = vocab_set.len();
+        let unique_words = word_freqs.len();
+
+        info!(
+            "Corpus stats: {} unique chars, {} unique word types, {:.2} avg chars/word",
+            unique_chars,
+            unique_words,
+            if corpus_words > 0 { corpus_chars as f64 / corpus_words as f64 } else { 0.0 },
+        );
+        info!("Initial vocabulary size: {}", unique_chars);
 
         for (token, _) in &self.config.special_tokens {
             vocab_set.insert(token.clone());
@@ -111,6 +125,8 @@ impl BpeTokenizer {
             vocab.iter().map(|(k, v)| (*v, k.clone())).collect();
         let mut next_id = vocab.len() as u32;
         let mut merges = Vec::with_capacity(self.config.vocab_size);
+        let merge_loop_start = std::time::Instant::now();
+        let log_interval = (self.config.vocab_size / 20).max(100);
 
         while vocab.len() < self.config.vocab_size {
             let best = find_most_frequent_pair(&word_freqs, &rev_vocab);
@@ -135,6 +151,20 @@ impl BpeTokenizer {
 
             update_word_freqs(&mut word_freqs, &s1, &s2, &new_token);
 
+            let merge_count = merges.len();
+            if merge_count % log_interval == 0 {
+                let elapsed = merge_loop_start.elapsed();
+                let merge_speed = merge_count as f64 / elapsed.as_secs_f64().max(0.001);
+                info!(
+                    "  Merge progress: {}/{} ({:.0}%), {:.0} merges/s, current pair: '{}'+'{}'",
+                    merge_count,
+                    self.config.vocab_size.saturating_sub(vocab_set.len()),
+                    merge_count as f64 * 100.0 / self.config.vocab_size.saturating_sub(vocab_set.len()).max(1) as f64,
+                    merge_speed,
+                    s1, s2,
+                );
+            }
+
             debug!(
                 "Added merge: {} + {} -> {} (freq: {})",
                 s1, s2, new_token, freq
@@ -149,11 +179,26 @@ impl BpeTokenizer {
         }
         self.merges = merges;
 
+        let total_time = train_start.elapsed();
+        let merge_time = merge_loop_start.elapsed();
+        let merge_speed = self.merges.len() as f64 / merge_time.as_secs_f64().max(0.001);
+        let corpus_mb = corpus_chars as f64 / 1_048_576.0;
+
         info!(
-            "BPE training completed. Final vocabulary size: {}",
-            self.vocab.len()
+            "BPE training completed in {:?} ({:.3}s)",
+            total_time,
+            total_time.as_secs_f64(),
         );
-        info!("Total merges learned: {}", self.merges.len());
+        info!(
+            "  Corpus: {:.2} MB chars, {} unique chars → {} vocab ({} merges)",
+            corpus_mb, unique_chars, self.vocab.len(), self.merges.len(),
+        );
+        info!(
+            "  Merge loop: {:.2}s, {:.0} merges/s, {:.0} chars/s",
+            merge_time.as_secs_f64(),
+            merge_speed,
+            corpus_chars as f64 / total_time.as_secs_f64().max(0.001),
+        );
         Ok(())
     }
 

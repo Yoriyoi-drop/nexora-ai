@@ -106,10 +106,10 @@ impl Default for DedupFilter {
     fn default() -> Self {
         Self {
             seen_hashes: Arc::new(Mutex::new(HashSet::new())),
-            ngram_size: 13,
-            hash_count: 13,
+            ngram_size: 7,
+            hash_count: 64,
             max_seen: 50_000_000,
-            similarity_threshold: 0.5,
+            similarity_threshold: 0.75,
             exact_reject_on_seen: true,
         }
     }
@@ -221,9 +221,9 @@ mod tests {
     #[test]
     fn test_default_values() {
         let f = DedupFilter::default();
-        assert_eq!(f.ngram_size, 13);
-        assert_eq!(f.hash_count, 13);
-        assert_eq!(f.similarity_threshold, 0.5);
+        assert_eq!(f.ngram_size, 7);
+        assert_eq!(f.hash_count, 64);
+        assert_eq!(f.similarity_threshold, 0.75);
         assert!(f.exact_reject_on_seen);
     }
 
