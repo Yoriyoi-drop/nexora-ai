@@ -18,22 +18,96 @@ pub struct SafetensorsHeader {
     pub tensors: HashMap<String, TensorEntry>,
 }
 
-pub fn save_safetensors(
+fn f32_to_f16_bits(val: f32) -> u16 {
+    let bits = val.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exp = ((bits >> 23) & 0xff) as i32;
+    let mant = bits & 0x7fffff;
+    if exp == 0 {
+        sign | (mant >> 13) as u16
+    } else if exp == 255 {
+        sign | 0x7c00 | ((mant >> 13) as u16)
+    } else {
+        let new_exp = exp - 127 + 15;
+        if new_exp >= 31 {
+            sign | 0x7c00 | ((mant >> 13) as u16)
+        } else if new_exp <= 0 {
+            sign | ((mant | 0x800000) >> (13 - new_exp + 1)) as u16
+        } else {
+            sign | ((new_exp as u16) << 10) | (mant >> 13) as u16
+        }
+    }
+}
+
+fn f16_bits_to_f32(bits: u16) -> f32 {
+    let sign = ((bits >> 15) as u32) << 31;
+    let exp = ((bits >> 10) & 0x1f) as u32;
+    let mant = (bits & 0x3ff) as u32;
+    if exp == 0 {
+        if mant == 0 {
+            f32::from_bits(sign)
+        } else {
+            let lz = (mant as u16).leading_zeros() - 6;
+            let k = 9 - lz;
+            let low_mask = (1u32 << k) - 1;
+            let frac = mant & low_mask;
+            let f32_mant = frac << (23 - k);
+            let f32_exp = 112 - lz;
+            f32::from_bits(sign | (f32_exp << 23) | f32_mant)
+        }
+    } else if exp == 31 {
+        f32::from_bits(sign | (255u32 << 23) | (mant << 13))
+    } else {
+        f32::from_bits(sign | ((exp + 112) << 23) | (mant << 13))
+    }
+}
+
+fn f32_slice_to_f16_bytes(data: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() * 2);
+    for &v in data {
+        out.extend_from_slice(&f32_to_f16_bits(v).to_le_bytes());
+    }
+    out
+}
+
+fn f16_bytes_to_f32_slice(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(2)
+        .map(|c| f16_bits_to_f32(u16::from_le_bytes([c[0], c[1]])))
+        .collect()
+}
+
+pub enum SaveDtype {
+    F32,
+    F16,
+}
+
+/// Save tensors as safetensors, with configurable dtype.
+pub fn save_safetensors_with_dtype(
     path: impl AsRef<Path>,
     tensors: &[(&str, ArrayD<f32>)],
+    dtype: SaveDtype,
 ) -> FoundationResult<()> {
     let mut header_map = HashMap::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut offset: usize = 0;
 
+    let (dtype_str, elem_size) = match dtype {
+        SaveDtype::F32 => ("F32", 4),
+        SaveDtype::F16 => ("F16", 2),
+    };
+
     for (name, arr) in tensors {
-        let flat: Vec<u8> = arr.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let flat: Vec<u8> = match dtype {
+            SaveDtype::F32 => arr.iter().flat_map(|v| v.to_le_bytes()).collect(),
+            SaveDtype::F16 => f32_slice_to_f16_bytes(arr.as_slice().unwrap_or(&[]) as &[f32]),
+        };
         let len = flat.len();
 
         header_map.insert(
             name.to_string(),
             TensorEntry {
-                dtype: "F32".to_string(),
+                dtype: dtype_str.to_string(),
                 shape: arr.shape().to_vec(),
                 data_offsets: [offset, offset + len],
             },
@@ -64,7 +138,26 @@ pub fn save_safetensors(
     Ok(())
 }
 
-pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
+/// Save tensors as F32 safetensors (backward compatible).
+pub fn save_safetensors(
+    path: impl AsRef<Path>,
+    tensors: &[(&str, ArrayD<f32>)],
+) -> FoundationResult<()> {
+    save_safetensors_with_dtype(path, tensors, SaveDtype::F32)
+}
+
+/// Save tensors as F16 safetensors (2× smaller files).
+pub fn save_safetensors_f16(
+    path: impl AsRef<Path>,
+    tensors: &[(&str, ArrayD<f32>)],
+) -> FoundationResult<()> {
+    save_safetensors_with_dtype(path, tensors, SaveDtype::F16)
+}
+
+/// Load safetensors into f32 tensors. Supports both F32 and F16 dtypes.
+pub fn load_safetensors(
+    path: impl AsRef<Path>,
+) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
     let raw = std::fs::read(path.as_ref()).map_err(|e| {
         crate::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e))
     })?;
@@ -99,12 +192,6 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
 
     let mut result = HashMap::new();
     for (name, entry) in &header.tensors {
-        if entry.dtype != "F32" {
-            return Err(crate::FoundationError::Configuration(format!(
-                "Unsupported dtype '{}' for tensor '{}' (only F32 supported)",
-                entry.dtype, name
-            )));
-        }
         let start = 8 + header_len + entry.data_offsets[0];
         let end = 8 + header_len + entry.data_offsets[1];
         if end > raw.len() {
@@ -115,10 +202,26 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
         }
         let bytes = &raw[start..end];
         let total: usize = entry.shape.iter().product();
-        let mut floats = Vec::with_capacity(total);
-        for chunk in bytes.chunks_exact(4) {
-            floats.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-        }
+
+        let floats = match entry.dtype.as_str() {
+            "F32" => {
+                let mut v = Vec::with_capacity(total);
+                for chunk in bytes.chunks_exact(4) {
+                    v.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+                }
+                v
+            }
+            "F16" => {
+                f16_bytes_to_f32_slice(bytes)
+            }
+            other => {
+                return Err(crate::FoundationError::Configuration(format!(
+                    "Unsupported dtype '{}' for tensor '{}' (supported: F32, F16)",
+                    other, name
+                )));
+            }
+        };
+
         let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats).map_err(|e| {
             crate::FoundationError::Configuration(format!(
                 "Shape mismatch for tensor '{}': {}",
@@ -254,5 +357,59 @@ mod tests {
             tensors: HashMap::new(),
         };
         let _debug = format!("{:?}", header);
+    }
+
+    #[test]
+    fn test_f16_roundtrip() {
+        let val: f32 = 3.1415;
+        let bits = f32_to_f16_bits(val);
+        let back = f16_bits_to_f32(bits);
+        let diff = (val - back).abs();
+        assert!(diff < 0.01, "f16 roundtrip error: {diff} (expected < 0.01)");
+    }
+
+    #[test]
+    fn test_f16_save_and_load() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("f16_test.safetensors");
+
+        let tensor =
+            ArrayD::from_shape_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        save_safetensors_f16(&path, &[("weights", tensor)]).unwrap();
+
+        let loaded = load_safetensors(&path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        let loaded_t = loaded.get("weights").unwrap();
+        assert_eq!(loaded_t.shape(), &[2, 3]);
+        assert!((loaded_t[ndarray::IxDyn(&[0, 0])] - 1.0).abs() < 0.01);
+        assert!((loaded_t[ndarray::IxDyn(&[1, 2])] - 6.0).abs() < 0.01);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_f16_file_is_half_size() {
+        let dir = std::env::temp_dir().join("safetensors_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let f32_path = dir.join("f32_size.safetensors");
+        let f16_path = dir.join("f16_size.safetensors");
+
+        let data: Vec<f32> = (0..100).map(|i| i as f32).collect();
+        let arr = ArrayD::from_shape_vec(vec![10, 10], data).unwrap();
+
+        save_safetensors(&f32_path, &[("big", arr.clone())]).unwrap();
+        save_safetensors_f16(&f16_path, &[("big", arr)]).unwrap();
+
+        let f32_size = std::fs::metadata(&f32_path).unwrap().len();
+        let f16_size = std::fs::metadata(&f16_path).unwrap().len();
+
+        assert!(
+            f16_size < f32_size,
+            "F16 file ({f16_size}) should be smaller than F32 ({f32_size})"
+        );
+
+        let _ = std::fs::remove_file(&f32_path);
+        let _ = std::fs::remove_file(&f16_path);
     }
 }

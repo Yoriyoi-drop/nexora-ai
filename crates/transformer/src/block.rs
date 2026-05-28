@@ -29,10 +29,13 @@ impl TransformerBlock {
         }
     }
 
-    /// Propagate half-precision flag to attention and FFN sub-layers.
+    /// Propagate half-precision flag to attention and FFN sub-layers
+    /// and pack f16 weight copies for CPU f16 matmul.
     pub fn set_use_half_precision(&mut self) {
         self.attention.use_half_precision = true;
         self.ffn.use_half_precision = true;
+        self.attention.pack_f16_weights();
+        self.ffn.pack_f16_weights();
     }
 
     pub fn forward(

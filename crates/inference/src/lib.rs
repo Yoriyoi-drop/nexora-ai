@@ -129,6 +129,48 @@ pub struct GeneratedToken {
     pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
+// ─── F16 conversion utilities (shared by sampler + paged_cache) ─────────
+
+/// Convert f32 to IEEE 754 f16 bit pattern.
+pub fn f32_to_f16_bits(val: f32) -> u16 {
+    let bits = val.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exp = ((bits >> 23) & 0xff) as i32;
+    let mant = bits & 0x7fffff;
+    if exp == 0 {
+        sign | (mant >> 13) as u16
+    } else if exp == 255 {
+        sign | (0x7c00 | ((mant >> 13) as u16))
+    } else {
+        let new_exp = exp - 127 + 15;
+        if new_exp >= 31 {
+            sign | (0x7c00 | ((mant >> 13) as u16))
+        } else if new_exp <= 0 {
+            sign | ((mant | 0x800000) >> (13 - new_exp + 1)) as u16
+        } else {
+            sign | ((new_exp as u16) << 10) | (mant >> 13) as u16
+        }
+    }
+}
+
+/// Convert IEEE 754 f16 bit pattern to f32 (subnormals flush to zero).
+pub fn f16_bits_to_f32(bits: u16) -> f32 {
+    let sign = ((bits >> 15) as u32) << 31;
+    let exp = ((bits >> 10) & 0x1f) as u32;
+    let mant = (bits & 0x3ff) as u32;
+    if exp == 0 {
+        if mant == 0 {
+            f32::from_bits(sign)
+        } else {
+            f32::from_bits(sign) // flush subnormals to zero
+        }
+    } else if exp == 31 {
+        f32::from_bits(sign | (0xff << 23) | (mant << 13))
+    } else {
+        f32::from_bits(sign | ((exp - 15 + 127) << 23) | (mant << 13))
+    }
+}
+
 fn serialize_arc_str<S: serde::Serializer>(
     v: &Arc<str>,
     s: S,

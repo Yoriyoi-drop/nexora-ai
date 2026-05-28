@@ -35,6 +35,12 @@ impl CudaRuntime {
             .ok_or_else(|| "CUDA runtime not initialized. Call CudaRuntime::init() first".into())
     }
 
+    /// Try to initialize CUDA runtime on device 0.
+    /// Returns `None` if no CUDA device is available (graceful fallback).
+    pub fn try_init() -> Result<Arc<Self>, String> {
+        Self::new(0).map(Arc::new)
+    }
+
     fn new(device_id: usize) -> Result<Self, String> {
         let device = CudaDevice::new(device_id)
             .map_err(|e| format!("Failed to create CudaDevice({device_id}): {e}"))?;
@@ -251,7 +257,81 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }
 
     pub fn add(&self, a: &CudaTensor, b: &CudaTensor) -> Result<CudaTensor, String> {
-        self.elementwise_binary(a, b, "add", "a[i] + b[i]")
+        // Try same-shape or scalar first
+        if a.numel() == b.numel() || b.numel() == 1 {
+            return self.elementwise_binary(a, b, "add", "a[i] + b[i]");
+        }
+        // Broadcasting: bias [1, dim] + hidden [batch, dim]
+        // Tile the smaller tensor across the larger one
+        self.add_broadcast(a, b)
+    }
+
+    /// Broadcast add: supports [1, D] + [N, D] and [D] + [N, D] patterns.
+    fn add_broadcast(&self, a: &CudaTensor, b: &CudaTensor) -> Result<CudaTensor, String> {
+        let (tensor, bias) = if a.numel() > b.numel() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let t_shape = tensor.shape();
+        let b_numel = bias.numel();
+        let b_flat = bias.numel() == 1;
+        if t_shape.len() != 2 {
+            return Err(format!(
+                "CUDA broadcast add: tensor must be 2D, got {:?}",
+                t_shape
+            ));
+        }
+        let cols = t_shape[1];
+        let rows = t_shape[0];
+        if !b_flat && b_numel != cols {
+            return Err(format!(
+                "CUDA broadcast add: bias len {} != tensor cols {}",
+                b_numel, cols
+            ));
+        }
+        let numel = tensor.numel();
+        let kernel_name = "add_broadcast_row";
+        let source = r#"
+extern "C" __global__ void add_broadcast_row(float* __restrict__ out,
+    const float* __restrict__ tensor, const float* __restrict__ bias,
+    size_t rows, size_t cols, int bias_is_scalar) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= rows * cols) return;
+    unsigned int row = i / cols;
+    unsigned int col = i % cols;
+    float b_val = bias_is_scalar ? bias[0] : bias[col];
+    out[i] = tensor[i] + b_val;
+}
+"#;
+        let func = self.get_or_compile_kernel(kernel_name, source)?;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CUDA add_broadcast alloc: {e}"))?;
+        let cfg = LaunchConfig {
+            grid: ((numel + 255) / 256) as u32,
+            block: 256,
+            shared_mem_bytes: 0,
+        };
+        let bias_is_scalar: i32 = if b_flat { 1 } else { 0 };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut out);
+            builder.arg(tensor.buffer());
+            builder.arg(bias.buffer());
+            builder.arg(&rows);
+            builder.arg(&cols);
+            builder.arg(&bias_is_scalar);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA add_broadcast launch: {e}"))?;
+        }
+        Ok(CudaTensor {
+            shape: t_shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     pub fn sub(&self, a: &CudaTensor, b: &CudaTensor) -> Result<CudaTensor, String> {
@@ -290,6 +370,12 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             "gelu",
             "0.5f * a[i] * (1.0f + tanhf(0.79788456f * (a[i] + 0.044715f * a[i] * a[i] * a[i])))",
         )
+    }
+
+    pub fn gelu_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
+        let result = self.gelu(a)?;
+        a.buffer = result.buffer;
+        Ok(())
     }
 
     pub fn silu(&self, a: &CudaTensor) -> Result<CudaTensor, String> {
@@ -391,6 +477,59 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 
         Ok(CudaTensor {
             shape: a.shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
+    }
+
+    // ── Transpose ────────────────────────────────────────────────────
+
+    pub fn transpose(&self, a: &CudaTensor) -> Result<CudaTensor, String> {
+        let shape = &a.shape;
+        if shape.len() != 2 {
+            return Err(format!(
+                "CUDA transpose: expected 2D, got {}D",
+                shape.len()
+            ));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = a.numel();
+
+        let func = self.get_or_compile_kernel(
+            "transpose_2d",
+            r#"
+extern "C" __global__ void transpose_2d(float* __restrict__ out,
+    const float* __restrict__ a, size_t rows, size_t cols) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= rows * cols) return;
+    unsigned int r = i / cols;
+    unsigned int c = i % cols;
+    out[c * rows + r] = a[i];
+}
+"#,
+        )?;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CUDA transpose alloc: {e}"))?;
+        let cfg = LaunchConfig {
+            grid: ((numel + 255) / 256) as u32,
+            block: 256,
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(&rows);
+            builder.arg(&cols);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA transpose launch: {e}"))?;
+        }
+        Ok(CudaTensor {
+            shape: vec![cols, rows],
             buffer: out,
             device_id: self.device_id,
         })

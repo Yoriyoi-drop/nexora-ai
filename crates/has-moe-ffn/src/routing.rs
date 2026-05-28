@@ -67,6 +67,8 @@ pub struct Router {
     expert_capacities: Vec<usize>,
     router_weights: Vec<Vec<f32>>,
     last_aux_loss: f32,
+    #[cfg(feature = "gpu")]
+    router_weights_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 impl Router {
@@ -94,6 +96,8 @@ impl Router {
             routing_stats: HashMap::new(),
             router_weights,
             last_aux_loss: 0.0,
+            #[cfg(feature = "gpu")]
+            router_weights_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -116,6 +120,8 @@ impl Router {
             routing_stats: HashMap::new(),
             router_weights,
             last_aux_loss: 0.0,
+            #[cfg(feature = "gpu")]
+            router_weights_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -164,8 +170,13 @@ impl Router {
         }
     }
 
-    /// Forward pass through router
+    /// Forward pass through router (GPU-accelerated if available)
     pub fn forward(&self, input: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_gpu(input) {
+            return result;
+        }
+
         let (batch_size, _hidden_size) = input.dim();
         let mut gating_weights = ndarray::Array2::zeros((batch_size, self.config.num_experts));
 
@@ -182,6 +193,35 @@ impl Router {
         }
 
         gating_weights
+    }
+
+    /// GPU-accelerated forward: upload input → matmul → softmax → readback
+    /// Returns None if GPU unavailable or any GPU operation fails (CPU fallback).
+    #[cfg(feature = "gpu")]
+    fn ensure_weights_gpu(&self) -> Option<&nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::GpuContext;
+        let ctx = GpuContext::global().ok()?;
+        let entry = self.router_weights_gpu.get_or_init(|| {
+            let num_experts = self.config.num_experts;
+            let hidden_size = self.config.hidden_size;
+            let flat: Vec<f32> = self.router_weights.iter().flatten().copied().collect();
+            let cpu = ndarray::Array2::from_shape_vec((num_experts, hidden_size), flat).ok()?;
+            let gpu = nexora_autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
+            ctx.transpose(&gpu).ok()
+        });
+        entry.as_ref()
+    }
+
+    #[cfg(feature = "gpu")]
+    fn forward_gpu(&self, input: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let weights_t = self.ensure_weights_gpu()?;
+        let input_gpu = GpuTensor::from_cpu(&input.clone().into_dyn()).ok()?;
+        let ctx = GpuContext::global().ok()?;
+        let scores = ctx.matmul(&input_gpu, weights_t).ok()?;
+        let probs = ctx.softmax(&scores).ok()?;
+        let cpu_d = probs.to_cpu().ok()?;
+        cpu_d.into_dimensionality::<ndarray::Ix2>().ok()
     }
 
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {

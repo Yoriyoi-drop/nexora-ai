@@ -119,6 +119,24 @@ pub enum GpuErrorKind {
     Fatal,
 }
 
+// ─── GPU Backend Selection ─────────────────────────────────────────────────
+
+/// The active GPU compute backend.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GpuBackend {
+    /// WebGPU (wgpu) — default on all platforms.
+    Wgpu,
+    /// Native CUDA — requires `cuda` feature + NVIDIA GPU + CUDA toolkit.
+    #[cfg(feature = "cuda")]
+    Cuda,
+}
+
+impl Default for GpuBackend {
+    fn default() -> Self {
+        Self::Wgpu
+    }
+}
+
 // ─── Singleton Context ─────────────────────────────────────────────────────────
 
 pub(crate) static GPU_CTX: OnceCell<GpuContext> = OnceCell::new();
@@ -147,7 +165,7 @@ pub struct GpuContext {
     pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
     // ── Reusable command encoder (Mutex-protected for &self access) ───
     // WARNING: This is a global encoder mutex which can cause contention under
-    // heavy multi-threaded dispatch. For high-throughput GPU workloads (>100 ops/sec),
+    // heavy multi-threaded GPU dispatch. For high-throughput GPU workloads (>100 ops/sec),
     // use GpuCommandBatch (see gpu_batch.rs) which creates per-batch encoders,
     // avoiding this mutex entirely. The global encoder is kept for simple
     // single-threaded use and fallback paths only.
@@ -160,6 +178,25 @@ pub struct GpuContext {
     pub(crate) wgpu_cache: Option<wgpu::PipelineCache>,
     pub(crate) disk_cache: Option<crate::persistent_cache::PipelineDiskCache>,
     pub(crate) cache_key: u64,
+    // ── Active backend ───────────────────────────────────────────────
+    pub(crate) backend: GpuBackend,
+    /// Optional CUDA runtime — available only when `cuda` feature is enabled
+    /// and an NVIDIA GPU with CUDA toolkit is detected at runtime.
+    #[cfg(feature = "cuda")]
+    pub(crate) cuda: Option<crate::gpu::cuda::CudaRuntime>,
+}
+
+impl GpuContext {
+    /// Returns the active GPU compute backend.
+    pub fn backend(&self) -> GpuBackend {
+        self.backend
+    }
+
+    /// Returns a reference to the CUDA runtime if available.
+    #[cfg(feature = "cuda")]
+    pub fn cuda_runtime(&self) -> Option<&crate::gpu::cuda::CudaRuntime> {
+        self.cuda.as_ref()
+    }
 }
 
 pub(crate) struct CompiledPipeline {

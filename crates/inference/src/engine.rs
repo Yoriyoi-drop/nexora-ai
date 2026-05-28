@@ -52,6 +52,7 @@ pub struct InferenceConfig {
     pub use_continuous_batching: bool,
     pub use_continuous_batching_config: Option<ContinuousBatchingConfig>,
     pub use_paged_cache: bool,
+    pub paged_cache_f16: bool,
     pub paged_block_size: usize,
     pub paged_max_blocks: usize,
     pub checkpoint_path: Option<String>,
@@ -81,6 +82,7 @@ impl Default for InferenceConfig {
             use_continuous_batching: true,
             use_continuous_batching_config: None,
             use_paged_cache: true,
+            paged_cache_f16: true,
             paged_block_size: 0,
             paged_max_blocks: 0,
             checkpoint_path: None,
@@ -242,6 +244,7 @@ impl InferenceEngine {
                 num_kv_heads: c.num_kv_heads,
                 head_dim: c.head_dim(),
                 max_seq_len: c.max_seq_len,
+                f16_storage: config.paged_cache_f16,
             };
             info!(
                 "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}",
@@ -257,6 +260,7 @@ impl InferenceEngine {
                 num_kv_heads: 1,
                 head_dim: 64,
                 max_seq_len: 2048,
+                f16_storage: config.paged_cache_f16,
             }))))
         }
     }

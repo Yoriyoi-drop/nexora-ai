@@ -96,6 +96,8 @@ pub struct ResourceUsage {
     pub gpu_memory_usage_bytes: Option<u64>,
     /// GPU memory usage percentage - jika available
     pub gpu_memory_usage_percent: Option<f64>,
+    /// KV cache memory usage (bytes)
+    pub kv_cache_memory_bytes: u64,
     /// Active threads count
     pub active_threads: usize,
     /// Open file descriptors count
@@ -289,6 +291,8 @@ impl InferenceRuntime {
                 usage.gpu_memory_usage_bytes = Some(gpu_bytes);
                 usage.gpu_memory_usage_percent = Some(gpu_percent);
             }
+            usage.kv_cache_memory_bytes =
+                crate::inference_trait::KV_CACHE_MEMORY_BYTES.load(std::sync::atomic::Ordering::Relaxed);
             usage.active_threads = active_threads;
             usage.open_files = open_files;
             usage.network_io_bytes = network_io;

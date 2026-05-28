@@ -436,6 +436,18 @@ impl GpuContext {
             label: Some("nexora_reusable_encoder"),
         });
 
+        // Prefer CUDA backend if feature is enabled and the CUDA device can be initialized.
+        #[cfg(feature = "cuda")]
+        let cuda_runtime = crate::gpu::cuda::CudaRuntime::try_init().ok();
+        #[cfg(feature = "cuda")]
+        let backend = if cuda_runtime.is_some() {
+            GpuBackend::Cuda
+        } else {
+            GpuBackend::Wgpu
+        };
+        #[cfg(not(feature = "cuda"))]
+        let backend = GpuBackend::Wgpu;
+
         let mut ctx = Self {
             device,
             queue,
@@ -457,6 +469,9 @@ impl GpuContext {
             wgpu_cache,
             disk_cache: Some(disk_cache),
             cache_key,
+            backend,
+            #[cfg(feature = "cuda")]
+            cuda: cuda_runtime,
         };
 
         ctx.compile_all_pipelines()?;

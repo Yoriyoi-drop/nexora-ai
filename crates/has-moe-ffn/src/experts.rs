@@ -22,11 +22,26 @@ pub struct ExpertConfig {
 /// Individual expert in the MoE system
 pub struct Expert {
     config: ExpertConfig,
-    // Feed-forward network weights
     fc1_weights: Vec<Vec<f32>>,
     fc1_bias: Vec<f32>,
     fc2_weights: Vec<Vec<f32>>,
     fc2_bias: Vec<f32>,
+    #[cfg(feature = "gpu")]
+    fc1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc1_bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc2_bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "cuda")]
+    fc1_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    #[cfg(feature = "cuda")]
+    fc1_bias_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    #[cfg(feature = "cuda")]
+    fc2_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    #[cfg(feature = "cuda")]
+    fc2_bias_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Expert {
@@ -56,6 +71,22 @@ impl Expert {
             fc1_bias,
             fc2_weights,
             fc2_bias,
+            #[cfg(feature = "gpu")]
+            fc1_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc1_bias_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc2_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc2_bias_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            fc1_cuda: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            fc1_bias_cuda: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            fc2_cuda: std::sync::OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            fc2_bias_cuda: std::sync::OnceLock::new(),
         }
     }
 
@@ -179,6 +210,139 @@ impl Expert {
 
         let out_cpu = out_gpu.to_cpu().ok()?;
         Some(out_cpu.iter().copied().collect())
+    }
+
+    /// Lazily upload and transpose expert weights to GPU — cached via OnceLock.
+    /// Returns (fc1_w_t, fc1_bias, fc2_w_t, fc2_bias) as GpuTensors or None.
+    #[cfg(feature = "gpu")]
+    fn ensure_weights_gpu(&self) -> Option<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor)> {
+        use ndarray::ArrayD;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global().ok()?;
+        let w1 = self.fc1_gpu.get_or_init(|| {
+            let flat: Vec<f32> = self.fc1_weights.iter().flatten().copied().collect();
+            let cpu = ArrayD::from_shape_vec(vec![self.fc1_weights.len(), self.config.hidden_size], flat).ok()?;
+            let gpu = GpuTensor::from_cpu(&cpu).ok()?;
+            ctx.transpose(&gpu).ok()
+        }).as_ref()?;
+        let b1 = self.fc1_bias_gpu.get_or_init(|| {
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?).ok()
+        }).as_ref()?;
+        let w2 = self.fc2_gpu.get_or_init(|| {
+            let flat: Vec<f32> = self.fc2_weights.iter().flatten().copied().collect();
+            let cpu = ArrayD::from_shape_vec(vec![self.fc2_weights.len(), self.config.intermediate_size], flat).ok()?;
+            let gpu = GpuTensor::from_cpu(&cpu).ok()?;
+            ctx.transpose(&gpu).ok()
+        }).as_ref()?;
+        let b2 = self.fc2_bias_gpu.get_or_init(|| {
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?).ok()
+        }).as_ref()?;
+        Some((w1, b1, w2, b2))
+    }
+
+    /// Batched GPU forward: processes N tokens in one GPU call.
+    /// Returns None if GPU unavailable (CPU fallback handled by caller).
+    #[cfg(feature = "gpu")]
+    pub fn forward_batched_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let (w1, b1, w2, b2) = self.ensure_weights_gpu()?;
+        let ctx = GpuContext::global().ok()?;
+        let input_gpu = GpuTensor::from_cpu(&inputs.clone().into_dyn()).ok()?;
+        let mut hidden = ctx.matmul(&input_gpu, w1).ok()?;
+        hidden = ctx.add(&hidden, b1).ok()?;
+        ctx.gelu_inplace(&mut hidden).ok()?;
+        let output = ctx.matmul(&hidden, w2).ok()?;
+        let output = ctx.add(&output, b2).ok()?;
+        let cpu_d = output.to_cpu().ok()?;
+        cpu_d.into_dimensionality::<ndarray::Ix2>().ok()
+    }
+
+    /// Lazily upload expert weights to CUDA — cached via OnceLock.
+    /// Returns (fc1, fc1_bias, fc2, fc2_bias) as CudaTensors or None.
+    #[cfg(feature = "cuda")]
+    fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor)> {
+        use nexora_autograd::gpu::cuda::CudaTensor;
+        let w1 = self.fc1_cuda.get_or_init(|| {
+            let flat: Vec<f32> = self.fc1_weights.iter().flatten().copied().collect();
+            // Store transposed: [hidden_size, intermediate_size]
+            CudaTensor::from_cpu(&cuda.device, vec![self.fc1_weights.len(), self.config.hidden_size], &flat).ok()
+        }).as_ref()?;
+        let b1 = self.fc1_bias_cuda.get_or_init(|| {
+            CudaTensor::from_cpu(&cuda.device, vec![1, self.fc1_bias.len()], &self.fc1_bias).ok()
+        }).as_ref()?;
+        let w2 = self.fc2_cuda.get_or_init(|| {
+            let flat: Vec<f32> = self.fc2_weights.iter().flatten().copied().collect();
+            // Store transposed: [intermediate_size, hidden_size]
+            CudaTensor::from_cpu(&cuda.device, vec![self.fc2_weights.len(), self.config.intermediate_size], &flat).ok()
+        }).as_ref()?;
+        let b2 = self.fc2_bias_cuda.get_or_init(|| {
+            CudaTensor::from_cpu(&cuda.device, vec![1, self.fc2_bias.len()], &self.fc2_bias).ok()
+        }).as_ref()?;
+        Some((w1, b1, w2, b2))
+    }
+
+    /// Batched CUDA forward: processes N tokens via cuBLAS (no CPU round-trip for weights).
+    /// Returns None if CUDA unavailable.
+    #[cfg(feature = "cuda")]
+    pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+        let (w1, b1, w2, b2) = self.ensure_weights_cuda(cuda)?;
+
+        let n = inputs.shape()[0];
+        let dim = inputs.shape()[1];
+
+        // Upload input to GPU
+        let input_flat: Vec<f32> = inputs.iter().copied().collect();
+        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+            &cuda.device, vec![n, dim], &input_flat,
+        ).ok()?;
+
+        // fc1: [n, dim] @ [dim, inter] → [n, inter]
+        // w1 is stored as [inter, dim] — transpose to [dim, inter]
+        let w1_t = cuda.transpose(w1).ok()?;
+        let mut hidden = cuda.matmul(&input_gpu, &w1_t).ok()?;
+        hidden = cuda.add(&hidden, b1).ok()?;
+        cuda.gelu_inplace(&mut hidden).ok()?;
+
+        // fc2: [n, inter] @ [inter, dim] → [n, dim]
+        // w2 is stored as [dim, inter] — transpose to [inter, dim]
+        let w2_t = cuda.transpose(w2).ok()?;
+        let output = cuda.matmul(&hidden, &w2_t).ok()?;
+        let output = cuda.add(&output, b2).ok()?;
+
+        // Readback
+        let out_cpu = output.to_cpu_vec(&cuda.device).ok()?;
+        let out_shape = vec![n, self.config.hidden_size];
+        let out_flat: Vec<f32> = out_cpu;
+        ndarray::Array2::from_shape_vec(out_shape, out_flat).ok()
+    }
+
+    /// Batched forward: processes N tokens, tries CUDA → wgpu → CPU fallback.
+    pub fn forward_batched(&self, inputs: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
+        #[cfg(feature = "cuda")]
+        if let Some(result) = self.forward_batched_cuda(inputs) {
+            return result;
+        }
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_batched_gpu(inputs) {
+            return result;
+        }
+        let n = inputs.shape()[0];
+        let h = self.config.hidden_size;
+        let mut outputs = ndarray::Array2::zeros((n, h));
+        for i in 0..n {
+            let token = inputs.row(i);
+            let result = self.forward(token.as_slice().unwrap_or(&[]));
+            for (j, &v) in result.iter().enumerate() {
+                outputs[[i, j]] = v;
+            }
+        }
+        outputs
     }
 
     /// First linear layer forward pass

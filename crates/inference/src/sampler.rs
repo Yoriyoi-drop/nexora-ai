@@ -442,7 +442,7 @@ impl Sampler {
                     let packed = u32::from_ne_bytes([c[0], c[1], c[2], c[3]]);
                     let lo = (packed & 0xFFFF) as u16;
                     let hi = (packed >> 16) as u16;
-                    [f16_bits_to_f32(lo), f16_bits_to_f32(hi)]
+                    [crate::f16_bits_to_f32(lo), crate::f16_bits_to_f32(hi)]
                 })
                 .take(logits_gpu.numel())
                 .collect()
@@ -911,22 +911,7 @@ pub fn top_p_filter(probs: &[f32], p: f32) -> Vec<f32> {
     filtered
 }
 
-/// Convert a u16 F16 bit pattern to f32 (no `half` crate dependency).
-fn f16_bits_to_f32(bits: u16) -> f32 {
-    let sign = (bits >> 15) as u32;
-    let exp = ((bits >> 10) & 0x1F) as u32;
-    let mant = (bits & 0x3FF) as u32;
-    if exp == 0 {
-        // Zero/subnormal — flush to zero
-        f32::from_bits(sign << 31)
-    } else if exp == 31 {
-        // Inf/NaN
-        f32::from_bits((sign << 31) | (0xFF << 23) | (mant << 13))
-    } else {
-        // Normal
-        f32::from_bits((sign << 31) | ((exp - 15 + 127) << 23) | (mant << 13))
-    }
-}
+
 
 // --- Presets ---
 pub mod configs {

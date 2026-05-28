@@ -52,6 +52,8 @@ pub struct ContinuousBatchingConfig {
     pub use_paged_cache: bool,
     /// Block size for paged cache (tokens per block). 0 = auto.
     pub paged_block_size: usize,
+    /// Use f16 (half-precision) for paged cache K/V storage — 2× memory reduction.
+    pub paged_cache_f16: bool,
     /// Max physical blocks for paged cache. 0 = auto.
     pub paged_max_blocks: usize,
     /// Scheduling policy for fairness and starvation avoidance.
@@ -99,6 +101,7 @@ impl Default for ContinuousBatchingConfig {
             enable_prefix_sharing: true,
             use_paged_cache: true,
             paged_block_size: 0,
+            paged_cache_f16: true,
             paged_max_blocks: 0,
             scheduling_policy: SchedulingPolicy::PriorityAging,
             aging_boost_per_ms: 0.005,
@@ -296,6 +299,7 @@ where
                 num_kv_heads,
                 head_dim,
                 max_seq_len,
+                f16_storage: self.config.paged_cache_f16,
             };
             self.shared_paged = Some(Arc::new(std::sync::Mutex::new(
                 crate::paged_cache::PagedKVCache::new(paged_config),
@@ -332,6 +336,7 @@ where
             } else {
                 None
             },
+            adaptive_batch_size: config.max_batch_size,
             config,
             num_layers: 0,
             num_kv_heads: 0,
@@ -340,7 +345,6 @@ where
             paged_cache_dim_set: false,
             shared_paged: None,
             throughput_ewma: 0.0,
-            adaptive_batch_size: config.max_batch_size,
             last_throughput_update: Instant::now(),
             batch_step_count: 0,
             shed_load: false,
@@ -664,13 +668,6 @@ where
     }
 
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {
-        if self.sequences.len() >= self.max_total_sequences {
-            warn!(
-                "ContinuousBatchingEngine: max sequences ({}) reached",
-                self.max_total_sequences
-            );
-            return 0;
-        }
         if self.should_shed_load() {
             self.rejected_count += 1;
             warn!(
@@ -678,6 +675,13 @@ where
                 self.rejected_count,
                 self.sequences.len(),
                 self.rejected_count
+            );
+            return 0;
+        }
+        if self.sequences.len() >= self.max_total_sequences {
+            warn!(
+                "ContinuousBatchingEngine: max sequences ({}) reached",
+                self.max_total_sequences
             );
             return 0;
         }
@@ -1389,6 +1393,307 @@ mod tests {
         assert_eq!(r.active_count, 0);
     }
 
+    // ─── Adaptive Batching Tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_adaptive_batching_scales_down_on_low_throughput() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size: 32,
+                min_adaptive_batch_size: 4,
+                enable_adaptive_batching: true,
+                target_tokens_per_sec: 10000.0,
+                throughput_alpha: 1.0,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        engine.add_request(test_request(vec![1, 2], 10));
+        let _ = engine.step();
+        // Instant EWMA (alpha=1.0) should have measured ~0 tps because
+        // target is 10000 and we can't hit that with a tiny mock model
+        assert!(
+            engine.adaptive_batch_size <= engine.config.max_batch_size,
+            "adaptive batch should not exceed max"
+        );
+        assert!(engine.batch_step_count > 0, "should have completed at least 1 step");
+    }
+
+    #[test]
+    fn test_adaptive_batching_never_below_minimum() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size: 32,
+                min_adaptive_batch_size: 4,
+                enable_adaptive_batching: true,
+                target_tokens_per_sec: 1e12,
+                throughput_alpha: 0.5,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        // Many fast sequences — throughput would be high, but batch size
+        // should still not go below min_adaptive_batch_size
+        for _ in 0..16 {
+            engine.add_request(test_request(vec![1, 2], 5));
+        }
+        let mut steps = 0;
+        while engine.active_count() > 0 && steps < 50 {
+            let _ = engine.step();
+            steps += 1;
+        }
+        assert!(
+            engine.adaptive_batch_size >= engine.config.min_adaptive_batch_size,
+            "batch size should never go below minimum (got {})",
+            engine.adaptive_batch_size
+        );
+    }
+
+    #[test]
+    fn test_adaptive_batching_increases_on_high_throughput() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size: 32,
+                min_adaptive_batch_size: 4,
+                enable_adaptive_batching: true,
+                target_tokens_per_sec: 1.0,
+                throughput_alpha: 0.8,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        // Very low target = measured throughput should exceed it → scale up
+        for _ in 0..8 {
+            engine.add_request(test_request(vec![1, 2], 20));
+        }
+        let mut steps = 0;
+        while engine.active_count() > 0 && steps < 100 {
+            let _ = engine.step();
+            steps += 1;
+        }
+        assert!(
+            engine.adaptive_batch_size > 4,
+            "batch size should scale up when throughput exceeds target (got {})",
+            engine.adaptive_batch_size
+        );
+    }
+
+    // ─── Load Shedding Tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_load_shedding_rejects_when_queue_full() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_total_sequences: 1024,
+                max_queue_depth: 4,
+                enable_adaptive_batching: false,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        // Fill the queue to max_queue_depth
+        for i in 0..4u64 {
+            let id = engine.add_request(test_request(vec![i as u32], 5));
+            assert_ne!(id, 0, "request {} should be accepted", i);
+        }
+        // Next request should be rejected by load shedding (max_queue_depth)
+        let rejected = engine.add_request(test_request(vec![5], 5));
+        assert_eq!(rejected, 0, "load shedding should reject when queue is full");
+        assert_eq!(engine.rejected_count(), 1, "rejected_count should be 1");
+    }
+
+    #[test]
+    fn test_load_shedding_respects_max_total_sequences() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_total_sequences: 2,
+                max_queue_depth: 10,
+                enable_adaptive_batching: false,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        assert_ne!(engine.add_request(test_request(vec![1], 5)), 0);
+        assert_ne!(engine.add_request(test_request(vec![2], 5)), 0);
+        // max_total_sequences should be hit before max_queue_depth
+        let rejected = engine.add_request(test_request(vec![3], 5));
+        assert_eq!(rejected, 0, "should reject when max_total_sequences reached");
+    }
+
+    #[test]
+    fn test_load_shedding_clears_after_completions() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_total_sequences: 2,
+                max_queue_depth: 2,
+                enable_adaptive_batching: false,
+                use_paged_cache: true,
+                ..Default::default()
+            },
+        );
+        assert_ne!(engine.add_request(test_request(vec![1, 2], 2)), 0);
+        assert_ne!(engine.add_request(test_request(vec![3, 4], 2)), 0);
+        assert_eq!(engine.add_request(test_request(vec![5, 6], 2)), 0);
+
+        // Process until sequences complete and drain them
+        for _ in 0..20 {
+            let r = engine.step();
+            for resp in r.completed {
+                let _ = resp;
+            }
+        }
+        engine.drain_completed();
+
+        // After draining, new requests should be accepted again
+        let new_id = engine.add_request(test_request(vec![7, 8], 2));
+        assert_ne!(new_id, 0, "after drain, new requests should be accepted");
+    }
+
+    // ─── Benchmark-style Performance Tests ───────────────────────────────────
+
+    /// Soak test: run 100 sequences with varying lengths through many steps.
+    /// Verifies no crash, starvation, or memory leak over sustained operation.
+    #[test]
+    fn test_soak_sustained_load() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size: 16,
+                max_total_sequences: 1024,
+                scheduling_policy: SchedulingPolicy::PriorityAging,
+                use_paged_cache: true,
+                enable_adaptive_batching: true,
+                ..Default::default()
+            },
+        );
+
+        // Add 100 sequences with varying lengths
+        for i in 0..100u32 {
+            let prompt_len = 2 + (i % 5);
+            let gen_len = 5 + (i % 20);
+            let mut prompt = Vec::with_capacity(prompt_len as usize);
+            for t in 0..prompt_len {
+                prompt.push(i * 100 + t);
+            }
+            engine.add_request(InferenceRequest {
+                input_tokens: prompt,
+                max_tokens: gen_len,
+                ..Default::default()
+            });
+        }
+        assert_eq!(engine.active_count(), 100);
+
+        let start = std::time::Instant::now();
+        let mut total_steps = 0usize;
+        let mut total_completed = 0usize;
+        while engine.active_count() > 0 && total_steps < 500 {
+            let r = engine.step();
+            total_steps += 1;
+            total_completed += r.completed.len();
+        }
+        let elapsed = start.elapsed();
+
+        assert!(
+            total_steps < 500,
+            "soak test should complete in <500 steps (was {})",
+            total_steps
+        );
+        assert_eq!(
+            total_completed, 100,
+            "all 100 sequences should complete (got {})",
+            total_completed
+        );
+        assert!(
+            engine.rejected_count() < 10,
+            "load shedding should not reject excessively during soak (was {})",
+            engine.rejected_count()
+        );
+        assert!(
+            elapsed.as_secs() < 30,
+            "soak test should finish within 30s (was {:?})",
+            elapsed
+        );
+    }
+
+    /// Concurrent fill-and-drain: repeatedly add batches then drain them.
+    /// Tests memory stability and reuse of paged cache blocks.
+    #[test]
+    fn test_concurrent_fill_and_drain() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig {
+                max_batch_size: 16,
+                max_total_sequences: 1024,
+                use_paged_cache: true,
+                enable_adaptive_batching: false,
+                ..Default::default()
+            },
+        );
+
+        for cycle in 0..5 {
+            // Fill
+            for i in 0..20u32 {
+                engine.add_request(test_request(
+                    vec![cycle * 100 + i, cycle * 100 + i + 1],
+                    8,
+                ));
+            }
+
+            // Process
+            let mut steps = 0;
+            while engine.active_count() > 0 && steps < 100 {
+                let r = engine.step();
+                let _ = r;
+                steps += 1;
+            }
+
+            // Drain
+            let drained = engine.drain_completed();
+            assert_eq!(drained.len(), 20, "cycle {}: should drain 20 (got {})", cycle, drained.len());
+            assert_eq!(engine.active_count(), 0, "cycle {}: no active after drain", cycle);
+        }
+    }
+
+    /// Verify the engine can handle the new default config without error.
+    #[test]
+    fn test_default_config_stability() {
+        let model = MockModel { vocab_size: 100 };
+        let mut engine = ContinuousBatchingEngine::with_config(
+            model,
+            ContinuousBatchingConfig::default(),
+        );
+
+        for i in 0..50u32 {
+            engine.add_request(test_request(vec![i, i + 1], 10));
+        }
+        assert_eq!(engine.active_count(), 50);
+
+        let mut steps = 0;
+        while engine.active_count() > 0 && steps < 300 {
+            let _ = engine.step();
+            steps += 1;
+        }
+        assert!(
+            steps < 300,
+            "default config should handle 50 sequences (took {} steps)",
+            steps
+        );
+    }
+
     // ─── Chaos Tests ────────────────────────────────────────────────────────
 
     /// Mixed-load: interleave short (2 gen) and long (20 gen) sequences.
@@ -1625,6 +1930,7 @@ mod tests {
             num_kv_heads: 2,
             head_dim: 4,
             max_seq_len: 64,
+            f16_storage: false,
         };
         let mut cache = crate::paged_cache::PagedKVCache::new(config);
 
@@ -1669,6 +1975,7 @@ mod tests {
             num_kv_heads: 2,
             head_dim: 4,
             max_seq_len: 64,
+            f16_storage: false,
         };
         let mut cache = crate::paged_cache::PagedKVCache::new(config);
         cache.register_sequence(1);

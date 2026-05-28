@@ -26,6 +26,9 @@ pub struct SwiGLU {
     pub w1: Array2<f32>,
     pub w2: Array2<f32>,
     pub w3: Array2<f32>,
+    pub w1_f16: Option<Vec<u16>>,
+    pub w2_f16: Option<Vec<u16>>,
+    pub w3_f16: Option<Vec<u16>>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<SwigluGpuWeights>,
     pub(crate) use_half_precision: bool,
@@ -38,6 +41,9 @@ impl Clone for SwiGLU {
             w1: self.w1.clone(),
             w2: self.w2.clone(),
             w3: self.w3.clone(),
+            w1_f16: self.w1_f16.clone(),
+            w2_f16: self.w2_f16.clone(),
+            w3_f16: self.w3_f16.clone(),
             use_half_precision: self.use_half_precision,
         }
     }
@@ -50,6 +56,9 @@ impl Clone for SwiGLU {
             w1: self.w1.clone(),
             w2: self.w2.clone(),
             w3: self.w3.clone(),
+            w1_f16: self.w1_f16.clone(),
+            w2_f16: self.w2_f16.clone(),
+            w3_f16: self.w3_f16.clone(),
             gpu_weights: OnceLock::new(),
             use_half_precision: self.use_half_precision,
         }
@@ -75,17 +84,36 @@ impl SwiGLU {
             w1,
             w2,
             w3,
+            w1_f16: None,
+            w2_f16: None,
+            w3_f16: None,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             use_half_precision: false,
         }
     }
 
+    pub fn pack_f16_weights(&mut self) {
+        self.w1_f16 = Some(crate::pack_f32_slice_to_f16(self.w1.as_slice().unwrap()));
+        self.w2_f16 = Some(crate::pack_f32_slice_to_f16(self.w2.as_slice().unwrap()));
+        self.w3_f16 = Some(crate::pack_f32_slice_to_f16(self.w3.as_slice().unwrap()));
+    }
+
+    fn maybe_f16_matmul(&self, x: &Array2<f32>, w: &Array2<f32>, w_f16: &Option<Vec<u16>>) -> Array2<f32> {
+        if let Some(f16) = w_f16 {
+            let rows = w.shape()[0];
+            let cols = w.shape()[1];
+            crate::matmul_f16_cpu(x, f16, rows, cols)
+        } else {
+            x.dot(&w.t())
+        }
+    }
+
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
         // Pure CPU forward path.
         // GPU-resident execution uses `forward_gpu` (no per-layer readback).
-        let gate = x.dot(&self.w1.t());
-        let hidden = x.dot(&self.w3.t());
+        let gate = self.maybe_f16_matmul(x, &self.w1, &self.w1_f16);
+        let hidden = self.maybe_f16_matmul(x, &self.w3, &self.w3_f16);
 
         let mut gated = Array2::zeros(gate.dim());
 
@@ -97,7 +125,7 @@ impl SwiGLU {
                 *g = gv * sigmoid * hv;
             });
 
-        gated.dot(&self.w2.t())
+        self.maybe_f16_matmul(&gated, &self.w2, &self.w2_f16)
     }
 }
 

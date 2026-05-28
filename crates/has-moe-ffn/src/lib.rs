@@ -75,6 +75,7 @@ impl HasMoeFFN {
     }
 
     /// Forward pass through HAS-MoE-FFN
+    /// GPU-accelerated: groups tokens by expert, processes batches on GPU.
     pub fn forward(&self, input: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
         let (batch_size, hidden_size) = input.dim();
 
@@ -84,27 +85,41 @@ impl HasMoeFFN {
         // Initialize output tensor
         let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
 
+        // Group tokens by expert for batched processing
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); self.config.num_experts];
         for i in 0..batch_size {
-            let row_view = input.row(i);
-            let token_slice = row_view.as_slice().unwrap_or(&[]);
-            let mut token_output = vec![0.0; hidden_size];
-
             let top_experts = self.get_top_experts(&routing_weights, i);
-
             for &expert_idx in &top_experts {
-                let routing_weight = routing_weights[[i, expert_idx]];
+                let weight = routing_weights[[i, expert_idx]];
+                expert_tokens[expert_idx].push((i, weight));
+            }
+        }
 
-                let expert_output = self.experts[expert_idx].forward(token_slice);
-
-                // Add weighted contribution to output
-                for (j, &val) in expert_output.iter().enumerate() {
-                    token_output[j] += val * routing_weight;
-                }
+        // Process each expert's assigned tokens in batch
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            let n = tokens.len();
+            if n == 0 {
+                continue;
             }
 
-            // Store token output
-            for (j, &val) in token_output.iter().enumerate() {
-                output[[i, j]] = val;
+            // Gather token embeddings into batch matrix
+            let mut batch_input = ndarray::Array2::zeros((n, hidden_size));
+            for (k, &(token_idx, _)) in tokens.iter().enumerate() {
+                let row_view = input.row(token_idx);
+                batch_input
+                    .row_mut(k)
+                    .assign(&row_view);
+            }
+
+            // Batched expert forward (GPU if available, CPU fallback)
+            let batch_output = self.experts[expert_idx].forward_batched(&batch_input);
+
+            // Scatter weighted results back to output
+            for (k, &(token_idx, weight)) in tokens.iter().enumerate() {
+                let out_row = batch_output.row(k);
+                for j in 0..hidden_size {
+                    output[[token_idx, j]] += out_row[j] * weight;
+                }
             }
         }
 

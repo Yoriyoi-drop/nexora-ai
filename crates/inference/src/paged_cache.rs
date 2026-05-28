@@ -9,7 +9,7 @@
 //! - Potensi sharing antar sequence (copy-on-write)
 //! - Eviction terprediksi (per-block, bukan per-entry)
 
-use ndarray::{s, Array2};
+use ndarray::{s, Array1, Array2};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -63,6 +63,8 @@ pub struct PagedCacheConfig {
     pub head_dim: usize,
     /// Max tokens per sequence (prevents OOM)
     pub max_seq_len: usize,
+    /// Store K/V in f16 (half-precision) — 2× memory reduction
+    pub f16_storage: bool,
 }
 
 impl Default for PagedCacheConfig {
@@ -74,20 +76,27 @@ impl Default for PagedCacheConfig {
             num_kv_heads: 8,
             head_dim: 128,
             max_seq_len: 4096,
+            f16_storage: true,
         }
     }
 }
 
+fn elem_size_bytes(config: &PagedCacheConfig) -> usize {
+    if config.f16_storage { 2 } else { 4 }
+}
+
 impl PagedCacheConfig {
-    /// Total memory in bytes for all blocks (f32 = 4 bytes)
+    /// Total memory in bytes for all blocks
     pub fn total_memory_bytes(&self) -> usize {
-        let per_block = self.block_size * self.num_kv_heads * self.head_dim * 4 * 2; // K + V
+        let elem = if self.f16_storage { 2 } else { 4 };
+        let per_block = self.block_size * self.num_kv_heads * self.head_dim * elem * 2;
         self.max_blocks * per_block * self.num_layers
     }
 
     /// Memory per block in bytes
     pub fn block_memory_bytes(&self) -> usize {
-        self.block_size * self.num_kv_heads * self.head_dim * 4 * 2
+        let elem = if self.f16_storage { 2 } else { 4 };
+        self.block_size * self.num_kv_heads * self.head_dim * elem * 2
     }
 
     /// Max blocks needed for one sequence of max_seq_len
@@ -107,18 +116,122 @@ impl PagedCacheConfig {
     }
 }
 
+// ─── Block Storage ───────────────────────────────────────────────────────────
+
+/// Block storage representation — either f32 or f16 (half-precision).
+enum BlockData {
+    F32(Array2<f32>),
+    F16(Vec<u16>, usize, usize),
+}
+
+impl BlockData {
+    fn zeroes(f16: bool, block_size: usize, cols: usize) -> Self {
+        if f16 {
+            BlockData::F16(vec![0u16; block_size * cols], block_size, cols)
+        } else {
+            BlockData::F32(Array2::zeros((block_size, cols)))
+        }
+    }
+
+    fn block_size(&self) -> usize {
+        match self {
+            BlockData::F32(a) => a.shape()[0],
+            BlockData::F16(_, bs, _) => *bs,
+        }
+    }
+
+    fn cols(&self) -> usize {
+        match self {
+            BlockData::F32(a) => a.shape()[1],
+            BlockData::F16(_, _, c) => *c,
+        }
+    }
+
+    fn read_row(&self, row: usize) -> Vec<f32> {
+        match self {
+            BlockData::F32(a) => a.slice(s![row, ..]).to_vec(),
+            BlockData::F16(data, _bs, cols) => {
+                let start = row * cols;
+                data[start..start + cols]
+                    .iter()
+                    .map(|&b| crate::f16_bits_to_f32(b))
+                    .collect()
+            }
+        }
+    }
+
+    fn write_row(&mut self, row: usize, values: &[f32]) {
+        match self {
+            BlockData::F32(a) => {
+                for (i, &v) in values.iter().enumerate() {
+                    a[[row, i]] = v;
+                }
+            }
+            BlockData::F16(data, _bs, cols) => {
+                let cols = *cols;
+                let start = row * cols;
+                for (i, &v) in values.iter().take(cols).enumerate() {
+                    data[start + i] = crate::f32_to_f16_bits(v);
+                }
+            }
+        }
+    }
+
+    fn slice_rows(&self, row_start: usize, count: usize) -> Vec<f32> {
+        match self {
+            BlockData::F32(a) => {
+                let mut out = Vec::with_capacity(count * a.shape()[1]);
+                for r in row_start..row_start + count {
+                    out.extend_from_slice(a.slice(s![r, ..]).as_slice().unwrap());
+                }
+                out
+            }
+            BlockData::F16(data, _bs, cols) => {
+                let start = row_start * cols;
+                let end = start + count * cols;
+                data[start..end]
+                    .iter()
+                    .map(|&b| crate::f16_bits_to_f32(b))
+                    .collect()
+            }
+        }
+    }
+
+    fn copy_row_to(&self, src_row: usize, dst: &mut Self, dst_row: usize) {
+        let row = self.read_row(src_row);
+        dst.write_row(dst_row, &row);
+    }
+
+    fn clone_data(&self) -> Self {
+        match self {
+            BlockData::F32(a) => BlockData::F32(a.clone()),
+            BlockData::F16(d, bs, c) => BlockData::F16(d.clone(), *bs, *c),
+        }
+    }
+
+    fn elem_size(&self) -> usize {
+        match self {
+            BlockData::F32(_) => 4,
+            BlockData::F16(..) => 2,
+        }
+    }
+
+    fn memory_bytes(&self) -> usize {
+        match self {
+            BlockData::F32(a) => a.len() * 4,
+            BlockData::F16(d, ..) => d.len() * 2,
+        }
+    }
+}
+
 // ─── Physical Block ──────────────────────────────────────────────────────────
 
 /// A physical block holds KV data for one layer.
 /// Shape: `(block_size, num_kv_heads * head_dim)` per K dan V.
 struct PhysicalBlock {
-    /// Key data: [block_size, kv_heads * head_dim]
-    k: Array2<f32>,
-    /// Value data: [block_size, kv_heads * head_dim]
-    v: Array2<f32>,
-    /// Number of valid tokens in this block (last block may be partial)
+    k: BlockData,
+    v: BlockData,
     filled: usize,
-    /// Reference count for copy-on-write sharing
     ref_count: usize,
 }
 
@@ -126,8 +239,8 @@ impl PhysicalBlock {
     fn new(config: &PagedCacheConfig) -> Self {
         let cols = config.num_kv_heads * config.head_dim;
         Self {
-            k: Array2::zeros((config.block_size, cols)),
-            v: Array2::zeros((config.block_size, cols)),
+            k: BlockData::zeroes(config.f16_storage, config.block_size, cols),
+            v: BlockData::zeroes(config.f16_storage, config.block_size, cols),
             filled: 0,
             ref_count: 1,
         }
@@ -137,14 +250,17 @@ impl PhysicalBlock {
         self.ref_count == 0
     }
 
-    /// Copy-on-write: returns a cloned block with ref_count=1
     fn deep_copy(&self) -> Self {
         Self {
-            k: self.k.clone(),
-            v: self.v.clone(),
+            k: self.k.clone_data(),
+            v: self.v.clone_data(),
             filled: self.filled,
             ref_count: 1,
         }
+    }
+
+    fn memory_bytes(&self) -> usize {
+        self.k.memory_bytes() + self.v.memory_bytes()
     }
 }
 
@@ -479,12 +595,8 @@ impl PagedKVCache {
             return;
         }
         let block = &mut self.blocks[layer][phys];
-        for c in 0..k_len {
-            block.k[[offset, c]] = k_row[c];
-        }
-        for c in 0..v_len {
-            block.v[[offset, c]] = v_row[c];
-        }
+        block.k.write_row(offset, &k_row[..k_len]);
+        block.v.write_row(offset, &v_row[..v_len]);
         if offset + 1 > block.filled {
             block.filled = offset + 1;
         }
@@ -523,9 +635,8 @@ impl PagedKVCache {
             return None;
         }
 
-        let cols = self.config.num_kv_heads * self.config.head_dim;
-        let k = block.k.slice(s![offset, ..]).to_vec();
-        let v = block.v.slice(s![offset, ..]).to_vec();
+        let k = block.k.read_row(offset);
+        let v = block.v.read_row(offset);
         Some((k, v))
     }
 
@@ -631,10 +742,18 @@ impl PagedKVCache {
                     if let Some(block) = self.blocks[layer].get(phys) {
                         let valid = tokens_in_block.min(block.filled.saturating_sub(offset));
                         if valid > 0 {
-                            let k_rows = block.k.slice(s![offset..offset + valid, ..]);
-                            k_flat.slice_mut(s![pos..pos + valid, ..]).assign(&k_rows);
-                            let v_rows = block.v.slice(s![offset..offset + valid, ..]);
-                            v_flat.slice_mut(s![pos..pos + valid, ..]).assign(&v_rows);
+                            let k_vals = block.k.slice_rows(offset, valid);
+                            let v_vals = block.v.slice_rows(offset, valid);
+                            let k_view = Array2::from_shape_vec((valid, cols), k_vals)
+                                .expect("valid k_vals shape");
+                            let v_view = Array2::from_shape_vec((valid, cols), v_vals)
+                                .expect("valid v_vals shape");
+                            k_flat
+                                .slice_mut(s![pos..pos + valid, ..])
+                                .assign(&k_view);
+                            v_flat
+                                .slice_mut(s![pos..pos + valid, ..])
+                                .assign(&v_view);
                         }
                     }
                 }
@@ -680,11 +799,25 @@ impl PagedKVCache {
 
     /// Memory usage estimate in bytes — subtracts freed blocks
     pub fn memory_usage_bytes(&self) -> usize {
-        let per_block =
-            self.config.block_size * self.config.num_kv_heads * self.config.head_dim * 4 * 2;
         let total = self.total_blocks();
         let freed: usize = self.free_lists.iter().map(|f| f.len()).sum();
-        total.saturating_sub(freed) * per_block
+        let used = total.saturating_sub(freed);
+        if used == 0 {
+            return 0;
+        }
+        // Use actual block memory (handles f16 vs f32)
+        let mut bytes = 0usize;
+        let mut counted = 0usize;
+        'outer: for layer_blocks in &self.blocks {
+            for block in layer_blocks {
+                if counted >= used {
+                    break 'outer;
+                }
+                bytes += block.memory_bytes();
+                counted += 1;
+            }
+        }
+        bytes
     }
 }
 
@@ -812,23 +945,12 @@ impl PagedKVCache {
                 let move_count = src_filled.min(dst_capacity);
 
                 if move_count > 0 {
-                    // Copy rows from src to dst
                     for row in 0..move_count {
-                        let src_row = self.blocks[layer][src]
-                            .k
-                            .slice(s![row, ..])
-                            .to_vec();
+                        let k_row = self.blocks[layer][src].k.read_row(row);
+                        let v_row = self.blocks[layer][src].v.read_row(row);
                         let dst_row_idx = dst_filled + row;
-                        for col in 0..src_row.len() {
-                            self.blocks[layer][dst].k[[dst_row_idx, col]] = src_row[col];
-                        }
-                        let v_src = self.blocks[layer][src]
-                            .v
-                            .slice(s![row, ..])
-                            .to_vec();
-                        for col in 0..v_src.len() {
-                            self.blocks[layer][dst].v[[dst_row_idx, col]] = v_src[col];
-                        }
+                        self.blocks[layer][dst].k.write_row(dst_row_idx, &k_row);
+                        self.blocks[layer][dst].v.write_row(dst_row_idx, &v_row);
                     }
                     self.blocks[layer][dst].filled = dst_filled + move_count;
                     self.blocks[layer][src].filled = src_filled - move_count;
@@ -876,8 +998,10 @@ impl PagedKVCache {
         let ext_frag = self.compute_external_fragmentation();
 
         // Update global observability atomics
+        let mem_bytes = self.memory_usage_bytes();
         crate::inference_trait::KV_CACHE_TOTAL_BLOCKS.store(total as u64, std::sync::atomic::Ordering::Relaxed);
         crate::inference_trait::KV_CACHE_USED_BLOCKS.store(used as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_MEMORY_BYTES.store(mem_bytes as u64, std::sync::atomic::Ordering::Relaxed);
 
         PagedCacheStats {
             num_sequences: self.sequences.len(),
@@ -934,6 +1058,7 @@ mod tests {
             num_kv_heads: 2,
             head_dim: 4,
             max_seq_len: 64,
+            f16_storage: false,
         }
     }
 
@@ -1086,7 +1211,8 @@ mod tests {
 
     #[test]
     fn test_memory_usage() {
-        let config = test_config();
+        let mut config = test_config();
+        config.f16_storage = false; // use f32 for predictable sizing in this test
         let cache = PagedKVCache::new(config.clone());
         let per_block = config.block_size * config.num_kv_heads * config.head_dim * 4 * 2;
         assert!(cache.memory_usage_bytes() == 0);
@@ -1103,6 +1229,38 @@ mod tests {
         // One block per layer (2 layers) = 2 blocks total
         assert_eq!(cache2.total_blocks(), 2);
         assert_eq!(cache2.memory_usage_bytes(), 2 * per_block);
+    }
+
+    #[test]
+    fn test_f16_memory_half() {
+        let mut config = test_config();
+        config.f16_storage = true;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(1);
+        let k_row = vec![0.0; 8];
+        let v_row = vec![0.0; 8];
+        for pos in 0..4 {
+            cache.append(1, 0, pos, &k_row, &v_row);
+            cache.append(1, 1, pos, &k_row, &v_row);
+        }
+
+        let f16_bytes = cache.memory_usage_bytes();
+
+        // Compare with f32 version
+        let mut f32_config = test_config();
+        f32_config.f16_storage = false;
+        let mut f32_cache = PagedKVCache::new(f32_config);
+        f32_cache.register_sequence(1);
+        for pos in 0..4 {
+            f32_cache.append(1, 0, pos, &k_row, &v_row);
+            f32_cache.append(1, 1, pos, &k_row, &v_row);
+        }
+        let f32_bytes = f32_cache.memory_usage_bytes();
+
+        assert!(
+            f16_bytes * 2 <= f32_bytes + 1,
+            "f16 memory ({f16_bytes}) should be ~half of f32 ({f32_bytes})"
+        );
     }
 
     #[test]
@@ -1161,6 +1319,7 @@ mod tests {
             head_dim: 64,
             max_blocks: 1024,
             max_seq_len: 512,
+            f16_storage: false,
         };
 
         let mc = TransformerConfig {
@@ -1211,6 +1370,7 @@ mod tests {
             head_dim: 64,
             max_blocks: 1024,
             max_seq_len: 512,
+            f16_storage: false,
         };
 
         let mc = TransformerConfig {

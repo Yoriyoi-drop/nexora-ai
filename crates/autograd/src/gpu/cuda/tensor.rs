@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use cudarc::driver::CudaSlice;
+use cudarc::driver::{CudaDevice, CudaSlice};
 
 /// GPU tensor backed by CUDA device memory.
 #[derive(Clone, Debug)]
@@ -43,5 +41,35 @@ impl CudaTensor {
 
     pub fn buffer(&self) -> &CudaSlice<f32> {
         &self.buffer
+    }
+
+    /// Create a CUDA tensor from host data.
+    pub fn from_cpu(device: &CudaDevice, shape: Vec<usize>, data: &[f32]) -> Result<Self, String> {
+        let numel: usize = shape.iter().product();
+        if data.len() < numel {
+            return Err(format!(
+                "CudaTensor::from_cpu: data len {} < numel {}",
+                data.len(),
+                numel
+            ));
+        }
+        let buffer = device
+            .htod_sync_copy(&data[..numel])
+            .map_err(|e| format!("CudaTensor::from_cpu htod failed: {e}"))?;
+        Ok(CudaTensor {
+            shape,
+            buffer,
+            device_id: device.id(),
+        })
+    }
+
+    /// Read tensor data back to host.
+    pub fn to_cpu_vec(&self, device: &CudaDevice) -> Result<Vec<f32>, String> {
+        let numel = self.numel();
+        let mut host = vec![0.0f32; numel];
+        device
+            .dtoh_sync_copy(&self.buffer, &mut host)
+            .map_err(|e| format!("CudaTensor::to_cpu_vec dtoh failed: {e}"))?;
+        Ok(host)
     }
 }

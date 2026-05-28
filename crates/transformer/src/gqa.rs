@@ -582,6 +582,10 @@ pub struct GQA {
     pub wk: Array2<f32>,
     pub wv: Array2<f32>,
     pub wo: Array2<f32>,
+    pub wq_f16: Option<Vec<u16>>,
+    pub wk_f16: Option<Vec<u16>>,
+    pub wv_f16: Option<Vec<u16>>,
+    pub wo_f16: Option<Vec<u16>>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GqaGpuWeights>,
     #[cfg(feature = "gpu")]
@@ -602,6 +606,10 @@ impl Clone for GQA {
             wk: self.wk.clone(),
             wv: self.wv.clone(),
             wo: self.wo.clone(),
+            wq_f16: self.wq_f16.clone(),
+            wk_f16: self.wk_f16.clone(),
+            wv_f16: self.wv_f16.clone(),
+            wo_f16: self.wo_f16.clone(),
             use_half_precision: self.use_half_precision,
         }
     }
@@ -620,6 +628,10 @@ impl Clone for GQA {
             wk: self.wk.clone(),
             wv: self.wv.clone(),
             wo: self.wo.clone(),
+            wq_f16: self.wq_f16.clone(),
+            wk_f16: self.wk_f16.clone(),
+            wv_f16: self.wv_f16.clone(),
+            wo_f16: self.wo_f16.clone(),
             gpu_weights: OnceLock::new(),
             gpu_scratch: parking_lot::RwLock::new(None),
             use_half_precision: self.use_half_precision,
@@ -672,11 +684,32 @@ impl GQA {
             wk,
             wv,
             wo,
+            wq_f16: None,
+            wk_f16: None,
+            wv_f16: None,
+            wo_f16: None,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_scratch: parking_lot::RwLock::new(None),
             use_half_precision: false,
+        }
+    }
+
+    pub fn pack_f16_weights(&mut self) {
+        self.wq_f16 = Some(crate::pack_f32_slice_to_f16(self.wq.as_slice().unwrap()));
+        self.wk_f16 = Some(crate::pack_f32_slice_to_f16(self.wk.as_slice().unwrap()));
+        self.wv_f16 = Some(crate::pack_f32_slice_to_f16(self.wv.as_slice().unwrap()));
+        self.wo_f16 = Some(crate::pack_f32_slice_to_f16(self.wo.as_slice().unwrap()));
+    }
+
+    fn maybe_f16_matmul(&self, x: &Array2<f32>, w: &Array2<f32>, w_f16: &Option<Vec<u16>>) -> Array2<f32> {
+        if let Some(f16) = w_f16 {
+            let rows = w.shape()[0];
+            let cols = w.shape()[1];
+            crate::matmul_f16_cpu(x, f16, rows, cols)
+        } else {
+            x.dot(&w.t())
         }
     }
 
@@ -692,9 +725,9 @@ impl GQA {
         // GPU-resident execution uses `forward_gpu` (no per-layer readback).
         let (batch_size, _) = x.dim();
 
-        let q_proj = x.dot(&self.wq.t());
-        let k_proj = x.dot(&self.wk.t());
-        let v_proj = x.dot(&self.wv.t());
+        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
+        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
+        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -800,7 +833,7 @@ impl GQA {
             }
         }
 
-        output.dot(&self.wo.t())
+        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
     }
 
     pub fn forward_with_kv(
@@ -813,9 +846,9 @@ impl GQA {
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
 
-        let q_proj = x.dot(&self.wq.t());
-        let k_proj = x.dot(&self.wk.t());
-        let v_proj = x.dot(&self.wv.t());
+        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
+        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
+        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -924,7 +957,7 @@ impl GQA {
             }
         }
 
-        output.dot(&self.wo.t())
+        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
     }
 
     /// Forward pass using a paged KV cache (reads K/V from blocks per position).
@@ -941,9 +974,9 @@ impl GQA {
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
 
-        let q_proj = x.dot(&self.wq.t());
-        let k_proj = x.dot(&self.wk.t());
-        let v_proj = x.dot(&self.wv.t());
+        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
+        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
+        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -1059,7 +1092,7 @@ impl GQA {
             }
         }
 
-        output.dot(&self.wo.t())
+        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
     }
 }
 

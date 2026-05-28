@@ -55,6 +55,8 @@ pub static GPU_RECOVERED_EVENTS: AtomicU64 = AtomicU64::new(0);
 pub static KV_CACHE_USED_BLOCKS: AtomicU64 = AtomicU64::new(0);
 /// KV cache pressure: total available blocks.
 pub static KV_CACHE_TOTAL_BLOCKS: AtomicU64 = AtomicU64::new(0);
+/// KV cache memory usage in bytes (updated by paged_cache on alloc/free).
+pub static KV_CACHE_MEMORY_BYTES: AtomicU64 = AtomicU64::new(0);
 
 /// Current scheduler queue depth (waiting sequences in continuous batching).
 pub static SCHEDULER_QUEUE_DEPTH: AtomicI64 = AtomicI64::new(0);
