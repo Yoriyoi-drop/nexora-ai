@@ -69,7 +69,7 @@ async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<serde_json::V
 /// Contoh: wikitext → ["wikitext-2-raw-v1", "wikitext-103-raw-v1"]
 async fn resolve_config_names(client: &reqwest::Client, dataset: &str) -> Vec<String> {
     let url = format!(
-        "https://datasets-server.huggingface.co/configs?dataset={}",
+        "https://datasets-server.huggingface.co/{}",
         dataset
     );
     match fetch_json(client, &url).await {
