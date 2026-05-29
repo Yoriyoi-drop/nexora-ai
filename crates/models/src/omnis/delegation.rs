@@ -19,7 +19,7 @@ fn init_router() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone();
+            let embed = model.token_embedding.clone().unwrap();
             OmnisMoERouter::init(embed);
             let _ = INITIALIZED.set(true);
         }

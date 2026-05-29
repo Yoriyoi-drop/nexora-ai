@@ -227,6 +227,10 @@ pub enum Commands {
         /// Path to .safetensors checkpoint
         #[arg(short, long)]
         path: PathBuf,
+
+        /// Load directly to GPU (no CPU weights kept)
+        #[arg(long)]
+        gpu: bool,
     },
 
     /// Train a model

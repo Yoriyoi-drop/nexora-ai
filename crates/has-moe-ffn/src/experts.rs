@@ -22,10 +22,10 @@ pub struct ExpertConfig {
 /// Individual expert in the MoE system
 pub struct Expert {
     config: ExpertConfig,
-    fc1_weights: Vec<Vec<f32>>,
-    fc1_bias: Vec<f32>,
-    fc2_weights: Vec<Vec<f32>>,
-    fc2_bias: Vec<f32>,
+    fc1_weights: Option<Vec<Vec<f32>>>,
+    fc1_bias: Option<Vec<f32>>,
+    fc2_weights: Option<Vec<Vec<f32>>>,
+    fc2_bias: Option<Vec<f32>>,
     #[cfg(feature = "gpu")]
     fc1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
@@ -59,18 +59,12 @@ impl Expert {
             dropout_rate,
         };
 
-        // Initialize feed-forward network weights
-        let fc1_weights = Self::init_weights(hidden_size, intermediate_size);
-        let fc1_bias = vec![0.0; intermediate_size];
-        let fc2_weights = Self::init_weights(intermediate_size, hidden_size);
-        let fc2_bias = vec![0.0; hidden_size];
-
         Self {
             config,
-            fc1_weights,
-            fc1_bias,
-            fc2_weights,
-            fc2_bias,
+            fc1_weights: None,
+            fc1_bias: None,
+            fc2_weights: None,
+            fc2_bias: None,
             #[cfg(feature = "gpu")]
             fc1_gpu: std::sync::OnceLock::new(),
             #[cfg(feature = "gpu")]
@@ -88,6 +82,42 @@ impl Expert {
             #[cfg(feature = "cuda")]
             fc2_bias_cuda: std::sync::OnceLock::new(),
         }
+    }
+
+    fn get_fc1_weights(&self) -> &Vec<Vec<f32>> {
+        self.fc1_weights.as_ref().expect("fc1_weights not initialized — call init_random()")
+    }
+
+    fn get_fc1_bias(&self) -> &Vec<f32> {
+        self.fc1_bias.as_ref().expect("fc1_bias not initialized — call init_random()")
+    }
+
+    fn get_fc2_weights(&self) -> &Vec<Vec<f32>> {
+        self.fc2_weights.as_ref().expect("fc2_weights not initialized — call init_random()")
+    }
+
+    fn get_fc2_bias(&self) -> &Vec<f32> {
+        self.fc2_bias.as_ref().expect("fc2_bias not initialized — call init_random()")
+    }
+
+    pub fn init_random(&mut self) {
+        let h = self.config.hidden_size;
+        let i = self.config.intermediate_size;
+        self.fc1_weights = Some(Self::init_weights(h, i));
+        self.fc1_bias = Some(vec![0.0; i]);
+        self.fc2_weights = Some(Self::init_weights(i, h));
+        self.fc2_bias = Some(vec![0.0; h]);
+    }
+
+    pub fn drop_cpu_weights(&mut self) {
+        self.fc1_weights = None;
+        self.fc1_bias = None;
+        self.fc2_weights = None;
+        self.fc2_bias = None;
+    }
+
+    pub fn has_weights(&self) -> bool {
+        self.fc1_weights.is_some()
     }
 
     /// Initialize weights with Xavier/Glorot initialization
@@ -146,6 +176,8 @@ impl Expert {
             }
         };
         let dim = input.len();
+        let fc1_w = self.get_fc1_weights();
+        let fc1_b = self.get_fc1_bias();
 
         // Upload input as [1, hidden_size]
         let input_gpu =
@@ -153,19 +185,14 @@ impl Expert {
                 .ok()?;
 
         // fc1 weights: [intermediate_size, hidden_size] → transpose → [hidden_size, intermediate_size]
-        let fc1_w: Vec<f32> = self
-            .fc1_weights
-            .iter()
-            .flat_map(|r| r.iter())
-            .copied()
-            .collect();
+        let fc1_flat: Vec<f32> = fc1_w.iter().flat_map(|r| r.iter()).copied().collect();
         let w1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.fc1_weights.len(), dim], fc1_w).ok()?,
+            &ArrayD::from_shape_vec(vec![fc1_w.len(), dim], fc1_flat).ok()?,
         )
         .ok()?;
         let w1t_gpu = ctx.transpose(&w1_gpu).ok()?;
         let b1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?,
+            &ArrayD::from_shape_vec(vec![1, fc1_b.len()], fc1_b.clone()).ok()?,
         )
         .ok()?;
 
@@ -176,20 +203,17 @@ impl Expert {
         ctx.gelu_inplace(&mut hidden_gpu).ok()?;
 
         // fc2 weights: [hidden_size, intermediate_size] → transpose → [intermediate_size, hidden_size]
-        let fc2_w: Vec<f32> = self
-            .fc2_weights
-            .iter()
-            .flat_map(|r| r.iter())
-            .copied()
-            .collect();
-        let inter_size = self.fc2_weights.len();
+        let fc2_w = self.get_fc2_weights();
+        let fc2_b = self.get_fc2_bias();
+        let fc2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
+        let inter_size = fc2_w.len();
         let w2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![inter_size, dim], fc2_w).ok()?,
+            &ArrayD::from_shape_vec(vec![inter_size, dim], fc2_flat).ok()?,
         )
         .ok()?;
         let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
         let b2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?,
+            &ArrayD::from_shape_vec(vec![1, fc2_b.len()], fc2_b.clone()).ok()?,
         )
         .ok()?;
 
@@ -219,23 +243,27 @@ impl Expert {
         use ndarray::ArrayD;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
+        let fc1_w = self.fc1_weights.as_ref()?;
+        let fc1_b = self.fc1_bias.as_ref()?;
+        let fc2_w = self.fc2_weights.as_ref()?;
+        let fc2_b = self.fc2_bias.as_ref()?;
         let w1 = self.fc1_gpu.get_or_init(|| {
-            let flat: Vec<f32> = self.fc1_weights.iter().flatten().copied().collect();
-            let cpu = ArrayD::from_shape_vec(vec![self.fc1_weights.len(), self.config.hidden_size], flat).ok()?;
+            let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
+            let cpu = ArrayD::from_shape_vec(vec![fc1_w.len(), self.config.hidden_size], flat).ok()?;
             let gpu = GpuTensor::from_cpu(&cpu).ok()?;
             ctx.transpose(&gpu).ok()
         }).as_ref()?;
         let b1 = self.fc1_bias_gpu.get_or_init(|| {
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, self.fc1_bias.len()], self.fc1_bias.clone()).ok()?).ok()
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, fc1_b.len()], fc1_b.clone()).ok()?).ok()
         }).as_ref()?;
         let w2 = self.fc2_gpu.get_or_init(|| {
-            let flat: Vec<f32> = self.fc2_weights.iter().flatten().copied().collect();
-            let cpu = ArrayD::from_shape_vec(vec![self.fc2_weights.len(), self.config.intermediate_size], flat).ok()?;
+            let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
+            let cpu = ArrayD::from_shape_vec(vec![fc2_w.len(), self.config.intermediate_size], flat).ok()?;
             let gpu = GpuTensor::from_cpu(&cpu).ok()?;
             ctx.transpose(&gpu).ok()
         }).as_ref()?;
         let b2 = self.fc2_bias_gpu.get_or_init(|| {
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, self.fc2_bias.len()], self.fc2_bias.clone()).ok()?).ok()
+            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, fc2_b.len()], fc2_b.clone()).ok()?).ok()
         }).as_ref()?;
         Some((w1, b1, w2, b2))
     }
@@ -262,21 +290,25 @@ impl Expert {
     #[cfg(feature = "cuda")]
     fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor)> {
         use nexora_autograd::gpu::cuda::CudaTensor;
+        let fc1_w = self.fc1_weights.as_ref()?;
+        let fc1_b = self.fc1_bias.as_ref()?;
+        let fc2_w = self.fc2_weights.as_ref()?;
+        let fc2_b = self.fc2_bias.as_ref()?;
         let w1 = self.fc1_cuda.get_or_init(|| {
-            let flat: Vec<f32> = self.fc1_weights.iter().flatten().copied().collect();
+            let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
             // Store transposed: [hidden_size, intermediate_size]
-            CudaTensor::from_cpu(&cuda.device, vec![self.fc1_weights.len(), self.config.hidden_size], &flat).ok()
+            CudaTensor::from_cpu(&cuda.device, vec![fc1_w.len(), self.config.hidden_size], &flat).ok()
         }).as_ref()?;
         let b1 = self.fc1_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.device, vec![1, self.fc1_bias.len()], &self.fc1_bias).ok()
+            CudaTensor::from_cpu(&cuda.device, vec![1, fc1_b.len()], fc1_b).ok()
         }).as_ref()?;
         let w2 = self.fc2_cuda.get_or_init(|| {
-            let flat: Vec<f32> = self.fc2_weights.iter().flatten().copied().collect();
+            let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
             // Store transposed: [intermediate_size, hidden_size]
-            CudaTensor::from_cpu(&cuda.device, vec![self.fc2_weights.len(), self.config.intermediate_size], &flat).ok()
+            CudaTensor::from_cpu(&cuda.device, vec![fc2_w.len(), self.config.intermediate_size], &flat).ok()
         }).as_ref()?;
         let b2 = self.fc2_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.device, vec![1, self.fc2_bias.len()], &self.fc2_bias).ok()
+            CudaTensor::from_cpu(&cuda.device, vec![1, fc2_b.len()], fc2_b).ok()
         }).as_ref()?;
         Some((w1, b1, w2, b2))
     }
@@ -347,9 +379,10 @@ impl Expert {
 
     /// First linear layer forward pass
     fn fc1_forward(&self, input: &[f32]) -> Vec<f32> {
-        self.fc1_weights
-            .iter()
-            .zip(self.fc1_bias.iter())
+        let w = self.get_fc1_weights();
+        let b = self.get_fc1_bias();
+        w.iter()
+            .zip(b.iter())
             .map(|(weights, bias)| {
                 let mut sum = *bias;
                 for (w, x) in weights.iter().zip(input.iter()) {
@@ -362,9 +395,10 @@ impl Expert {
 
     /// Second linear layer forward pass
     fn fc2_forward(&self, input: &[f32]) -> Vec<f32> {
-        self.fc2_weights
-            .iter()
-            .zip(self.fc2_bias.iter())
+        let w = self.get_fc2_weights();
+        let b = self.get_fc2_bias();
+        w.iter()
+            .zip(b.iter())
             .map(|(weights, bias)| {
                 let mut sum = *bias;
                 for (w, x) in weights.iter().zip(input.iter()) {
@@ -412,7 +446,9 @@ mod tests {
     use super::*;
 
     fn small_expert() -> Expert {
-        Expert::new(4, 8, false, 0.0)
+        let mut e = Expert::new(4, 8, false, 0.0);
+        e.init_random();
+        e
     }
 
     #[test]
@@ -436,14 +472,15 @@ mod tests {
 
     #[test]
     fn test_new_expert_config() {
-        let e = Expert::new(16, 32, true, 0.1);
+        let mut e = Expert::new(16, 32, true, 0.1);
+        e.init_random();
         let (h, i) = e.size_info();
         assert_eq!(h, 16);
         assert_eq!(i, 32);
-        assert_eq!(e.fc1_weights.len(), 32);
-        assert_eq!(e.fc1_weights[0].len(), 16);
-        assert_eq!(e.fc2_weights.len(), 16);
-        assert_eq!(e.fc2_weights[0].len(), 32);
+        assert_eq!(e.get_fc1_weights().len(), 32);
+        assert_eq!(e.get_fc1_weights()[0].len(), 16);
+        assert_eq!(e.get_fc2_weights().len(), 16);
+        assert_eq!(e.get_fc2_weights()[0].len(), 32);
     }
 
     #[test]

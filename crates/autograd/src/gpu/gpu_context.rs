@@ -796,12 +796,13 @@ impl GpuContext {
         });
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("l2_cfg"),
-            size: 4,
+            size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let cfg: [u32; 4] = [numel, 0, 0, 0];
         self.queue
-            .write_buffer(&cfg_buf, 0, bytemuck::bytes_of(&numel));
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
         let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("l2_bg"),
             layout: &pipeline.bind_group_layout,
@@ -842,11 +843,11 @@ impl GpuContext {
         });
         let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cs_cfg"),
-            size: 8,
+            size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let cfg: [u32; 2] = [batch, dim];
+        let cfg: [u32; 4] = [batch, dim, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
         let pipeline = self
@@ -2744,7 +2745,61 @@ impl GpuContext {
         self.elementwise_unary_inplace(tensor, ElemOp::Gelu)
     }
 
-    /// Dispatch element-wise/binary op: output = op(a, b)
+    /// Broadcast a GPU tensor to a target shape.
+    /// Efficient scalar path (1 element → N) avoids full CPU round-trip.
+    /// General path reads tensor to CPU, broadcasts via ndarray, re-uploads.
+    pub fn broadcast_tensor(
+        &self,
+        tensor: &GpuTensor,
+        target: &[usize],
+    ) -> Result<GpuTensor, GpuError> {
+        let shape = tensor.shape();
+        let target_numel: usize = target.iter().product();
+
+        if shape == target {
+            return Ok(tensor.clone());
+        }
+
+        if tensor.numel() == 1 {
+            let scalar = tensor.to_cpu_first_element()?;
+            let data = vec![scalar; target_numel];
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("broadcast_scalar"),
+                size: (target_numel * 4) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&buffer, 0, bytemuck::cast_slice(&data));
+
+            crate::gpu::gpu_observability::PCIE_WRITE_BYTES.fetch_add(
+                (target_numel * 4) as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+
+            return Ok(GpuTensor {
+                shape: target.to_vec(),
+                buffer,
+                dtype: tensor.dtype,
+                device_id: tensor.device_id,
+            });
+        }
+
+        let cpu_data = tensor.to_cpu()?;
+        let bc_data = match cpu_data.broadcast(target) {
+            Some(view) => view.to_owned(),
+            None => {
+                return Err(GpuError::ShapeMismatch(format!(
+                    "Cannot broadcast {:?} to {:?}",
+                    shape, target
+                )));
+            }
+        };
+        GpuTensor::from_cpu(&bc_data)
+    }
+
+    /// Dispatch element-wise/binary op: output = op(a, b).
+    /// Automatically broadcasts shapes (including scalar→tensor) before dispatch.
     pub fn elementwise_binary(
         &self,
         a: &GpuTensor,
@@ -2753,9 +2808,22 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let a_shape = a.shape();
         let b_shape = b.shape();
+
         if a_shape != b_shape {
-            return Err(GpuError::ElemShape(a_shape, b_shape));
+            let target = crate::broadcast::broadcast_shapes(&a_shape, &b_shape);
+            let a_bc = if a_shape != target {
+                self.broadcast_tensor(a, &target)?
+            } else {
+                a.clone()
+            };
+            let b_bc = if b_shape != target {
+                self.broadcast_tensor(b, &target)?
+            } else {
+                b.clone()
+            };
+            return self.elementwise_binary(&a_bc, &b_bc, op);
         }
+
         let numel = a.numel();
 
         let out_buffer = self.alloc_or_create_buffer(

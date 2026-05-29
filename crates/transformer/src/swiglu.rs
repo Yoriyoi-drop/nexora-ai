@@ -3,6 +3,9 @@ use rand::Rng;
 use std::sync::OnceLock;
 
 #[cfg(feature = "gpu")]
+use nexora_autograd::gpu::GpuTensor;
+
+#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuTemps {
     pub w1_t: nexora_autograd::gpu::GpuTensor,
@@ -23,9 +26,9 @@ pub(crate) struct SwigluGpuWeights {
 
 #[derive(Debug)]
 pub struct SwiGLU {
-    pub w1: Array2<f32>,
-    pub w2: Array2<f32>,
-    pub w3: Array2<f32>,
+    pub w1: Option<Array2<f32>>,
+    pub w2: Option<Array2<f32>>,
+    pub w3: Option<Array2<f32>>,
     pub w1_f16: Option<Vec<u16>>,
     pub w2_f16: Option<Vec<u16>>,
     pub w3_f16: Option<Vec<u16>>,
@@ -34,7 +37,6 @@ pub struct SwiGLU {
     pub(crate) use_half_precision: bool,
 }
 
-#[cfg(not(feature = "gpu"))]
 impl Clone for SwiGLU {
     fn clone(&self) -> Self {
         Self {
@@ -44,21 +46,7 @@ impl Clone for SwiGLU {
             w1_f16: self.w1_f16.clone(),
             w2_f16: self.w2_f16.clone(),
             w3_f16: self.w3_f16.clone(),
-            use_half_precision: self.use_half_precision,
-        }
-    }
-}
-
-#[cfg(feature = "gpu")]
-impl Clone for SwiGLU {
-    fn clone(&self) -> Self {
-        Self {
-            w1: self.w1.clone(),
-            w2: self.w2.clone(),
-            w3: self.w3.clone(),
-            w1_f16: self.w1_f16.clone(),
-            w2_f16: self.w2_f16.clone(),
-            w3_f16: self.w3_f16.clone(),
+            #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             use_half_precision: self.use_half_precision,
         }
@@ -66,24 +54,11 @@ impl Clone for SwiGLU {
 }
 
 impl SwiGLU {
-    pub fn new(hidden_size: usize, intermediate_size: usize) -> Self {
-        let mut rng = rand::thread_rng();
-        let scale = (hidden_size as f32).sqrt().recip();
-
-        let w1 = Array2::from_shape_fn((intermediate_size, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-        let w2 = Array2::from_shape_fn((hidden_size, intermediate_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-        let w3 = Array2::from_shape_fn((intermediate_size, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-
+    pub fn new(_hidden_size: usize, _intermediate_size: usize) -> Self {
         Self {
-            w1,
-            w2,
-            w3,
+            w1: None,
+            w2: None,
+            w3: None,
             w1_f16: None,
             w2_f16: None,
             w3_f16: None,
@@ -93,10 +68,37 @@ impl SwiGLU {
         }
     }
 
+    /// Initialize CPU weights with random values (for tests / CPU fallback).
+    pub fn init_random(&mut self, hidden_size: usize, intermediate_size: usize) {
+        let mut rng = rand::thread_rng();
+        let scale = (hidden_size as f32).sqrt().recip();
+        self.w1 = Some(Array2::from_shape_fn((intermediate_size, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        self.w2 = Some(Array2::from_shape_fn((hidden_size, intermediate_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        self.w3 = Some(Array2::from_shape_fn((intermediate_size, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+    }
+
     pub fn pack_f16_weights(&mut self) {
-        self.w1_f16 = Some(crate::pack_f32_slice_to_f16(self.w1.as_slice().unwrap()));
-        self.w2_f16 = Some(crate::pack_f32_slice_to_f16(self.w2.as_slice().unwrap()));
-        self.w3_f16 = Some(crate::pack_f32_slice_to_f16(self.w3.as_slice().unwrap()));
+        if let (Some(w1), Some(w2), Some(w3)) = (&self.w1, &self.w2, &self.w3) {
+            self.w1_f16 = Some(crate::pack_f32_slice_to_f16(w1.as_slice().unwrap()));
+            self.w2_f16 = Some(crate::pack_f32_slice_to_f16(w2.as_slice().unwrap()));
+            self.w3_f16 = Some(crate::pack_f32_slice_to_f16(w3.as_slice().unwrap()));
+        }
+    }
+
+    /// Drop CPU weights to free RAM.
+    pub fn drop_cpu_weights(&mut self) {
+        self.w1 = None;
+        self.w2 = None;
+        self.w3 = None;
+        self.w1_f16 = None;
+        self.w2_f16 = None;
+        self.w3_f16 = None;
     }
 
     fn maybe_f16_matmul(&self, x: &Array2<f32>, w: &Array2<f32>, w_f16: &Option<Vec<u16>>) -> Array2<f32> {
@@ -109,11 +111,24 @@ impl SwiGLU {
         }
     }
 
+    fn get_w1(&self) -> &Array2<f32> {
+        self.w1.as_ref().expect("SwiGLU w1 not available — use readback_weights() or forward_gpu()")
+    }
+
+    fn get_w2(&self) -> &Array2<f32> {
+        self.w2.as_ref().expect("SwiGLU w2 not available")
+    }
+
+    fn get_w3(&self) -> &Array2<f32> {
+        self.w3.as_ref().expect("SwiGLU w3 not available")
+    }
+
     pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        // Pure CPU forward path.
-        // GPU-resident execution uses `forward_gpu` (no per-layer readback).
-        let gate = self.maybe_f16_matmul(x, &self.w1, &self.w1_f16);
-        let hidden = self.maybe_f16_matmul(x, &self.w3, &self.w3_f16);
+        let w1 = self.get_w1();
+        let w2 = self.get_w2();
+        let w3 = self.get_w3();
+        let gate = self.maybe_f16_matmul(x, w1, &self.w1_f16);
+        let hidden = self.maybe_f16_matmul(x, w3, &self.w3_f16);
 
         let mut gated = Array2::zeros(gate.dim());
 
@@ -125,7 +140,79 @@ impl SwiGLU {
                 *g = gv * sigmoid * hv;
             });
 
-        self.maybe_f16_matmul(&gated, &self.w2, &self.w2_f16)
+        self.maybe_f16_matmul(&gated, w2, &self.w2_f16)
+    }
+
+    /// Upload weight data directly to GPU from slices.
+    #[cfg(feature = "gpu")]
+    pub fn preupload_from_slices(
+        &self,
+        w1_data: &[f32],
+        w2_data: &[f32],
+        w3_data: &[f32],
+        w1_shape: &[usize],
+        w2_shape: &[usize],
+        w3_shape: &[usize],
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        if self.gpu_weights.get().is_some() {
+            return Ok(());
+        }
+        let ctx = GpuContext::global()?;
+        let mk = |data: &[f32], shape: &[usize]| -> Result<GpuTensor, GpuError> {
+            let arr = ndarray::ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+            GpuTensor::from_cpu(&arr)
+        };
+        let w1 = mk(w1_data, w1_shape)?;
+        let w2 = mk(w2_data, w2_shape)?;
+        let w3 = mk(w3_data, w3_shape)?;
+        let use_f16 = self.use_half_precision;
+        let (w1_f16, w2_f16, w3_f16) = if use_f16 {
+            (
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w1)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w2)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w3)?)?),
+            )
+        } else {
+            (None, None, None)
+        };
+        let (w1_t, w2_t, w3_t) = if use_f16 {
+            let d = GpuTensor::zeros(&[1])?;
+            (d.clone(), d.clone(), d)
+        } else {
+            (
+                ctx.transpose(&w1)?,
+                ctx.transpose(&w2)?,
+                ctx.transpose(&w3)?,
+            )
+        };
+        self.gpu_weights
+            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16 })
+            .map_err(|_| GpuError::Unsupported("already set".into()))
+    }
+
+    /// Readback weights from GPU → transpose back to original orientation.
+    /// GPU stores w1_t = w1^T for matmul; this returns original w1, w2, w3.
+    #[cfg(feature = "gpu")]
+    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuError;
+        let cached = self.gpu_weights.get().ok_or_else(|| {
+            GpuError::Unsupported("SwiGLU weights not on GPU".into())
+        })?;
+        let read = |t: &GpuTensor| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+            let cpu = t.to_cpu()?;
+            let shape = cpu.shape();
+            Array2::from_shape_vec(
+                (shape[0], shape[1]),
+                cpu.as_slice().unwrap_or(&[]).to_vec(),
+            ).map_err(|e| GpuError::Unsupported(e.to_string()))
+        };
+        let w1_t = read(&cached.w1_t)?;  // [hidden, intermediate]
+        let w2_t = read(&cached.w2_t)?;  // [intermediate, hidden]
+        let w3_t = read(&cached.w3_t)?;  // [hidden, intermediate]
+        // Transpose back to original orientation
+        Ok((w1_t.t().to_owned(), w2_t.t().to_owned(), w3_t.t().to_owned()))
     }
 }
 
@@ -136,7 +223,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_forward_shape() {
-        let ffn = SwiGLU::new(8, 16);
+        let mut ffn = SwiGLU::new(8, 16);
+        ffn.init_random(8, 16);
         let x = array![[1.0; 8], [2.0; 8]];
         let out = ffn.forward(&x);
         assert_eq!(out.dim(), (2, 8));
@@ -145,7 +233,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_forward_batch1() {
-        let ffn = SwiGLU::new(4, 6);
+        let mut ffn = SwiGLU::new(4, 6);
+        ffn.init_random(4, 6);
         let x = array![[0.5, -0.3, 1.2, -0.7]];
         let out = ffn.forward(&x);
         assert_eq!(out.dim(), (1, 4));
@@ -154,7 +243,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_forward_deterministic() {
-        let ffn = SwiGLU::new(4, 8);
+        let mut ffn = SwiGLU::new(4, 8);
+        ffn.init_random(4, 8);
         let x = array![[0.1, 0.2, 0.3, 0.4]];
         let out1 = ffn.forward(&x);
         let out2 = ffn.forward(&x);
@@ -168,7 +258,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_forward_nonzero_output() {
-        let ffn = SwiGLU::new(8, 16);
+        let mut ffn = SwiGLU::new(8, 16);
+        ffn.init_random(8, 16);
         let x = array![[1.0; 8]];
         let out = ffn.forward(&x);
         let has_some_signal = out.iter().any(|v| v.abs() > 1e-6);
@@ -180,7 +271,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_forward_zero_output() {
-        let ffn = SwiGLU::new(4, 8);
+        let mut ffn = SwiGLU::new(4, 8);
+        ffn.init_random(4, 8);
         let x = array![[0.0; 4]];
         let out = ffn.forward(&x);
         // With zero input, gate=0 so sigmoid(gate)=0.5, silu=0*0.5=0, but hidden=0 also -> 0
@@ -195,7 +287,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_silu_property() {
-        let ffn = SwiGLU::new(4, 4);
+        let mut ffn = SwiGLU::new(4, 4);
+        ffn.init_random(4, 4);
         let x = array![[-10.0, -1.0, 0.0, 10.0]];
         let out = ffn.forward(&x);
         assert!(out.iter().all(|v| v.is_finite()));
@@ -203,7 +296,8 @@ mod tests {
 
     #[test]
     fn test_swiglu_negative_input() {
-        let ffn = SwiGLU::new(4, 8);
+        let mut ffn = SwiGLU::new(4, 8);
+        ffn.init_random(4, 8);
         let x = array![[-5.0; 4]];
         let out = ffn.forward(&x);
         assert_eq!(out.dim(), (1, 4));
@@ -214,26 +308,33 @@ mod tests {
 #[cfg(feature = "gpu")]
 impl SwiGLU {
     fn ensure_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
         let ctx = GpuContext::global()?;
-        let mk = |arr: &Array2<f32>| -> Result<GpuTensor, nexora_autograd::gpu::GpuError> {
+        let mk = |arr: &Array2<f32>| -> Result<GpuTensor, GpuError> {
             let shape = vec![arr.shape()[0], arr.shape()[1]];
             let data = arr
                 .as_slice()
-                .ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("non-contiguous".into())
-                })?
+                .ok_or_else(|| GpuError::Unsupported("non-contiguous".into()))?
                 .to_vec();
             let cpu_arr = ndarray::ArrayD::from_shape_vec(shape, data)
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
             GpuTensor::from_cpu(&cpu_arr)
         };
-        let w1 = mk(&self.w1)?;
-        let w2 = mk(&self.w2)?;
-        let w3 = mk(&self.w3)?;
+        let w1 = match self.w1.as_ref() {
+            Some(w) => mk(w)?,
+            None => return Err(GpuError::Unsupported("SwiGLU w1 not available for GPU upload".into())),
+        };
+        let w2 = match self.w2.as_ref() {
+            Some(w) => mk(w)?,
+            None => return Err(GpuError::Unsupported("SwiGLU w2 not available".into())),
+        };
+        let w3 = match self.w3.as_ref() {
+            Some(w) => mk(w)?,
+            None => return Err(GpuError::Unsupported("SwiGLU w3 not available".into())),
+        };
         let use_f16 = self.use_half_precision;
         let (w1_f16, w2_f16, w3_f16) = if use_f16 {
             (
@@ -244,10 +345,6 @@ impl SwiGLU {
         } else {
             (None, None, None)
         };
-        // F16 mode: f32 transposed FFN weights ga dipake —
-        // forward_gpu upconvert f16→f32 temp per-call.
-        // `zeros(&[1])` DUMMY older (4 bytes per weight, total ~12 bytes),
-        // BUKAN 3 matriks FFN ukuran penuh. VRAM hemat: (3 × intermediate × hidden) bytes.
         let (w1_t, w2_t, w3_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;
             (d.clone(), d.clone(), d)
@@ -259,19 +356,12 @@ impl SwiGLU {
             )
         };
         self.gpu_weights
-            .set(SwigluGpuWeights {
-                w1_t,
-                w2_t,
-                w3_t,
-                w1_f16,
-                w2_f16,
-                w3_f16,
-            })
-            .map_err(|_| nexora_autograd::gpu::GpuError::Unsupported("already set".into()))?;
+            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16 })
+            .map_err(|_| GpuError::Unsupported("already set".into()))?;
         Ok(())
     }
 
-    /// Pre-upload weights to GPU — call before inference to avoid first-pass latency.
+    /// Pre-upload weights to GPU from CPU Option fields.
     pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         self.ensure_weights_gpu()
     }

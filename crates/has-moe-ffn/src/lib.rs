@@ -150,6 +150,14 @@ impl HasMoeFFN {
             .collect()
     }
 
+    /// Initialize all sub-components with random weights
+    pub fn init_random(&mut self) {
+        self.router.init_random();
+        for expert in &mut self.experts {
+            expert.init_random();
+        }
+    }
+
     /// Get configuration
     pub fn config(&self) -> &HasMoeFFNConfig {
         &self.config
@@ -167,14 +175,16 @@ mod tests {
     use super::*;
 
     fn small_moe() -> HasMoeFFN {
-        HasMoeFFN::new(HasMoeFFNConfig {
+        let mut moe = HasMoeFFN::new(HasMoeFFNConfig {
             num_experts: 4,
             top_k: 2,
             hidden_size: 4,
             intermediate_size: 8,
             use_dropout: false,
             dropout_rate: 0.0,
-        })
+        });
+        moe.init_random();
+        moe
     }
 
     #[test]

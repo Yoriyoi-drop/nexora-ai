@@ -1519,16 +1519,29 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                                 false,
                             );
                         }
-                        // For grad tracking: use elementwise backward on GPU
-                        let saved = gpu_out.clone();
+                        // For grad tracking: readback to CPU for backward
+                        let soft_cpu = gpu_out
+                            .to_cpu()
+                            .map(|data| {
+                                ArrayD::from_shape_vec(gpu_out.shape.clone(), data).unwrap_or_else(
+                                    |e| {
+                                        debug!("shape encoding failed (infallible): {e}");
+                                        ArrayD::zeros(vec![0])
+                                    },
+                                )
+                            })
+                            .unwrap_or_else(|e| {
+                                warn!("causal_softmax GPU readback failed: {e}");
+                                ArrayD::zeros(vec![0])
+                            });
                         let inputs = vec![input.clone()];
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_out,
                             inputs,
-                            vec![], // CPU saved — not needed for 1D causal
-                            vec![saved],
+                            vec![soft_cpu],
+                            vec![],
                             Box::new(move |grad, _saved| {
-                                let soft = _saved[0].clone();
+                                let soft = &_saved[0];
                                 let seq = soft.shape()[0];
                                 let mut dx = vec![0.0f32; soft.len()];
                                 for i in 0..seq {

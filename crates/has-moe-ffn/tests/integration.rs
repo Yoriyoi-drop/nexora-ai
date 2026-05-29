@@ -11,7 +11,8 @@ fn test_moe_end_to_end_small() {
         use_dropout: false,
         dropout_rate: 0.0,
     };
-    let moe = HasMoeFFN::new(config);
+    let mut moe = HasMoeFFN::new(config);
+    moe.init_random();
     let input = Array2::from_shape_fn((2, 8), |(i, j)| (i * 8 + j) as f32 / 16.0);
     let output = moe.forward(&input);
     assert_eq!(output.dim(), (2, 8));
@@ -30,7 +31,8 @@ fn test_moe_different_batch_sizes() {
         use_dropout: false,
         dropout_rate: 0.0,
     };
-    let moe = HasMoeFFN::new(config);
+    let mut moe = HasMoeFFN::new(config);
+    moe.init_random();
 
     for batch_size in &[1, 2, 4, 8] {
         let input = Array2::ones((*batch_size, 4));
@@ -49,7 +51,8 @@ fn test_moe_with_single_expert_top1() {
         use_dropout: false,
         dropout_rate: 0.0,
     };
-    let moe = HasMoeFFN::new(config);
+    let mut moe = HasMoeFFN::new(config);
+    moe.init_random();
     let input = Array2::ones((3, 4));
     let output = moe.forward(&input);
     assert_eq!(output.dim(), (3, 4));
@@ -65,7 +68,8 @@ fn test_moe_output_finite_all_values() {
         use_dropout: false,
         dropout_rate: 0.0,
     };
-    let moe = HasMoeFFN::new(config);
+    let mut moe = HasMoeFFN::new(config);
+    moe.init_random();
     let input = Array2::from_shape_fn((4, 16), |(i, j)| (i * 16 + j) as f32 / 64.0);
     let output = moe.forward(&input);
     for val in output.iter() {
@@ -83,7 +87,8 @@ fn test_router_softmax_consistency() {
         use_dropout: false,
         dropout_rate: 0.0,
     };
-    let moe = HasMoeFFN::new(config);
+    let mut moe = HasMoeFFN::new(config);
+    moe.init_random();
     let input = Array2::ones((3, 8));
     let output = moe.forward(&input);
     assert_eq!(output.dim(), (3, 8));
@@ -126,4 +131,5 @@ fn test_moe_config_access() {
     let cfg = moe.config();
     assert_eq!(cfg.num_experts, 8);
     assert_eq!(cfg.hidden_size, 768);
+    // router/expert weights start uninitialized
 }

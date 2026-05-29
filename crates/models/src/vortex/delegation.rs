@@ -20,7 +20,7 @@ fn init_analyzer() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone();
+            let embed = model.token_embedding.clone().unwrap();
             CodeReviewClassifier::init(embed);
             let _ = INITIALIZED.set(true);
         }

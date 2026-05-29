@@ -59,7 +59,6 @@ impl GpuKVCacheEntry {
         max_seq: usize,
         use_f16: bool,
     ) -> Result<Self, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuError;
         if use_f16 {
             let num_f16 = max_seq * kv_heads * head_dim;
             let buf_size = ((num_f16 + 1) / 2 * 4) as u64;
@@ -578,10 +577,10 @@ pub struct GQA {
     pub head_dim: usize,
     pub num_groups: usize,
     pub head_dim_rs: f32,
-    pub wq: Array2<f32>,
-    pub wk: Array2<f32>,
-    pub wv: Array2<f32>,
-    pub wo: Array2<f32>,
+    pub wq: Option<Array2<f32>>,
+    pub wk: Option<Array2<f32>>,
+    pub wv: Option<Array2<f32>>,
+    pub wo: Option<Array2<f32>>,
     pub wq_f16: Option<Vec<u16>>,
     pub wk_f16: Option<Vec<u16>>,
     pub wv_f16: Option<Vec<u16>>,
@@ -597,11 +596,11 @@ pub struct GQA {
 impl Clone for GQA {
     fn clone(&self) -> Self {
         Self {
-            num_heads: self.num_heads.clone(),
-            num_kv_heads: self.num_kv_heads.clone(),
-            head_dim: self.head_dim.clone(),
-            num_groups: self.num_groups.clone(),
-            head_dim_rs: self.head_dim_rs.clone(),
+            num_heads: self.num_heads,
+            num_kv_heads: self.num_kv_heads,
+            head_dim: self.head_dim,
+            num_groups: self.num_groups,
+            head_dim_rs: self.head_dim_rs,
             wq: self.wq.clone(),
             wk: self.wk.clone(),
             wv: self.wv.clone(),
@@ -619,11 +618,11 @@ impl Clone for GQA {
 impl Clone for GQA {
     fn clone(&self) -> Self {
         Self {
-            num_heads: self.num_heads.clone(),
-            num_kv_heads: self.num_kv_heads.clone(),
-            head_dim: self.head_dim.clone(),
-            num_groups: self.num_groups.clone(),
-            head_dim_rs: self.head_dim_rs.clone(),
+            num_heads: self.num_heads,
+            num_kv_heads: self.num_kv_heads,
+            head_dim: self.head_dim,
+            num_groups: self.num_groups,
+            head_dim_rs: self.head_dim_rs,
             wq: self.wq.clone(),
             wk: self.wk.clone(),
             wv: self.wv.clone(),
@@ -658,32 +657,16 @@ impl KVCacheEntry {
 
 impl GQA {
     pub fn new(hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) -> Self {
-        let mut rng = rand::thread_rng();
-        let scale = (head_dim as f32).sqrt().recip();
-
-        let wq = Array2::from_shape_fn((num_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-        let wk = Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-        let wv = Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-        let wo = Array2::from_shape_fn((hidden_size, num_heads * head_dim), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        });
-
         Self {
             num_heads,
             num_kv_heads,
             head_dim,
             num_groups: num_heads / num_kv_heads,
             head_dim_rs: 1.0 / (head_dim as f32).sqrt(),
-            wq,
-            wk,
-            wv,
-            wo,
+            wq: None,
+            wk: None,
+            wv: None,
+            wo: None,
             wq_f16: None,
             wk_f16: None,
             wv_f16: None,
@@ -696,11 +679,48 @@ impl GQA {
         }
     }
 
+    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) {
+        let mut rng = rand::thread_rng();
+        let scale = (head_dim as f32).sqrt().recip();
+        self.wq = Some(Array2::from_shape_fn((num_heads * head_dim, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        self.wk = Some(Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        self.wv = Some(Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        self.wo = Some(Array2::from_shape_fn((hidden_size, num_heads * head_dim), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+    }
+
+    fn get_wq(&self) -> &Array2<f32> {
+        self.wq.as_ref().expect("GQA wq not available — use readback_weights() or forward_gpu()")
+    }
+
+    fn get_wk(&self) -> &Array2<f32> {
+        self.wk.as_ref().expect("GQA wk not available")
+    }
+
+    fn get_wv(&self) -> &Array2<f32> {
+        self.wv.as_ref().expect("GQA wv not available")
+    }
+
+    fn get_wo(&self) -> &Array2<f32> {
+        self.wo.as_ref().expect("GQA wo not available")
+    }
+
     pub fn pack_f16_weights(&mut self) {
-        self.wq_f16 = Some(crate::pack_f32_slice_to_f16(self.wq.as_slice().unwrap()));
-        self.wk_f16 = Some(crate::pack_f32_slice_to_f16(self.wk.as_slice().unwrap()));
-        self.wv_f16 = Some(crate::pack_f32_slice_to_f16(self.wv.as_slice().unwrap()));
-        self.wo_f16 = Some(crate::pack_f32_slice_to_f16(self.wo.as_slice().unwrap()));
+        if let (Some(wq), Some(wk), Some(wv), Some(wo)) =
+            (&self.wq, &self.wk, &self.wv, &self.wo)
+        {
+            self.wq_f16 = Some(crate::pack_f32_slice_to_f16(wq.as_slice().unwrap()));
+            self.wk_f16 = Some(crate::pack_f32_slice_to_f16(wk.as_slice().unwrap()));
+            self.wv_f16 = Some(crate::pack_f32_slice_to_f16(wv.as_slice().unwrap()));
+            self.wo_f16 = Some(crate::pack_f32_slice_to_f16(wo.as_slice().unwrap()));
+        }
     }
 
     fn maybe_f16_matmul(&self, x: &Array2<f32>, w: &Array2<f32>, w_f16: &Option<Vec<u16>>) -> Array2<f32> {
@@ -711,6 +731,93 @@ impl GQA {
         } else {
             x.dot(&w.t())
         }
+    }
+
+    pub fn drop_cpu_weights(&mut self) {
+        self.wq = None;
+        self.wk = None;
+        self.wv = None;
+        self.wo = None;
+        self.wq_f16 = None;
+        self.wk_f16 = None;
+        self.wv_f16 = None;
+        self.wo_f16 = None;
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn preupload_from_slices(
+        &self,
+        wq_data: &[f32], wk_data: &[f32], wv_data: &[f32], wo_data: &[f32],
+        wq_shape: &[usize], wk_shape: &[usize], wv_shape: &[usize], wo_shape: &[usize],
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        let ctx = GpuContext::global()?;
+        let mk = |data: &[f32], shape: &[usize]| -> Result<GpuTensor, GpuError> {
+            let arr = ndarray::ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
+                .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+            GpuTensor::from_cpu(&arr)
+        };
+        let wq = mk(wq_data, wq_shape)?;
+        let wk = mk(wk_data, wk_shape)?;
+        let wv = mk(wv_data, wv_shape)?;
+        let wo = mk(wo_data, wo_shape)?;
+        let use_f16 = self.use_half_precision;
+        let (wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
+            (
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wq)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wk)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wv)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&wo)?)?),
+            )
+        } else {
+            (None, None, None, None)
+        };
+        // F16 mode: f32 transposed weights are dummy
+        let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
+            let d = GpuTensor::zeros(&[1])?;
+            (d.clone(), d.clone(), d.clone(), d)
+        } else {
+            (
+                ctx.transpose(&wq)?,
+                ctx.transpose(&wk)?,
+                ctx.transpose(&wv)?,
+                ctx.transpose(&wo)?,
+            )
+        };
+        self.gpu_weights
+            .set(GqaGpuWeights { wq_t, wk_t, wv_t, wo_t, wq_f16, wk_f16, wv_f16, wo_f16 })
+            .map_err(|_| GpuError::Unsupported("already set".into()))?;
+        Ok(())
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global()?;
+        let gw = self.gpu_weights.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("no gpu weights".into())
+        })?;
+        let read = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+            let t_t = ctx.transpose(t)?;
+            let arr_d = t_t.to_cpu()?;
+            let shape = vec![orig_shape[0], orig_shape[1]];
+            ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))
+                .map(|a| a.into_dimensionality::<ndarray::Ix2>().unwrap())
+        };
+        let wq_shape = self.wq.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
+            .unwrap_or_default();
+        let wk_shape = self.wk.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
+            .unwrap_or_default();
+        let wv_shape = self.wv.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
+            .unwrap_or_default();
+        let wo_shape = self.wo.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
+            .unwrap_or_default();
+        let wq = read(&gw.wq_t, &wq_shape)?;
+        let wk = read(&gw.wk_t, &wk_shape)?;
+        let wv = read(&gw.wv_t, &wv_shape)?;
+        let wo = read(&gw.wo_t, &wo_shape)?;
+        Ok((wq, wk, wv, wo))
     }
 
     pub fn forward(
@@ -725,9 +832,9 @@ impl GQA {
         // GPU-resident execution uses `forward_gpu` (no per-layer readback).
         let (batch_size, _) = x.dim();
 
-        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
-        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
-        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
+        let q_proj = self.maybe_f16_matmul(x, self.get_wq(), &self.wq_f16);
+        let k_proj = self.maybe_f16_matmul(x, self.get_wk(), &self.wk_f16);
+        let v_proj = self.maybe_f16_matmul(x, self.get_wv(), &self.wv_f16);
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -833,7 +940,7 @@ impl GQA {
             }
         }
 
-        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
+        self.maybe_f16_matmul(&output, self.get_wo(), &self.wo_f16)
     }
 
     pub fn forward_with_kv(
@@ -846,9 +953,9 @@ impl GQA {
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
 
-        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
-        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
-        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
+        let q_proj = x.dot(&self.get_wq().t());
+        let k_proj = x.dot(&self.get_wk().t());
+        let v_proj = x.dot(&self.get_wv().t());
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -865,7 +972,6 @@ impl GQA {
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
-
         for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
             let k_row: Vec<f32> = k_slice.iter().copied().collect();
             let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
@@ -957,7 +1063,7 @@ impl GQA {
             }
         }
 
-        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
+        self.maybe_f16_matmul(&output, self.get_wo(), &self.wo_f16)
     }
 
     /// Forward pass using a paged KV cache (reads K/V from blocks per position).
@@ -974,9 +1080,9 @@ impl GQA {
     ) -> Array2<f32> {
         let (batch_size, _) = x.dim();
 
-        let q_proj = self.maybe_f16_matmul(x, &self.wq, &self.wq_f16);
-        let k_proj = self.maybe_f16_matmul(x, &self.wk, &self.wk_f16);
-        let v_proj = self.maybe_f16_matmul(x, &self.wv, &self.wv_f16);
+        let q_proj = self.maybe_f16_matmul(x, self.get_wq(), &self.wq_f16);
+        let k_proj = self.maybe_f16_matmul(x, self.get_wk(), &self.wk_f16);
+        let v_proj = self.maybe_f16_matmul(x, self.get_wv(), &self.wv_f16);
 
         let mut q = q_proj
             .into_shape((batch_size, self.num_heads, self.head_dim))
@@ -1092,7 +1198,7 @@ impl GQA {
             }
         }
 
-        self.maybe_f16_matmul(&output, &self.wo, &self.wo_f16)
+        self.maybe_f16_matmul(&output, self.get_wo(), &self.wo_f16)
     }
 }
 
@@ -1115,10 +1221,18 @@ impl GQA {
                     .map_err(|e| GpuError::Unsupported(e.to_string()))?,
             )?)
         };
-        let wq = mk(&self.wq)?;
-        let wk = mk(&self.wk)?;
-        let wv = mk(&self.wv)?;
-        let wo = mk(&self.wo)?;
+        let wq = mk(self.wq.as_ref().ok_or_else(|| {
+            GpuError::Unsupported("GQA wq not available for GPU upload".into())
+        })?)?;
+        let wk = mk(self.wk.as_ref().ok_or_else(|| {
+            GpuError::Unsupported("GQA wk not available".into())
+        })?)?;
+        let wv = mk(self.wv.as_ref().ok_or_else(|| {
+            GpuError::Unsupported("GQA wv not available".into())
+        })?)?;
+        let wo = mk(self.wo.as_ref().ok_or_else(|| {
+            GpuError::Unsupported("GQA wo not available".into())
+        })?)?;
         let use_f16 = self.use_half_precision;
         let (wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
             let wq_t = ctx.transpose(&wq)?;
@@ -1761,7 +1875,9 @@ mod tests {
     use ndarray::array;
 
     fn small_gqa() -> GQA {
-        GQA::new(8, 4, 2, 4)
+        let mut gqa = GQA::new(8, 4, 2, 4);
+        gqa.init_random(8, 4, 2, 4);
+        gqa
     }
 
     #[test]
@@ -1771,10 +1887,10 @@ mod tests {
         assert_eq!(gqa.num_kv_heads, 2);
         assert_eq!(gqa.head_dim, 4);
         assert_eq!(gqa.num_groups, 2);
-        assert_eq!(gqa.wq.dim(), (16, 8));
-        assert_eq!(gqa.wk.dim(), (8, 8));
-        assert_eq!(gqa.wv.dim(), (8, 8));
-        assert_eq!(gqa.wo.dim(), (8, 16));
+        assert_eq!(gqa.wq.as_ref().unwrap().dim(), (16, 8));
+        assert_eq!(gqa.wk.as_ref().unwrap().dim(), (8, 8));
+        assert_eq!(gqa.wv.as_ref().unwrap().dim(), (8, 8));
+        assert_eq!(gqa.wo.as_ref().unwrap().dim(), (8, 16));
     }
 
     #[test]

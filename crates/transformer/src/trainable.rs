@@ -71,11 +71,11 @@ impl TrainableCausalLM {
             .iter()
             .map(|b| TrainableBlock {
                 attention_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(&b.attention_norm.weight),
+                    weight: to_tensor_1d(b.attention_norm.weight.as_ref().unwrap()),
                     eps: b.attention_norm.eps,
                 },
                 ffn_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(&b.ffn_norm.weight),
+                    weight: to_tensor_1d(b.ffn_norm.weight.as_ref().unwrap()),
                     eps: b.ffn_norm.eps,
                 },
                 attention: TrainableGQA {
@@ -83,28 +83,28 @@ impl TrainableCausalLM {
                     num_kv_heads: b.attention.num_kv_heads,
                     head_dim: b.attention.head_dim,
                     num_groups: b.attention.num_groups,
-                    wq: to_tensor(&b.attention.wq),
-                    wk: to_tensor(&b.attention.wk),
-                    wv: to_tensor(&b.attention.wv),
-                    wo: to_tensor(&b.attention.wo),
+                    wq: to_tensor(b.attention.wq.as_ref().unwrap()),
+                    wk: to_tensor(b.attention.wk.as_ref().unwrap()),
+                    wv: to_tensor(b.attention.wv.as_ref().unwrap()),
+                    wo: to_tensor(b.attention.wo.as_ref().unwrap()),
                 },
                 ffn: TrainableSwiGLU {
-                    w1: to_tensor(&b.ffn.w1),
-                    w2: to_tensor(&b.ffn.w2),
-                    w3: to_tensor(&b.ffn.w3),
+                    w1: to_tensor(b.ffn.w1.as_ref().unwrap()),
+                    w2: to_tensor(b.ffn.w2.as_ref().unwrap()),
+                    w3: to_tensor(b.ffn.w3.as_ref().unwrap()),
                 },
             })
             .collect();
 
         Self {
             config: model.config.clone(),
-            token_embedding: to_tensor(&model.token_embedding),
+            token_embedding: to_tensor(model.token_embedding.as_ref().unwrap()),
             blocks,
             norm: TrainableRMSNorm {
-                weight: to_tensor_1d(&model.norm.weight),
+                weight: to_tensor_1d(model.norm.weight.as_ref().unwrap()),
                 eps: model.norm.eps,
             },
-            lm_head: to_tensor(&model.lm_head),
+            lm_head: to_tensor(model.lm_head.as_ref().unwrap()),
         }
     }
 
@@ -112,89 +112,80 @@ impl TrainableCausalLM {
         &self,
         model: &mut CausalLM,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        model.token_embedding = self
+        model.token_embedding = Some(self
             .token_embedding
             .data()
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|_| "Internal invariant: token_embedding must be 2D")?
-            .to_owned();
-        model.lm_head = self
+            .to_owned());
+        model.lm_head = Some(self
             .lm_head
             .data()
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|_| "Internal invariant: lm_head must be 2D")?
-            .to_owned();
-        model.norm.weight = self
-            .norm
-            .weight
-            .data()
-            .into_dimensionality::<ndarray::Ix1>()
-            .map_err(|_| "Internal invariant: norm must be 1D")?
-            .to_owned();
+            .to_owned());
+        model.norm.weight = Some(
+            self.norm.weight.data()
+                .into_dimensionality::<ndarray::Ix1>()
+                .map_err(|_| "Internal invariant: norm must be 1D")?
+                .to_owned());
         for (i, block) in self.blocks.iter().enumerate() {
-            model.blocks[i].attention_norm.weight = block
-                .attention_norm
-                .weight
-                .data()
-                .into_dimensionality::<ndarray::Ix1>()
-                .map_err(|_| "Internal invariant: attention norm must be 1D")?
-                .to_owned();
-            model.blocks[i].ffn_norm.weight = block
-                .ffn_norm
-                .weight
-                .data()
-                .into_dimensionality::<ndarray::Ix1>()
-                .map_err(|_| "Internal invariant: ffn norm must be 1D")?
-                .to_owned();
-            model.blocks[i].attention.wq = block
+            model.blocks[i].attention_norm.weight = Some(
+                block.attention_norm.weight.data()
+                    .into_dimensionality::<ndarray::Ix1>()
+                    .map_err(|_| "Internal invariant: attention norm must be 1D")?
+                    .to_owned());
+            model.blocks[i].ffn_norm.weight = Some(
+                block.ffn_norm.weight.data()
+                    .into_dimensionality::<ndarray::Ix1>()
+                    .map_err(|_| "Internal invariant: ffn norm must be 1D")?
+                    .to_owned());
+            model.blocks[i].attention.wq = Some(block
                 .attention
                 .wq
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|_| "Internal invariant: attention wq must be 2D")?
-                .to_owned();
-            model.blocks[i].attention.wk = block
+                .to_owned());
+            model.blocks[i].attention.wk = Some(block
                 .attention
                 .wk
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|_| "Internal invariant: attention wk must be 2D")?
-                .to_owned();
-            model.blocks[i].attention.wv = block
+                .to_owned());
+            model.blocks[i].attention.wv = Some(block
                 .attention
                 .wv
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|_| "Internal invariant: attention wv must be 2D")?
-                .to_owned();
-            model.blocks[i].attention.wo = block
+                .to_owned());
+            model.blocks[i].attention.wo = Some(block
                 .attention
                 .wo
                 .data()
                 .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|_| "Internal invariant: attention wo must be 2D")?
-                .to_owned();
-            model.blocks[i].ffn.w1 = block
-                .ffn
-                .w1
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: ffn w1 must be 2D")?
-                .to_owned();
-            model.blocks[i].ffn.w2 = block
-                .ffn
-                .w2
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: ffn w2 must be 2D")?
-                .to_owned();
-            model.blocks[i].ffn.w3 = block
-                .ffn
-                .w3
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: ffn w3 must be 2D")?
-                .to_owned();
+                .to_owned());
+            model.blocks[i].ffn.w1 = Some(
+                block.ffn.w1.data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: ffn w1 must be 2D")?
+                    .to_owned());
+            model.blocks[i].ffn.w2 = Some(
+                block.ffn.w2.data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: ffn w2 must be 2D")?
+                    .to_owned());
+            model.blocks[i].ffn.w3 = Some(
+                block.ffn.w3.data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: ffn w3 must be 2D")?
+                    .to_owned());
+        }
+        if model.keep_on_gpu {
+            model.reset_gpu_weights();
         }
         Ok(())
     }
@@ -353,10 +344,12 @@ impl TrainableCausalLM {
             })
         }
 
-        model.token_embedding =
-            to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?;
-        model.lm_head = to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?;
-        model.norm.weight = to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?;
+        model.token_embedding = Some(
+            to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?);
+        model.lm_head = Some(
+            to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?);
+        model.norm.weight = Some(
+            to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?);
 
         for (i, block) in model.blocks.iter_mut().enumerate() {
             macro_rules! load {
@@ -365,19 +358,25 @@ impl TrainableCausalLM {
                     $field = to_fixed::<$dim>(get_arr(&key)?, &key)?;
                 }};
             }
-            load!(
+            macro_rules! load_opt {
+                ($field:expr, $name:expr, $dim:ty) => {{
+                    let key = format!("blocks.{}.{}", i, $name);
+                    $field = Some(to_fixed::<$dim>(get_arr(&key)?, &key)?);
+                }};
+            }
+            load_opt!(
                 block.attention_norm.weight,
                 "attention_norm.weight",
                 ndarray::Ix1
             );
-            load!(block.ffn_norm.weight, "ffn_norm.weight", ndarray::Ix1);
-            load!(block.attention.wq, "attention.wq", ndarray::Ix2);
-            load!(block.attention.wk, "attention.wk", ndarray::Ix2);
-            load!(block.attention.wv, "attention.wv", ndarray::Ix2);
-            load!(block.attention.wo, "attention.wo", ndarray::Ix2);
-            load!(block.ffn.w1, "ffn.w1", ndarray::Ix2);
-            load!(block.ffn.w2, "ffn.w2", ndarray::Ix2);
-            load!(block.ffn.w3, "ffn.w3", ndarray::Ix2);
+            load_opt!(block.ffn_norm.weight, "ffn_norm.weight", ndarray::Ix1);
+            load_opt!(block.attention.wq, "attention.wq", ndarray::Ix2);
+            load_opt!(block.attention.wk, "attention.wk", ndarray::Ix2);
+            load_opt!(block.attention.wv, "attention.wv", ndarray::Ix2);
+            load_opt!(block.attention.wo, "attention.wo", ndarray::Ix2);
+            load_opt!(block.ffn.w1, "ffn.w1", ndarray::Ix2);
+            load_opt!(block.ffn.w2, "ffn.w2", ndarray::Ix2);
+            load_opt!(block.ffn.w3, "ffn.w3", ndarray::Ix2);
         }
 
         Ok(())
@@ -459,9 +458,9 @@ mod tests {
             use_half_precision: true,
         });
         trainable.sync_to_inference(&mut inf2).unwrap();
-        assert_eq!(inf2.token_embedding.dim(), (50, 16));
-        assert_eq!(inf2.lm_head.dim(), (50, 16));
-        assert_eq!(inf2.norm.weight.len(), 16);
+        assert_eq!(inf2.token_embedding.as_ref().unwrap().dim(), (50, 16));
+        assert_eq!(inf2.lm_head.as_ref().unwrap().dim(), (50, 16));
+        assert_eq!(inf2.norm.weight.as_ref().unwrap().len(), 16);
     }
 
     #[test]
@@ -515,6 +514,8 @@ mod tests {
             assert!(reloaded.blocks[0]
                 .attention
                 .wq
+                .as_ref()
+                .unwrap()
                 .iter()
                 .all(|v| v.is_finite()));
         }
@@ -527,7 +528,7 @@ mod tests {
         let _ = std::fs::remove_file(path);
 
         let inf = small_model();
-        let original_wq = inf.blocks[0].attention.wq.clone();
+        let original_wq = inf.blocks[0].attention.wq.as_ref().unwrap().clone();
         let trainable = TrainableCausalLM::from_inference(&inf);
         if let Ok(()) = trainable.save_checkpoint(path) {
             let mut reloaded = CausalLM::new(TransformerConfig {
@@ -547,9 +548,10 @@ mod tests {
                 use_half_precision: true,
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
-            for j in 0..original_wq.len() {
+            let wq_len = original_wq.shape()[0] * original_wq.shape()[1];
+            for j in 0..wq_len {
                 let orig_val = original_wq.as_slice().unwrap()[j];
-                let reloaded_val = reloaded.blocks[0].attention.wq.as_slice().unwrap()[j];
+                let reloaded_val = reloaded.blocks[0].attention.wq.as_ref().unwrap().as_slice().unwrap()[j];
                 assert!(
                     (orig_val - reloaded_val).abs() < 1e-5,
                     "mismatch at {j}: {orig_val} vs {reloaded_val}"

@@ -65,7 +65,7 @@ pub struct Router {
     config: RouterConfig,
     routing_stats: HashMap<usize, usize>,
     expert_capacities: Vec<usize>,
-    router_weights: Vec<Vec<f32>>,
+    router_weights: Option<Vec<Vec<f32>>>,
     last_aux_loss: f32,
     #[cfg(feature = "gpu")]
     router_weights_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
@@ -83,20 +83,11 @@ impl Router {
             ..Default::default()
         };
 
-        let scale = (1.0 / hidden_size as f32).sqrt();
-        let router_weights: Vec<Vec<f32>> = (0..num_experts)
-            .map(|_| {
-                (0..hidden_size)
-                    .map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale)
-                    .collect()
-            })
-            .collect();
-
         Self {
             expert_capacities: vec![0; num_experts],
             config,
             routing_stats: HashMap::new(),
-            router_weights,
+            router_weights: None,
             last_aux_loss: 0.0,
             #[cfg(feature = "gpu")]
             router_weights_gpu: std::sync::OnceLock::new(),
@@ -107,28 +98,43 @@ impl Router {
 
     /// Create router with custom config
     pub fn with_config(config: RouterConfig) -> Self {
-        let num_experts = config.num_experts;
-        let hidden_size = config.hidden_size;
-        let scale = (1.0 / hidden_size as f32).sqrt();
-        let router_weights: Vec<Vec<f32>> = (0..num_experts)
-            .map(|_| {
-                (0..hidden_size)
-                    .map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale)
-                    .collect()
-            })
-            .collect();
-
         Self {
             expert_capacities: vec![0; config.num_experts],
             config,
             routing_stats: HashMap::new(),
-            router_weights,
+            router_weights: None,
             last_aux_loss: 0.0,
             #[cfg(feature = "gpu")]
             router_weights_gpu: std::sync::OnceLock::new(),
             #[cfg(feature = "cuda")]
             router_weights_cuda: std::sync::OnceLock::new(),
         }
+    }
+
+    fn get_weights(&self) -> &Vec<Vec<f32>> {
+        self.router_weights.as_ref().expect("router_weights not initialized — call init_random() or load from checkpoint")
+    }
+
+    pub fn init_random(&mut self) {
+        let num_experts = self.config.num_experts;
+        let hidden_size = self.config.hidden_size;
+        let scale = (1.0 / hidden_size as f32).sqrt();
+        let w: Vec<Vec<f32>> = (0..num_experts)
+            .map(|_| {
+                (0..hidden_size)
+                    .map(|_| (rand::random::<f32>() - 0.5) * 2.0 * scale)
+                    .collect()
+            })
+            .collect();
+        self.router_weights = Some(w);
+    }
+
+    pub fn drop_cpu_weights(&mut self) {
+        self.router_weights = None;
+    }
+
+    pub fn has_weights(&self) -> bool {
+        self.router_weights.is_some()
     }
 
     /// Return the auxiliary loss from the last forward pass
@@ -138,10 +144,11 @@ impl Router {
 
     /// Compute gating weight for a specific expert
     fn compute_gating_weight(&self, input: &[f32], expert_idx: usize) -> f32 {
+        let w = self.get_weights();
         let dot_product: f32 = input
             .iter()
             .enumerate()
-            .map(|(i, &x)| x * self.router_weights[expert_idx][i])
+            .map(|(i, &x)| x * w[expert_idx][i])
             .sum();
         dot_product
     }
@@ -214,7 +221,8 @@ impl Router {
         let entry = self.router_weights_gpu.get_or_init(|| {
             let num_experts = self.config.num_experts;
             let hidden_size = self.config.hidden_size;
-            let flat: Vec<f32> = self.router_weights.iter().flatten().copied().collect();
+            let w = self.router_weights.as_ref()?;
+            let flat: Vec<f32> = w.iter().flatten().copied().collect();
             let cpu = ndarray::Array2::from_shape_vec((num_experts, hidden_size), flat).ok()?;
             let gpu = nexora_autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
             ctx.transpose(&gpu).ok()
@@ -242,7 +250,8 @@ impl Router {
         let entry = self.router_weights_cuda.get_or_init(|| {
             let num_experts = self.config.num_experts;
             let hidden_size = self.config.hidden_size;
-            let flat: Vec<f32> = self.router_weights.iter().flatten().copied().collect();
+            let w = self.router_weights.as_ref()?;
+            let flat: Vec<f32> = w.iter().flatten().copied().collect();
             CudaTensor::from_cpu(&cuda.device, vec![num_experts, hidden_size], &flat).ok()
         });
         entry.as_ref()
@@ -560,14 +569,15 @@ mod tests {
     use ndarray::Array2;
 
     fn small_router() -> Router {
-        Router::new(4, 4, 2)
+        let mut r = Router::new(4, 4, 2);
+        r.init_random();
+        r
     }
 
     #[test]
     fn test_new_router_creates_correct_dimensions() {
         let r = Router::new(8, 6, 3);
-        assert_eq!(r.router_weights.len(), 6);
-        assert_eq!(r.router_weights[0].len(), 8);
+        assert!(r.router_weights.is_none());
         assert_eq!(r.expert_capacities.len(), 6);
     }
 
@@ -637,6 +647,7 @@ mod tests {
             ..Default::default()
         };
         let mut r = Router::with_config(config);
+        r.init_random();
         let input =
             Array2::from_shape_vec((8, 4), (0..32).map(|v| v as f32 / 32.0).collect()).unwrap();
         let result = r.route(&input);
@@ -659,6 +670,7 @@ mod tests {
             ..Default::default()
         };
         let mut r = Router::with_config(config);
+        r.init_random();
         let input = Array2::ones((4, 4));
         let result = r.route(&input);
         assert!(result.is_ok());
@@ -680,7 +692,8 @@ mod tests {
             use_load_balancing_loss: true,
             ..Default::default()
         };
-        let r = Router::with_config(config);
+        let mut r = Router::with_config(config);
+        r.init_random();
         let routing_weights = vec![vec![(0, 0.25), (1, 0.25)], vec![(2, 0.25), (3, 0.25)]];
         let loss = r.compute_load_balancing_loss(&routing_weights, 2);
         assert!(loss > 0.0);
@@ -720,6 +733,7 @@ mod tests {
             ..Default::default()
         };
         let mut r = Router::with_config(config);
+        r.init_random();
         let input = Array2::ones((4, 4));
         let _ = r.route(&input);
         let stats = r.get_routing_stats_detailed(0.5, 0.1);
@@ -739,6 +753,7 @@ mod tests {
             ..Default::default()
         };
         let mut r = Router::with_config(config);
+        r.init_random();
         let input = Array2::ones((4, 4));
         let _ = r.route(&input);
         let loss = r.auxiliary_loss();

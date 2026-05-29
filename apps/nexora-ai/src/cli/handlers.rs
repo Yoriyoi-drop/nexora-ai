@@ -250,8 +250,8 @@ impl Cli {
                         self.run_collect_data(sources, *max_samples, *max_shard_size_mb, output)
                             .await
                     }
-                    Commands::LoadCheckpoint { model, path } => {
-                        self.run_load_checkpoint(model, path).await.map_err(|e| {
+                    Commands::LoadCheckpoint { model, path, gpu } => {
+                        self.run_load_checkpoint(model, path, *gpu).await.map_err(|e| {
                             NexoraError::processing(format!("LoadCheckpoint command failed: {}", e))
                         })
                     }
@@ -759,7 +759,12 @@ impl Cli {
     }
 
     /// Load checkpoint into a model
-    async fn run_load_checkpoint(&self, model: &str, path: &PathBuf) -> NexoraResult<()> {
+    async fn run_load_checkpoint(
+        &self,
+        model: &str,
+        path: &PathBuf,
+        gpu: bool,
+    ) -> NexoraResult<()> {
         use nexora_foundation::NxrModelId;
         let model_id = match model {
             "omnis" => NxrModelId::Omnis,
@@ -787,15 +792,27 @@ impl Cli {
         let causal_model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = raw
             .downcast::<nexora_foundation::causal_lm_model::CausalLmModel>()
             .map_err(|_| NexoraError::model("Failed to downcast model".to_string()))?;
-        causal_model
-            .load_checkpoint(&path.to_string_lossy())
-            .await
-            .map_err(|e| NexoraError::model(format!("Failed to load checkpoint: {}", e)))?;
-        info!(
-            "Checkpoint loaded into model '{}' from {}",
-            model,
-            path.display()
-        );
+        if gpu {
+            causal_model
+                .load_checkpoint_gpu(&path.to_string_lossy())
+                .await
+                .map_err(|e| NexoraError::model(format!("Failed to load GPU checkpoint: {}", e)))?;
+            info!(
+                "Checkpoint loaded directly to GPU into model '{}' from {}",
+                model,
+                path.display()
+            );
+        } else {
+            causal_model
+                .load_checkpoint(&path.to_string_lossy())
+                .await
+                .map_err(|e| NexoraError::model(format!("Failed to load checkpoint: {}", e)))?;
+            info!(
+                "Checkpoint loaded into model '{}' from {}",
+                model,
+                path.display()
+            );
+        }
         Ok(())
     }
 

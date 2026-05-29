@@ -29,6 +29,11 @@ impl TransformerBlock {
         }
     }
 
+    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize, intermediate_size: usize) {
+        self.attention.init_random(hidden_size, num_heads, num_kv_heads, head_dim);
+        self.ffn.init_random(hidden_size, intermediate_size);
+    }
+
     /// Propagate half-precision flag to attention and FFN sub-layers
     /// and pack f16 weight copies for CPU f16 matmul.
     pub fn set_use_half_precision(&mut self) {
@@ -230,17 +235,19 @@ mod tests {
     use super::*;
     use ndarray::array;
 
-    fn small_block() -> TransformerBlock {
-        TransformerBlock::new(8, 4, 2, 4, 16, 1e-6)
-    }
+fn small_block() -> TransformerBlock {
+    let mut block = TransformerBlock::new(8, 4, 2, 4, 16, 1e-6);
+    block.init_random(8, 4, 2, 4, 16);
+    block
+}
 
     #[test]
     fn test_block_new_shapes() {
         let block = small_block();
-        assert_eq!(block.attention_norm.weight.len(), 8);
-        assert_eq!(block.ffn_norm.weight.len(), 8);
-        assert_eq!(block.attention.wq.dim(), (16, 8));
-        assert_eq!(block.ffn.w1.dim(), (16, 8));
+        assert_eq!(block.attention_norm.weight.as_ref().unwrap().len(), 8);
+        assert_eq!(block.ffn_norm.weight.as_ref().unwrap().len(), 8);
+        assert_eq!(block.attention.wq.as_ref().unwrap().dim(), (16, 8));
+        assert_eq!(block.ffn.w1.as_ref().unwrap().dim(), (16, 8));
     }
 
     #[test]

@@ -358,6 +358,19 @@ impl CausalLmModel {
         Ok(())
     }
 
+    /// Load checkpoint directly to GPU — no CPU weights kept.
+    /// Model must already be initialized via `load_model()`.
+    #[cfg(feature = "gpu")]
+    pub async fn load_checkpoint_gpu(&self, path: &str) -> NxrModelResult<()> {
+        use nexora_transformer::TransformerConfig;
+        let tc = self.transformer_config.read().await.clone();
+        let gpu_model = CausalLM::from_checkpoint_gpu(tc, path)
+            .map_err(|e| NxrModelError::Inference(format!("GPU checkpoint load failed: {}", e)))?;
+        *self.model.write().await = Some(Arc::new(gpu_model));
+        info!("GPU checkpoint loaded from {}", path);
+        Ok(())
+    }
+
     pub async fn get_model_arc(&self) -> Option<Arc<CausalLM>> {
         self.model.read().await.as_ref().cloned()
     }
