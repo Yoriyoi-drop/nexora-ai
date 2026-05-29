@@ -37,11 +37,10 @@ pub fn relu(input: &Tensor) -> Tensor {
                                 let relu_out = ctx
                                     .elementwise_unary(x, ElemOp::Relu)
                                     .map_err(|e| format!("GPU backward relu failed: {e}"))?;
-                                let eps = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-                                    x.shape(),
-                                    1e-12,
-                                ))
-                                .map_err(|e| format!("GPU backward relu from_cpu failed: {e}"))?;
+                                let eps = GpuTensor::ones(&x.shape())
+                                    .map_err(|e| format!("GPU backward relu ones failed: {e}"))?;
+                                ctx.fill_constant(&eps, 1e-12)
+                                    .map_err(|e| format!("GPU backward relu fill_constant failed: {e}"))?;
                                 let denom = ctx
                                     .add(&relu_out, &eps)
                                     .map_err(|e| format!("GPU backward add failed: {e}"))?;
@@ -193,11 +192,8 @@ pub fn tanh(input: &Tensor) -> Tensor {
                                 let y2 = ctx
                                     .mul(y, y)
                                     .map_err(|e| format!("GPU backward tanh mul failed: {e}"))?;
-                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-                                    y.shape(),
-                                    1.0,
-                                ))
-                                .map_err(|e| format!("GPU backward tanh from_cpu failed: {e}"))?;
+                                let ones = GpuTensor::ones(&y.shape())
+                                    .map_err(|e| format!("GPU backward tanh ones failed: {e}"))?;
                                 let local = ctx
                                     .sub(&ones, &y2)
                                     .map_err(|e| format!("GPU backward tanh sub failed: {e}"))?;
@@ -325,13 +321,8 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let y = &saved_gpu[0];
-                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-                                    y.shape(),
-                                    1.0,
-                                ))
-                                .map_err(|e| {
-                                    format!("GPU backward sigmoid from_cpu failed: {e}")
-                                })?;
+                                let ones = GpuTensor::ones(&y.shape())
+                                    .map_err(|e| format!("GPU backward sigmoid ones failed: {e}"))?;
                                 let one_minus_y = ctx
                                     .sub(&ones, y)
                                     .map_err(|e| format!("GPU backward sigmoid sub failed: {e}"))?;
@@ -413,11 +404,8 @@ pub fn silu(input: &Tensor) -> Tensor {
                                     ctx.elementwise_unary(x, ElemOp::Sigmoid).map_err(|e| {
                                         format!("GPU backward silu sigmoid failed: {e}")
                                     })?;
-                                let ones = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(
-                                    x.shape(),
-                                    1.0,
-                                ))
-                                .map_err(|e| format!("GPU backward silu from_cpu failed: {e}"))?;
+                                let ones = GpuTensor::ones(&x.shape())
+                                    .map_err(|e| format!("GPU backward silu ones failed: {e}"))?;
                                 let one_minus_sig = ctx
                                     .sub(&ones, &sig)
                                     .map_err(|e| format!("GPU backward silu sub failed: {e}"))?;

@@ -136,6 +136,38 @@ impl GpuTensor {
         })
     }
 
+    /// Create a GpuTensor from a flat f32 slice + shape.
+    /// Avoids the ndarray ArrayD allocation required by `from_cpu`.
+    pub fn from_slice(shape: Vec<usize>, data: &[f32]) -> Result<Self, GpuError> {
+        let ctx = Self::ctx()?;
+        let numel: usize = shape.iter().product();
+        if data.len() < numel {
+            return Err(GpuError::Buffer(format!(
+                "GpuTensor::from_slice: data len {} < numel {}",
+                data.len(),
+                numel
+            )));
+        }
+        let byte_len = (numel * 4) as u64;
+        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GpuTensor::from_slice"),
+            size: byte_len,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&data[..numel]));
+        crate::gpu::gpu_observability::PCIE_WRITE_BYTES
+            .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
+        Ok(Self {
+            shape,
+            buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
     /// Create a GpuTensor from raw components (buffer + shape).
     /// Useful for wrapping GPU buffers allocated externally.
     pub fn from_raw(shape: Vec<usize>, buffer: wgpu::Buffer, dtype: GpuDtype) -> Self {
@@ -227,10 +259,26 @@ impl GpuTensor {
         })
     }
 
+    /// Create a GPU tensor filled with 1.0 — avoids CPU round-trip
+    pub fn ones(shape: &[usize]) -> Result<Self, GpuError> {
+        let t = Self::zeros(shape)?;
+        let ctx = Self::ctx()?;
+        ctx.fill_constant(&t, 1.0)?;
+        Ok(t)
+    }
+
     fn readback_inner(&self, offset: u64, size: u64) -> Result<(Vec<u8>, wgpu::Buffer), GpuError> {
         let ctx = Self::ctx()?;
         let device = &ctx.device;
         let queue = &ctx.queue;
+
+        // Block if too many concurrent readbacks pending (OOM prevention)
+        let acquired = ctx.readback_limiter.acquire(Duration::from_secs(30));
+        if !acquired {
+            return Err(GpuError::Timeout(
+                "GPU readback limiter timed out (30s)".into(),
+            ));
+        }
 
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("staging"),
@@ -275,6 +323,8 @@ impl GpuTensor {
         let data = mapped.to_vec();
         drop(mapped);
         staging.unmap();
+
+        ctx.readback_limiter.release();
 
         crate::gpu::gpu_observability::PCIE_READ_BYTES
             .fetch_add(size, std::sync::atomic::Ordering::Relaxed);

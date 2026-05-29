@@ -31,7 +31,7 @@ impl DistributedRouter {
             .timeout(Duration::from_secs(30));
         if let Some(ref secret) = shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+            if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
                 headers.insert("x-nexora-auth", val);
             }
             client_builder = client_builder.default_headers(headers);

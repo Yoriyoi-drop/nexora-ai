@@ -9,14 +9,20 @@ use std::sync::Arc;
 
 pub mod connection_pool;
 pub mod credentials;
+#[cfg(feature = "sqlx")]
 pub mod pool;
+#[cfg(feature = "postgres")]
 pub mod postgres;
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
 
 pub use connection_pool::*;
 pub use credentials::*;
+#[cfg(feature = "sqlx")]
 pub use pool::*;
+#[cfg(feature = "postgres")]
 pub use postgres::*;
+#[cfg(feature = "sqlite")]
 pub use sqlite::*;
 
 /// Database configuration
@@ -702,14 +708,24 @@ impl DatabaseFactory {
     /// Create database instance from configuration
     pub async fn create(config: DatabaseConfig) -> Result<Arc<dyn Database>> {
         match config.database_type {
+            #[cfg(feature = "postgres")]
             DatabaseType::PostgreSQL => {
                 let pg_db = PostgreSQLDatabase::new(config).await?;
                 Ok(Arc::new(pg_db))
             }
+            #[cfg(not(feature = "postgres"))]
+            DatabaseType::PostgreSQL => Err(anyhow::anyhow!(
+                "PostgreSQL support not enabled. Enable with 'postgres' feature"
+            )),
+            #[cfg(feature = "sqlite")]
             DatabaseType::SQLite => {
                 let sqlite_db = SQLiteDatabase::new(config).await?;
                 Ok(Arc::new(sqlite_db))
             }
+            #[cfg(not(feature = "sqlite"))]
+            DatabaseType::SQLite => Err(anyhow::anyhow!(
+                "SQLite support not enabled. Enable with 'sqlite' feature"
+            )),
             #[cfg(feature = "mysql")]
             DatabaseType::MySQL => {
                 let mysql_config = MySQLConfig {

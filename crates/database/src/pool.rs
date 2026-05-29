@@ -2,6 +2,8 @@
 //!
 //! Implementasi connection pooling dengan query optimization dan monitoring
 
+#![cfg(feature = "sqlx")]
+
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;

@@ -2809,20 +2809,43 @@ impl CausalLM {
 
         let logits = self.forward_gpu_single_token_core(batch_tokens, &ctx, gpu_caches, &f16_temps, gw)?;
 
-        // ── 4. GPU sampling (zero logit readback) — sample per-sequence with per-seq params ──
-        let mut token_ids = Vec::with_capacity(batch_size);
-        for seq_idx in 0..batch_size {
-            let logits_row = ctx.slice_tensor(&logits, seq_idx as u32, 1)?;
+        // ── 4. GPU sampling (zero logit readback) — batched when params are uniform ──
+        let token_ids = if batch_size > 1
+            && temperatures.iter().all(|&t| (t - temperatures[0]).abs() < 1e-6)
+            && top_ks.iter().all(|&k| k == top_ks[0])
+            && top_ps.iter().all(|&p| (p - top_ps[0]).abs() < 1e-6)
+        {
+            // ── Fast batched path: single gpu_sample call + single readback ──
+            // WGSL per-row seed mixing (seed ^ row * 0x9E3779B9) already
+            // gives each row unique random values — one seed is sufficient.
             let tok = ctx.gpu_sample(
-                &logits_row,
-                temperatures[seq_idx],
-                top_ks[seq_idx],
-                top_ps[seq_idx],
-                seeds[seq_idx],
+                &logits,
+                temperatures[0],
+                top_ks[0],
+                top_ps[0],
+                seeds[0],
             )?;
             let raw = tok.to_cpu_raw_bytes()?;
-            token_ids.push(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]));
-        }
+            raw.chunks_exact(4)
+                .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+                .collect()
+        } else {
+            // ── Per-seq path: different params per sequence ──
+            let mut ids = Vec::with_capacity(batch_size);
+            for seq_idx in 0..batch_size {
+                let logits_row = ctx.slice_tensor(&logits, seq_idx as u32, 1)?;
+                let tok = ctx.gpu_sample(
+                    &logits_row,
+                    temperatures[seq_idx],
+                    top_ks[seq_idx],
+                    top_ps[seq_idx],
+                    seeds[seq_idx],
+                )?;
+                let raw = tok.to_cpu_raw_bytes()?;
+                ids.push(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]));
+            }
+            ids
+        };
 
         // ── SKIP Phase 5: No GPU→CPU sync — entries stay on GPU ──
 
@@ -2842,7 +2865,7 @@ impl CausalLM {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_batched_prefill_full(
         &self,
-        batch_inputs: &[Vec<u32>],
+        batch_inputs: &[&[u32]],
         gpu_caches: &mut [Vec<super::gqa::GpuKVCacheEntry>],
     ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
         use ndarray::ArrayD;

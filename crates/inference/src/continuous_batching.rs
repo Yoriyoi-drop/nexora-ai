@@ -864,10 +864,10 @@ where
             // Drain caches and prompts from prefill_caches
             let mut caches_only: Vec<Box<dyn KVCacheProvider>> =
                 prefill_caches.drain(..).map(|(_, c)| c).collect();
-            let mut prompt_tokens: Vec<Vec<u32>> = Vec::with_capacity(caches_only.len());
+            let mut prompt_tokens: Vec<&[u32]> = Vec::with_capacity(caches_only.len());
             for sid in &prefill_ids {
                 if let Some(seq) = self.sequences.get(sid) {
-                    prompt_tokens.push(seq.prompt[seq.prompt_pos..].to_vec());
+                    prompt_tokens.push(&seq.prompt[seq.prompt_pos..]);
                 }
             }
 
@@ -1072,7 +1072,7 @@ where
             for (seq_idx, (&seq_id, logits_arr)) in
                 gen_ids.iter().zip(all_logits.iter()).enumerate()
             {
-                let logits_vec: Vec<f32> = logits_arr.as_slice().unwrap().to_vec();
+                let logits_slice = logits_arr.as_slice().unwrap();
 
                 let token_id = if let Some(gpu_tok) = gpu_tokens[seq_idx] {
                     gpu_tok
@@ -1084,14 +1084,14 @@ where
                             continue;
                         }
                     };
-                    match sampler.sample(&logits_vec) {
+                    match sampler.sample(logits_slice) {
                         Ok(idx) => u32::try_from(idx).unwrap_or(u32::MAX),
                         Err(e) => {
                             warn!(
                                 "Sampler failed for sequence {}, error: {:?}, falling back to argmax",
                                 seq_id, e
                             );
-                            logits_vec
+                            logits_slice
                                 .iter()
                                 .enumerate()
                                 .max_by(|(_, a), (_, b)| a.total_cmp(b))
@@ -1114,14 +1114,14 @@ where
                 let log_prob = if gpu_tokens[seq_idx].is_some() {
                     0.0
                 } else {
-                    logits_vec
+                    logits_slice
                         .get(token_id as usize)
                         .copied()
                         .unwrap_or_else(|| {
                             warn!(
                                 "token_id {} out of range for logits of length {}",
                                 token_id,
-                                logits_vec.len()
+                                logits_slice.len()
                             );
                             0.0
                         })

@@ -1,4 +1,5 @@
 use crate::Tokenizer;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -90,15 +91,28 @@ impl BpeTokenizer {
         let mut word_freqs: HashMap<Vec<String>, u32> =
             HashMap::with_capacity(self.config.vocab_size);
 
-        for line in corpus.lines() {
-            let processed = self.preprocess_line(line);
-            for word in processed.split_whitespace() {
-                let tokens: Vec<String> = word.chars().map(|c| c.to_string()).collect();
-                *word_freqs.entry(tokens).or_insert(0) += 1;
-                for ch in word.chars() {
-                    vocab_set.insert(ch.to_string());
+        let chunks: Vec<(HashMap<Vec<String>, u32>, HashSet<String>)> = corpus
+            .par_lines()
+            .map(|line| {
+                let processed = self.preprocess_line(line);
+                let mut local_wf: HashMap<Vec<String>, u32> = HashMap::new();
+                let mut local_vs: HashSet<String> = HashSet::new();
+                for word in processed.split_whitespace() {
+                    let tokens: Vec<String> = word.chars().map(|c| c.to_string()).collect();
+                    *local_wf.entry(tokens).or_insert(0) += 1;
+                    for ch in word.chars() {
+                        local_vs.insert(ch.to_string());
+                    }
                 }
+                (local_wf, local_vs)
+            })
+            .collect();
+
+        for (wf, vs) in chunks {
+            for (k, v) in wf {
+                *word_freqs.entry(k).or_insert(0) += v;
             }
+            vocab_set.extend(vs);
         }
 
         let unique_chars = vocab_set.len();
@@ -420,15 +434,26 @@ fn find_most_frequent_pair(
         token_to_id.insert(token.as_str(), *id);
     }
 
-    let mut pair_freqs: HashMap<(u32, u32), u32> = HashMap::new();
-    for (tokens, freq) in word_freqs {
-        for i in 0..tokens.len().saturating_sub(1) {
-            if let (Some(&id1), Some(&id2)) = (
-                token_to_id.get(tokens[i].as_str()),
-                token_to_id.get(tokens[i + 1].as_str()),
-            ) {
-                *pair_freqs.entry((id1, id2)).or_insert(0) += freq;
+    let pair_chunks: Vec<HashMap<(u32, u32), u32>> = word_freqs
+        .par_iter()
+        .map(|(tokens, freq)| {
+            let mut local: HashMap<(u32, u32), u32> = HashMap::new();
+            for i in 0..tokens.len().saturating_sub(1) {
+                if let (Some(&id1), Some(&id2)) = (
+                    token_to_id.get(tokens[i].as_str()),
+                    token_to_id.get(tokens[i + 1].as_str()),
+                ) {
+                    *local.entry((id1, id2)).or_insert(0) += freq;
+                }
             }
+            local
+        })
+        .collect();
+
+    let mut pair_freqs: HashMap<(u32, u32), u32> = HashMap::new();
+    for pf in pair_chunks {
+        for (k, v) in pf {
+            *pair_freqs.entry(k).or_insert(0) += v;
         }
     }
 
@@ -445,20 +470,32 @@ fn update_word_freqs(
     s2: &str,
     new_token: &str,
 ) {
-    let mut new_freqs: HashMap<Vec<String>, u32> = HashMap::with_capacity(word_freqs.len());
-    for (tokens, freq) in word_freqs.drain() {
-        let mut new_tokens = Vec::with_capacity(tokens.len());
-        let mut i = 0;
-        while i < tokens.len() {
-            if i + 1 < tokens.len() && tokens[i] == s1 && tokens[i + 1] == s2 {
-                new_tokens.push(new_token.to_string());
-                i += 2;
-            } else {
-                new_tokens.push(tokens[i].clone());
-                i += 1;
+    let batch: Vec<(Vec<String>, u32)> = word_freqs.drain().collect();
+    let new_batch: Vec<HashMap<Vec<String>, u32>> = batch
+        .par_iter()
+        .map(|(tokens, freq)| {
+            let mut new_tokens = Vec::with_capacity(tokens.len());
+            let mut i = 0;
+            while i < tokens.len() {
+                if i + 1 < tokens.len() && tokens[i] == s1 && tokens[i + 1] == s2 {
+                    new_tokens.push(new_token.to_string());
+                    i += 2;
+                } else {
+                    new_tokens.push(tokens[i].clone());
+                    i += 1;
+                }
             }
+            let mut m = HashMap::new();
+            m.insert(new_tokens, *freq);
+            m
+        })
+        .collect();
+
+    let mut new_freqs: HashMap<Vec<String>, u32> = HashMap::with_capacity(batch.len());
+    for m in new_batch {
+        for (k, v) in m {
+            *new_freqs.entry(k).or_insert(0) += v;
         }
-        *new_freqs.entry(new_tokens).or_insert(0) += freq;
     }
     *word_freqs = new_freqs;
 }

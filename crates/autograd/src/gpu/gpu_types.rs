@@ -1,6 +1,7 @@
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 use thiserror::Error;
 
 use crate::gpu_caps::GpuCapabilities;
@@ -137,6 +138,73 @@ impl Default for GpuBackend {
     }
 }
 
+/// Counting semaphore for limiting concurrent GPU readback operations.
+/// Prevents OOM when CPU submits readbacks faster than GPU processes them.
+/// Default max permits: 16 concurrent readbacks.
+pub(crate) struct ReadbackLimiter {
+    max_permits: usize,
+    available: Mutex<usize>,
+    condvar: std::sync::Condvar,
+}
+
+impl ReadbackLimiter {
+    pub fn new(max_permits: usize) -> Self {
+        Self {
+            max_permits,
+            available: Mutex::new(max_permits),
+            condvar: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Acquire a permit, blocking until one is available.
+    /// Times out after `timeout` and returns false if no permit acquired.
+    pub fn acquire(&self, timeout: Duration) -> bool {
+        let mut guard = self.available.lock().unwrap_or_else(|e| e.into_inner());
+        let deadline = std::time::Instant::now() + timeout;
+        while *guard == 0 {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .unwrap_or(Duration::ZERO);
+            if remaining.is_zero() {
+                return false;
+            }
+            let (new_guard, timeout_result) = self
+                .condvar
+                .wait_timeout(guard, remaining)
+                .unwrap_or_else(|e| {
+                    let (g, t) = e.into_inner();
+                    (g, t)
+                });
+            guard = new_guard;
+            if timeout_result.timed_out() {
+                return false;
+            }
+        }
+        *guard -= 1;
+        true
+    }
+
+    /// Non-blocking try-acquire. Returns true if a permit was acquired.
+    pub fn try_acquire(&self) -> bool {
+        let mut avail = self.available.lock().unwrap_or_else(|e| e.into_inner());
+        if *avail == 0 {
+            return false;
+        }
+        *avail -= 1;
+        true
+    }
+
+    /// Release a permit back to the pool, waking one waiter.
+    pub fn release(&self) {
+        let mut avail = self.available.lock().unwrap_or_else(|e| e.into_inner());
+        *avail = (*avail + 1).min(self.max_permits);
+        self.condvar.notify_one();
+    }
+}
+
+/// Maximum concurrent GPU readback operations before backpressure kicks in.
+pub(crate) const MAX_PENDING_READBACKS: usize = 16;
+
 // ─── Singleton Context ─────────────────────────────────────────────────────────
 
 pub(crate) static GPU_CTX: OnceCell<GpuContext> = OnceCell::new();
@@ -180,6 +248,9 @@ pub struct GpuContext {
     pub(crate) cache_key: u64,
     // ── Active backend ───────────────────────────────────────────────
     pub(crate) backend: GpuBackend,
+    /// Limits concurrent GPU readback operations to prevent OOM.
+    /// CPU-side backpressure: blocks readback_inner when too many pending.
+    pub(crate) readback_limiter: ReadbackLimiter,
     /// Optional CUDA runtime — available only when `cuda` feature is enabled
     /// and an NVIDIA GPU with CUDA toolkit is detected at runtime.
     /// Uses `'static` lifetime because it borrows from the global singleton (`OnceCell<Arc<CudaRuntime>>`).

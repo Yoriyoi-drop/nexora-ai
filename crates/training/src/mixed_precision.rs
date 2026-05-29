@@ -102,6 +102,17 @@ impl MixedPrecisionTrainer {
             return self.base.train_batch(tokens, targets);
         }
 
+        // GPU AMP path: uses GpuAdam + GPU loss scaling via scale_inplace
+        #[cfg(feature = "gpu")]
+        if self.base.gpu_optimizer.is_some() {
+            return self.train_step_gpu_amp(tokens, targets);
+        }
+
+        // CPU AMP path (fallback)
+        self.train_step_cpu_amp(tokens, targets)
+    }
+
+    fn train_step_cpu_amp(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
         let trainable = self.base.trainable.as_ref()?;
         let optimizer = self.base.optimizer.as_mut()?;
 
@@ -175,4 +186,154 @@ impl MixedPrecisionTrainer {
 
         Some(loss_val)
     }
+
+    /// GPU AMP path: forward/backward on GPU with loss scaling.
+    /// Uses GpuAdam + scale_inplace for loss scaling entirely on GPU.
+    #[cfg(feature = "gpu")]
+    fn train_step_gpu_amp(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
+        use nexora_autograd::device::Storage;
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use tracing::warn;
+
+        let trainable = self.base.trainable.as_ref()?;
+        let gpu_opt = self.base.gpu_optimizer.as_mut()?;
+        let gpu_in = self.base.gpu_input_buf.as_ref()?;
+        let gpu_tgt = self.base.gpu_target_buf.as_ref()?;
+
+        let ctx = match GpuContext::global() {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("GpuContext lost in GPU AMP: {}", e);
+                return None;
+            }
+        };
+
+        let seq = tokens.len().min(self.base.config.seq_length);
+        if seq == 0 {
+            return None;
+        }
+
+        // ── Zero-copy upload into pre-allocated buffers ──
+        let input_f32: Vec<f32> = tokens[..seq].iter().map(|&t| t as f32).collect();
+        let target_f32: Vec<f32> = targets[..seq].iter().map(|&t| t as f32).collect();
+        ctx.queue
+            .write_buffer(gpu_in.buffer(), 0, bytemuck::cast_slice(&input_f32));
+        ctx.queue
+            .write_buffer(gpu_tgt.buffer(), 0, bytemuck::cast_slice(&target_f32));
+
+        let input_t = Tensor::from_gpu(
+            gpu_in.view_as(vec![seq]),
+            nexora_autograd::tensor::next_tensor_id(),
+            false,
+        );
+        let target_t = Tensor::from_gpu(
+            gpu_tgt.view_as(vec![seq]),
+            nexora_autograd::tensor::next_tensor_id(),
+            false,
+        );
+
+        // ── Forward / Backward with loss scaling ──
+        ctx.begin_batch_mode();
+        let logits = trainable.forward(&input_t);
+        let loss = cross_entropy_loss(&logits, &target_t).mean();
+
+        // Readback loss for NaN check
+        let loss_gpu = match loss.storage() {
+            Storage::Gpu(g) => g,
+            _ => return None,
+        };
+        let loss_staging = ctx.create_readback_staging(loss_gpu.buffer(), 4, "amp_loss");
+
+        // Scale loss on GPU: loss *= scaler.scale (before backward, prevents FP16 underflow)
+        let _ = ctx.scale_inplace(&loss_gpu, self.scaler.scale);
+
+        loss.backward();
+        ctx.end_batch_mode();
+
+        // ── Read loss value ──
+        let loss_readback = ctx.complete_readback(&loss_staging, 4);
+        let loss_val = crate::poll_async_loss(&ctx, &loss_readback);
+
+        if !loss_val.is_finite() {
+            warn!("NaN/Inf loss detected in GPU AMP — skipping step");
+            let owned = collect_gpu_params(trainable);
+            let params: Vec<&GpuTensor> = owned.iter().collect();
+            let _ = gpu_opt.zero_grad(&ctx, &params);
+            self.scaler.update(true);
+            return None;
+        }
+
+        // ── Collect parameters ──
+        let owned = collect_gpu_params(trainable);
+        let params: Vec<&GpuTensor> = owned.iter().collect();
+
+        // ── Check gradients for overflow on GPU ──
+        let mut overflow = false;
+        for p in trainable.parameters().iter() {
+            if let Some(Storage::Gpu(g)) = p.grad_storage() {
+                if let Ok(val) = g.to_cpu_first_element() {
+                    if !val.is_finite() {
+                        overflow = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if overflow {
+            self.scaler.update(true);
+            let _ = gpu_opt.zero_grad(&ctx, &params);
+            return None;
+        }
+
+        // ── Unscale gradients on GPU: grad *= 1/scale ──
+        let inv_scale = 1.0 / self.scaler.scale;
+        for p in trainable.parameters().iter() {
+            if let Some(Storage::Gpu(g)) = p.grad_storage() {
+                let _ = ctx.scale_inplace(&g, inv_scale);
+            }
+        }
+
+        // ── Accumulation and optimizer step ──
+        self.base.total_loss += loss_val as f64 * seq as f64;
+        self.base.total_tokens += seq;
+        self.base.accumulation_counter += 1;
+
+        if self.base.accumulation_counter >= self.base.config.batch_size {
+            gpu_opt.lr = Trainer::lr_at_step(
+                self.base.step + 1,
+                self.base.config.learning_rate,
+                self.base.config.warmup_steps,
+                self.base.config.max_steps,
+            );
+
+            let _ = gpu_opt.step(&ctx, &params, &params);
+            let _ = gpu_opt.zero_grad(&ctx, &params);
+            for p in trainable.parameters().iter() {
+                p.zero_grad();
+            }
+            self.base.step += 1;
+            self.base.accumulation_counter = 0;
+
+            self.scaler.update(false);
+        }
+
+        Some(loss_val)
+    }
+}
+
+/// Collect GPU parameter references from trainable parameters.
+#[cfg(feature = "gpu")]
+fn collect_gpu_params(
+    trainable: &nexora_transformer::TrainableCausalLM,
+) -> Vec<nexora_autograd::gpu::GpuTensor> {
+    use nexora_autograd::device::Storage;
+    trainable
+        .parameters()
+        .iter()
+        .filter_map(|p| match p.storage() {
+            Storage::Gpu(g) => Some(g),
+            _ => None,
+        })
+        .collect()
 }

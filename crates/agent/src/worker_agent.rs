@@ -71,7 +71,7 @@ pub struct WorkerAgent {
     name: String,
     status: AgentStatus,
     active_work: Arc<tokio::sync::Mutex<HashMap<Uuid, WorkItem>>>,
-    stats: std::sync::Mutex<AgentStats>,
+    stats: tokio::sync::Mutex<AgentStats>,
     config: WorkerAgentConfig,
     memory_store: Option<Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>>,
     inference_engine: Option<Arc<dyn InferenceEngine>>,
@@ -84,7 +84,7 @@ impl WorkerAgent {
             name: "WorkerAgent".to_string(),
             status: AgentStatus::Initializing,
             active_work: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            stats: std::sync::Mutex::new(AgentStats::default()),
+            stats: tokio::sync::Mutex::new(AgentStats::default()),
             config,
             memory_store: None,
             inference_engine: None,
@@ -172,7 +172,7 @@ impl WorkerAgent {
                     if self.config.enable_persistence {
                         self.persist_work_completed(&work_id, &output, elapsed).await;
                     }
-                    self.stats.lock().unwrap().messages_processed += 1;
+                    self.stats.lock().await.messages_processed += 1;
                     return Ok(StepExecutionResult {
                         step_id: work.step.step_id,
                         plan_id: work.plan_id,
@@ -214,7 +214,7 @@ impl WorkerAgent {
                             }
                         }
                     }
-                    self.stats.lock().unwrap().errors += 1;
+                    self.stats.lock().await.errors += 1;
                     return Ok(StepExecutionResult {
                         step_id: work.step.step_id,
                         plan_id: work.plan_id,
@@ -462,7 +462,7 @@ impl WorkerAgent {
                 }
             }
         }
-        self.stats.lock().unwrap().errors += 1;
+        self.stats.lock().await.errors += 1;
         Ok(StepExecutionResult {
             step_id: work.step.step_id,
             plan_id: work.plan_id,
@@ -797,7 +797,7 @@ impl Agent for WorkerAgent {
 
         let processing_time = start_time.elapsed().as_millis() as u64;
         {
-            let mut s = self.stats.lock().unwrap();
+            let mut s = self.stats.lock().await;
             s.messages_processed += 1;
             s.avg_processing_time_ms = (s.avg_processing_time_ms
                 * (s.messages_processed - 1) as f64
@@ -854,7 +854,7 @@ impl Agent for WorkerAgent {
     }
 
     fn get_stats(&self) -> AgentStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.blocking_lock().clone()
     }
 
     fn get_config(&self) -> AgentConfig {

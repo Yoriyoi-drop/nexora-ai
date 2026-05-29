@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
 use tracing::debug;
@@ -17,9 +19,9 @@ pub struct StreamInfo {
 
 struct ActiveStream {
     sender: mpsc::Sender<Arc<GeneratedToken>>,
-    token_count: usize,
+    token_count: AtomicUsize,
     created_at: Instant,
-    last_token_at: Instant,
+    last_token_at: StdMutex<Instant>,
 }
 
 pub struct StreamingEngine {
@@ -91,9 +93,9 @@ impl StreamingEngine {
                 stream_id,
                 ActiveStream {
                     sender: tx,
-                    token_count: 0,
+                    token_count: AtomicUsize::new(0),
                     created_at: Instant::now(),
-                    last_token_at: Instant::now(),
+                    last_token_at: StdMutex::new(Instant::now()),
                 },
             );
         }
@@ -106,7 +108,6 @@ impl StreamingEngine {
         stream_id: Uuid,
         token: Arc<GeneratedToken>,
     ) -> Result<(), anyhow::Error> {
-        // Clone sender outside lock to avoid holding read lock across .send().await
         let sender = {
             let streams = self.active_streams.read().await;
             streams.get(&stream_id).map(|s| s.sender.clone())
@@ -116,10 +117,10 @@ impl StreamingEngine {
                 tx.send(token)
                     .await
                     .map_err(|_| anyhow::anyhow!("Stream {} receiver dropped", stream_id))?;
-                let mut streams = self.active_streams.write().await;
-                if let Some(entry) = streams.get_mut(&stream_id) {
-                    entry.token_count += 1;
-                    entry.last_token_at = Instant::now();
+                let streams = self.active_streams.read().await;
+                if let Some(entry) = streams.get(&stream_id) {
+                    entry.token_count.fetch_add(1, Ordering::Relaxed);
+                    *entry.last_token_at.lock().unwrap() = Instant::now();
                 }
                 Ok(())
             }
@@ -160,7 +161,7 @@ impl StreamingEngine {
         let streams = self.active_streams.read().await;
         streams.get(&stream_id).map(|s| StreamInfo {
             stream_id,
-            token_count: s.token_count,
+            token_count: s.token_count.load(Ordering::Relaxed),
             is_active: true,
             created_at: {
                 let epoch_elapsed = match std::time::SystemTime::UNIX_EPOCH.elapsed() {
@@ -185,7 +186,7 @@ impl StreamingEngine {
 
     fn evict_stale_locked(&self, streams: &mut HashMap<Uuid, ActiveStream>) -> usize {
         let before = streams.len();
-        streams.retain(|_, s| s.last_token_at.elapsed() < self.stream_timeout);
+        streams.retain(|_, s| s.last_token_at.lock().unwrap().elapsed() < self.stream_timeout);
         let evicted = before - streams.len();
         if evicted > 0 {
             debug!("Evicted {} stale streams", evicted);

@@ -1,10 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
-use std::str::FromStr;
-
 use crate::cluster::{GossipMessage, GossipState, NodeInfo, NodeRegistry};
+
+const GOSSIP_PUSH: u8 = 0;
+const GOSSIP_PULL: u8 = 1;
 
 #[derive(Debug, Clone)]
 pub struct GossipConfig {
@@ -23,16 +25,11 @@ impl Default for GossipConfig {
     }
 }
 
-enum GossipRound {
-    Push,
-    Pull,
-}
-
 pub struct GossipProtocol {
     registry: Arc<NodeRegistry>,
     config: GossipConfig,
     client: reqwest::Client,
-    round: Mutex<GossipRound>,
+    round: AtomicU8,
     shared_secret: Option<String>,
     tls_enabled: bool,
 }
@@ -52,7 +49,7 @@ impl GossipProtocol {
             .timeout(Duration::from_secs(5));
         if let Some(ref secret) = shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+            if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
                 headers.insert("x-nexora-auth", val);
             }
             client_builder = client_builder.default_headers(headers);
@@ -61,7 +58,7 @@ impl GossipProtocol {
             registry,
             config,
             client: client_builder.build().unwrap_or_default(),
-            round: Mutex::new(GossipRound::Push),
+            round: AtomicU8::new(GOSSIP_PUSH),
             shared_secret,
             tls_enabled,
         }
@@ -80,7 +77,7 @@ impl GossipProtocol {
             .timeout(Duration::from_secs(5));
         if let Some(ref secret) = self.shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+            if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
                 headers.insert("x-nexora-auth", val);
             }
             client_builder = client_builder.default_headers(headers);
@@ -116,11 +113,7 @@ impl GossipProtocol {
 
         let message = self.build_gossip_message().await;
 
-        let is_push = {
-            let mut round = self.round.lock().unwrap();
-            let current = std::mem::replace(&mut *round, GossipRound::Pull);
-            matches!(current, GossipRound::Push)
-        };
+        let is_push = self.round.swap(GOSSIP_PULL, Ordering::Relaxed) == GOSSIP_PUSH;
 
         if is_push {
             self.push_to(peer, message).await?;
@@ -128,7 +121,7 @@ impl GossipProtocol {
             if let Some(response) = self.pull_from(peer).await? {
                 self.registry.merge_gossip(&response).await;
             }
-            *self.round.lock().unwrap() = GossipRound::Push;
+            self.round.store(GOSSIP_PUSH, Ordering::Relaxed);
         }
 
         Ok(())

@@ -267,11 +267,8 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                                         "log_softmax_backward reshape grad: {e}"
                                                     )
                                                 })?;
-                                                let ones_col = crate::gpu::GpuTensor::from_cpu(
-                                                    &ndarray::ArrayD::from_elem(
-                                                        ndarray::IxDyn(&[last_dim, 1]),
-                                                        1.0f32,
-                                                    ),
+                                                let ones_col = crate::gpu::GpuTensor::ones(
+                                                    &[last_dim, 1],
                                                 )
                                                 .map_err(|e| {
                                                     format!("log_softmax_backward ones: {e}")
@@ -727,10 +724,8 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                 let num = ctx
                                     .mul(grad_gpu, &p_minus_t)
                                     .map_err(|e| format!("BCE backward: mul failed: {e}"))?;
-                                let ones = crate::gpu::GpuTensor::from_cpu(
-                                    &ndarray::ArrayD::from_elem(shape.to_vec(), 1.0),
-                                )
-                                .map_err(|e| format!("BCE backward: ones from_cpu failed: {e}"))?;
+                                let ones = crate::gpu::GpuTensor::ones(&shape)
+                                    .map_err(|e| format!("BCE backward: ones failed: {e}"))?;
                                 let one_minus_p = ctx
                                     .sub(&ones, &p)
                                     .map_err(|e| format!("BCE backward: sub5 failed: {e}"))?;

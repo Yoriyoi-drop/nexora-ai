@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,25 +55,37 @@ struct RemoteClient {
     base_url: String,
     #[allow(dead_code)]
     node_id: Uuid,
+    auth_header: Option<(String, String)>,
 }
 
 impl RemoteClient {
     fn new(address: &str, node_id: Uuid, shared_secret: Option<&str>) -> Self {
         let scheme = if shared_secret.is_some() { "https" } else { "http" };
+        let auth_header = shared_secret.map(|s| ("x-nexora-auth".to_string(), s.to_string()));
         let mut client_builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(30));
-        if let Some(secret) = shared_secret {
-            let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
-                headers.insert("x-nexora-auth", val);
+        if let Some((name, val)) = &auth_header {
+            if let Ok(hv) = reqwest::header::HeaderValue::from_str(val) {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(reqwest::header::HeaderName::from_str(name).unwrap(), hv);
+                client_builder = client_builder.default_headers(headers);
             }
-            client_builder = client_builder.default_headers(headers);
         }
         Self {
             client: client_builder.build().unwrap_or_default(),
             base_url: format!("{}://{}/inference", scheme, address),
             node_id,
+            auth_header,
         }
+    }
+
+    fn add_auth_header(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some((name, val)) = &self.auth_header {
+            if let Ok(hv) = reqwest::header::HeaderValue::from_str(val) {
+                return req.header(reqwest::header::HeaderName::from_str(name).unwrap(), hv);
+            }
+        }
+        req
     }
 
     async fn submit(
@@ -84,14 +97,19 @@ impl RemoteClient {
         let (tx, rx) = mpsc::channel(1);
         let tx_clone = tx.clone();
         let client = self.client.clone();
+        let auth = self.auth_header.clone();
 
         tokio::spawn(async move {
-            match client
+            let mut req = client
                 .post(&url)
                 .json(&request)
-                .timeout(Duration::from_millis(timeout_ms))
-                .send()
-                .await
+                .timeout(Duration::from_millis(timeout_ms));
+            if let Some((name, val)) = auth {
+                if let Ok(hv) = reqwest::header::HeaderValue::from_str(&val) {
+                    req = req.header(reqwest::header::HeaderName::from_str(&name).unwrap(), hv);
+                }
+            }
+            match req.send().await
             {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.json::<InferenceResponse>().await {
@@ -117,10 +135,7 @@ impl RemoteClient {
 
     async fn health(&self) -> Result<NodeLoad> {
         let url = format!("{}/health", self.base_url);
-        let mut req = self.client.get(&url).timeout(Duration::from_secs(2));
-        if let Some(auth) = self.client.default_headers().get("x-nexora-auth") {
-            req = req.header("x-nexora-auth", auth);
-        }
+        let req = self.add_auth_header(self.client.get(&url).timeout(Duration::from_secs(2)));
         let resp = req
             .send()
             .await

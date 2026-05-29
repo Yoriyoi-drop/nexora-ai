@@ -11,11 +11,33 @@ use nexora_monitoring::MetricsCollector;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::sync::OnceLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
+use crate::security::{SecurityConfig, SecurityValidator};
 use crate::NexoraAI;
 
 static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
+static SECURITY: OnceLock<SecurityValidator> = OnceLock::new();
+
+fn init_security_validator() -> &'static SecurityValidator {
+    SECURITY.get_or_init(|| {
+        SecurityValidator::new(SecurityConfig::default())
+    })
+}
+
+fn validate_prompt(prompt: &str) -> Result<(), (StatusCode, Json<Value>)> {
+    let validator = init_security_validator();
+    validator.validate_input(prompt).map_err(|e| {
+        warn!("Security validation rejected input: {}", e);
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Input rejected by security validator",
+                "detail": e.to_string()
+            })),
+        )
+    })
+}
 
 pub fn init_metrics() -> anyhow::Result<Arc<MetricsCollector>> {
     let collector = Arc::new(
@@ -157,6 +179,14 @@ pub async fn process_request(
     let start = std::time::Instant::now();
     let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
 
+    if let Err((status, err_json)) = validate_prompt(input) {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
     let truncated = &input[..input.len().min(100)];
     info!(
         "Processing request: {} [truncated {} chars]",
@@ -190,6 +220,14 @@ pub async fn generate_text(
 ) -> Json<Value> {
     let start = std::time::Instant::now();
     let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+
+    if let Err((status, err_json)) = validate_prompt(prompt) {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
 
     let max_tokens = payload
         .get("max_tokens")
@@ -246,6 +284,8 @@ pub async fn generate_text_stream(
             Json(json!({ "error": "Prompt cannot be empty" })),
         ));
     }
+
+    validate_prompt(prompt)?;
 
     let max_tokens = payload
         .get("max_tokens")
@@ -305,6 +345,14 @@ pub async fn chat(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
+    if let Err((status, err_json)) = validate_prompt(message) {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
     let conversation_id = payload
         .get("conversation_id")
         .and_then(|v| v.as_str())
@@ -343,6 +391,14 @@ pub async fn analyze_code(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("");
+
+    if let Err((status, err_json)) = validate_prompt(code) {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
 
     let language = payload
         .get("language")
@@ -384,6 +440,14 @@ pub async fn generate_code(
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+
+    if let Err((status, err_json)) = validate_prompt(description) {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
 
     let language = payload
         .get("language")

@@ -332,7 +332,7 @@ pub trait ModelForward: Send + Sync {
     /// logits on device, reading back only the final per-sequence results.
     fn forward_prefill_batched(
         &self,
-        inputs: &[Vec<u32>],
+        inputs: &[&[u32]],
         caches: &mut [Box<dyn KVCacheProvider>],
     ) -> Vec<Array1<f32>> {
         let n = inputs.len();
@@ -525,7 +525,7 @@ impl ModelForward for nexora_transformer::CausalLM {
 
     fn forward_prefill_batched(
         &self,
-        inputs: &[Vec<u32>],
+        inputs: &[&[u32]],
         caches: &mut [Box<dyn KVCacheProvider>],
     ) -> Vec<Array1<f32>> {
         #[cfg(feature = "gpu")]

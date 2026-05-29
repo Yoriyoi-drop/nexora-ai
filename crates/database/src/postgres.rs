@@ -2,6 +2,8 @@
 //!
 //! PostgreSQL driver implementation replacing PostgreSQL C code
 
+#![cfg(feature = "postgres")]
+
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -6,11 +6,13 @@ pub mod entropy;
 pub mod language;
 pub mod length;
 pub mod perplexity;
+#[cfg(feature = "prompt-injection")]
 pub mod prompt_injection;
 pub mod quality;
 pub mod regex;
 pub mod semantic_dedup;
 pub mod token;
+#[cfg(feature = "toxicity")]
 pub mod toxicity;
 pub mod traits;
 pub mod trust_score;
@@ -23,11 +25,13 @@ pub use entropy::EntropyFilter;
 pub use language::LanguageFilter;
 pub use length::LengthFilter;
 pub use perplexity::PerplexityFilter;
+#[cfg(feature = "prompt-injection")]
 pub use prompt_injection::PromptInjectionFilter;
 pub use quality::QualityFilter;
 pub use regex::RegexFilter;
 pub use semantic_dedup::SemanticDedupFilter;
 pub use token::TokenFilter;
+#[cfg(feature = "toxicity")]
 pub use toxicity::ToxicityFilter;
 pub use traits::{Filter, ParallelFilter};
 pub use trust_score::TrustScoreFilter;
@@ -36,7 +40,9 @@ pub use trust_score::TrustScoreFilter;
 mod tests {
     #[test]
     fn test_re_exports() {
+        #[cfg(feature = "toxicity")]
         let _ = super::ToxicityFilter::default();
+        #[cfg(feature = "prompt-injection")]
         let _ = super::PromptInjectionFilter::default();
         let _ = super::DedupFilter::default();
         let _ = super::QualityFilter::default();

@@ -852,26 +852,36 @@ impl GQA {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
 
-        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
-            let k_row: Vec<f32> = k_slice.iter().copied().collect();
-            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim),
-                rotated_k.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
-            k_slice.assign(&rotated);
+        {
+            let k_shape = k.dim();
+            let k_2d = k
+                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
+            k = k_rotated
+                .into_shape(k_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
-        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
-            let q_row: Vec<f32> = q_slice.iter().copied().collect();
-            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim),
-                rotated_q.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
-            q_slice.assign(&rotated);
+        {
+            let q_shape = q.dim();
+            let q_2d = q
+                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
+            q = q_rotated
+                .into_shape(q_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
@@ -972,26 +982,36 @@ impl GQA {
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
-        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
-            let k_row: Vec<f32> = k_slice.iter().copied().collect();
-            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim),
-                rotated_k.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
-            k_slice.assign(&rotated);
+        {
+            let k_shape = k.dim();
+            let k_2d = k
+                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
+            k = k_rotated
+                .into_shape(k_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
-        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
-            let q_row: Vec<f32> = q_slice.iter().copied().collect();
-            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim),
-                rotated_q.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
-            q_slice.assign(&rotated);
+        {
+            let q_shape = q.dim();
+            let q_2d = q
+                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
+            q = q_rotated
+                .into_shape(q_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
@@ -1100,28 +1120,36 @@ impl GQA {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
 
-        // RoPE for K
-        for mut k_slice in k.axis_iter_mut(ndarray::Axis(0)) {
-            let k_row: Vec<f32> = k_slice.iter().copied().collect();
-            let rotated_k = RoPE::apply_single(&k_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_kv_heads, self.head_dim),
-                rotated_k.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_kv_heads, self.head_dim)));
-            k_slice.assign(&rotated);
+        {
+            let k_shape = k.dim();
+            let k_2d = k
+                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
+            k = k_rotated
+                .into_shape(k_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
-        // RoPE for Q
-        for mut q_slice in q.axis_iter_mut(ndarray::Axis(0)) {
-            let q_row: Vec<f32> = q_slice.iter().copied().collect();
-            let rotated_q = RoPE::apply_single(&q_row, cos, sin, self.head_dim, 0);
-            let rotated = ndarray::Array2::from_shape_vec(
-                (self.num_heads, self.head_dim),
-                rotated_q.into_raw_vec(),
-            )
-            .unwrap_or_else(|_| ndarray::Array2::zeros((self.num_heads, self.head_dim)));
-            q_slice.assign(&rotated);
+        {
+            let q_shape = q.dim();
+            let q_2d = q
+                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .unwrap_or_else(|_| {
+                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
+                });
+            let half = self.head_dim / 2;
+            let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
+            let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
+            let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
+            q = q_rotated
+                .into_shape(q_shape)
+                .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 
         // Append this token's K/V to the paged cache

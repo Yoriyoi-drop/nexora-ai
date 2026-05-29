@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{InferenceError, InferenceRequest, InferenceResponse, Result, Scheduler};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SchedulingStrategy {
     FIFO,
     Priority,
@@ -37,17 +37,21 @@ pub enum RequestStatus {
     Timeout,
 }
 
+struct SchedulerInner {
+    queue: VecDeque<QueuedRequest>,
+    active: HashMap<Uuid, RequestInfo>,
+    status: HashMap<Uuid, RequestStatus>,
+    channels: HashMap<Uuid, mpsc::Sender<InferenceResponse>>,
+    stats: SchedulerStats,
+    state: SchedulerState,
+    round_robin_index: usize,
+}
+
 pub struct RequestScheduler {
     max_concurrent_requests: usize,
     max_queue_time_ms: u64,
     strategy: SchedulingStrategy,
-    request_queue: Arc<RwLock<VecDeque<QueuedRequest>>>,
-    active_requests: Arc<RwLock<HashMap<Uuid, RequestInfo>>>,
-    request_status: Arc<RwLock<HashMap<Uuid, RequestStatus>>>,
-    response_channels: Arc<RwLock<HashMap<Uuid, mpsc::Sender<InferenceResponse>>>>,
-    stats: Arc<RwLock<SchedulerStats>>,
-    state: Arc<RwLock<SchedulerState>>,
-    round_robin_index: Arc<RwLock<usize>>,
+    inner: Arc<RwLock<SchedulerInner>>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,13 +94,15 @@ impl RequestScheduler {
             max_concurrent_requests,
             max_queue_time_ms: 30000,
             strategy: SchedulingStrategy::Priority,
-            request_queue: Arc::new(RwLock::new(VecDeque::new())),
-            active_requests: Arc::new(RwLock::new(HashMap::new())),
-            request_status: Arc::new(RwLock::new(HashMap::new())),
-            response_channels: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(SchedulerStats::default())),
-            state: Arc::new(RwLock::new(SchedulerState::Uninitialized)),
-            round_robin_index: Arc::new(RwLock::new(0)),
+            inner: Arc::new(RwLock::new(SchedulerInner {
+                queue: VecDeque::new(),
+                active: HashMap::new(),
+                status: HashMap::new(),
+                channels: HashMap::new(),
+                stats: SchedulerStats::default(),
+                state: SchedulerState::Uninitialized,
+                round_robin_index: 0,
+            })),
         }
     }
 
@@ -112,9 +118,10 @@ impl RequestScheduler {
 
     pub async fn initialize(&self) -> Result<()> {
         info!("Initializing request scheduler");
-        *self.state.write().await = SchedulerState::Initializing;
-        self.stats.write().await.last_updated = Utc::now();
-        *self.state.write().await = SchedulerState::Ready;
+        let mut inner = self.inner.write().await;
+        inner.state = SchedulerState::Initializing;
+        inner.stats.last_updated = Utc::now();
+        inner.state = SchedulerState::Ready;
         info!("Request scheduler initialized successfully");
         Ok(())
     }
@@ -127,8 +134,8 @@ impl RequestScheduler {
         debug!("Submitting request to scheduler: {:?}", request.request_id);
 
         {
-            let state = self.state.read().await;
-            if *state != SchedulerState::Ready {
+            let inner = self.inner.read().await;
+            if inner.state != SchedulerState::Ready {
                 return Err(
                     InferenceError::InternalError("Scheduler not ready".to_string()).into(),
                 );
@@ -159,23 +166,17 @@ impl RequestScheduler {
             metadata: HashMap::new(),
         };
 
-        self.response_channels
-            .write()
-            .await
-            .insert(request_uuid, queued_request.response_tx.clone());
-        self.request_status
-            .write()
-            .await
-            .insert(request_uuid, RequestStatus::Queued);
-        self.insert_into_queue(&mut *self.request_queue.write().await, queued_request);
-
         {
-            let queue_len = self.request_queue.read().await.len();
-            let mut stats = self.stats.write().await;
-            stats.total_requests += 1;
-            stats.queued_requests += 1;
-            stats.current_queue_length = queue_len;
-            stats.last_updated = Utc::now();
+            let mut inner = self.inner.write().await;
+            inner
+                .channels
+                .insert(request_uuid, queued_request.response_tx.clone());
+            inner.status.insert(request_uuid, RequestStatus::Queued);
+            Self::insert_into_queue_inner(&mut inner.queue, &self.strategy, queued_request);
+            inner.stats.total_requests += 1;
+            inner.stats.queued_requests += 1;
+            inner.stats.current_queue_length = inner.queue.len();
+            inner.stats.last_updated = Utc::now();
         }
 
         self.process_queue().await?;
@@ -186,32 +187,38 @@ impl RequestScheduler {
     pub async fn get_next_request(&self) -> Result<Option<QueuedRequest>> {
         debug!("Getting next request from scheduler");
 
-        {
-            let active = self.active_requests.read().await;
-            if active.len() >= self.max_concurrent_requests {
-                debug!("Maximum concurrent requests reached ({})", active.len());
+        // Phase 1: read-only check — no exclusive lock needed
+        let (strategy, rr_index) = {
+            let inner = self.inner.read().await;
+            if inner.active.len() >= self.max_concurrent_requests {
+                debug!("Maximum concurrent requests reached ({})", inner.active.len());
                 return Ok(None);
             }
-        }
+            if inner.queue.is_empty() {
+                return Ok(None);
+            }
+            (self.strategy, inner.round_robin_index)
+        };
 
-        let mut queue = self.request_queue.write().await;
-        if queue.is_empty() {
+        // Phase 2: narrow write window for timeout removal, index update, and dequeue
+        let mut inner = self.inner.write().await;
+
+        // Re-check after lock upgrade (another writer may have drained the queue)
+        if inner.active.len() >= self.max_concurrent_requests {
+            return Ok(None);
+        }
+        if inner.queue.is_empty() {
             return Ok(None);
         }
 
         // Check for timed-out requests at the front of the queue
         let now = Utc::now();
-        while let Some(front) = queue.front() {
+        while let Some(front) = inner.queue.front() {
             let elapsed_ms = (now - front.queued_at).num_milliseconds().max(0) as u64;
             if elapsed_ms > self.max_queue_time_ms {
-                let timed_out = match queue.pop_front() {
+                let timed_out = match inner.queue.pop_front() {
                     Some(item) => item,
-                    None => {
-                        tracing::warn!(
-                            "Scheduler race condition: queue was empty despite front() check"
-                        );
-                        break;
-                    }
+                    None => break,
                 };
                 let rid = timed_out
                     .request
@@ -219,48 +226,36 @@ impl RequestScheduler {
                     .as_ref()
                     .and_then(|s| Uuid::parse_str(s).ok())
                     .unwrap_or_else(Uuid::new_v4);
-                self.request_status
-                    .write()
-                    .await
-                    .insert(rid, RequestStatus::Timeout);
+                inner.status.insert(rid, RequestStatus::Timeout);
                 tracing::warn!("Request {} timed out after {}ms", rid, elapsed_ms);
             } else {
                 break;
             }
         }
 
-        if queue.is_empty() {
+        if inner.queue.is_empty() {
             return Ok(None);
         }
 
         // Respect strategy when dequeuing
-        let idx = match self.strategy {
+        let idx = match strategy {
             SchedulingStrategy::FIFO => 0,
-            SchedulingStrategy::Priority => 0, // already sorted by insert
-            SchedulingStrategy::SJF => {
-                // SJF: pick shortest job at front (already sorted by insert)
-                0
-            }
+            SchedulingStrategy::Priority => 0,
+            SchedulingStrategy::SJF => 0,
             SchedulingStrategy::RoundRobin => {
-                // RoundRobin: rotate through the queue, wrapping around
-                let queue_len = queue.len().max(1);
-                let mut rr_idx = self.round_robin_index.write().await;
-                let idx = *rr_idx % queue_len;
-                *rr_idx = (idx + 1) % queue_len;
+                let queue_len = inner.queue.len().max(1);
+                let idx = rr_index % queue_len;
+                inner.round_robin_index = (idx + 1) % queue_len;
                 idx
             }
             SchedulingStrategy::Fair => {
-                // Fair: weighted fair queuing with starvation prevention.
-                // Base selection on priority group, but apply an age boost
-                // so low-priority requests that have waited too long get
-                // promoted ahead of fresher high-priority ones.
                 let now = Utc::now();
                 let mut best_idx = 0;
                 let mut best_score = f64::NEG_INFINITY;
-                for (i, req) in queue.iter().enumerate() {
+                for (i, req) in inner.queue.iter().enumerate() {
                     let group = req.priority / 10 * 10;
                     let wait_ms = (now - req.queued_at).num_milliseconds().max(0) as f64;
-                    let age_boost = (wait_ms / 5000.0).min(5.0); // +5 max after 25s wait
+                    let age_boost = (wait_ms / 5000.0).min(5.0);
                     let score = (100 - group as i32) as f64 + age_boost;
                     if score > best_score {
                         best_score = score;
@@ -271,27 +266,27 @@ impl RequestScheduler {
             }
         };
 
-        let queued_request = match queue.remove(idx) {
+        let queued_request = match inner.queue.remove(idx) {
             Some(r) => r,
             None => {
                 tracing::warn!("scheduler: queue became empty between check and dequeue");
                 return Ok(None);
             }
         };
-        self.stats.write().await.current_queue_length = queue.len();
+        inner.stats.current_queue_length = inner.queue.len();
         Ok(Some(queued_request))
     }
 
     pub async fn start_request(&self, request_id: Uuid) -> Result<()> {
         debug!("Starting request processing: {}", request_id);
 
-        self.request_status
-            .write()
-            .await
+        let mut inner = self.inner.write().await;
+        inner
+            .status
             .get_mut(&request_id)
             .map(|s| *s = RequestStatus::Processing);
 
-        self.active_requests.write().await.insert(
+        inner.active.insert(
             request_id,
             RequestInfo {
                 request_id,
@@ -303,8 +298,7 @@ impl RequestScheduler {
             },
         );
 
-        let active_len = self.active_requests.read().await.len();
-        self.stats.write().await.current_active_requests = active_len;
+        inner.stats.current_active_requests = inner.active.len();
 
         debug!("Request {} started processing", request_id);
         Ok(())
@@ -313,38 +307,33 @@ impl RequestScheduler {
     pub async fn complete_request(&self, request_id: Uuid) -> Result<()> {
         debug!("Completing request: {}", request_id);
 
-        let processing_time = {
-            let mut active = self.active_requests.write().await;
-            active
-                .remove(&request_id)
-                .map(|info| (Utc::now() - info.started_at).num_milliseconds().max(0) as u64)
-                .unwrap_or_else(|| {
-                    warn!("Request {} not found in active requests", request_id);
-                    0
-                })
-        };
+        let mut inner = self.inner.write().await;
+        let processing_time = inner
+            .active
+            .remove(&request_id)
+            .map(|info| (Utc::now() - info.started_at).num_milliseconds().max(0) as u64)
+            .unwrap_or_else(|| {
+                warn!("Request {} not found in active requests", request_id);
+                0
+            });
 
-        self.request_status
-            .write()
-            .await
+        inner
+            .status
             .get_mut(&request_id)
             .map(|s| *s = RequestStatus::Completed);
 
-        let active_len = self.active_requests.read().await.len();
-        {
-            let mut stats = self.stats.write().await;
-            stats.processed_requests += 1;
-            stats.current_active_requests = active_len;
-            if stats.processed_requests > 0 {
-                stats.avg_processing_time_ms = (stats.avg_processing_time_ms
-                    * (stats.processed_requests - 1) as f64
-                    + processing_time as f64)
-                    / stats.processed_requests as f64;
-            }
-            stats.last_updated = Utc::now();
+        inner.stats.processed_requests += 1;
+        inner.stats.current_active_requests = inner.active.len();
+        if inner.stats.processed_requests > 0 {
+            inner.stats.avg_processing_time_ms = (inner.stats.avg_processing_time_ms
+                * (inner.stats.processed_requests - 1) as f64
+                + processing_time as f64)
+                / inner.stats.processed_requests as f64;
         }
+        inner.stats.last_updated = Utc::now();
+        inner.channels.remove(&request_id);
+        drop(inner);
 
-        self.response_channels.write().await.remove(&request_id);
         self.process_queue().await?;
         debug!("Request {} completed successfully", request_id);
         Ok(())
@@ -353,52 +342,36 @@ impl RequestScheduler {
     pub async fn cancel_request(&self, request_id: Uuid) -> Result<bool> {
         debug!("Cancelling request: {}", request_id);
 
-        let mut cancelled = false;
+        let mut inner = self.inner.write().await;
 
-        {
-            let mut queue = self.request_queue.write().await;
-            if let Some(pos) = queue.iter().position(|req| {
-                req.request
-                    .request_id
-                    .as_ref()
-                    .and_then(|s| match Uuid::parse_str(s) {
-                        Ok(uuid) => Some(uuid),
-                        Err(e) => {
-                            tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
-                            None
-                        }
-                    })
-                    .map(|uuid| uuid == request_id)
-                    .unwrap_or(false)
-            }) {
-                queue.remove(pos);
-                cancelled = true;
-            }
-        }
-
-        if !cancelled {
-            let mut active = self.active_requests.write().await;
-            if active.remove(&request_id).is_some() {
-                cancelled = true;
-            }
-        }
+        let cancelled = if let Some(pos) = inner.queue.iter().position(|req| {
+            req.request
+                .request_id
+                .as_ref()
+                .and_then(|s| match Uuid::parse_str(s) {
+                    Ok(uuid) => Some(uuid),
+                    Err(e) => {
+                        tracing::warn!("Failed to parse request UUID '{}': {}", s, e);
+                        None
+                    }
+                })
+                .map(|uuid| uuid == request_id)
+                .unwrap_or(false)
+        }) {
+            inner.queue.remove(pos);
+            true
+        } else if inner.active.remove(&request_id).is_some() {
+            true
+        } else {
+            false
+        };
 
         if cancelled {
-            self.request_status
-                .write()
-                .await
-                .insert(request_id, RequestStatus::Cancelled);
-
-            let queue_len = self.request_queue.read().await.len();
-            let active_len = self.active_requests.read().await.len();
-            {
-                let mut stats = self.stats.write().await;
-                stats.cancelled_requests += 1;
-                stats.current_queue_length = queue_len;
-                stats.current_active_requests = active_len;
-            }
-
-            self.response_channels.write().await.remove(&request_id);
+            inner.status.insert(request_id, RequestStatus::Cancelled);
+            inner.stats.cancelled_requests += 1;
+            inner.stats.current_queue_length = inner.queue.len();
+            inner.stats.current_active_requests = inner.active.len();
+            inner.channels.remove(&request_id);
             debug!("Request {} cancelled successfully", request_id);
             Ok(true)
         } else {
@@ -411,8 +384,8 @@ impl RequestScheduler {
         debug!("Sending response for request: {}", request_id);
 
         let response_tx = {
-            let channels = self.response_channels.read().await;
-            channels.get(&request_id).cloned()
+            let inner = self.inner.read().await;
+            inner.channels.get(&request_id).cloned()
         };
 
         match response_tx {
@@ -433,31 +406,27 @@ impl RequestScheduler {
     }
 
     pub async fn get_request_status(&self, request_id: Uuid) -> Result<Option<RequestStatus>> {
-        Ok(self.request_status.read().await.get(&request_id).cloned())
+        let inner = self.inner.read().await;
+        Ok(inner.status.get(&request_id).cloned())
     }
 
     pub async fn get_stats(&self) -> SchedulerStats {
-        self.stats.read().await.clone()
+        let inner = self.inner.read().await;
+        inner.stats.clone()
     }
 
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down request scheduler");
 
-        *self.state.write().await = SchedulerState::ShuttingDown;
+        let mut inner = self.inner.write().await;
+        inner.state = SchedulerState::ShuttingDown;
 
-        let queued_count = {
-            let mut queue = self.request_queue.write().await;
-            let count = queue.len();
-            queue.clear();
-            count
-        };
+        let queued_count = inner.queue.len();
+        inner.queue.clear();
+        inner.stats.cancelled_requests += queued_count as u64;
 
-        self.stats.write().await.cancelled_requests += queued_count as u64;
-
-        let active_ids: Vec<Uuid> = {
-            let active = self.active_requests.read().await;
-            active.keys().cloned().collect()
-        };
+        let active_ids: Vec<Uuid> = inner.active.keys().cloned().collect();
+        drop(inner);
 
         for request_id in active_ids {
             if let Err(e) = self.cancel_request(request_id).await {
@@ -468,7 +437,7 @@ impl RequestScheduler {
             }
         }
 
-        *self.state.write().await = SchedulerState::Shutdown;
+        self.inner.write().await.state = SchedulerState::Shutdown;
         info!("Request scheduler shutdown complete");
         Ok(())
     }
@@ -494,9 +463,9 @@ impl RequestScheduler {
         Ok(())
     }
 
-    fn insert_into_queue(&self, queue: &mut VecDeque<QueuedRequest>, request: QueuedRequest) {
+    fn insert_into_queue_inner(queue: &mut VecDeque<QueuedRequest>, strategy: &SchedulingStrategy, request: QueuedRequest) {
         let target_group = request.priority / 10 * 10;
-        let insert_pos = match self.strategy {
+        let insert_pos = match strategy {
             SchedulingStrategy::FIFO => None,
             SchedulingStrategy::RoundRobin => {
                 // RoundRobin: interleave across priority groups for a natural
@@ -517,12 +486,12 @@ impl RequestScheduler {
                     existing_group < target_group
                 })
             }
-            SchedulingStrategy::Priority => queue
-                .iter()
-                .position(|existing| request.priority > existing.priority),
-            SchedulingStrategy::SJF => queue
-                .iter()
-                .position(|existing| request.estimated_time_ms < existing.estimated_time_ms),
+            SchedulingStrategy::Priority => {
+                queue.iter().position(|existing| request.priority > existing.priority)
+            }
+            SchedulingStrategy::SJF => {
+                queue.iter().position(|existing| request.estimated_time_ms < existing.estimated_time_ms)
+            }
         };
         match insert_pos {
             Some(pos) => queue.insert(pos, request),
@@ -646,24 +615,22 @@ mod tests {
 
     #[test]
     fn test_insert_into_queue_fifo() {
-        let scheduler = RequestScheduler::new(10);
         let mut queue = VecDeque::new();
 
-        scheduler.insert_into_queue(&mut queue, test_request(50));
-        scheduler.insert_into_queue(&mut queue, test_request(50));
-        scheduler.insert_into_queue(&mut queue, test_request(50));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
 
         assert_eq!(queue.len(), 3);
     }
 
     #[test]
     fn test_insert_into_queue_priority() {
-        let scheduler = RequestScheduler::new(10).with_strategy(SchedulingStrategy::Priority);
         let mut queue = VecDeque::new();
 
-        scheduler.insert_into_queue(&mut queue, test_request(10));
-        scheduler.insert_into_queue(&mut queue, test_request(90));
-        scheduler.insert_into_queue(&mut queue, test_request(50));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(10));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(90));
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(50));
 
         assert_eq!(queue.len(), 3);
         assert_eq!(queue[0].priority, 90, "highest priority first");
@@ -673,8 +640,6 @@ mod tests {
 
     #[test]
     fn test_insert_into_queue_sjf() {
-        let scheduler = RequestScheduler::new(10).with_strategy(SchedulingStrategy::SJF);
-
         let mut queue = VecDeque::new();
         let mut r1 = test_request(50);
         r1.estimated_time_ms = 200;
@@ -683,9 +648,9 @@ mod tests {
         let mut r3 = test_request(50);
         r3.estimated_time_ms = 100;
 
-        scheduler.insert_into_queue(&mut queue, r1);
-        scheduler.insert_into_queue(&mut queue, r2);
-        scheduler.insert_into_queue(&mut queue, r3);
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::SJF, r1);
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::SJF, r2);
+        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::SJF, r3);
 
         assert_eq!(queue[0].estimated_time_ms, 50, "shortest first");
         assert_eq!(queue[1].estimated_time_ms, 100, "middle");

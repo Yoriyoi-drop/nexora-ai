@@ -84,13 +84,27 @@ impl MiniTokenizer {
     /// Train BPE merges on provided texts. This extends the vocab with merged tokens
     /// that get IDs ≥ 256.
     pub fn train_bpe(&mut self, texts: &[String], num_merges: usize) {
+        use rayon::prelude::*;
+
         let mut pair_counts: HashMap<(String, String), usize> = HashMap::new();
-        for text in texts {
-            let graphemes: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
-            for pair in graphemes.windows(2) {
-                *pair_counts
-                    .entry((pair[0].clone(), pair[1].clone()))
-                    .or_default() += 1;
+        let chunks: Vec<HashMap<(String, String), usize>> = texts
+            .par_iter()
+            .map(|text| {
+                let mut local: HashMap<(String, String), usize> = HashMap::new();
+                let graphemes: Vec<String> =
+                    text.graphemes(true).map(|g| g.to_string()).collect();
+                for pair in graphemes.windows(2) {
+                    *local
+                        .entry((pair[0].clone(), pair[1].clone()))
+                        .or_default() += 1;
+                }
+                local
+            })
+            .collect();
+
+        for chunk in chunks {
+            for (k, v) in chunk {
+                *pair_counts.entry(k).or_default() += v;
             }
         }
         let max_merges = num_merges.min(self.vocab_size.saturating_sub(256));

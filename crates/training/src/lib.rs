@@ -1,4 +1,5 @@
 pub mod lora;
+pub mod mixed_precision;
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};

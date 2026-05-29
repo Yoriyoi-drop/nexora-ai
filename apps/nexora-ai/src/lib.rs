@@ -6,7 +6,7 @@ use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -29,7 +29,6 @@ pub use server::{NexoraServer, ServerConfig};
 // --- Foundation model integration ---
 use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::global_registry};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
-use tokio::sync::Mutex;
 /// Create an InferenceEngine sharing the model from the registry via with_model().
 /// This avoids InferenceEngine::new() which creates a separate uninitialized CausalLM.
 pub async fn create_inference_engine(

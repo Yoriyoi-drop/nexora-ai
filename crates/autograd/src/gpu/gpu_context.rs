@@ -480,6 +480,7 @@ impl GpuContext {
             disk_cache: Some(disk_cache),
             cache_key,
             backend,
+            readback_limiter: ReadbackLimiter::new(MAX_PENDING_READBACKS),
             #[cfg(feature = "cuda")]
             cuda: cuda_runtime,
         };
@@ -544,6 +545,8 @@ impl GpuContext {
         // Phase 2: Transformer ops (RoPE, repeat_heads)
         self.compile_rotary_embedding()?;
         self.compile_repeat_heads()?;
+        // MoE scatter-add (wgpu fused expert path)
+        self.compile_moe_scatter_add()?;
         // Priority 1: Fused ops (matmul+bias+activation, online softmax)
         self.compile_fused_ops()?;
         // Phase 4: Training pipelines
@@ -579,6 +582,21 @@ impl GpuContext {
             &[storage_binding(0, false)],
             std::borrow::Cow::Borrowed(FILL_ZERO_U32_WGSL),
             "fill_zero_u32_main",
+        )
+    }
+
+    fn compile_moe_scatter_add(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "moe_scatter_add",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            std::borrow::Cow::Borrowed(MOE_SCATTER_ADD_WGSL),
+            "moe_scatter_add_main",
         )
     }
 
@@ -635,6 +653,51 @@ impl GpuContext {
             &[(0, grad_buffers.buffer()), (1, out.buffer())],
             &[(2, &cfg_buf)],
             numel, 256, 4,
+        );
+        Ok(())
+    }
+
+    /// MoE scatter-add: scatters weighted expert outputs into an accumulated output buffer.
+    /// Processes one expert group — the kernel dispatches sequentially (no atomicAdd needed).
+    /// - `expert_out`: [n_tokens, hidden_size] expert output
+    /// - `indices`: [n_tokens] u32 — which batch row each token maps to
+    /// - `weights`: [n_tokens] f32 — routing weight for each token
+    /// - `output`: [batch_size, hidden_size] accumulated output (in-place read-write)
+    pub fn moe_scatter_add(
+        &self,
+        expert_out: &GpuTensor,
+        indices: &GpuTensor,
+        weights: &GpuTensor,
+        output: &GpuTensor,
+    ) -> Result<(), GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("moe_scatter_add")
+            .ok_or_else(|| GpuError::Pipeline("moe_scatter_add not compiled".into()))?;
+        let hidden_size = output.shape()[1] as u32;
+        let n_tokens = expert_out.shape()[0] as u32;
+        let total = n_tokens * hidden_size;
+
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("moe_scatter_add_cfg"),
+            size: 8,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 2] = [hidden_size, n_tokens];
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[
+                (0, expert_out.buffer()),
+                (1, indices.buffer()),
+                (2, weights.buffer()),
+                (3, output.buffer()),
+            ],
+            &[(4, &cfg_buf)],
+            total, 256, 4,
         );
         Ok(())
     }
@@ -4283,25 +4346,81 @@ impl GpuContext {
         // CUDA FlashAttention path (preferred when CUDA backend is active)
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
-            // Read Q, K, V from wgpu buffers to CPU
-            let q_raw = q
-                .to_cpu_raw_bytes()
-                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read Q: {e}")))?;
-            let k_raw = k
-                .to_cpu_raw_bytes()
-                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read K: {e}")))?;
-            let v_raw = v
-                .to_cpu_raw_bytes()
-                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read V: {e}")))?;
-            let q_cpu: Vec<f32> = bytemuck::cast_slice(&q_raw).to_vec();
-            let k_cpu: Vec<f32> = bytemuck::cast_slice(&k_raw).to_vec();
-            let v_cpu: Vec<f32> = bytemuck::cast_slice(&v_raw).to_vec();
+            // Batch QKV into a single contiguous readback (1 staging buffer instead of 3)
+            let q_size = (q.numel() * 4) as u64;
+            let k_size = (k.numel() * 4) as u64;
+            let v_size = (v.numel() * 4) as u64;
+            let total_bytes = q_size + k_size + v_size;
+            let staging = self
+                .device
+                .create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("fused_attn_qkv_staging"),
+                    size: total_bytes,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("fused_attn_qkv_encoder"),
+                });
+            self.flush();
+            encoder.copy_buffer_to_buffer(q.buffer(), 0, &staging, 0, q_size);
+            encoder.copy_buffer_to_buffer(k.buffer(), 0, &staging, q_size, k_size);
+            encoder.copy_buffer_to_buffer(v.buffer(), 0, &staging, q_size + k_size, v_size);
+            self.queue.submit(Some(encoder.finish()));
+            let qkv_raw = {
+                self.readback_limiter
+                    .acquire(std::time::Duration::from_secs(30))
+                    .then_some(())
+                    .ok_or_else(|| GpuError::Timeout("GPU readback limiter".into()))?;
+                let slice = staging.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| {
+                    let _ = tx.send(r);
+                });
+                let deadline = std::time::Instant::now()
+                    + std::time::Duration::from_secs(30);
+                let data = loop {
+                    self.device.poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: Some(std::time::Duration::from_millis(100)),
+                    });
+                    match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(Ok(())) => {
+                            let mapped = slice.get_mapped_range();
+                            let d = mapped.to_vec();
+                            drop(mapped);
+                            staging.unmap();
+                            break d;
+                        }
+                        Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            return Err(GpuError::Timeout("fused_attn QKV readback".into()));
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if std::time::Instant::now() > deadline {
+                                return Err(GpuError::Timeout("fused_attn QKV readback".into()));
+                            }
+                            std::thread::yield_now();
+                        }
+                    }
+                };
+                self.readback_limiter.release();
+                crate::gpu::gpu_observability::PCIE_READ_BYTES
+                    .fetch_add(total_bytes, std::sync::atomic::Ordering::Relaxed);
+                data
+            };
 
-            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &q_cpu)
+            let qkv_f32: &[f32] = bytemuck::cast_slice(&qkv_raw);
+            let q_len = q.numel();
+            let k_len = k.numel();
+            let v_len = v.numel();
+
+            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &qkv_f32[..q_len])
                 .map_err(|e| GpuError::Transfer(format!("CUDA upload Q: {e}")))?;
-            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &k_cpu)
+            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &qkv_f32[q_len..q_len + k_len])
                 .map_err(|e| GpuError::Transfer(format!("CUDA upload K: {e}")))?;
-            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &v_cpu)
+            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len])
                 .map_err(|e| GpuError::Transfer(format!("CUDA upload V: {e}")))?;
 
             let result_cuda = cuda
@@ -6292,6 +6411,31 @@ const FILL_ZERO_U32_WGSL: &str = r#"
 @compute @workgroup_size(256)
 fn fill_zero_u32_main(@builtin(global_invocation_id) id: vec3<u32>) {
     buf[id.x] = 0u;
+}
+"#;
+
+const MOE_SCATTER_ADD_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read> expert_out: array<f32>;
+@group(0) @binding(1) var<storage, read> indices: array<u32>;
+@group(0) @binding(2) var<storage, read> weights: array<f32>;
+@group(0) @binding(3) var<storage, read_write> output: array<f32>;
+@group(0) @binding(4) var<uniform> cfg: vec2<u32>;
+
+// cfg.x = hidden_size
+// cfg.y = n_tokens_in_expert
+
+@compute @workgroup_size(256)
+fn moe_scatter_add_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let hidden_size = cfg.x;
+    let n_tokens = cfg.y;
+    let total = n_tokens * hidden_size;
+    if (id.x >= total) { return; }
+    let token_in_expert = id.x / hidden_size;
+    let dim = id.x % hidden_size;
+    let output_row = indices[token_in_expert];
+    let weight = weights[token_in_expert];
+    let out_idx = output_row * hidden_size + dim;
+    output[out_idx] = output[out_idx] + expert_out[id.x] * weight;
 }
 "#;
 

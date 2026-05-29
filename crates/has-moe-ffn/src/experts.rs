@@ -180,51 +180,37 @@ impl Expert {
         let fc1_b = self.get_fc1_bias();
 
         // Upload input as [1, hidden_size]
-        let input_gpu =
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, dim], input.to_vec()).ok()?)
-                .ok()?;
+        let input_gpu = GpuTensor::from_slice(vec![1, dim], input).ok()?;
 
-        // fc1 weights: [intermediate_size, hidden_size] → transpose → [hidden_size, intermediate_size]
+        // fc1 weights: [intermediate_size, hidden_size]
         let fc1_flat: Vec<f32> = fc1_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![fc1_w.len(), dim], fc1_flat).ok()?,
-        )
-        .ok()?;
+        let w1_gpu = GpuTensor::from_slice(vec![fc1_w.len(), dim], &fc1_flat).ok()?;
         let w1t_gpu = ctx.transpose(&w1_gpu).ok()?;
-        let b1_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, fc1_b.len()], fc1_b.clone()).ok()?,
-        )
-        .ok()?;
+        let b1_gpu = GpuTensor::from_slice(vec![1, fc1_b.len()], fc1_b).ok()?;
 
         let hidden_gpu = ctx.matmul(&input_gpu, &w1t_gpu).ok()?;
         let mut hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
 
-        // GELU in-place on GPU (no CPU roundtrip)
         ctx.gelu_inplace(&mut hidden_gpu).ok()?;
 
-        // fc2 weights: [hidden_size, intermediate_size] → transpose → [intermediate_size, hidden_size]
+        // fc2 weights: [hidden_size, intermediate_size]
         let fc2_w = self.get_fc2_weights();
         let fc2_b = self.get_fc2_bias();
-        let fc2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
         let inter_size = fc2_w.len();
-        let w2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![inter_size, dim], fc2_flat).ok()?,
-        )
-        .ok()?;
+        let fc2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
+        let w2_gpu = GpuTensor::from_slice(vec![inter_size, dim], &fc2_flat).ok()?;
         let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
-        let b2_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, fc2_b.len()], fc2_b.clone()).ok()?,
-        )
-        .ok()?;
+        let b2_gpu = GpuTensor::from_slice(vec![1, fc2_b.len()], fc2_b).ok()?;
 
         let act_gpu = if self.config.use_dropout {
-            let hidden_cpu = hidden_gpu.to_cpu().ok()?;
-            let hidden_slice: Vec<f32> = hidden_cpu.iter().copied().collect();
-            let dropped = self.apply_dropout(&hidden_slice);
-            GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![1, dropped.len()], dropped).ok()?,
-            )
-            .ok()?
+            let rate = self.config.dropout_rate;
+            let scale = 1.0 / (1.0 - rate);
+            let inter_size = hidden_gpu.shape()[1];
+            let mask: Vec<f32> = (0..inter_size)
+                .map(|_| if rand::random::<f32>() < rate { 0.0 } else { scale })
+                .collect();
+            let mask_gpu = GpuTensor::from_slice(vec![1, inter_size], &mask).ok()?;
+            ctx.mul(&hidden_gpu, &mask_gpu).ok()?
         } else {
             hidden_gpu
         };
@@ -240,7 +226,6 @@ impl Expert {
     /// Returns (fc1_w_t, fc1_bias, fc2_w_t, fc2_bias) as GpuTensors or None.
     #[cfg(feature = "gpu")]
     fn ensure_weights_gpu(&self) -> Option<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor)> {
-        use ndarray::ArrayD;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let fc1_w = self.fc1_weights.as_ref()?;
@@ -248,22 +233,22 @@ impl Expert {
         let fc2_w = self.fc2_weights.as_ref()?;
         let fc2_b = self.fc2_bias.as_ref()?;
         let w1 = self.fc1_gpu.get_or_init(|| {
+            let shape = vec![fc1_w.len(), self.config.hidden_size];
             let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
-            let cpu = ArrayD::from_shape_vec(vec![fc1_w.len(), self.config.hidden_size], flat).ok()?;
-            let gpu = GpuTensor::from_cpu(&cpu).ok()?;
+            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
             ctx.transpose(&gpu).ok()
         }).as_ref()?;
         let b1 = self.fc1_bias_gpu.get_or_init(|| {
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, fc1_b.len()], fc1_b.clone()).ok()?).ok()
+            GpuTensor::from_slice(vec![1, fc1_b.len()], fc1_b).ok()
         }).as_ref()?;
         let w2 = self.fc2_gpu.get_or_init(|| {
+            let shape = vec![fc2_w.len(), self.config.intermediate_size];
             let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
-            let cpu = ArrayD::from_shape_vec(vec![fc2_w.len(), self.config.intermediate_size], flat).ok()?;
-            let gpu = GpuTensor::from_cpu(&cpu).ok()?;
+            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
             ctx.transpose(&gpu).ok()
         }).as_ref()?;
         let b2 = self.fc2_bias_gpu.get_or_init(|| {
-            GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![1, fc2_b.len()], fc2_b.clone()).ok()?).ok()
+            GpuTensor::from_slice(vec![1, fc2_b.len()], fc2_b).ok()
         }).as_ref()?;
         Some((w1, b1, w2, b2))
     }
@@ -272,17 +257,32 @@ impl Expert {
     /// Returns None if GPU unavailable (CPU fallback handled by caller).
     #[cfg(feature = "gpu")]
     pub fn forward_batched_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        self.forward_batched_gpu_inner(inputs)
+            .and_then(|t| t.to_cpu().ok())
+            .and_then(|d| d.into_dimensionality::<ndarray::Ix2>().ok())
+    }
+
+    /// Batched GPU forward that keeps result on GPU (no readback).
+    /// Returns the raw GPU tensor for deferred readback / fused scatter-add.
+    #[cfg(feature = "gpu")]
+    pub fn forward_batched_gpu_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+        self.forward_batched_gpu_inner(inputs)
+    }
+
+    /// Internal batched wgpu forward — all GPU ops, no readback.
+    #[cfg(feature = "gpu")]
+    fn forward_batched_gpu_inner(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
         let (w1, b1, w2, b2) = self.ensure_weights_gpu()?;
         let ctx = GpuContext::global().ok()?;
-        let input_gpu = GpuTensor::from_cpu(&inputs.clone().into_dyn()).ok()?;
+        let (batch, dim) = inputs.dim();
+        let input_data = inputs.as_slice()?;
+        let input_gpu = GpuTensor::from_slice(vec![batch, dim], input_data).ok()?;
         let mut hidden = ctx.matmul(&input_gpu, w1).ok()?;
         hidden = ctx.add(&hidden, b1).ok()?;
         ctx.gelu_inplace(&mut hidden).ok()?;
         let output = ctx.matmul(&hidden, w2).ok()?;
-        let output = ctx.add(&output, b2).ok()?;
-        let cpu_d = output.to_cpu().ok()?;
-        cpu_d.into_dimensionality::<ndarray::Ix2>().ok()
+        ctx.add(&output, b2).ok()
     }
 
     /// Lazily upload expert weights to CUDA — cached via OnceLock.

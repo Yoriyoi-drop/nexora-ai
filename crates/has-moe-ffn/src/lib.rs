@@ -88,6 +88,12 @@ impl HasMoeFFN {
             return result;
         }
 
+        // Try wgpu fused path: all experts on GPU, single readback
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_wgpu_fused(input, &routing_weights) {
+            return result;
+        }
+
         // Initialize output tensor
         let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
 
@@ -130,6 +136,81 @@ impl HasMoeFFN {
         }
 
         output
+    }
+
+    /// wgpu fused forward: all expert computations on GPU before any readback.
+    /// Batches all expert forwards, then reads back all results at once —
+    /// avoids GPU idling between per-expert readback stalls.
+    #[cfg(feature = "gpu")]
+    fn forward_wgpu_fused(
+        &self,
+        input: &ndarray::Array2<f32>,
+        routing_weights: &ndarray::Array2<f32>,
+    ) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().ok()?;
+        let (batch_size, hidden_size) = input.dim();
+        let num_experts = self.config.num_experts;
+
+        // Group tokens by expert (CPU routing)
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); num_experts];
+        for i in 0..batch_size {
+            let top_experts = self.get_top_experts(routing_weights, i);
+            for &expert_idx in &top_experts {
+                let weight = routing_weights[[i, expert_idx]];
+                expert_tokens[expert_idx].push((i, weight));
+            }
+        }
+
+        ctx.begin_batch_mode();
+
+        // Process each expert on GPU, store GPU tensor (no readback between experts)
+        struct GpuExpertResult {
+            tokens: Vec<(usize, f32)>,
+            output_gpu: GpuTensor,
+        }
+        let mut gpu_results: Vec<GpuExpertResult> = Vec::new();
+
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            let n = tokens.len();
+            if n == 0 {
+                continue;
+            }
+
+            // Gather token embeddings (CPU)
+            let mut batch_input = ndarray::Array2::zeros((n, hidden_size));
+            for (k, &(token_idx, _)) in tokens.iter().enumerate() {
+                let row_view = input.row(token_idx);
+                batch_input.row_mut(k).assign(&row_view);
+            }
+
+            // Expert forward on GPU (no readback)
+            let expert_out = self.experts[expert_idx]
+                .forward_batched_gpu_keep_gpu(&batch_input)?;
+
+            gpu_results.push(GpuExpertResult {
+                tokens: tokens.clone(),
+                output_gpu: expert_out,
+            });
+        }
+
+        ctx.end_batch_mode();
+
+        // Read back all results and scatter-accumulate on CPU
+        let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
+        for result in &gpu_results {
+            let cpu_d = result.output_gpu.to_cpu().ok()?;
+            let batch_output = cpu_d.into_dimensionality::<ndarray::Ix2>().ok()?;
+            for (k, &(token_idx, weight)) in result.tokens.iter().enumerate() {
+                let out_row = batch_output.row(k);
+                for j in 0..hidden_size {
+                    output[[token_idx, j]] += out_row[j] * weight;
+                }
+            }
+        }
+
+        Some(output)
     }
 
     /// CUDA fused forward: all expert computations on GPU with single readback.

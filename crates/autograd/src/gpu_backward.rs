@@ -20,10 +20,12 @@ fn reduce_all_but_last(ctx: &GpuContext, tensor: &GpuTensor) -> Result<GpuTensor
     let last_dim = shape[shape.len() - 1];
     let rest: usize = shape[..shape.len() - 1].iter().product();
 
-    let flat = tensor.reshape(vec![rest, last_dim])?;
-    let ones = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(&[1, rest]), 1.0f32))
-        .map_err(|e| GpuError::Conversion(format!("reduce_all_but_last ones: {e}")))?;
-    let result = ctx.matmul(&ones, &flat)?;
+    // Flatten to [rest, last_dim] then multiply by ones row [1, rest]
+    // Result: [1, rest] @ [rest, last_dim] = [1, last_dim] → squeeze to [last_dim]
+    let s_2d = tensor.reshape(vec![rest, last_dim])?;
+    let ones = GpuTensor::ones(&[1, rest])
+        .map_err(|e| GpuError::Conversion(format!("reduce_all_but_last: {e}")))?;
+    let result = ctx.matmul(&ones, &s_2d)?;
     result.reshape(vec![last_dim])
 }
 
@@ -215,7 +217,7 @@ pub fn leaky_relu_backward(
     negative_slope: f32,
 ) -> Result<GpuTensor, GpuError> {
     let step = ctx.elementwise_unary(input, ElemOp::Step)?;
-    let one = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), 1.0f32))
+    let one = GpuTensor::ones(&input.shape())
         .map_err(|e| GpuError::Conversion(format!("leaky_relu_backward one: {e}")))?;
     let not_step = ctx.sub(&one, &step)?;
     let neg_slope_t = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), negative_slope))
@@ -253,7 +255,7 @@ pub fn gelu_backward(
         .map_err(|e| GpuError::Device(format!("gelu_backward tanh: {e}")))?;
 
     let t_sq = ctx.mul(&t, &t)?;
-    let one = GpuTensor::from_cpu(&ArrayD::from_elem(shape, 1.0f32))
+    let one = GpuTensor::ones(&shape)
         .map_err(|e| GpuError::Conversion(format!("gelu_backward one: {e}")))?;
     let sech2 = ctx.sub(&one, &t_sq)?;
 
@@ -285,7 +287,7 @@ pub fn tanh_backward(
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
     let r_sq = ctx.mul(result, result)?;
-    let one = GpuTensor::from_cpu(&ArrayD::from_elem(result.shape(), 1.0f32))
+    let one = GpuTensor::ones(&result.shape())
         .map_err(|e| GpuError::Conversion(format!("tanh_backward one: {e}")))?;
     let one_minus_r2 = ctx.sub(&one, &r_sq)?;
     let da = ctx.mul(grad, &one_minus_r2)?;
@@ -299,7 +301,7 @@ pub fn sigmoid_backward(
     result: &GpuTensor,
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let one = GpuTensor::from_cpu(&ArrayD::from_elem(result.shape(), 1.0f32))
+    let one = GpuTensor::ones(&result.shape())
         .map_err(|e| GpuError::Conversion(format!("sigmoid_backward one: {e}")))?;
     let one_minus_r = ctx.sub(&one, result)?;
     let r_times_1mr = ctx.mul(result, &one_minus_r)?;
@@ -322,7 +324,7 @@ pub fn silu_backward(
     let sig = ctx
         .elementwise_unary(input, ElemOp::Sigmoid)
         .map_err(|e| GpuError::Device(format!("silu_backward sigmoid: {e}")))?;
-    let one = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), 1.0f32))
+    let one = GpuTensor::ones(&input.shape())
         .map_err(|e| GpuError::Conversion(format!("silu_backward one: {e}")))?;
     let one_minus_sig = ctx.sub(&one, &sig)?;
     let x_sig = ctx.mul(input, &sig)?;
@@ -391,7 +393,7 @@ pub fn softmax_backward_last_dim(
     // sum_sg = (softmax * grad) summed over last dim → [rest, 1]
     let sg = ctx.mul(&s_2d, &g_2d)?;
 
-    let ones_col = GpuTensor::from_cpu(&ArrayD::from_elem(IxDyn(&[last_dim, 1]), 1.0f32))
+    let ones_col = GpuTensor::ones(&[last_dim, 1])
         .map_err(|e| GpuError::Conversion(format!("softmax_backward ones: {e}")))?;
     let sum_sg = ctx.matmul(&sg, &ones_col)?;
 
@@ -464,7 +466,7 @@ pub fn swiglu_backward_gpu(
 
     // dsilu = sig + gate * sig * (1 - sig)  (silu derivative)
     let shape = gate.shape().to_vec();
-    let one = GpuTensor::from_cpu(&ndarray::ArrayD::from_elem(ndarray::IxDyn(&shape), 1.0f32))
+    let one = GpuTensor::ones(&shape)
         .map_err(|e| GpuError::Conversion(format!("swiglu_backward one: {e}")))?;
     let one_minus_sig = ctx.sub(&one, &sig)?;
     let gate_sig = ctx.mul(gate, &sig)?;

@@ -5,7 +5,7 @@
 //! dan context window yang besar.
 
 use anyhow::Result;
-use ndarray::{s, Array1, Array2, Array3};
+use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
 use nexora_autograd::{ops, Tensor, TensorOps};
 use serde::{Deserialize, Serialize};
 
@@ -68,12 +68,13 @@ impl SparseMoELayer {
         }
     }
 
-    pub fn forward(&self, x: &Array2<f32>) -> Result<Array2<f32>> {
+    pub fn forward<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Array2<f32>>
+    where
+        S: Data<Elem = f32>,
+    {
         let (batch_size, d_model) = (x.dim().0, x.dim().1);
 
-        let x_reshaped = x.view().into_shape((batch_size, d_model))?.to_owned();
-
-        let gate_scores = self.gate.forward(&x_reshaped)?;
+        let gate_scores = self.gate.forward(x)?;
         let expert_indices = self.router.route(&gate_scores)?;
 
         let top_k = self.router.top_k;
@@ -87,7 +88,7 @@ impl SparseMoELayer {
                     break;
                 }
                 let expert_idx = expert_indices[flat_idx];
-                let expert_input = x_reshaped.slice(s![token_idx, ..]).to_owned();
+                let expert_input = x.slice(s![token_idx, ..]);
                 let expert_output = self.experts[expert_idx].forward(&expert_input)?;
 
                 let mut output_row = output.slice_mut(s![token_idx, ..]);
@@ -106,14 +107,16 @@ impl SparseMoELayer {
             }
         }
 
-        Ok(output.into_shape((batch_size, d_model))?.to_owned())
+        Ok(output)
     }
 
-    pub fn get_expert_usage(&self, x: &Array2<f32>) -> Result<Vec<f32>> {
-        let (batch_size, d_model) = (x.dim().0, x.dim().1);
-        let x_reshaped = x.view().into_shape((batch_size, d_model))?;
+    pub fn get_expert_usage<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
+    where
+        S: Data<Elem = f32>,
+    {
+        let (_batch_size, _d_model) = (x.dim().0, x.dim().1);
 
-        let gate_scores = self.gate.forward(&x_reshaped.to_owned())?;
+        let gate_scores = self.gate.forward(x)?;
         self.router.get_usage_stats(&gate_scores)
     }
 }
@@ -146,7 +149,10 @@ impl MLPExpert {
         }
     }
 
-    pub fn forward(&self, x: &Array1<f32>) -> Result<Array1<f32>> {
+    pub fn forward<S>(&self, x: &ArrayBase<S, ndarray::Ix1>) -> Result<Array1<f32>>
+    where
+        S: Data<Elem = f32>,
+    {
         // First linear layer + activation
         let hidden = x.dot(&self.w1) + &self.b1;
         let activated = self.gelu(&hidden);
@@ -252,7 +258,7 @@ impl MultiHeadLatentAttention {
 
         // Project to latent space
         let x_reshaped = x.view().into_shape((batch_size * seq_len, d_model))?;
-        let latent = self.latent_projection.forward(&x_reshaped.to_owned())?;
+        let latent = self.latent_projection.forward(&x_reshaped)?;
         let latent_3d = latent.into_shape((batch_size, seq_len, self.config.latent_dim))?;
 
         // Compress latent representation
@@ -274,11 +280,10 @@ impl MultiHeadLatentAttention {
             .into_shape((batch_size * seq_len, self.config.latent_dim))?;
         let output = self
             .output_projection
-            .forward(&output_reshaped.to_owned())?;
+            .forward(&output_reshaped)?;
 
         Ok(output
-            .into_shape((batch_size, seq_len, d_model))?
-            .to_owned())
+            .into_shape((batch_size, seq_len, d_model))?)
     }
 
     fn concatenate_heads(&self, heads: &[Array3<f32>]) -> Result<Array3<f32>> {
@@ -326,12 +331,11 @@ impl LatentAttentionHead {
         // Project to Q, K, V
         let x_reshaped = x
             .view()
-            .into_shape((batch_size * seq_len, self.latent_dim))?
-            .to_owned();
+            .into_shape((batch_size * seq_len, self.latent_dim))?;
 
-        let q = self.q_proj.forward(&x_reshaped.to_owned())?;
-        let k = self.k_proj.forward(&x_reshaped.to_owned())?;
-        let v = self.v_proj.forward(&x_reshaped.to_owned())?;
+        let q = self.q_proj.forward(&x_reshaped)?;
+        let k = self.k_proj.forward(&x_reshaped)?;
+        let v = self.v_proj.forward(&x_reshaped)?;
 
         let q_3d = q.into_shape((batch_size, seq_len, self.head_dim))?;
         let k_3d = k.into_shape((batch_size, seq_len, self.head_dim))?;
@@ -342,14 +346,11 @@ impl LatentAttentionHead {
 
         // Project output
         let output_reshaped = attention_output
-            .view()
-            .into_shape((batch_size * seq_len, self.head_dim))?
-            .to_owned();
+            .into_shape((batch_size * seq_len, self.head_dim))?;
         let output = self.out_proj.forward(&output_reshaped)?;
 
         Ok(output
-            .into_shape((batch_size, seq_len, self.latent_dim))?
-            .to_owned())
+            .into_shape((batch_size, seq_len, self.latent_dim))?)
     }
 
     fn scaled_dot_product_attention(
@@ -371,13 +372,11 @@ impl LatentAttentionHead {
             let k_b = k.index_axis(ndarray::Axis(0), b);
             let mut scores = q_b.dot(&k_b.t()) / scale;
 
-            // Apply causal mask
+            // Apply causal mask — vectorized
             if let Some(mask) = mask {
-                for i in 0..seq_len {
-                    for j in 0..seq_len {
-                        scores[[i, j]] += mask[[i, j]];
-                    }
-                }
+                ndarray::Zip::from(&mut scores)
+                    .and(mask)
+                    .for_each(|s, &m| *s += m);
             } else {
                 // Default causal mask: prevent attending to future tokens
                 for i in 0..seq_len {
@@ -387,19 +386,21 @@ impl LatentAttentionHead {
                 }
             }
 
-            // Softmax over last dimension (per-row)
+            // Row-wise softmax in-place (vectorized)
             for i in 0..seq_len {
-                let row = scores.slice(ndarray::s![i, ..]);
+                let mut row = scores.slice_mut(ndarray::s![i, ..]);
                 let max_val = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-                let exp_row = row.mapv(|x| (x - max_val).exp());
-                let sum_exp: f32 = exp_row.iter().sum();
-                for j in 0..seq_len {
-                    let attn = (scores[[i, j]] - max_val).exp() / sum_exp;
-                    for d in 0..head_dim {
-                        output[[b, i, d]] += attn * v[[b, j, d]];
-                    }
+                row.mapv_inplace(|x| (x - max_val).exp());
+                let sum_exp: f32 = row.iter().sum();
+                if sum_exp > 0.0 {
+                    row.mapv_inplace(|x| x / sum_exp);
                 }
             }
+
+            // Attention: softmax(scores) @ V[b] — cache-optimized matmul
+            let v_b = v.index_axis(ndarray::Axis(0), b);
+            let attn_out = scores.dot(&v_b);
+            output.slice_mut(ndarray::s![b, .., ..]).assign(&attn_out);
         }
 
         Ok(output)
@@ -430,7 +431,7 @@ impl LatentCompression {
                 Some(broadcasted) => broadcasted,
                 None => return Err(anyhow::anyhow!("Broadcast shape mismatch")),
             };
-            (x * &mask_expanded).to_owned()
+            x * &mask_expanded
         } else {
             x.to_owned()
         };
@@ -490,7 +491,10 @@ impl LinearLayer {
         }
     }
 
-    pub fn forward(&self, x: &Array2<f32>) -> Result<Array2<f32>> {
+    pub fn forward<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Array2<f32>>
+    where
+        S: Data<Elem = f32>,
+    {
         Ok(x.dot(&self.weight) + &self.bias)
     }
 }
@@ -542,7 +546,7 @@ impl OracleBackbone {
 
             // MoE layer - reshape from 3D to 2D
             let (b, s, d) = hidden.dim();
-            let hidden_2d = hidden.view().into_shape((b * s, d))?.to_owned();
+            let hidden_2d = hidden.view().into_shape((b * s, d))?;
             let moe_output = self.moe_layers[i].forward(&hidden_2d)?;
             let moe_output_3d = moe_output.into_shape((b, s, d))?;
             hidden = hidden + moe_output_3d;
@@ -558,13 +562,11 @@ impl OracleBackbone {
         // Output projection
         let hidden_reshaped = hidden
             .view()
-            .into_shape((batch_size * seq_len, self.config.d_model))?
-            .to_owned();
+            .into_shape((batch_size * seq_len, self.config.d_model))?;
         let logits = self.output_projection.forward(&hidden_reshaped)?;
 
         Ok(logits
-            .into_shape((batch_size, seq_len, self.output_projection.weight.dim().1))?
-            .to_owned())
+            .into_shape((batch_size, seq_len, self.output_projection.weight.dim().1))?)
     }
 
     pub fn get_expert_usage_stats(&self, input_ids: &Array2<i32>) -> Result<Vec<Vec<f32>>> {
@@ -572,8 +574,7 @@ impl OracleBackbone {
         let (batch_size, seq_len, d_model) = hidden.dim();
         let hidden_2d = hidden
             .view()
-            .into_shape((batch_size * seq_len, d_model))?
-            .to_owned();
+            .into_shape((batch_size * seq_len, d_model))?;
         let mut usage_stats = Vec::new();
 
         for moe_layer in &self.moe_layers {
@@ -871,6 +872,24 @@ impl OracleBackbone {
         let mut h = ops::nn::embedding(&ids, &params[param.emb]);
         // h: [n, d_model]
 
+        // --- Precompute block-diagonal causal mask (reused across all layers) ---
+        // Each batch element is isolated; within each, future positions are masked.
+        // Created once per forward call to avoid O(n²) per-layer recomputation.
+        let causal_mask = {
+            let mut mask_data = vec![f32::NEG_INFINITY; n * n];
+            for bi in 0..batch_size {
+                let base = bi * seq_len;
+                for i in 0..seq_len {
+                    let row_start = (base + i) * n + base;
+                    // Fill lower triangle (i >= j) with 0.0
+                    for j in 0..=i {
+                        mask_data[row_start + j] = 0.0;
+                    }
+                }
+            }
+            Tensor::from_slice(&mask_data, &[n, n])
+        };
+
         // --- Transformer layers ---
         for li in 0..self.moe_layers.len() {
             let lo = param.layer_offset(li);
@@ -907,15 +926,11 @@ impl OracleBackbone {
                     sel[i * n_experts + e] = 1.0;
                 }
                 let selector = Tensor::from_slice(&sel, &[n, n_experts]);
-                let score = gate_scores.mul(&selector); // [n, n_experts], only column e
-                                                        // Reshape score to [n, 1] by multiplying with ones vector
-                                                        // score [n, n_experts] * ones [n_experts, 1] → [n, 1]
+                let score = gate_scores.mul(&selector);
                 let ones = Tensor::from_slice(&vec![1.0f32; n_experts], &[n_experts, 1]);
-                // But the ones tensor has requires_grad=false, which is fine
-                let score_2d = score.matmul(&ones); // [n, 1]
+                let score_2d = score.matmul(&ones);
 
-                // Weight expert output by gate score
-                let weighted = expert_out.mul(&score_2d); // broadcasts [n, d] * [n, 1] → [n, d]
+                let weighted = expert_out.mul(&score_2d);
                 moe_out = moe_out.add(&weighted);
             }
 
@@ -928,45 +943,20 @@ impl OracleBackbone {
 
             // --- Multi-head latent attention (flattened 2D matmul with block+causal mask) ---
             let head_dim = d_model / self.config.n_heads;
-            let q = h.matmul(&params[lo.q_proj]); // [n, head_dim]
-            let k = h.matmul(&params[lo.k_proj]); // [n, head_dim]
-            let v = h.matmul(&params[lo.v_proj]); // [n, head_dim]
+            let q = h.matmul(&params[lo.q_proj]);
+            let k = h.matmul(&params[lo.k_proj]);
+            let v = h.matmul(&params[lo.v_proj]);
 
-            // Flattened 2D attention: scores = Q @ K^T  [n, n]
-            let k_t = k.transpose(); // [head_dim, n]
+            let k_t = k.transpose();
             let scale = (head_dim as f32).sqrt();
             let scale_t = Tensor::from_slice(&[1.0 / scale], &[1]);
-            let mut scores = q.matmul(&k_t).mul(&scale_t); // [n, n]
+            let mut scores = q.matmul(&k_t).mul(&scale_t);
 
-            // Create block-diagonal causal mask:
-            // - cross-batch positions get -inf (each batch isolated)
-            // - future positions (j > i) within same batch get -inf
-            let mut mask_data = vec![0.0f32; n * n];
-            for bi in 0..batch_size {
-                for bj in 0..batch_size {
-                    for i in 0..seq_len {
-                        for j in 0..seq_len {
-                            let row = bi * seq_len + i;
-                            let col = bj * seq_len + j;
-                            if bi != bj || i < j {
-                                // cross-batch or future position: mask out
-                                mask_data[row * n + col] = f32::NEG_INFINITY;
-                            }
-                        }
-                    }
-                }
-            }
-            let mask_t = Tensor::from_slice(&mask_data, &[n, n]);
-            scores = scores.add(&mask_t);
+            scores = scores.add(&causal_mask);
 
-            // Softmax over last dim (columns: how much each position attends to others)
-            let attn_weights = ops::nn::softmax(&scores, 1); // [n, n]
-
-            // attention output = attn @ V  [n, head_dim]
-            let attn_out = attn_weights.matmul(&v); // [n, head_dim]
-
-            // Project output back to d_model
-            let attn_proj = attn_out.matmul(&params[lo.attn_out_proj]); // [n, d_model]
+            let attn_weights = ops::nn::softmax(&scores, 1);
+            let attn_out = attn_weights.matmul(&v);
+            let attn_proj = attn_out.matmul(&params[lo.attn_out_proj]);
 
             h = h.add(&attn_proj);
         }

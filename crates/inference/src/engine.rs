@@ -107,7 +107,7 @@ pub struct InferenceEngine {
     kv_cache: Arc<RwLock<KVCache>>,
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+    tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
     shared_paged: Option<Arc<StdMutex<PagedKVCache>>>,
@@ -193,7 +193,7 @@ impl InferenceEngine {
 
     pub fn with_model(
         model: Arc<CausalLM>,
-        tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+        tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
@@ -503,8 +503,8 @@ impl InferenceEngine {
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
                 Some(tok) => {
-                    let t = tok.lock().await;
-                    t.encode(&augmented_prompt)
+                let t = tok.lock().unwrap();
+                t.encode(&augmented_prompt)
                 }
                 None => {
                     warn!(
@@ -580,8 +580,8 @@ impl InferenceEngine {
 
                     let token_text = match &tokenizer {
                         Some(tok) => {
-                            let t = tok.lock().await;
-                            t.decode(&[token_id])
+                        let t = tok.lock().unwrap();
+                        t.decode(&[token_id])
                         }
                         None => token_id_to_text_fallback(token_id),
                     };
@@ -626,8 +626,8 @@ impl InferenceEngine {
                 if !generated_ids.is_empty() {
                     let response_text = match &tokenizer {
                         Some(tok) => {
-                            let t = tok.lock().await;
-                            t.decode(&generated_ids)
+                        let t = tok.lock().unwrap();
+                        t.decode(&generated_ids)
                         }
                         None => format!("[{} tokens generated]", generated_ids.len()),
                     };
@@ -863,7 +863,7 @@ impl InferenceEngine {
                     .iter()
                     .map(|&id| {
                         if let Some(ref tok) = tokenizer {
-                            let t = tok.blocking_lock();
+                            let t = tok.lock().unwrap();
                             t.decode(&[id])
                         } else {
                             format!("[{}]", id)
@@ -1043,10 +1043,10 @@ impl InferenceEngine {
                     let mut finish_reason = FinishReason::Unknown;
                     for (i, &token_id) in out_tokens.iter().enumerate() {
                         let token_text: String = match &self.tokenizer {
-                            Some(tok) => {
-                                let t = tok.lock().await;
-                                t.decode(&[token_id])
-                            }
+                    Some(tok) => {
+                        let t = tok.lock().unwrap();
+                        t.decode(&[token_id])
+                    }
                             None => token_id_to_text_fallback(token_id),
                         };
                         let log_prob = 0.0;
@@ -1330,7 +1330,9 @@ impl InferenceEngine {
         info!("Starting request processing loop");
         let mut rx =
             self.request_rx.lock().await.take().ok_or_else(|| {
-                InferenceError::InternalError("Receiver already taken".to_string())
+                InferenceError::EngineNotInitialized(
+                    "Request receiver already consumed — engine already initialized".to_string(),
+                )
             })?;
 
         let state = self.state.clone();
@@ -1498,7 +1500,7 @@ impl InferenceEngine {
     async fn encode_prompt(&self, prompt: &str) -> Result<Vec<u32>> {
         match &self.tokenizer {
             Some(tok) => {
-                let t = tok.lock().await;
+                let t = tok.lock().unwrap();
                 Ok(t.encode(prompt))
             }
             None => Err(InferenceError::InvalidRequest(
@@ -1510,7 +1512,7 @@ impl InferenceEngine {
     async fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
             Some(tok) => {
-                let guard = tok.lock().await;
+                let guard = tok.lock().unwrap();
                 guard.decode(&[token_id])
             }
             None => token_id_to_text_fallback(token_id),
@@ -1536,7 +1538,7 @@ fn run_generation_loop(
     max_gen: usize,
     sampler: &mut crate::sampler::Sampler,
     kv_state: &mut dyn KVCacheProvider,
-    tokenizer: Option<&Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+    tokenizer: Option<&Arc<StdMutex<BpeTokenizer>>>,
     prefix_len: usize,
     prefix_logits: Vec<f32>,
     generation_timeout: Duration,
@@ -1652,7 +1654,7 @@ fn run_generation_loop(
 
         let token_text: String = match tokenizer {
             Some(tok) => {
-                let t = tok.blocking_lock();
+                let t = tok.lock().unwrap();
                 t.decode(&[token_id])
             }
             None => token_id_to_text_fallback(token_id),
@@ -1699,7 +1701,7 @@ const BATCH_CONCURRENCY_LIMIT: usize = 64;
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<tokio::sync::Mutex<BpeTokenizer>>>,
+    tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
     use_gpu: bool,
     #[cfg(feature = "gpu")]
@@ -1765,7 +1767,7 @@ impl InferenceEngineHandle {
                         .with_finish_reason(FinishReason::Error("Empty prompt".to_string()))
                         .with_inference_time(start.elapsed().as_millis() as u64);
                     if let Err(e) = scheduler
-                        .write()
+                        .read()
                         .await
                         .send_response(breq.request_id, err_resp)
                         .await
@@ -1780,7 +1782,7 @@ impl InferenceEngineHandle {
 
                 let prompt_ids: Vec<u32> = match &tokenizer {
                     Some(tok) => {
-                        let t = tok.lock().await;
+                        let t = tok.lock().unwrap();
                         t.encode(&breq.prompt)
                     }
                     None => {
@@ -1794,7 +1796,7 @@ impl InferenceEngineHandle {
                             ))
                             .with_inference_time(start.elapsed().as_millis() as u64);
                         if let Err(e) = scheduler
-                            .write()
+                            .read()
                             .await
                             .send_response(breq.request_id, err_resp)
                             .await
@@ -1869,7 +1871,7 @@ impl InferenceEngineHandle {
                             )))
                             .with_inference_time(start.elapsed().as_millis() as u64);
                         if let Err(e) = scheduler
-                            .write()
+                            .read()
                             .await
                             .send_response(breq.request_id, err_resp)
                             .await
@@ -1899,7 +1901,7 @@ impl InferenceEngineHandle {
                         let response = Arc::clone(&response);
                         async move {
                             scheduler
-                                .write()
+                                .read()
                                 .await
                                 .send_response(rid, (*response).clone())
                                 .await

@@ -28,7 +28,7 @@ futures = "0.3"
 nexora-common = { path = "../infrastructure/common" }
 
 [features]
-default = ["postgres", "sqlite", "sqlx"]
+default = []
 postgres = ["tokio-postgres", "tokio-postgres-rustls", "rustls"]
 sqlite = ["rusqlite"]
 sqlx = ["dep:sqlx"]

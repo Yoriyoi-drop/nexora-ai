@@ -779,24 +779,41 @@ impl ConnectionPool for SQLiteConnectionPool {
                 .downcast_mut::<SQLiteConnection>()
                 .ok_or_else(|| anyhow!("Failed to downcast to SQLiteConnection"))?;
 
-            // Clone the Arc<Mutex<Connection>> to preserve the live connection
-            let preserved_conn = sqlite_conn.conn.take();
             sqlite_conn.is_active = false;
 
             let mut connections = self.connections.write().await;
-            connections.push(SQLiteConnection {
-                id: id.clone(),
-                _connection_info: ConnectionInfo {
-                    database_path: self.database_path.clone(),
-                    is_connected: preserved_conn.is_some(),
-                    created_at: Instant::now(),
-                    last_activity: Instant::now(),
-                },
-                is_active: false,
-                transaction_depth: 0,
-                #[cfg(feature = "sqlite")]
-                conn: preserved_conn,
-            });
+
+            #[cfg(feature = "sqlite")]
+            {
+                let preserved_conn = sqlite_conn.conn.take();
+                connections.push(SQLiteConnection {
+                    id: id.clone(),
+                    _connection_info: ConnectionInfo {
+                        database_path: self.database_path.clone(),
+                        is_connected: preserved_conn.is_some(),
+                        created_at: Instant::now(),
+                        last_activity: Instant::now(),
+                    },
+                    is_active: false,
+                    transaction_depth: 0,
+                    conn: preserved_conn,
+                });
+            }
+
+            #[cfg(not(feature = "sqlite"))]
+            {
+                connections.push(SQLiteConnection {
+                    id: id.clone(),
+                    _connection_info: ConnectionInfo {
+                        database_path: self.database_path.clone(),
+                        is_connected: false,
+                        created_at: Instant::now(),
+                        last_activity: Instant::now(),
+                    },
+                    is_active: false,
+                    transaction_depth: 0,
+                });
+            }
             let mut stats = self.statistics.write().await;
             stats.active_connections = stats.active_connections.saturating_sub(1);
             stats.idle_connections += 1;
@@ -900,7 +917,10 @@ impl crate::DatabaseConnection for SQLiteConnection {
 
     async fn close(&mut self) -> Result<()> {
         self.is_active = false;
-        self.conn = None;
+        #[cfg(feature = "sqlite")]
+        {
+            self.conn = None;
+        }
         Ok(())
     }
 

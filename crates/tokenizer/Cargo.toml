@@ -16,6 +16,7 @@ unicode-segmentation.workspace = true
 unicode-normalization = "0.1"
 rand.workspace = true
 smallvec.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true
