@@ -11,6 +11,10 @@ pub struct CoreConfig {
     pub enable_monitoring: bool,
     pub max_concurrent_requests: usize,
     pub request_timeout_ms: u64,
+    pub enable_distributed: bool,
+    pub distributed_listen_address: String,
+    pub distributed_seed_nodes: Vec<String>,
+    pub distributed_gossip_interval_ms: u64,
 }
 
 impl Default for CoreConfig {
@@ -22,6 +26,10 @@ impl Default for CoreConfig {
             enable_monitoring: true,
             max_concurrent_requests: 100,
             request_timeout_ms: 30000,
+            enable_distributed: false,
+            distributed_listen_address: "127.0.0.1:8080".to_string(),
+            distributed_seed_nodes: Vec::new(),
+            distributed_gossip_interval_ms: 1000,
         }
     }
 }

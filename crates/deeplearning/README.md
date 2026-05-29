@@ -38,7 +38,7 @@ Tambahkan ke `Cargo.toml`:
 
 ```toml
 [dependencies]
-nexora-deeplearning = { version = "0.1.0", features = ["full"] }
+nexora-deeplearning = { version = "0.2.0", features = ["full"] }
 ```
 
 ### Features

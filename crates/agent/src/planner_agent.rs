@@ -30,6 +30,8 @@ pub struct PlannerAgent {
     stats: AgentStats,
     /// Configuration
     config: PlannerAgentConfig,
+    /// Optional memory store for plan persistence
+    memory_store: Option<Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>>,
 }
 
 /// Configuration untuk planner agent
@@ -167,7 +169,14 @@ impl PlannerAgent {
             strategies: Vec::new(),
             stats: AgentStats::default(),
             config,
+            memory_store: None,
         }
+    }
+
+    /// Attach memory store for plan persistence
+    pub fn with_memory_store(mut self, store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>) -> Self {
+        self.memory_store = Some(store);
+        self
     }
 
     /// Add planning strategy
@@ -454,6 +463,177 @@ impl PlannerAgent {
             adaptive_planning_enabled: self.config.enable_adaptive_planning,
         }
     }
+
+    // ── Persistence ────────────────────────────────────────────────────────
+
+    /// Store all active plans into memory for recovery after restart.
+    pub async fn save_plans_to_memory(&self) -> Result<()> {
+        let store = match &self.memory_store {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+        let plans = self.active_plans.lock().await;
+        let plan_ids: Vec<String> = plans.keys().map(|k| k.to_string()).collect();
+        let mut store_guard = store.lock().await;
+
+        for (plan_id, plan) in plans.iter() {
+            let key = format!("planner:plan:{}", plan_id);
+            let steps_json: Vec<Value> = plan
+                .steps
+                .iter()
+                .map(|s| {
+                    json!({
+                        "step_id": s.step_id,
+                        "description": s.description,
+                        "step_type": format!("{:?}", s.step_type),
+                        "dependencies": s.dependencies,
+                        "required_capabilities": s.required_capabilities,
+                        "estimated_duration_seconds": s.estimated_duration_seconds,
+                        "status": format!("{:?}", s.status),
+                        "has_result": s.result.is_some(),
+                    })
+                })
+                .collect();
+
+            let val = serde_json::to_string(&json!({
+                "plan_id": plan.plan_id,
+                "task_description": plan.task_description,
+                "steps": steps_json,
+                "current_step_index": plan.current_step_index,
+                "status": format!("{:?}", plan.status),
+                "created_at": plan.created_at,
+                "last_updated": plan.last_updated,
+            }))
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "serialize_plan".to_string(),
+                reason: e.to_string(),
+            })?;
+
+            store_guard
+                .store(nexora_memory::MemoryLayer::Long, &key, &val)
+                .await
+                .map_err(|e| AgentError::ProcessingError {
+                    operation: "store_plan".to_string(),
+                    reason: e.to_string(),
+                })?;
+        }
+
+        store_guard
+            .store(
+                nexora_memory::MemoryLayer::Session,
+                "planner:active_plans",
+                &serde_json::to_string(&plan_ids).unwrap_or_default(),
+            )
+            .await
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "store_plan_index".to_string(),
+                reason: e.to_string(),
+            })?;
+
+        drop(store_guard);
+        info!("Saved {} plans to memory", plan_ids.len());
+        Ok(())
+    }
+
+    /// Restore active plans from memory after restart.
+    pub async fn restore_plans_from_memory(&self) -> Result<usize> {
+        let store = match &self.memory_store {
+            Some(s) => s,
+            None => return Ok(0),
+        };
+
+        let mut store_guard = store.lock().await;
+        let plan_ids_val = store_guard
+            .retrieve(nexora_memory::MemoryLayer::Session, "planner:active_plans")
+            .await
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "retrieve_plan_index".to_string(),
+                reason: e.to_string(),
+            })?;
+
+        let plan_ids: Vec<String> = match plan_ids_val {
+            Some(val) => serde_json::from_str(&val).unwrap_or_default(),
+            None => return Ok(0),
+        };
+
+        let mut restored = 0usize;
+        let mut plans = self.active_plans.lock().await;
+
+        for id_str in &plan_ids {
+            let key = format!("planner:plan:{}", id_str);
+            let val = match store_guard
+                .retrieve(nexora_memory::MemoryLayer::Long, &key)
+                .await
+            {
+                Ok(Some(v)) => v,
+                _ => continue,
+            };
+
+            let data: Value = match serde_json::from_str(&val) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let plan_id = match Uuid::parse_str(id_str) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
+
+            let task_description = data
+                .get("task_description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("restored")
+                .to_string();
+
+            let steps: Vec<PlanStep> = data
+                .get("steps")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| {
+                            let step_id = s
+                                .get("step_id")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| Uuid::parse_str(s).ok())?;
+                            let description = s
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            Some(PlanStep {
+                                step_id,
+                                description,
+                                step_type: StepType::Processing,
+                                dependencies: Vec::new(),
+                                required_capabilities: Vec::new(),
+                                estimated_duration_seconds: 60,
+                                status: StepStatus::Pending,
+                                result: None,
+                                error_message: None,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let plan = ExecutionPlan {
+                plan_id,
+                task_description,
+                steps,
+                current_step_index: 0,
+                status: PlanStatus::Ready,
+                created_at: chrono::Utc::now(),
+                last_updated: chrono::Utc::now(),
+                metadata: HashMap::new(),
+            };
+
+            plans.insert(plan_id, plan);
+            restored += 1;
+        }
+
+        info!("Restored {} plans from memory", restored);
+        Ok(restored)
+    }
 }
 
 /// Planning statistics
@@ -489,6 +669,18 @@ impl Agent for PlannerAgent {
 
         // Add default strategies
         self.add_default_strategies();
+
+        // Restore plans from memory if persistence enabled
+        if self.memory_store.is_some() {
+            match self.restore_plans_from_memory().await {
+                Ok(n) => {
+                    if n > 0 {
+                        info!("PlannerAgent restored {} plans from memory", n);
+                    }
+                }
+                Err(e) => warn!("Failed to restore plans: {}", e),
+            }
+        }
 
         self.status = AgentStatus::Ready;
         Ok(())
@@ -697,6 +889,48 @@ impl Agent for PlannerAgent {
                 })
             }
 
+            "fail_step" => {
+                let plan_id_str = context
+                    .parameters
+                    .get("plan_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "plan_id required".to_string(),
+                    })?;
+                let step_id_str = context
+                    .parameters
+                    .get("step_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "validate".to_string(),
+                        reason: "step_id required".to_string(),
+                    })?;
+                let error_msg = context
+                    .parameters
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error");
+
+                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid plan_id".to_string(),
+                })?;
+                let step_id = Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
+                    operation: "parse".to_string(),
+                    reason: "Invalid step_id".to_string(),
+                })?;
+
+                self.fail_step(plan_id, step_id, error_msg.to_string()).await?;
+
+                json!({
+                    "action": "fail_step",
+                    "plan_id": plan_id,
+                    "step_id": step_id,
+                    "status": "failed"
+                })
+            }
+
             _ => {
                 return Err(AgentError::ProcessingError {
                     operation: "execute_action".to_string(),
@@ -727,6 +961,13 @@ impl Agent for PlannerAgent {
 
     async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down PlannerAgent");
+
+        // Save plans to memory before shutdown
+        if self.memory_store.is_some() {
+            if let Err(e) = self.save_plans_to_memory().await {
+                warn!("Failed to save plans: {}", e);
+            }
+        }
 
         // Cancel all active plans
         let plan_ids: Vec<Uuid> = {

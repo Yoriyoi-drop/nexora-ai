@@ -535,6 +535,196 @@ extern "C" __global__ void transpose_2d(float* __restrict__ out,
         })
     }
 
+    // ── Fused Attention (FlashAttention-style) ──────────────────────
+
+    pub fn fused_attention(
+        &self,
+        q: &CudaTensor,
+        k: &CudaTensor,
+        v: &CudaTensor,
+        scale: f32,
+        causal: bool,
+    ) -> Result<CudaTensor, String> {
+        let q_shape = &q.shape;
+        if q_shape.len() != 4 {
+            return Err(format!(
+                "CUDA fused_attention: Q must be 4D [B,H,S,D], got {:?}",
+                q_shape
+            ));
+        }
+        let batch = q_shape[0];
+        let heads = q_shape[1];
+        let seq_len = q_shape[2];
+        let dim = q_shape[3];
+
+        let numel = q.numel();
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CUDA fused_attention alloc: {e}"))?;
+
+        let kernel_name = "flash_attn";
+        let block_size: u32 = 256;
+        let tile_size: u32 = 32;
+        let causal_u32: u32 = if causal { 1 } else { 0 };
+
+        let source = format!(r#"
+extern "C" __global__ void flash_attn(float* __restrict__ output,
+    const float* __restrict__ q, const float* __restrict__ k, const float* __restrict__ v,
+    size_t batch, size_t heads, size_t seq_len, size_t dim, float scale, unsigned int causal) {{
+
+    unsigned int wg_flat = blockIdx.x;
+    unsigned int q_pos = wg_flat % seq_len;
+    unsigned int head = (wg_flat / seq_len) % heads;
+    unsigned int batch_idx = wg_flat / (seq_len * heads);
+
+    if (batch_idx >= batch) return;
+
+    extern __shared__ float shared[];
+    float* q_shared = shared;
+    float* score_tile = shared + blockDim.x;
+    float* exp_tile = shared + blockDim.x + {tile_size};
+    float* scratch = shared + blockDim.x + 2 * {tile_size};
+
+    unsigned int tid = threadIdx.x;
+
+    size_t head_stride = seq_len * dim;
+    size_t batch_stride = heads * head_stride;
+    size_t q_off = batch_idx * batch_stride + head * head_stride + q_pos * dim;
+    size_t kv_base = batch_idx * batch_stride + head * head_stride;
+
+    // Load Q row
+    if (tid < dim) {{
+        q_shared[tid] = q[q_off + tid];
+    }}
+    __syncthreads();
+
+    float m = -INFINITY;
+    float d = 0.0f;
+    float o_buf = 0.0f;
+
+    for (unsigned int tile_start = 0; tile_start < seq_len; tile_start += {tile_size}) {{
+        unsigned int tile_end = min(tile_start + {tile_size}, seq_len);
+        unsigned int tile_sz = tile_end - tile_start;
+
+        // Step 1: compute scores for this tile
+        for (unsigned int ki = 0; ki < tile_sz; ki++) {{
+            unsigned int k_pos = tile_start + ki;
+
+            float partial = 0.0f;
+            for (unsigned int d_i = tid; d_i < dim; d_i += blockDim.x) {{
+                float kv_val = k[kv_base + k_pos * dim + d_i];
+                partial += q_shared[d_i] * kv_val;
+            }}
+
+            // Warp-level reduction for partial sum
+            #pragma unroll
+            for (unsigned int offset = 16; offset > 0; offset >>= 1) {{
+                partial += __shfl_xor_sync(0xFFFFFFFF, partial, offset);
+            }}
+
+            if (tid == 0) {{
+                float s = partial * scale;
+                if (causal && k_pos > q_pos) {{
+                    s = -INFINITY;
+                }}
+                score_tile[ki] = s;
+            }}
+            __syncthreads();
+        }}
+
+        // Step 2: max of tile scores
+        float m_tile = -INFINITY;
+        for (unsigned int ki = tid; ki < tile_sz; ki += blockDim.x) {{
+            if (score_tile[ki] > m_tile) m_tile = score_tile[ki];
+        }}
+        scratch[tid] = m_tile;
+        __syncthreads();
+        for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {{
+            if (tid < s) {{
+                if (scratch[tid + s] > scratch[tid]) scratch[tid] = scratch[tid + s];
+            }}
+            __syncthreads();
+        }}
+        m_tile = scratch[0];
+        __syncthreads();
+
+        // Step 3: exp(score - m_tile) and tile sum
+        float sum_exp_tile = 0.0f;
+        for (unsigned int ki = tid; ki < tile_sz; ki += blockDim.x) {{
+            float e = expf(score_tile[ki] - m_tile);
+            exp_tile[ki] = e;
+            sum_exp_tile += e;
+        }}
+        scratch[tid] = sum_exp_tile;
+        __syncthreads();
+        for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {{
+            if (tid < s) {{
+                scratch[tid] += scratch[tid + s];
+            }}
+            __syncthreads();
+        }}
+        sum_exp_tile = scratch[0];
+        __syncthreads();
+
+        // Step 4: Online softmax update
+        float m_new = fmaxf(m, m_tile);
+        float old_scale = expf(m - m_new);
+        float tile_scale = expf(m_tile - m_new);
+        d = old_scale * d + tile_scale * sum_exp_tile;
+        o_buf = o_buf * old_scale;
+
+        // Step 5: Accumulate V contribution
+        for (unsigned int ki = 0; ki < tile_sz; ki++) {{
+            unsigned int k_pos = tile_start + ki;
+            float v_val = (tid < dim) ? v[kv_base + k_pos * dim + tid] : 0.0f;
+            o_buf += tile_scale * exp_tile[ki] * v_val;
+        }}
+
+        m = m_new;
+    }}
+
+    // Step 6: Normalize
+    if (tid < dim) {{
+        output[q_off + tid] = o_buf / d;
+    }}
+}}
+"#);
+
+        let kfunc = self.get_or_compile_kernel(kernel_name, &source)?;
+
+        let total_wgs = (batch * heads * seq_len) as u32;
+        let shared_mem = (block_size + 2 * tile_size + block_size) as u32 * 4; // 4 bytes per float
+
+        let cfg = LaunchConfig {
+            grid: total_wgs,
+            block: block_size,
+            shared_mem_bytes: shared_mem,
+        };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&kfunc);
+            builder.arg(&mut out);
+            builder.arg(q.buffer());
+            builder.arg(k.buffer());
+            builder.arg(v.buffer());
+            builder.arg(&batch);
+            builder.arg(&heads);
+            builder.arg(&seq_len);
+            builder.arg(&dim);
+            builder.arg(&scale);
+            builder.arg(&causal_u32);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA flash_attn launch: {e}"))?;
+        }
+
+        Ok(CudaTensor {
+            shape: q_shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
+    }
+
     // ── Softmax ──────────────────────────────────────────────────────
 
     pub fn softmax(&self, a: &CudaTensor) -> Result<CudaTensor, String> {

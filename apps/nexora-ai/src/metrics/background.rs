@@ -103,6 +103,8 @@ impl BackgroundMetricsCollector {
         collector.set_gpu_utilization_pct(obs.gpu_utilization_pct);
         collector.set_pcie_read_bytes(obs.pcie_read_bytes);
         collector.set_pcie_write_bytes(obs.pcie_write_bytes);
+        collector.set_kv_internal_frag_ratio(obs.kv_internal_frag_ratio);
+        collector.set_kv_external_frag_ratio(obs.kv_external_frag_ratio);
 
         // Memory fragmentation estimate from pool alloc/dealloc ratio
         let allocs = obs.pool_allocs;

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{AgentError, Result};
@@ -94,6 +95,8 @@ pub struct AgentState {
     agent_states: Arc<RwLock<HashMap<Uuid, AgentSpecificState>>>,
     /// State change listeners
     state_listeners: Arc<RwLock<Vec<StateChangeListener>>>,
+    /// Optional memory store for persistence
+    memory_store: Option<Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>>,
 }
 
 /// Listener untuk state changes
@@ -145,7 +148,14 @@ impl AgentState {
             session_states: Arc::new(RwLock::new(HashMap::new())),
             agent_states: Arc::new(RwLock::new(HashMap::new())),
             state_listeners: Arc::new(RwLock::new(Vec::new())),
+            memory_store: None,
         }
+    }
+
+    /// Attach memory store for state persistence
+    pub fn with_memory_store(mut self, store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>) -> Self {
+        self.memory_store = Some(store);
+        self
     }
 
     /// Get global state
@@ -577,6 +587,182 @@ impl AgentState {
                 self.emit_state_change(event).await;
             }
         }
+    }
+
+    // ── Persistence ────────────────────────────────────────────────────────
+
+    /// Snapshot all state to memory for recovery after restart.
+    pub async fn snapshot_to_memory(&self) -> Result<()> {
+        let store = match &self.memory_store {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+
+        let mut store_guard = store.lock().await;
+
+        let global = self.global_state.read().await;
+        let global_json = serde_json::to_string(&*global).map_err(|e| {
+            AgentError::ProcessingError {
+                operation: "serialize_global".to_string(),
+                reason: e.to_string(),
+            }
+        })?;
+        store_guard
+            .store(
+                nexora_memory::MemoryLayer::Long,
+                "agent_state:global",
+                &global_json,
+            )
+            .await
+            .map_err(|e| AgentError::ProcessingError {
+                operation: "store_global".to_string(),
+                reason: e.to_string(),
+            })?;
+        drop(global);
+
+        let sessions = self.session_states.read().await;
+        let session_ids: Vec<Uuid> = sessions.keys().cloned().collect();
+        for sid in &session_ids {
+            if let Some(session) = sessions.get(sid) {
+                let key = format!("agent_state:session:{}", sid);
+                let val = serde_json::to_string(session).map_err(|e| {
+                    AgentError::ProcessingError {
+                        operation: "serialize_session".to_string(),
+                        reason: e.to_string(),
+                    }
+                })?;
+                store_guard
+                    .store(nexora_memory::MemoryLayer::Session, &key, &val)
+                    .await
+                    .map_err(|e| AgentError::ProcessingError {
+                        operation: "store_session".to_string(),
+                        reason: e.to_string(),
+                    })?;
+            }
+        }
+        store_guard
+            .store(
+                nexora_memory::MemoryLayer::Session,
+                "agent_state:active_sessions",
+                &serde_json::to_string(&session_ids).unwrap_or_default(),
+            )
+            .await
+            .ok();
+        drop(sessions);
+
+        let agents = self.agent_states.read().await;
+        let agent_ids: Vec<Uuid> = agents.keys().cloned().collect();
+        for aid in &agent_ids {
+            if let Some(agent) = agents.get(aid) {
+                let key = format!("agent_state:agent:{}", aid);
+                let val = serde_json::to_string(agent).map_err(|e| {
+                    AgentError::ProcessingError {
+                        operation: "serialize_agent".to_string(),
+                        reason: e.to_string(),
+                    }
+                })?;
+                store_guard
+                    .store(nexora_memory::MemoryLayer::Long, &key, &val)
+                    .await
+                    .map_err(|e| AgentError::ProcessingError {
+                        operation: "store_agent".to_string(),
+                        reason: e.to_string(),
+                    })?;
+            }
+        }
+        store_guard
+            .store(
+                nexora_memory::MemoryLayer::Session,
+                "agent_state:active_agents",
+                &serde_json::to_string(&agent_ids).unwrap_or_default(),
+            )
+            .await
+            .ok();
+
+        drop(store_guard);
+        info!(
+            "Snapshotted state: {} sessions, {} agents",
+            session_ids.len(),
+            agent_ids.len()
+        );
+        Ok(())
+    }
+
+    /// Restore state from memory after restart.
+    pub async fn restore_from_memory(&self) -> Result<(usize, usize)> {
+        let store = match &self.memory_store {
+            Some(s) => s,
+            None => return Ok((0, 0)),
+        };
+
+        let mut store_guard = store.lock().await;
+
+        if let Ok(Some(val)) = store_guard
+            .retrieve(nexora_memory::MemoryLayer::Long, "agent_state:global")
+            .await
+        {
+            if let Ok(global) = serde_json::from_str::<GlobalState>(&val) {
+                let mut gs = self.global_state.write().await;
+                *gs = global;
+            }
+        }
+
+        let mut restored_sessions = 0usize;
+        if let Ok(Some(val)) = store_guard
+            .retrieve(
+                nexora_memory::MemoryLayer::Session,
+                "agent_state:active_sessions",
+            )
+            .await
+        {
+            if let Ok(session_ids) = serde_json::from_str::<Vec<Uuid>>(&val) {
+                let mut sessions = self.session_states.write().await;
+                for sid in session_ids {
+                    let key = format!("agent_state:session:{}", sid);
+                    if let Ok(Some(sval)) = store_guard
+                        .retrieve(nexora_memory::MemoryLayer::Session, &key)
+                        .await
+                    {
+                        if let Ok(session) = serde_json::from_str::<SessionState>(&sval) {
+                            sessions.insert(sid, session);
+                            restored_sessions += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut restored_agents = 0usize;
+        if let Ok(Some(val)) = store_guard
+            .retrieve(
+                nexora_memory::MemoryLayer::Session,
+                "agent_state:active_agents",
+            )
+            .await
+        {
+            if let Ok(agent_ids) = serde_json::from_str::<Vec<Uuid>>(&val) {
+                let mut agents = self.agent_states.write().await;
+                for aid in agent_ids {
+                    let key = format!("agent_state:agent:{}", aid);
+                    if let Ok(Some(aval)) = store_guard
+                        .retrieve(nexora_memory::MemoryLayer::Long, &key)
+                        .await
+                    {
+                        if let Ok(agent) = serde_json::from_str::<AgentSpecificState>(&aval) {
+                            agents.insert(aid, agent);
+                            restored_agents += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(store_guard);
+        info!(
+            "Restored state: {} sessions, {} agents",
+            restored_sessions, restored_agents
+        );
+        Ok((restored_sessions, restored_agents))
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "nexora-agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Agent layer for behavior and coordination in Nexora AI"
 

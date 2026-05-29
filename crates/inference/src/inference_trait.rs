@@ -57,6 +57,10 @@ pub static KV_CACHE_USED_BLOCKS: AtomicU64 = AtomicU64::new(0);
 pub static KV_CACHE_TOTAL_BLOCKS: AtomicU64 = AtomicU64::new(0);
 /// KV cache memory usage in bytes (updated by paged_cache on alloc/free).
 pub static KV_CACHE_MEMORY_BYTES: AtomicU64 = AtomicU64::new(0);
+/// KV cache internal fragmentation ratio (wasted slots / total slots in paged blocks).
+pub static KV_CACHE_INTERNAL_FRAG: AtomicU64 = AtomicU64::new(0);
+/// KV cache external fragmentation ratio (free blocks / total allocated blocks).
+pub static KV_CACHE_EXTERNAL_FRAG: AtomicU64 = AtomicU64::new(0);
 
 /// Current scheduler queue depth (waiting sequences in continuous batching).
 pub static SCHEDULER_QUEUE_DEPTH: AtomicI64 = AtomicI64::new(0);
@@ -195,6 +199,8 @@ pub struct ObservabilitySnapshot {
     pub pool_allocs: u64,
     pub pool_deallocs: u64,
     pub tokens_per_sec: f64,
+    pub kv_internal_frag_ratio: f64,
+    pub kv_external_frag_ratio: f64,
 }
 
 /// Collect a snapshot of all observability counters.
@@ -273,6 +279,8 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
         pool_allocs,
         pool_deallocs,
         tokens_per_sec: 0.0, // computed by background collector
+        kv_internal_frag_ratio: KV_CACHE_INTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0,
+        kv_external_frag_ratio: KV_CACHE_EXTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0,
     }
 }
 

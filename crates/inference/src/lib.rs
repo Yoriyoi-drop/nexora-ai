@@ -10,6 +10,7 @@ pub mod blaa_integration;
 pub mod continuous_batching;
 pub mod decoding;
 pub mod degradation;
+pub mod distributed;
 pub mod self_healing;
 pub mod engine;
 pub mod inference_trait;

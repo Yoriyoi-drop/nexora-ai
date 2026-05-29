@@ -1,6 +1,6 @@
 [package]
 name = "nexora-multimodal"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Multimodal AI framework for Nexora - Caffeine (vision, audio, video, text encoders, Q-Former, action head)"
 

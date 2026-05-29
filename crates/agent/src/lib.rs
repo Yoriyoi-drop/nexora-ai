@@ -17,6 +17,7 @@ pub mod response_agent;
 pub mod routing_agent;
 pub mod state;
 pub mod validation_agent;
+pub mod worker_agent;
 
 // Re-export main types untuk kemudahan penggunaan
 pub use agent_manager::AgentManager;
@@ -28,6 +29,7 @@ pub use communication::{InterAgentMessage, MessageBus};
 pub use lifecycle::{AgentLifecycleEvent, LifecycleManager};
 pub use registry::{AgentRegistry, IntentMapping};
 pub use state::AgentState;
+pub use worker_agent::{WorkerAgent, WorkerAgentConfig, WorkItem, WorkStatus, StepExecutionResult};
 
 /// Versi agent layer
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

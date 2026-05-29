@@ -83,6 +83,11 @@ pub mod scheduler;
 pub mod scheduler_trait;
 pub mod streaming;
 
+// Distributed scheduler modules — Phase 5c+
+pub mod cluster;
+pub mod gossip;
+pub mod distributed;
+
 // Re-export main components
 pub use batching::*;
 pub use executor::*;
@@ -92,3 +97,5 @@ pub use resource::*;
 pub use scheduler::*;
 pub use scheduler_trait::Scheduler;
 pub use streaming::*;
+pub use cluster::*;
+pub use distributed::*;

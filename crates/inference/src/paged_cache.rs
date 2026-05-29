@@ -1002,6 +1002,14 @@ impl PagedKVCache {
         crate::inference_trait::KV_CACHE_TOTAL_BLOCKS.store(total as u64, std::sync::atomic::Ordering::Relaxed);
         crate::inference_trait::KV_CACHE_USED_BLOCKS.store(used as u64, std::sync::atomic::Ordering::Relaxed);
         crate::inference_trait::KV_CACHE_MEMORY_BYTES.store(mem_bytes as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_INTERNAL_FRAG.store(
+            (int_frag * 1_000_000.0) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        crate::inference_trait::KV_CACHE_EXTERNAL_FRAG.store(
+            (ext_frag * 1_000_000.0) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
 
         PagedCacheStats {
             num_sequences: self.sequences.len(),

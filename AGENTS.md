@@ -19,7 +19,8 @@
 | `crates/intelligence` | `nexora_model` (`[lib] name = "nexora_model"`) | Model registry, serving, unified API |
 | `crates/deeplearning` | `nexora-deeplearning` | Autograd engine, STar-X tensor, GNAC, Echo Net |
 | `crates/core` | `nexora-core` | Controller, types, execution, async executor |
-| `crates/inference` | `nexora-inference` | KV cache, sampling, beam search, speculative decoding |
+| `crates/runtime` | `nexora-runtime` | Scheduler, batching, resource pooling, KV cache, cluster/gossip, distributed scheduler |
+| `crates/inference` | `nexora-inference` | KV cache, sampling, beam search, speculative decoding, distributed routing |
 | `crates/blaa` | `nexora-blaa` | External "Black Language Model API" bridge |
 | `crates/infrastructure` | `nexora-infrastructure` | Re-exports sub-crates `common` (`nexora-common`) and `utils` (`nexora-utils`) |
 | `crates/datastream` | `nexora-datastream` | DAG-based streaming data pipeline; features: `toxicity`, `prompt-injection`, `candle`, `arrow` |
@@ -81,11 +82,12 @@ nexora-tokenizer     # depends on nexora-core
 nexora-deeplearning  # standalone (ndarray-based autograd/STar-X)
 nexora-foundation    # largest hub: depends on core, tokenizer, deeplearning, common
 nexora-intelligence  # depends on core, tokenizer, foundation, common
-nexora-inference     # depends on core, intelligence, foundation, common, blaa
+nexora-runtime       # depends on core; schedulers, batching, cluster/gossip/distributed
+nexora-inference     # depends on core, intelligence, foundation, common, blaa, runtime
 nexora-agent         # depends on core, intelligence, memory, common
 nexora-memory        # depends on core
 nexora-isolation     # depends on core; L0-L6 isolation, firewall, kill-switch, multi-cluster
-nexora-ai (app)      # depends on core, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure
+nexora-ai (app)      # depends on core, runtime, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure
 nexora-dashboard     # standalone TUI (ratatui)
 ```
 
@@ -391,11 +393,117 @@ Router::forward(input)         Expert::forward_batched(input)
 - No runtime CUDA detection on systems without NVIDIA driver — `CudaDevice::new(0)` fails gracefully
 
 ### Next Steps (5c+)
-- **Distributed scheduler**: Multi-node request dispatch with load-aware routing.
 - **Observability**: KV fragmentation ratio, token/sec tracing.
 - **Agent ecosystem**: Planner-worker hierarchy with persistent state.
 - **CUDA full pipeline**: FlashAttention, FlashDecoding, fused MoE kernel
 - **CUDA on systems without nvcc**: Pre-compiled PTX distribution
+
+## Phase 5c — Distributed Scheduler (29 Mei 2026)
+
+### Completed
+
+| Component | What changed | File |
+|-----------|-------------|------|
+| **NodeRegistry** | Node discovery, load tracking, gossip merge, stale/eviction detection. `NodeInfo` with `load_score()` weighted formula: `active×0.3 + queue×0.3 − gpu×0.2 + mem×0.1 − tok×0.1`. | `crates/runtime/src/cluster.rs` |
+| **GossipProtocol** | Push-pull epidemic protocol with `Arc<Self>` background task. Alternates push/pull rounds at 1s interval. Failure detection: Suspect after 3 missed heartbeats, evict after `node_eviction_timeout_ms`. | `crates/runtime/src/gossip.rs` |
+| **DistributedScheduler** | Wraps existing `RequestScheduler` + `NodeRegistry`. 5 routing strategies: LeastLoaded, ModelAffinity, Random, RoundRobin, CacheLocality. HTTP transport via `reqwest`. `Scheduler` trait impl. | `crates/runtime/src/distributed.rs` |
+| **DistributedRouter** | Inference crate integration. `best_remote_node()` compares local vs remote load scores. `route_remote()` POSTs `InferenceRequest` JSON to `{node}/api/inference`. Streaming path via `route_remote_streaming()`. | `crates/inference/src/distributed.rs` |
+| **Engine integration** | `InferenceEngine.distributed: Option<Arc<DistributedRouter>>`. `with_distributed()` builder. `submit_request()` checks remote routing before local scheduler. | `crates/inference/src/engine.rs` |
+| **App config** | `CoreConfig` gains `enable_distributed`, `distributed_listen_address`, `distributed_seed_nodes`, `distributed_gossip_interval_ms`. Wired in `NexoraAI::new()`. `nexora-runtime` added to app deps. | `apps/nexora-ai/src/config/core.rs`, `apps/nexora-ai/src/lib.rs` |
+
+### Architecture
+
+```
+NexoraAI.generate_text()
+  └── InferenceEngine.submit_request(request)
+        ├── Distributed route? → POST to remote node /generate → InferenceResponse
+        └── Local route? → RequestScheduler → request_tx channel → process batch
+
+NexoraAI.generate_text_stream()
+  └── InferenceEngine.submit_streaming_request(request)
+        ├── Distributed route? → POST to remote node /generate/stream
+        │                          → parse SSE events → mpsc::Receiver<Arc<GeneratedToken>>
+        └── Local route? → StreamingEngine task → generate locally
+
+Cluster node startup:
+  NodeRegistry (cluster config + seed nodes)
+    ├── GossipProtocol.start()       // Arc<Self>, 1s push-pull loop
+    ├── DistributedScheduler         // load-aware routing + remote HTTP
+    └── InferenceEngine.with_distributed(registry, node_id)
+```
+
+### Routing strategies
+
+| Strategy | Selection |
+|----------|-----------|
+| `LeastLoaded` | Sort by `load_score()`, pick lowest |
+| `ModelAffinity` | Filter by model capability match, then sort by load |
+| `Random` | Shuffle candidates |
+| `RoundRobin` | Rotate index per request |
+| `CacheLocality` | Sort by KV fragmentation (lowest first) |
+
+### Remote HTTP API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/generate` | POST | Forward inference request → `InferenceResponse` |
+| `/generate/stream` | POST | Streamed inference (SSE `data: {...}` events with `[DONE]` sentinel) |
+| `/cluster/gossip/push` | POST | Gossip push round |
+| `/cluster/gossip/pull` | POST | Gossip pull round |
+
+### Enable distributed mode
+
+Add to config TOML:
+```toml
+[core]
+enable_distributed = true
+distributed_listen_address = "0.0.0.0:8080"
+distributed_seed_nodes = ["10.0.0.2:8080", "10.0.0.3:8080"]
+distributed_gossip_interval_ms = 1000
+```
+
+## Phase 5d — Agent Ecosystem (29 Mei 2026)
+
+### Completed
+
+| Component | What changed | File |
+|-----------|-------------|------|
+| **NexoraInferenceEngine adapter** | Full 6-method `InferenceEngine` impl. Delegates `generate_tokens`/`stream_tokens` to real `InferenceEngineStruct::generate_internal()`. | `apps/nexora-ai/src/lib.rs:114-207` |
+| **Engine wired into agent system** | `AgentManager.inference_engine` as `StdArc<RwLock<Option<...>>>`. Set via `set_inference_engine()` (async) before `start()`. Engine created first, agent spawn second. | `crates/agent/src/agent_manager.rs` |
+| **WorkerAgent inference** | `process_step_inner` calls `engine.generate_tokens()` for all 8 step types. Falls back to `[mock]` prefix if no engine. | `crates/agent/src/worker_agent.rs:223` |
+| **WorkerAgent engine builder** | `with_inference_engine()` builder method. Engine passed from `AgentManager::create_agent_instance()`. | `crates/agent/src/worker_agent.rs` |
+| **Compilation fixes** | `memory_store` type, `WorkerAgent::stats` Mutex, recursive async fn, constructor signatures | Various in `crates/agent/src/` |
+| **Plan dispatch loop** | `dispatch_plan_internal` loops: re-fetches plan, dispatches pending steps round-robin, notifies planner of completion/failure | `crates/agent/src/agent_manager.rs:498` |
+| **Error recovery** | `fail_step` action handler + existing `fail_step()` method — failed steps → plan `Failed` | `crates/agent/src/planner_agent.rs` |
+| **/**api/agents** | GET — list agents grouped by type | `apps/nexora-ai/src/server/agent_handlers.rs:36` |
+| **/**api/plans** | POST — create plan via planner; GET — list all plans | `apps/nexora-ai/src/server/agent_handlers.rs:69` |
+| **/**api/plans/:plan_id** | GET — get plan status | `apps/nexora-ai/src/server/agent_handlers.rs:143` |
+| **/**api/plans/dispatch** | POST — dispatch plan steps to workers | `apps/nexora-ai/src/server/agent_handlers.rs:188` |
+| **/**api/generate/agent** | POST — convenience: create plan → dispatch (block) → return status | `apps/nexora-ai/src/server/agent_handlers.rs` |
+
+### Architecture
+
+```
+POST /api/generate/agent { prompt, context? }
+  ├─ 1. ListAgentIds → find planner agent
+  ├─ 2. SendMessage("create_plan") → planner → Plan { plan_id, steps }
+  ├─ 3. DispatchPlan { plan_id } →
+  │      dispatch_plan_internal loop:
+  │        for each pending step:
+  │          pick worker (round-robin)
+  │          send_message_internal(worker, exec_msg)
+  │          worker.process_step_inner()
+  │            └─ inference_engine.generate_tokens()  ← real inference
+  │          report complete_step/fail_step to planner
+  │        repeat until all steps done or any failed
+  └─ 4. PlanStatus { plan_id } → return final status
+```
+
+### Key Integration Points
+- `AgentManager.inference_engine` set via `set_inference_engine()` before `start()` — all subsequent agent creations see it
+- `NexoraInferenceEngine` wraps `Arc<InferenceEngineStruct>` directly (not `NexoraAI`) to avoid circular init ref
+- Worker agents read engine at creation time (`create_agent_instance`) via `try_read()` on the RwLock
+- If engine unavailable, all step types return mock content with `[mock]` prefix
 
 ## Notable quirks
 

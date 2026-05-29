@@ -8,6 +8,7 @@ use tracing::info;
 
 use crate::NexoraAI;
 
+pub mod agent_handlers;
 pub mod handlers;
 pub mod router;
 pub mod tls;

@@ -6,12 +6,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc as StdArc;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::communication::MessageBus;
+use crate::inference_agent::InferenceEngine;
 use crate::lifecycle::LifecycleManager;
 use crate::registry::AgentRegistry;
 use crate::state::AgentState;
@@ -63,11 +65,13 @@ pub struct AgentManager {
     /// Channel untuk mengirim command
     command_tx: StdArc<mpsc::Sender<ManagerCommand>>,
     /// Shared memory store singleton (not created per-call)
-    memory_store: StdArc<nexora_memory::MemoryLayers>,
+    memory_store: StdArc<std::sync::Mutex<nexora_memory::MemoryLayers>>,
     /// Health check loop cancellation flag
     is_running: StdArc<AtomicBool>,
     /// Tracked background task handles for cleanup
     background_handles: StdArc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
+    /// Global inference engine for agent inference
+    inference_engine: StdArc<tokio::sync::RwLock<Option<StdArc<dyn InferenceEngine>>>>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -113,6 +117,20 @@ pub enum ManagerCommand {
     HealthCheck {
         response_tx: oneshot::Sender<Result<HashMap<Uuid, bool>>>,
     },
+    /// Dispatch plan steps to workers
+    DispatchPlan {
+        plan_id: Uuid,
+        response_tx: oneshot::Sender<Result<()>>,
+    },
+    /// Get plan status from planner
+    PlanStatus {
+        plan_id: Uuid,
+        response_tx: oneshot::Sender<Result<Value>>,
+    },
+    /// Get agent IDs grouped by type
+    ListAgentIds {
+        response_tx: oneshot::Sender<HashMap<String, Vec<Uuid>>>,
+    },
     /// Shutdown manager
     Shutdown {
         response_tx: oneshot::Sender<Result<()>>,
@@ -123,18 +141,22 @@ impl AgentManager {
     /// Create new agent manager
     pub fn new(config: AgentManagerConfig) -> Self {
         let (command_tx, command_rx) = mpsc::channel(256);
+        let memory_store = StdArc::new(std::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
 
         Self {
             registry: StdArc::new(AgentRegistry::new()),
             lifecycle: StdArc::new(LifecycleManager::new(config.clone())),
             message_bus: StdArc::new(MessageBus::new()),
-            state: StdArc::new(AgentState::new()),
+            state: StdArc::new(AgentState::new().with_memory_store(
+                StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new())),
+            )),
             config,
             background_handles: StdArc::new(std::sync::Mutex::new(Vec::new())),
             command_rx: StdArc::new(RwLock::new(Some(command_rx))),
             command_tx: StdArc::new(command_tx),
-            memory_store: StdArc::new(nexora_memory::MemoryLayers::new()),
+            memory_store,
             is_running: StdArc::new(AtomicBool::new(true)),
+            inference_engine: StdArc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
@@ -143,9 +165,23 @@ impl AgentManager {
         (*self.command_tx).clone()
     }
 
+    /// Set inference engine for inference agent
+    /// Must be called before spawning inference agents
+    pub async fn set_inference_engine(&self, engine: StdArc<dyn InferenceEngine>) {
+        let mut guard = self.inference_engine.write().await;
+        *guard = Some(engine);
+    }
+
     /// Start agent manager
     pub async fn start(&self) -> Result<()> {
         info!("Starting AgentManager with config: {:?}", self.config);
+
+        // Restore state from memory
+        if let Ok((sessions, agents)) = self.state.restore_from_memory().await {
+            if sessions > 0 || agents > 0 {
+                info!("Restored {} sessions and {} agents from memory", sessions, agents);
+            }
+        }
 
         // Start background tasks
         let manager = self.clone();
@@ -253,6 +289,24 @@ impl AgentManager {
                         let result = self.health_check_all_internal().await;
                         if response_tx.send(result).is_err() {
                             warn!("HealthCheck response channel closed");
+                        }
+                    }
+                    ManagerCommand::DispatchPlan { plan_id, response_tx } => {
+                        let result = self.dispatch_plan_internal(plan_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("DispatchPlan response channel closed");
+                        }
+                    }
+                    ManagerCommand::PlanStatus { plan_id, response_tx } => {
+                        let result = self.plan_status_internal(plan_id).await;
+                        if response_tx.send(result).is_err() {
+                            warn!("PlanStatus response channel closed");
+                        }
+                    }
+                    ManagerCommand::ListAgentIds { response_tx } => {
+                        let result = self.list_agent_ids_internal().await;
+                        if response_tx.send(result).is_err() {
+                            warn!("ListAgentIds response channel closed");
                         }
                     }
                     ManagerCommand::Shutdown { response_tx } => {
@@ -377,11 +431,22 @@ impl AgentManager {
         // Step 1: Receive message
         {
             let mut agent = self.registry.get_agent(agent_id).await?;
-            agent.receive(message).await?;
+            agent.receive(message.clone()).await?;
         }
 
-        // Create context (no lock needed)
-        let context = crate::AgentContext::new(Uuid::new_v4());
+        // Create context and bridge message payload into parameters
+        let mut context = crate::AgentContext::new(Uuid::new_v4());
+        context.parameters.insert(
+            "action".to_string(),
+            serde_json::json!(message.message_type),
+        );
+        if let serde_json::Value::Object(map) = &message.payload {
+            for (k, v) in map {
+                context.parameters.insert(k.clone(), v.clone());
+            }
+        } else {
+            context.parameters.insert("payload".to_string(), message.payload.clone());
+        }
 
         // Step 2: Process message
         let response = {
@@ -430,12 +495,196 @@ impl AgentManager {
         Ok(results)
     }
 
+    /// Dispatch plan steps from planner to workers
+    async fn dispatch_plan_internal(&self, plan_id: Uuid) -> Result<()> {
+        info!("Dispatching plan {} to workers", plan_id);
+
+        let planner_ids = self.registry.get_agents_by_type("planner").await?;
+        let planner_id = planner_ids.first().ok_or_else(|| AgentError::ProcessingError {
+            operation: "dispatch_plan".to_string(),
+            reason: "No planner agent available".to_string(),
+        })?;
+
+        let worker_ids = self.registry.get_agents_by_type("worker").await?;
+        if worker_ids.is_empty() {
+            return Err(AgentError::ProcessingError {
+                operation: "dispatch_plan".to_string(),
+                reason: "No worker agents available".to_string(),
+            });
+        }
+
+        let plan_id_str = plan_id.to_string();
+        let mut dispatched = 0usize;
+        let mut has_failure = false;
+
+        loop {
+            // Get plan from planner (refreshed each iteration)
+            let get_msg = crate::AgentMessage::new(
+                "get_plan",
+                serde_json::json!({"plan_id": plan_id_str.clone()}),
+            );
+            let plan_resp = self.send_message_internal(*planner_id, get_msg).await?;
+
+            let plan_status = plan_resp.payload.get("plan")
+                .and_then(|p| p.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            if plan_status == "Completed" || plan_status == "Failed" {
+                info!("Plan {} is already {} ({} steps dispatched)", plan_id, plan_status, dispatched);
+                return Ok(());
+            }
+
+            let plan_steps = plan_resp.payload.get("plan")
+                .and_then(|p| p.get("steps"))
+                .and_then(|s| s.as_array())
+                .ok_or_else(|| AgentError::ProcessingError {
+                    operation: "dispatch_plan".to_string(),
+                    reason: "Invalid plan response from planner".to_string(),
+                })?
+                .clone();
+
+            let pending_steps: Vec<(usize, &Value)> = plan_steps.iter()
+                .enumerate()
+                .filter(|(_, s)| {
+                    s.get("status").and_then(|v| v.as_str()) == Some("Pending")
+                })
+                .collect();
+
+            if pending_steps.is_empty() {
+                // All done — check completion via execute_next_step
+                let exec_msg = crate::AgentMessage::new(
+                    "execute_step",
+                    serde_json::json!({"plan_id": plan_id_str.clone()}),
+                );
+                let _ = self.send_message_internal(*planner_id, exec_msg).await;
+                break;
+            }
+
+            for (i, step) in &pending_steps {
+                let step_id = step.get("step_id")
+                    .and_then(|s| s.as_str())
+                    .ok_or_else(|| AgentError::ProcessingError {
+                        operation: "dispatch_plan".to_string(),
+                        reason: "Step missing step_id".to_string(),
+                    })?;
+
+                let description = step.get("description")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("Execute step");
+                let step_type = step.get("step_type")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("Processing");
+
+                // Round-robin worker selection
+                let worker_id = worker_ids[i % worker_ids.len()];
+
+                let exec_msg = crate::AgentMessage::new(
+                    "execute_step",
+                    serde_json::json!({
+                        "plan_id": plan_id_str.clone(),
+                        "step_id": step_id,
+                        "description": description,
+                        "step_type": step_type,
+                    }),
+                );
+
+                let exec_resp = self.send_message_internal(worker_id, exec_msg).await;
+                match exec_resp {
+                    Ok(resp) => {
+                        let success = resp.payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                        // Notify planner about step completion
+                        let complete_msg = crate::AgentMessage::new(
+                            "complete_step",
+                            serde_json::json!({
+                                "plan_id": plan_id_str.clone(),
+                                "step_id": step_id,
+                                "result": resp.payload.get("output").cloned().unwrap_or(serde_json::json!(null)),
+                            }),
+                        );
+                        let _ = self.send_message_internal(*planner_id, complete_msg).await;
+
+                        dispatched += 1;
+                        info!("Step {} done via worker {} (success={})", step_id, worker_id, success);
+
+                        if !success {
+                            has_failure = true;
+                            warn!("Step {} failed, attempting replan", step_id);
+                            // Replan: mark step as failed and let loop re-fetch
+                            let fail_msg = crate::AgentMessage::new(
+                                "fail_step",
+                                serde_json::json!({
+                                    "plan_id": plan_id_str.clone(),
+                                    "step_id": step_id,
+                                    "error": resp.payload.get("error").cloned().unwrap_or(json!("Unknown error")),
+                                }),
+                            );
+                            let _ = self.send_message_internal(*planner_id, fail_msg).await;
+                        }
+                    }
+                    Err(e) => {
+                        has_failure = true;
+                        warn!("Worker dispatch failed for step {}: {}", step_id, e);
+                        let fail_msg = crate::AgentMessage::new(
+                            "fail_step",
+                            serde_json::json!({
+                                "plan_id": plan_id_str.clone(),
+                                "step_id": step_id,
+                                "error": json!(e.to_string()),
+                            }),
+                        );
+                        let _ = self.send_message_internal(*planner_id, fail_msg).await;
+                    }
+                }
+            }
+        }
+
+        if has_failure {
+            warn!("Plan {} completed with some step failures", plan_id);
+        } else {
+            info!("Plan {} completed successfully ({} steps)", plan_id, dispatched);
+        }
+        Ok(())
+    }
+
+    /// Get plan status from planner
+    async fn plan_status_internal(&self, plan_id: Uuid) -> Result<Value> {
+        let planner_ids = self.registry.get_agents_by_type("planner").await?;
+        let planner_id = planner_ids.first().ok_or_else(|| AgentError::ProcessingError {
+            operation: "plan_status".to_string(),
+            reason: "No planner agent available".to_string(),
+        })?;
+
+        let msg = crate::AgentMessage::new(
+            "get_plan",
+            serde_json::json!({"plan_id": plan_id.to_string()}),
+        );
+        let resp = self.send_message_internal(*planner_id, msg).await?;
+        Ok(resp.payload)
+    }
+
+    /// List agent IDs grouped by type
+    async fn list_agent_ids_internal(&self) -> HashMap<String, Vec<Uuid>> {
+        let mut grouped = HashMap::<String, Vec<Uuid>>::new();
+        if let Ok(agents) = self.registry.list_agents().await {
+            for (id, agent_type, _) in agents {
+                grouped.entry(agent_type).or_default().push(id);
+            }
+        }
+        grouped
+    }
+
     /// Internal shutdown implementation
     async fn shutdown_internal(&self) -> Result<()> {
         info!("Shutting down AgentManager");
 
         // Signal health check loop to stop
         self.is_running.store(false, Ordering::Relaxed);
+
+        // Save state to memory before shutdown
+        if let Err(e) = self.state.snapshot_to_memory().await {
+            warn!("Failed to snapshot state: {}", e);
+        }
 
         // Stop all agents
         let agents = self.registry.list_agents().await?;
@@ -473,52 +722,58 @@ impl AgentManager {
 
     /// Create agent instance based on type
     async fn create_agent_instance(&self, agent_type: &str) -> Result<Box<dyn Agent>> {
-        // Implement agent factory based on type
         match agent_type {
-            "context" => {
-                // Create context agent
-                let memory_store = self.get_memory_store();
-                let config = crate::context_agent::ContextAgentConfig::default();
-                let agent = crate::context_agent::ContextAgent::new(memory_store, config);
-                Ok(Box::new(agent))
-            }
-            "routing" => {
-                // Create routing agent
-                let specialist_models = StdArc::new(HashMap::new());
-                let config = crate::routing_agent::RoutingAgentConfig::default();
-                let agent = crate::routing_agent::RoutingAgent::new(specialist_models, config);
-                Ok(Box::new(agent))
-            }
+            "context" => Ok(Box::new(crate::context_agent::ContextAgent::new(
+                StdArc::new(nexora_memory::MemoryLayers::new()),
+                crate::context_agent::ContextAgentConfig::default(),
+            ))),
+            "routing" => Ok(Box::new(crate::routing_agent::RoutingAgent::new(
+                StdArc::new(HashMap::new()),
+                crate::routing_agent::RoutingAgentConfig::default(),
+            ))),
             "inference" => {
-                // Create inference agent
-                let config = crate::inference_agent::InferenceAgentConfig::default();
-                let agent = crate::inference_agent::InferenceAgent::new(config);
+                let mut agent = crate::inference_agent::InferenceAgent::new(
+                    crate::inference_agent::InferenceAgentConfig::default(),
+                );
+                if let Ok(guard) = self.inference_engine.try_read() {
+                    if let Some(engine) = &*guard {
+                        agent.set_inference_engine(engine.clone());
+                    }
+                }
                 Ok(Box::new(agent))
             }
-            "memory" => {
-                // Create memory agent
-                let memory_store =
-                    StdArc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new()));
-                let config = crate::memory_agent::MemoryAgentConfig::default();
-                let agent = crate::memory_agent::MemoryAgent::new(memory_store, config);
-                Ok(Box::new(agent))
-            }
+            "memory" => Ok(Box::new(crate::memory_agent::MemoryAgent::new(
+                StdArc::new(tokio::sync::RwLock::new(nexora_memory::MemoryLayers::new())),
+                crate::memory_agent::MemoryAgentConfig::default(),
+            ))),
             "planner" => {
-                // Create planner agent
-                let config = crate::planner_agent::PlannerAgentConfig::default();
-                let agent = crate::planner_agent::PlannerAgent::new(config);
-                Ok(Box::new(agent))
+                let store = StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
+                Ok(Box::new(
+                    crate::planner_agent::PlannerAgent::new(
+                        crate::planner_agent::PlannerAgentConfig::default(),
+                    )
+                    .with_memory_store(store),
+                ))
             }
-            "response" => {
-                // Create response agent
-                let config = crate::response_agent::ResponseAgentConfig::default();
-                let agent = crate::response_agent::ResponseAgent::new(config);
-                Ok(Box::new(agent))
-            }
-            "validation" => {
-                // Create validation agent
-                let config = crate::validation_agent::ValidationAgentConfig::default();
-                let agent = crate::validation_agent::ValidationAgent::new(config);
+            "response" => Ok(Box::new(crate::response_agent::ResponseAgent::new(
+                crate::response_agent::ResponseAgentConfig::default(),
+            ))),
+            "validation" => Ok(Box::new(crate::validation_agent::ValidationAgent::new(
+                crate::validation_agent::ValidationAgentConfig::default(),
+            ))),
+            "worker" => {
+                let store = StdArc::new(tokio::sync::Mutex::new(
+                    nexora_memory::MemoryLayers::new(),
+                ));
+                let mut agent = crate::worker_agent::WorkerAgent::new(
+                    crate::worker_agent::WorkerAgentConfig::default(),
+                )
+                .with_memory_store(store);
+                if let Ok(guard) = self.inference_engine.try_read() {
+                    if let Some(engine) = &*guard {
+                        agent = agent.with_inference_engine(engine.clone());
+                    }
+                }
                 Ok(Box::new(agent))
             }
             _ => Err(AgentError::ProcessingError {
@@ -528,8 +783,8 @@ impl AgentManager {
         }
     }
 
-    /// Get memory store singleton (no longer creates new instance per call)
-    fn get_memory_store(&self) -> StdArc<nexora_memory::MemoryLayers> {
+    /// Get memory store singleton
+    fn get_memory_store(&self) -> StdArc<std::sync::Mutex<nexora_memory::MemoryLayers>> {
         self.memory_store.clone()
     }
 }
@@ -546,6 +801,7 @@ impl Clone for AgentManager {
             command_tx: StdArc::clone(&self.command_tx),
             memory_store: StdArc::clone(&self.memory_store),
             is_running: StdArc::clone(&self.is_running),
+            inference_engine: StdArc::clone(&self.inference_engine),
             background_handles: StdArc::clone(&self.background_handles),
         }
     }
@@ -652,5 +908,109 @@ mod tests {
         let store = manager.get_memory_store();
         // Memory store should be valid Arc<MemoryLayers>
         assert!(std::sync::Arc::strong_count(&store) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_plan_full_flow() {
+        let manager = AgentManager::new(AgentManagerConfig {
+            health_check_interval_seconds: 0,
+            ..Default::default()
+        });
+        let cmd_tx = manager.command_sender();
+        manager
+            .start()
+            .await
+            .expect("AgentManager should start");
+
+        // Spawn planner + 2 worker agents
+        let agent_types = vec!["planner", "worker", "worker"];
+        for agent_type in agent_types {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            cmd_tx
+                .send(ManagerCommand::SpawnAgent {
+                    agent_type: agent_type.to_string(),
+                    config: AgentConfig::default(),
+                    response_tx: tx,
+                })
+                .await
+                .expect("SpawnAgent should send");
+            let result = rx.await.expect("Spawn response should arrive");
+            assert!(result.is_ok(), "Agent {} should spawn: {:?}", agent_type, result.err());
+        }
+
+        // Create plan via planner
+        let (list_tx, list_rx) = tokio::sync::oneshot::channel();
+        cmd_tx
+            .send(ManagerCommand::ListAgentIds {
+                response_tx: list_tx,
+            })
+            .await
+            .expect("ListAgentIds should send");
+        let grouped = list_rx.await.unwrap_or_default();
+        let planner_id = *grouped
+            .get("planner")
+            .and_then(|v| v.first())
+            .expect("Planner agent should exist");
+
+        let create_msg = AgentMessage::new(
+            "create_plan",
+            serde_json::json!({"task": "Write a short hello world program in Rust and test it"}),
+        );
+        let (create_tx, create_rx) = tokio::sync::oneshot::channel();
+        cmd_tx
+            .send(ManagerCommand::SendMessage {
+                agent_id: planner_id,
+                message: create_msg,
+                response_tx: create_tx,
+            })
+            .await
+            .expect("create_plan should send");
+        let create_resp = create_rx
+            .await
+            .expect("create_plan response should arrive")
+            .expect("create_plan should succeed");
+        let plan_id_str = create_resp
+            .payload
+            .get("plan_id")
+            .and_then(|v| v.as_str())
+            .expect("plan_id should be in response");
+        let plan_id = Uuid::parse_str(plan_id_str).expect("plan_id should be valid UUID");
+        let (dispatch_tx, dispatch_rx) = tokio::sync::oneshot::channel();
+        cmd_tx
+            .send(ManagerCommand::DispatchPlan {
+                plan_id,
+                response_tx: dispatch_tx,
+            })
+            .await
+            .expect("DispatchPlan should send");
+        let dispatch_result = dispatch_rx
+            .await
+            .expect("Dispatch response should arrive");
+        assert!(dispatch_result.is_ok(), "Dispatch should succeed: {:?}", dispatch_result.err());
+
+        // Check plan completed
+        let (status_tx, status_rx) = tokio::sync::oneshot::channel();
+        cmd_tx
+            .send(ManagerCommand::PlanStatus {
+                plan_id,
+                response_tx: status_tx,
+            })
+            .await
+            .expect("PlanStatus should send");
+        let status_payload = status_rx
+            .await
+            .expect("PlanStatus response should arrive")
+            .expect("PlanStatus should succeed");
+
+        let plan_status = status_payload
+            .get("plan")
+            .and_then(|p| p.get("status"))
+            .and_then(|v| v.as_str())
+            .expect("plan status should be present");
+        assert_eq!(
+            plan_status, "Completed",
+            "Plan should complete after dispatch, got: {}",
+            plan_status
+        );
     }
 }

@@ -7,6 +7,8 @@ use crate::gpu_caps::GpuCapabilities;
 
 use super::gpu_tensor::{readback_with_timeout, GpuDtype, GpuTensor};
 use super::gpu_types::*;
+#[cfg(feature = "cuda")]
+use super::cuda::CudaTensor;
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
@@ -4277,6 +4279,57 @@ impl GpuContext {
         let seq_len = q_shape[2] as u32;
         let dim = q_shape[3] as u32;
         let numel = q.numel();
+
+        // CUDA FlashAttention path (preferred when CUDA backend is active)
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            // Read Q, K, V from wgpu buffers to CPU
+            let q_raw = q
+                .to_cpu_raw_bytes()
+                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read Q: {e}")))?;
+            let k_raw = k
+                .to_cpu_raw_bytes()
+                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read K: {e}")))?;
+            let v_raw = v
+                .to_cpu_raw_bytes()
+                .map_err(|e| GpuError::Transfer(format!("fused_attention CUDA read V: {e}")))?;
+            let q_cpu: Vec<f32> = bytemuck::cast_slice(&q_raw).to_vec();
+            let k_cpu: Vec<f32> = bytemuck::cast_slice(&k_raw).to_vec();
+            let v_cpu: Vec<f32> = bytemuck::cast_slice(&v_raw).to_vec();
+
+            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &q_cpu)
+                .map_err(|e| GpuError::Transfer(format!("CUDA upload Q: {e}")))?;
+            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &k_cpu)
+                .map_err(|e| GpuError::Transfer(format!("CUDA upload K: {e}")))?;
+            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &v_cpu)
+                .map_err(|e| GpuError::Transfer(format!("CUDA upload V: {e}")))?;
+
+            let result_cuda = cuda
+                .fused_attention(&q_cuda, &k_cuda, &v_cuda, scale, causal)
+                .map_err(|e| GpuError::Compute(format!("CUDA fused_attention: {e}")))?;
+
+            let result_cpu = result_cuda
+                .to_cpu_vec(&cuda.device)
+                .map_err(|e| GpuError::Transfer(format!("CUDA readback result: {e}")))?;
+
+            let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fused_attention_output_cuda"),
+                size: (numel * 4) as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&out_buffer, 0, bytemuck::cast_slice(&result_cpu));
+
+            return Ok(GpuTensor {
+                shape: q_shape.clone(),
+                buffer: out_buffer,
+                dtype: GpuDtype::F32,
+                device_id: 0,
+            });
+        }
 
         let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("fused_attention_output"),

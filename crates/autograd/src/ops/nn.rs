@@ -1520,20 +1520,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                             );
                         }
                         // For grad tracking: readback to CPU for backward
-                        let soft_cpu = gpu_out
-                            .to_cpu()
-                            .map(|data| {
-                                ArrayD::from_shape_vec(gpu_out.shape.clone(), data).unwrap_or_else(
-                                    |e| {
-                                        debug!("shape encoding failed (infallible): {e}");
-                                        ArrayD::zeros(vec![0])
-                                    },
-                                )
-                            })
-                            .unwrap_or_else(|e| {
-                                warn!("causal_softmax GPU readback failed: {e}");
-                                ArrayD::zeros(vec![0])
-                            });
+                        let soft_cpu = gpu_out.to_cpu().unwrap_or_else(|e| {
+                            warn!("causal_softmax GPU readback failed: {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         let inputs = vec![input.clone()];
                         return Tensor::from_gpu_with_grad_fn(
                             gpu_out,

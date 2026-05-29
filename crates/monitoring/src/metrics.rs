@@ -31,6 +31,8 @@ pub struct MetricsCollector {
     pub memory_fragmentation: Gauge,
     pub pcie_read_bytes: Counter,
     pub pcie_write_bytes: Counter,
+    pub kv_internal_frag_ratio: Gauge,
+    pub kv_external_frag_ratio: Gauge,
 }
 
 impl MetricsCollector {
@@ -125,6 +127,14 @@ impl MetricsCollector {
             "nexora_pcie_write_bytes_total",
             "Total bytes written to GPU (PCIe upload)",
         )?;
+        let kv_internal_frag_ratio = Gauge::new(
+            "nexora_kv_internal_frag_ratio",
+            "KV cache internal fragmentation ratio (0-1)",
+        )?;
+        let kv_external_frag_ratio = Gauge::new(
+            "nexora_kv_external_frag_ratio",
+            "KV cache external fragmentation ratio (0-1)",
+        )?;
 
         registry.register(Box::new(request_counter.clone()))?;
         registry.register(Box::new(request_failures.clone()))?;
@@ -154,6 +164,8 @@ impl MetricsCollector {
         registry.register(Box::new(memory_fragmentation.clone()))?;
         registry.register(Box::new(pcie_read_bytes.clone()))?;
         registry.register(Box::new(pcie_write_bytes.clone()))?;
+        registry.register(Box::new(kv_internal_frag_ratio.clone()))?;
+        registry.register(Box::new(kv_external_frag_ratio.clone()))?;
 
         Ok(Self {
             registry,
@@ -185,6 +197,8 @@ impl MetricsCollector {
             memory_fragmentation,
             pcie_read_bytes,
             pcie_write_bytes,
+            kv_internal_frag_ratio,
+            kv_external_frag_ratio,
         })
     }
 
@@ -294,6 +308,14 @@ impl MetricsCollector {
 
     pub fn set_pcie_write_bytes(&self, bytes: u64) {
         self.pcie_write_bytes.inc_by(bytes as f64);
+    }
+
+    pub fn set_kv_internal_frag_ratio(&self, ratio: f64) {
+        self.kv_internal_frag_ratio.set(ratio);
+    }
+
+    pub fn set_kv_external_frag_ratio(&self, ratio: f64) {
+        self.kv_external_frag_ratio.set(ratio);
     }
 
     pub fn gather_prometheus(&self) -> String {

@@ -1,6 +1,6 @@
 [package]
 name = "nexora-has-moe-ffn"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Heterogeneous Attention-based Sparse MoE Feed-Forward Network"
 

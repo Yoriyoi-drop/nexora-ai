@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 
+use super::agent_handlers::*;
 use super::handlers::*;
 use crate::config::server::ServerConfig;
 use crate::NexoraAI;
@@ -46,6 +47,13 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/code/generate", post(generate_code))
         .route("/config", get(get_config))
         .route("/config", post(update_config))
+        // Agent endpoints
+        .route("/api/agents", get(list_agents))
+        .route("/api/plans", post(create_plan))
+        .route("/api/plans", get(list_plans))
+        .route("/api/plans/:plan_id", get(get_plan))
+        .route("/api/plans/dispatch", post(dispatch_plan))
+        .route("/api/generate/agent", post(generate_via_agent))
         .route("/", get(index))
         .route("/static/*path", get(static_files))
         .layer(Extension(nexora));
@@ -61,7 +69,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .layer(middleware::from_fn(request_logging_layer))
         .layer(TraceLayer::new_for_http());
 
-    info!("Router configured with 16 endpoints");
+    info!("Router configured with 21 endpoints");
     Ok(app)
 }
 

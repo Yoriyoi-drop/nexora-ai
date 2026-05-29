@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, info_span, warn, Instrument};
 use uuid::Uuid;
 
 use crate::continuous_batching::ContinuousBatchingConfig;
+use crate::distributed::DistributedRouter;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
 use crate::paged_cache::{PagedCacheConfig, PagedKVCache};
@@ -23,6 +24,7 @@ use crate::{
     SessionEntry,
 };
 use nexora_common::retry::RetryConfig;
+use nexora_runtime::cluster::NodeRegistry;
 use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
 #[cfg(feature = "gpu")]
@@ -56,6 +58,9 @@ pub struct InferenceConfig {
     pub paged_block_size: usize,
     pub paged_max_blocks: usize,
     pub checkpoint_path: Option<String>,
+    pub enable_distributed: bool,
+    pub distributed_listen_address: String,
+    pub distributed_seed_nodes: Vec<String>,
 }
 
 impl Default for InferenceConfig {
@@ -86,6 +91,9 @@ impl Default for InferenceConfig {
             paged_block_size: 0,
             paged_max_blocks: 0,
             checkpoint_path: None,
+            enable_distributed: false,
+            distributed_listen_address: "127.0.0.1:8080".to_string(),
+            distributed_seed_nodes: Vec::new(),
         }
     }
 }
@@ -107,6 +115,7 @@ pub struct InferenceEngine {
     state: Arc<RwLock<EngineState>>,
     model_ready: bool,
     memory: Option<Arc<Mutex<MemoryManager>>>,
+    distributed: Option<Arc<DistributedRouter>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,6 +180,7 @@ impl InferenceEngine {
             config,
             model_ready,
             memory: None,
+            distributed: None,
         }
     }
 
@@ -215,7 +225,17 @@ impl InferenceEngine {
             config,
             model_ready: true,
             memory: None,
+            distributed: None,
         }
+    }
+
+    pub fn with_distributed(
+        mut self,
+        registry: Arc<NodeRegistry>,
+        node_id: Uuid,
+    ) -> Self {
+        self.distributed = Some(Arc::new(DistributedRouter::new(registry, node_id)));
+        self
     }
 
     fn maybe_init_paged_cache(
@@ -344,6 +364,13 @@ impl InferenceEngine {
         &self,
         request: InferenceRequest,
     ) -> Result<mpsc::Receiver<InferenceResponse>> {
+        let span = info_span!(
+            "submit_request",
+            request_id = %request.request_id,
+            max_tokens = request.max_tokens,
+            temperature = request.temperature,
+        );
+        let _guard = span.enter();
         match *self.state.read().await {
             EngineState::Ready => {}
             EngineState::ShuttingDown | EngineState::Shutdown => {
@@ -370,6 +397,15 @@ impl InferenceEngine {
             }
         }
 
+        if let Some(ref remote) = self.distributed {
+            if let Some(peer) = remote.best_remote_node().await {
+                let resp = remote.route_remote(&peer, &request).await?;
+                let (response_tx, response_rx) = mpsc::channel(1);
+                let _ = response_tx.send(resp).await;
+                return Ok(response_rx);
+            }
+        }
+
         let (response_tx, response_rx) = mpsc::channel(1);
         self.scheduler
             .write()
@@ -390,11 +426,25 @@ impl InferenceEngine {
         &self,
         request: InferenceRequest,
     ) -> Result<mpsc::Receiver<Arc<GeneratedToken>>> {
+        let span = info_span!(
+            "submit_streaming_request",
+            request_id = %request.request_id,
+            max_tokens = request.max_tokens,
+            temperature = request.temperature,
+        );
+        let _guard = span.enter();
         if !self.config.enable_streaming {
             return Err(InferenceError::InvalidRequest(
                 "Streaming disabled".to_string(),
             ));
         }
+
+        if let Some(ref remote) = self.distributed {
+            if let Some(peer) = remote.best_remote_node().await {
+                return remote.route_remote_streaming(&peer, &request).await;
+            }
+        }
+
         let se = self
             .streaming_engine
             .as_ref()
@@ -605,6 +655,7 @@ impl InferenceEngine {
         if requests.is_empty() {
             return Vec::new();
         }
+        let _span = info_span!("generate_continuous_batched", batch_size = requests.len()).entered();
         if requests.len() == 1 || !self.config.use_continuous_batching {
             return match requests.into_iter().next() {
                 Some(req) => {
