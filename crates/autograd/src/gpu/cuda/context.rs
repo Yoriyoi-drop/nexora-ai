@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
 use cudarc::cublaslt::CudaBlasLT;
-use cudarc::driver::{CudaContext, CudaDevice, CudaStream, CudaFunction, LaunchConfig};
+use cudarc::driver::{CudaContext, CudaDevice, CudaSlice, CudaStream, CudaFunction, LaunchConfig};
 use cudarc::nvrtc::compile_ptx;
 use once_cell::sync::OnceCell;
 
@@ -791,8 +791,9 @@ extern "C" __global__ void softmax_2d(float* __restrict__ out,
     __syncthreads();
 
     // Pass 3: normalize
+    float inv_sum = global_sum > 0.0f ? 1.0f / global_sum : 0.0f;
     for (unsigned int i = tid; i < cols; i += n) {
-        out[row * cols + i] /= global_sum;
+        out[row * cols + i] *= inv_sum;
     }
 }
 "#,
@@ -824,5 +825,69 @@ extern "C" __global__ void softmax_2d(float* __restrict__ out,
             buffer: out,
             device_id: self.device_id,
         })
+    }
+
+    // ── Scatter-add (fused MoE) ──────────────────────────────────────
+
+    /// Scatter expert outputs into an output buffer with per-token weights.
+    /// `output`: [batch_size, hidden_size] — accumulates in-place
+    /// `expert_out`: [n_tokens, hidden_size] — expert forward result
+    /// `token_indices`: [n_tokens] — global token positions (i32)
+    /// `weights`: [n_tokens] — routing weights
+    pub fn scatter_add_weighted(
+        &self,
+        output: &mut CudaTensor,
+        expert_out: &CudaTensor,
+        token_indices: &CudaSlice<i32>,
+        weights: &CudaSlice<f32>,
+    ) -> Result<(), String> {
+        let shape = expert_out.shape();
+        if shape.len() != 2 {
+            return Err("scatter_add: expert_out must be 2D".into());
+        }
+        let n_tokens = shape[0] as i32;
+        let hidden_size = shape[1] as i32;
+        let numel = (n_tokens * hidden_size) as usize;
+
+        let func = self.get_or_compile_kernel(
+            "scatter_add_weighted",
+            r#"
+extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
+    const float* __restrict__ expert_out,
+    const int* __restrict__ token_indices,
+    const float* __restrict__ weights,
+    int n_tokens, int hidden_size) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = (unsigned int)n_tokens * (unsigned int)hidden_size;
+    if (i < total) {
+        unsigned int token_local = i / (unsigned int)hidden_size;
+        unsigned int feature = i % (unsigned int)hidden_size;
+        int token_global = token_indices[token_local];
+        float weight = weights[token_local];
+        atomicAdd(&output[token_global * (unsigned int)hidden_size + feature],
+                  expert_out[i] * weight);
+    }
+}
+"#,
+        )?;
+
+        let cfg = LaunchConfig {
+            grid: ((numel + 255) / 256) as u32,
+            block: 256,
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut output.buffer);
+            builder.arg(expert_out.buffer());
+            builder.arg(token_indices);
+            builder.arg(weights);
+            builder.arg(&n_tokens);
+            builder.arg(&hidden_size);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA scatter_add launch: {e}"))?;
+        }
+        Ok(())
     }
 }

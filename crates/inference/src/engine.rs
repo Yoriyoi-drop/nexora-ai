@@ -24,7 +24,7 @@ use crate::{
     SessionEntry,
 };
 use nexora_common::retry::RetryConfig;
-use nexora_runtime::cluster::NodeRegistry;
+use nexora_runtime::cluster::{ClusterConfig, NodeRegistry};
 use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
 #[cfg(feature = "gpu")]
@@ -61,6 +61,7 @@ pub struct InferenceConfig {
     pub enable_distributed: bool,
     pub distributed_listen_address: String,
     pub distributed_seed_nodes: Vec<String>,
+    pub cluster_config: Option<ClusterConfig>,
 }
 
 impl Default for InferenceConfig {
@@ -94,6 +95,7 @@ impl Default for InferenceConfig {
             enable_distributed: false,
             distributed_listen_address: "127.0.0.1:8080".to_string(),
             distributed_seed_nodes: Vec::new(),
+            cluster_config: None,
         }
     }
 }
@@ -234,7 +236,14 @@ impl InferenceEngine {
         registry: Arc<NodeRegistry>,
         node_id: Uuid,
     ) -> Self {
-        self.distributed = Some(Arc::new(DistributedRouter::new(registry, node_id)));
+        let shared_secret = self.config.cluster_config.as_ref()
+            .and_then(|c| c.shared_secret.clone());
+        let tls_enabled = self.config.cluster_config.as_ref()
+            .map(|c| c.tls_enabled)
+            .unwrap_or(false);
+        self.distributed = Some(Arc::new(DistributedRouter::new_with_auth(
+            registry, node_id, shared_secret, tls_enabled,
+        )));
         self
     }
 

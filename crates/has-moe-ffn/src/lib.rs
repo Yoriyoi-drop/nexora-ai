@@ -82,6 +82,12 @@ impl HasMoeFFN {
         // Route to experts
         let routing_weights = self.router.forward(input);
 
+        // Try CUDA fused path: all experts on GPU, single readback
+        #[cfg(feature = "cuda")]
+        if let Some(result) = self.forward_cuda_fused(input, &routing_weights) {
+            return result;
+        }
+
         // Initialize output tensor
         let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
 
@@ -124,6 +130,83 @@ impl HasMoeFFN {
         }
 
         output
+    }
+
+    /// CUDA fused forward: all expert computations on GPU with single readback.
+    /// Processes each expert sequentially on GPU, scatters weighted results
+    /// into an output buffer, then reads back once — avoids N-1 CPU readbacks.
+    #[cfg(feature = "cuda")]
+    fn forward_cuda_fused(
+        &self,
+        input: &ndarray::Array2<f32>,
+        routing_weights: &ndarray::Array2<f32>,
+    ) -> Option<ndarray::Array2<f32>> {
+        use nexora_autograd::gpu::cuda::{CudaTensor, CudaSlice};
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+
+        let (batch_size, hidden_size) = input.dim();
+        let num_experts = self.config.num_experts;
+
+        // Group tokens by expert (CPU routing)
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); num_experts];
+        for i in 0..batch_size {
+            let top_experts = self.get_top_experts(routing_weights, i);
+            for &expert_idx in &top_experts {
+                let weight = routing_weights[[i, expert_idx]];
+                expert_tokens[expert_idx].push((i, weight));
+            }
+        }
+
+        // Allocate output buffer on GPU
+        let output_zeros = vec![0.0f32; batch_size * hidden_size];
+        let mut output_gpu =
+            CudaTensor::from_cpu(&cuda.device, vec![batch_size, hidden_size], &output_zeros).ok()?;
+
+        // Process each expert on GPU, scatter results in-place
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            let n = tokens.len();
+            if n == 0 {
+                continue;
+            }
+
+            // Gather token embeddings (CPU)
+            let mut batch_input = ndarray::Array2::zeros((n, hidden_size));
+            for (k, &(token_idx, _)) in tokens.iter().enumerate() {
+                let row_view = input.row(token_idx);
+                batch_input.row_mut(k).assign(&row_view);
+            }
+
+            // Upload to CUDA
+            let batch_flat: Vec<f32> = batch_input.iter().copied().collect();
+            let input_group =
+                CudaTensor::from_cpu(&cuda.device, vec![n, hidden_size], &batch_flat).ok()?;
+
+            // Expert computation (all on GPU, no CPU readback between ops)
+            let (w1, b1, w2, b2) = self.experts[expert_idx].ensure_weights_cuda(cuda)?;
+            let mut hidden = cuda.matmul(&input_group, w1).ok()?;
+            hidden = cuda.add(&hidden, b1).ok()?;
+            cuda.gelu_inplace(&mut hidden).ok()?;
+            let mut expert_out = cuda.matmul(&hidden, w2).ok()?;
+            expert_out = cuda.add(&expert_out, b2).ok()?;
+
+            // Upload indices & weights for GPU scatter
+            let indices: Vec<i32> = tokens.iter().map(|(idx, _)| *idx as i32).collect();
+            let weights: Vec<f32> = tokens.iter().map(|(_, w)| *w).collect();
+            let indices_gpu: CudaSlice<i32> = cuda.device.htod_sync_copy(&indices).ok()?;
+            let weights_gpu: CudaSlice<f32> = cuda.device.htod_sync_copy(&weights).ok()?;
+
+            cuda.scatter_add_weighted(&mut output_gpu, &expert_out, &indices_gpu, &weights_gpu)
+                .ok()?;
+        }
+
+        // Single readback
+        let out_vec = output_gpu.to_cpu_vec(&cuda.device).ok()?;
+        ndarray::Array2::from_shape_vec((batch_size, hidden_size), out_vec).ok()
     }
 
     /// Get top-k experts for a specific token

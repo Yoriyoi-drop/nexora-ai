@@ -869,9 +869,7 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             vec![exponent_saved, result_cpu],
                             Box::new(|grad, saved| {
                                 let exp = saved[0][IxDyn(&[])];
-                                let result_val = &saved[1];
-                                let da = grad.clone() * exp * result_val
-                                    / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                let da = grad.clone() * exp * saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
                                 vec![da]
                             }),
                         );

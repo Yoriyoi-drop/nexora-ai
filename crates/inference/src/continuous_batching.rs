@@ -1072,7 +1072,7 @@ where
             for (seq_idx, (&seq_id, logits_arr)) in
                 gen_ids.iter().zip(all_logits.iter()).enumerate()
             {
-                let logits_vec: Vec<f32> = logits_arr.clone().into_raw_vec();
+                let logits_vec: Vec<f32> = logits_arr.as_slice().unwrap().to_vec();
 
                 let token_id = if let Some(gpu_tok) = gpu_tokens[seq_idx] {
                     gpu_tok

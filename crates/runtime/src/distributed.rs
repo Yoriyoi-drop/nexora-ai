@@ -57,13 +57,20 @@ struct RemoteClient {
 }
 
 impl RemoteClient {
-    fn new(address: &str, node_id: Uuid) -> Self {
+    fn new(address: &str, node_id: Uuid, shared_secret: Option<&str>) -> Self {
+        let scheme = if shared_secret.is_some() { "https" } else { "http" };
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30));
+        if let Some(secret) = shared_secret {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+                headers.insert("x-nexora-auth", val);
+            }
+            client_builder = client_builder.default_headers(headers);
+        }
         Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
-            base_url: format!("http://{}/inference", address),
+            client: client_builder.build().unwrap_or_default(),
+            base_url: format!("{}://{}/inference", scheme, address),
             node_id,
         }
     }
@@ -110,10 +117,11 @@ impl RemoteClient {
 
     async fn health(&self) -> Result<NodeLoad> {
         let url = format!("{}/health", self.base_url);
-        let resp = self
-            .client
-            .get(&url)
-            .timeout(Duration::from_secs(2))
+        let mut req = self.client.get(&url).timeout(Duration::from_secs(2));
+        if let Some(auth) = self.client.default_headers().get("x-nexora-auth") {
+            req = req.header("x-nexora-auth", auth);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("Health check failed: {}", e))?;
@@ -257,7 +265,7 @@ impl DistributedScheduler {
         request: InferenceRequest,
         response_tx: mpsc::Sender<InferenceResponse>,
     ) -> Result<()> {
-        let client = RemoteClient::new(&peer.address, peer.node_id);
+        let client = RemoteClient::new(&peer.address, peer.node_id, self.config.cluster.shared_secret.as_deref());
         let timeout = self.config.cluster.request_timeout_ms;
 
         match client.submit(request, timeout).await {
@@ -288,7 +296,7 @@ impl DistributedScheduler {
         clients.clear();
         for node in &alive {
             if node.node_id != self.config.cluster.node_id {
-                clients.push(RemoteClient::new(&node.address, node.node_id));
+                clients.push(RemoteClient::new(&node.address, node.node_id, self.config.cluster.shared_secret.as_deref()));
             }
         }
     }
@@ -306,7 +314,7 @@ impl DistributedScheduler {
                 if node.node_id == self.config.cluster.node_id {
                     continue;
                 }
-                let client = RemoteClient::new(&node.address, node.node_id);
+                let client = RemoteClient::new(&node.address, node.node_id, self.config.cluster.shared_secret.as_deref());
                 match client.health().await {
                     Ok(load) => {
                         self.registry.update_node_load(node.node_id, load).await;

@@ -288,7 +288,7 @@ impl Expert {
     /// Lazily upload expert weights to CUDA — cached via OnceLock.
     /// Returns (fc1, fc1_bias, fc2, fc2_bias) as CudaTensors or None.
     #[cfg(feature = "cuda")]
-    fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor)> {
+    pub(crate) fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor)> {
         use nexora_autograd::gpu::cuda::CudaTensor;
         let fc1_w = self.fc1_weights.as_ref()?;
         let fc1_b = self.fc1_bias.as_ref()?;
@@ -334,17 +334,15 @@ impl Expert {
             &cuda.device, vec![n, dim], &input_flat,
         ).ok()?;
 
-        // fc1: [n, dim] @ [dim, inter] → [n, inter]
-        // w1 is stored as [inter, dim] — transpose to [dim, inter]
-        let w1_t = cuda.transpose(w1).ok()?;
-        let mut hidden = cuda.matmul(&input_gpu, &w1_t).ok()?;
+        // fc1: [n, dim] @ [inter, dim] → [n, inter]
+        // w1 stored as [inter, dim]; cuBLAS transposes both operands internally
+        let mut hidden = cuda.matmul(&input_gpu, w1).ok()?;
         hidden = cuda.add(&hidden, b1).ok()?;
         cuda.gelu_inplace(&mut hidden).ok()?;
 
-        // fc2: [n, inter] @ [inter, dim] → [n, dim]
-        // w2 is stored as [dim, inter] — transpose to [inter, dim]
-        let w2_t = cuda.transpose(w2).ok()?;
-        let output = cuda.matmul(&hidden, &w2_t).ok()?;
+        // fc2: [n, inter] @ [dim, inter] → [n, dim]
+        // w2 stored as [dim, inter]; cuBLAS handles transpose
+        let output = cuda.matmul(&hidden, w2).ok()?;
         let output = cuda.add(&output, b2).ok()?;
 
         // Readback

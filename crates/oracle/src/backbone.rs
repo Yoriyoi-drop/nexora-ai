@@ -126,13 +126,23 @@ pub struct MLPExpert {
     pub b2: Array1<f32>,
 }
 
+fn xavier_uniform(in_dim: usize, out_dim: usize) -> f32 {
+    let limit = (6.0 / (in_dim + out_dim) as f32).sqrt();
+    rand::random::<f32>() * 2.0 * limit - limit
+}
+
+fn xavier_uniform_1d(dim: usize) -> f32 {
+    let limit = (6.0 / dim as f32).sqrt();
+    rand::random::<f32>() * 2.0 * limit - limit
+}
+
 impl MLPExpert {
     pub fn new(input_dim: usize, hidden_dim: usize) -> Self {
         Self {
-            w1: Array2::from_shape_fn((input_dim, hidden_dim), |(_, _)| rand::random::<f32>()),
-            w2: Array2::from_shape_fn((hidden_dim, input_dim), |(_, _)| rand::random::<f32>()),
-            b1: Array1::from_shape_fn(hidden_dim, |_| rand::random::<f32>()),
-            b2: Array1::from_shape_fn(input_dim, |_| rand::random::<f32>()),
+            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| xavier_uniform(input_dim, hidden_dim)),
+            w2: Array2::from_shape_fn((hidden_dim, input_dim), |_| xavier_uniform(hidden_dim, input_dim)),
+            b1: Array1::from_shape_fn(hidden_dim, |_| xavier_uniform_1d(hidden_dim)),
+            b2: Array1::from_shape_fn(input_dim, |_| xavier_uniform_1d(input_dim)),
         }
     }
 
@@ -475,8 +485,8 @@ pub struct LinearLayer {
 impl LinearLayer {
     pub fn new(input_dim: usize, output_dim: usize) -> Self {
         Self {
-            weight: Array2::from_shape_fn((input_dim, output_dim), |_| rand::random()),
-            bias: Array1::from_shape_fn(output_dim, |_| rand::random()),
+            weight: Array2::from_shape_fn((input_dim, output_dim), |_| xavier_uniform(input_dim, output_dim)),
+            bias: Array1::from_shape_fn(output_dim, |_| xavier_uniform_1d(output_dim)),
         }
     }
 
@@ -583,7 +593,7 @@ pub struct EmbeddingLayer {
 impl EmbeddingLayer {
     pub fn new(vocab_size: usize, d_model: usize) -> Self {
         Self {
-            embeddings: Array2::from_shape_fn((vocab_size, d_model), |_| rand::random()),
+            embeddings: Array2::from_shape_fn((vocab_size, d_model), |_| xavier_uniform(vocab_size, d_model)),
         }
     }
 

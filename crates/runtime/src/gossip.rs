@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::debug;
 
+use std::str::FromStr;
+
 use crate::cluster::{GossipMessage, GossipState, NodeInfo, NodeRegistry};
 
 #[derive(Debug, Clone)]
@@ -31,23 +33,59 @@ pub struct GossipProtocol {
     config: GossipConfig,
     client: reqwest::Client,
     round: Mutex<GossipRound>,
+    shared_secret: Option<String>,
+    tls_enabled: bool,
 }
 
 impl GossipProtocol {
     pub fn new(registry: Arc<NodeRegistry>) -> Self {
+        Self::with_config_inner(registry, GossipConfig::default(), None, false)
+    }
+
+    fn with_config_inner(
+        registry: Arc<NodeRegistry>,
+        config: GossipConfig,
+        shared_secret: Option<String>,
+        tls_enabled: bool,
+    ) -> Self {
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5));
+        if let Some(ref secret) = shared_secret {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+                headers.insert("x-nexora-auth", val);
+            }
+            client_builder = client_builder.default_headers(headers);
+        }
         Self {
             registry,
-            config: GossipConfig::default(),
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap_or_default(),
+            config,
+            client: client_builder.build().unwrap_or_default(),
             round: Mutex::new(GossipRound::Push),
+            shared_secret,
+            tls_enabled,
         }
     }
 
     pub fn with_config(mut self, config: GossipConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    pub fn with_shared_secret(mut self, secret: Option<String>, tls: bool) -> Self {
+        self.shared_secret = secret;
+        self.tls_enabled = tls;
+        // Rebuild client with auth header
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5));
+        if let Some(ref secret) = self.shared_secret {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+                headers.insert("x-nexora-auth", val);
+            }
+            client_builder = client_builder.default_headers(headers);
+        }
+        self.client = client_builder.build().unwrap_or_default();
         self
     }
 
@@ -113,12 +151,16 @@ impl GossipProtocol {
         }
     }
 
+    fn gossip_scheme(&self) -> &'static str {
+        if self.tls_enabled { "https" } else { "http" }
+    }
+
     async fn push_to(
         &self,
         peer: NodeInfo,
         message: GossipMessage,
     ) -> Result<(), anyhow::Error> {
-        let url = format!("http://{}/cluster/gossip/push", peer.address);
+        let url = format!("{}://{}/cluster/gossip/push", self.gossip_scheme(), peer.address);
         let resp = self
             .client
             .post(&url)
@@ -155,7 +197,7 @@ impl GossipProtocol {
         &self,
         peer: NodeInfo,
     ) -> Result<Option<GossipMessage>, anyhow::Error> {
-        let url = format!("http://{}/cluster/gossip/pull", peer.address);
+        let url = format!("{}://{}/cluster/gossip/pull", self.gossip_scheme(), peer.address);
         let local_msg = self.build_gossip_message().await;
 
         let resp = self

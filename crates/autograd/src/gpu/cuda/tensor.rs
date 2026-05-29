@@ -63,6 +63,20 @@ impl CudaTensor {
         })
     }
 
+    /// Create a zero-filled CUDA tensor.
+    pub fn zeros(device: &CudaDevice, shape: Vec<usize>) -> Result<Self, String> {
+        let numel: usize = shape.iter().product();
+        let data = vec![0.0f32; numel];
+        let buffer = device
+            .htod_sync_copy(&data)
+            .map_err(|e| format!("CudaTensor::zeros: {e}"))?;
+        Ok(CudaTensor {
+            shape,
+            buffer,
+            device_id: device.id(),
+        })
+    }
+
     /// Read tensor data back to host.
     pub fn to_cpu_vec(&self, device: &CudaDevice) -> Result<Vec<f32>, String> {
         let numel = self.numel();

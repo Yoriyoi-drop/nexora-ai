@@ -375,7 +375,7 @@ Router::forward(input)         Expert::forward_batched(input)
   └── CPU (naive loop)          └── CPU (naive loop)
 ```
 
-### CUDA ops available (18 + 3 new)
+### CUDA ops available (18 + 1 new)
 
 | OP | Implementation | Notes |
 |----|---------------|-------|
@@ -385,18 +385,36 @@ Router::forward(input)         Expert::forward_batched(input)
 | neg/exp/sqrt/relu/gelu/silu/sigmoid/ln/tanh | NVRTC JIT unary | gelu_inplace added for MoE |
 | powf | NVRTC JIT (compile-time exponent) | |
 | softmax | NVRTC JIT (shared memory reduction) | |
-| transpose | NVRTC JIT | NEW — needed for weight loading |
+| transpose | NVRTC JIT | Generic 2D transpose |
+| fused_attention | NVRTC JIT FlashAttention | NEW — tiled online-softmax, 1 block per (B,H,q_pos), `__shfl_xor_sync` warp reduction |
+
+### FlashAttention CUDA kernel
+- **Algorithm**: FlashAttention-style tiled online softmax over KV sequence dimension
+- **1 block per** `(batch, head, q_pos)` — same parallelism as wgpu version
+- **Tile size**: 32 KV positions per iteration
+- **Shared memory**: Q vector (256 f32), score tile (32 f32), exp tile (32 f32), reduction scratch (256 f32)
+- **Warp-level reduction**: `__shfl_xor_sync` for per-token dot product (avoids shared memory for small reductions)
+- **Block reduction**: Tree reduction across `blockDim.x` for per-tile max and sum
+- **Wired into `GpuContext::fused_attention()`**: when `backend == Cuda`, reads wgpu buffers → uploads to CUDA → runs FlashAttention → copies back to wgpu buffer
+- **Fallback**: Falls through to wgpu WGSL kernel when CUDA unavailable
+
+### MoE CUDA performance fix (29 Mei 2026)
+- Removed redundant `cuda.transpose()` calls in both `Router::forward_cuda()` and `Expert::forward_batched_cuda()`
+- Weights already stored in correct layout for cuBLAS `CUBLAS_OP_T` convention — no transpose needed every forward pass
+- Saves 2 kernel launches + 2 buffer allocations per Router call and 2 per Expert call
 
 ### Constraints
-- `cuda` feature requires CUDA toolkit (`nvcc`) at build time — `build.rs` in `crates/autograd` calls `nvcc --version`
+- `cuda` feature requires CUDA toolkit (`nvcc`) at build time — `cudarc` build.rs calls `nvcc --version`
 - Current dev environment lacks `nvcc` — CUDA feature verified via `cargo check` only (non-cuda path)
 - No runtime CUDA detection on systems without NVIDIA driver — `CudaDevice::new(0)` fails gracefully
+- FlashAttention CUDA path has CPU round-trip through wgpu buffers — future: make GpuTensor backend-agnostic
 
 ### Next Steps (5c+)
 - **Observability**: KV fragmentation ratio, token/sec tracing.
 - **Agent ecosystem**: Planner-worker hierarchy with persistent state.
-- **CUDA full pipeline**: FlashAttention, FlashDecoding, fused MoE kernel
-- **CUDA on systems without nvcc**: Pre-compiled PTX distribution
+- **CUDA FlashDecoding**: Parallelize over KV tokens for long-context inference
+- **Fused MoE kernel**: Single launch for all experts (reduce launch overhead)
+- **Pre-compiled PTX**: Ship PTX for systems without nvcc
 
 ## Phase 5c — Distributed Scheduler (29 Mei 2026)
 

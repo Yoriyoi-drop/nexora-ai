@@ -261,10 +261,11 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                                 vec![grad.clone() * grad_x]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                let da = crate::gpu_backward::relu_backward(
+                                let da = crate::gpu_backward::leaky_relu_backward(
                                     ctx,
                                     &saved_gpu[0],
                                     grad_gpu,
+                                    negative_slope,
                                 )
                                 .map_err(|e| format!("leaky_relu_backward: {e}"))?;
                                 Ok(vec![da])

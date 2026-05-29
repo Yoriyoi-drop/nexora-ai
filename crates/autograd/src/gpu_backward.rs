@@ -205,6 +205,27 @@ pub fn relu_backward(
     Ok(da)
 }
 
+// ── LeakyRelu backward ─────────────────────────────────────────────
+// da = grad * (x > 0 ? 1.0 : negative_slope)
+// Pure GPU: step mask + (1 - step) * negative_slope
+pub fn leaky_relu_backward(
+    ctx: &GpuContext,
+    input: &GpuTensor,
+    grad: &GpuTensor,
+    negative_slope: f32,
+) -> Result<GpuTensor, GpuError> {
+    let step = ctx.elementwise_unary(input, ElemOp::Step)?;
+    let one = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), 1.0f32))
+        .map_err(|e| GpuError::Conversion(format!("leaky_relu_backward one: {e}")))?;
+    let not_step = ctx.sub(&one, &step)?;
+    let neg_slope_t = GpuTensor::from_cpu(&ArrayD::from_elem(input.shape(), negative_slope))
+        .map_err(|e| GpuError::Conversion(format!("leaky_relu_backward neg_slope: {e}")))?;
+    let neg_part = ctx.mul(&not_step, &neg_slope_t)?;
+    let leaky_mask = ctx.add(&step, &neg_part)?;
+    let da = ctx.mul(grad, &leaky_mask)?;
+    Ok(da)
+}
+
 // ── Gelu backward ──────────────────────────────────────────────────
 // da = grad * gelu'(x) computed entirely with GPU elementwise ops
 pub fn gelu_backward(

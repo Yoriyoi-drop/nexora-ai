@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use nexora_runtime::cluster::{NodeInfo, NodeLoad, NodeRegistry};
+use nexora_runtime::cluster::{ClusterConfig, NodeInfo, NodeLoad, NodeRegistry};
 
 use crate::{GeneratedToken, InferenceError, InferenceRequest, InferenceResponse};
 
@@ -11,18 +11,37 @@ pub struct DistributedRouter {
     registry: Arc<NodeRegistry>,
     client: reqwest::Client,
     local_node_id: Uuid,
+    shared_secret: Option<String>,
+    tls_enabled: bool,
 }
 
 impl DistributedRouter {
     pub fn new(registry: Arc<NodeRegistry>, local_node_id: Uuid) -> Self {
+        Self::new_with_auth(registry, local_node_id, None, false)
+    }
+
+    pub fn new_with_auth(
+        registry: Arc<NodeRegistry>,
+        local_node_id: Uuid,
+        shared_secret: Option<String>,
+        tls_enabled: bool,
+    ) -> Self {
         Self::register_load_fn(&registry);
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30));
+        if let Some(ref secret) = shared_secret {
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(val) = reqwest::header::HeaderValue::from_str(secret) {
+                headers.insert("x-nexora-auth", val);
+            }
+            client_builder = client_builder.default_headers(headers);
+        }
         Self {
             registry,
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            client: client_builder.build().unwrap_or_default(),
             local_node_id,
+            shared_secret,
+            tls_enabled,
         }
     }
 
@@ -79,12 +98,16 @@ impl DistributedRouter {
             })
     }
 
+    fn rpc_scheme(&self) -> &'static str {
+        if self.tls_enabled { "https" } else { "http" }
+    }
+
     pub async fn route_remote(
         &self,
         node: &NodeInfo,
         request: &InferenceRequest,
     ) -> Result<InferenceResponse, InferenceError> {
-        let url = format!("http://{}/generate", node.address);
+        let url = format!("{}://{}/generate", self.rpc_scheme(), node.address);
         let resp = self
             .client
             .post(&url)
@@ -118,7 +141,7 @@ impl DistributedRouter {
         node: &NodeInfo,
         request: &InferenceRequest,
     ) -> Result<mpsc::Receiver<Arc<GeneratedToken>>, InferenceError> {
-        let url = format!("http://{}/generate/stream", node.address);
+        let url = format!("{}://{}/generate/stream", self.rpc_scheme(), node.address);
         let resp = self
             .client
             .post(&url)

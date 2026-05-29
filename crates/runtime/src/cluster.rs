@@ -117,6 +117,8 @@ pub struct ClusterConfig {
     pub seed_nodes: Vec<String>,
     pub max_concurrent_remote: usize,
     pub request_timeout_ms: u64,
+    pub shared_secret: Option<String>,
+    pub tls_enabled: bool,
 }
 
 impl Default for ClusterConfig {
@@ -130,6 +132,8 @@ impl Default for ClusterConfig {
             seed_nodes: Vec::new(),
             max_concurrent_remote: 64,
             request_timeout_ms: 30000,
+            shared_secret: None,
+            tls_enabled: false,
         }
     }
 }

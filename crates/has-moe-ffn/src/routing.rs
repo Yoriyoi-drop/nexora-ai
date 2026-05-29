@@ -269,8 +269,8 @@ impl Router {
         let cuda = ctx.cuda_runtime()?;
 
         let weights = self.ensure_weights_cuda(cuda)?;
-        // weights stored as [num_experts, hidden_size]; transpose to [hidden_size, num_experts]
-        let weights_t = cuda.transpose(weights).ok()?;
+        // weights cached as [num_experts, hidden_size]; no transpose needed
+        // cuBLAS transposes both operands internally, so layout is already correct
 
         let n = input.shape()[0];
         let dim = input.shape()[1];
@@ -279,8 +279,8 @@ impl Router {
             &cuda.device, vec![n, dim], &input_flat,
         ).ok()?;
 
-        // scores = input @ weights_t → [batch, num_experts]
-        let scores = cuda.matmul(&input_gpu, &weights_t).ok()?;
+        // scores = input @ weights → [batch, num_experts]  (cuBLAS handles transpose)
+        let scores = cuda.matmul(&input_gpu, weights).ok()?;
         let probs = cuda.softmax(&scores).ok()?;
 
         let out_cpu = probs.to_cpu_vec(&cuda.device).ok()?;

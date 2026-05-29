@@ -31,7 +31,7 @@ impl Default for ServerConfig {
             enable_cors: true,
             cors_origins: vec![],
             api_keys: vec![],
-            enable_auth: false,
+            enable_auth: true,
         }
     }
 }
