@@ -402,14 +402,16 @@ impl CausalLM {
         self
     }
 
-    fn get_token_embedding(&self) -> &Array2<f32> {
-        self.token_embedding.as_ref()
-            .expect("token_embedding not available — use readback_weights() or forward_gpu()")
+    fn get_token_embedding(&self) -> TransformerResult<&Array2<f32>> {
+        self.token_embedding.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("token_embedding not available — use readback_weights() or forward_gpu()".into())
+        })
     }
 
-    fn get_lm_head(&self) -> &Array2<f32> {
-        self.lm_head.as_ref()
-            .expect("lm_head not available")
+    fn get_lm_head(&self) -> TransformerResult<&Array2<f32>> {
+        self.lm_head.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("lm_head not available".into())
+        })
     }
 
     pub fn drop_cpu_weights(&mut self) {
@@ -466,43 +468,31 @@ impl CausalLM {
         let entries = kv_cache.as_cpu_entries().ok_or_else(|| {
             TransformerError::Implementation("CPU forward requires CpuKVCache".to_string())
         })?;
-        self.forward_cpu_impl(input_ids, entries, 1)
+        self.forward_cpu_impl(input_ids, entries)
     }
 
-    /// Internal CPU forward implementation operating on `Vec<KVCacheEntry>`.
-    /// `batch_size` controls how many stacked tokens from the end of `input_ids`
-    /// are processed simultaneously. When `batch_size > 1`, all tokens are embedded
-    /// into a stacked `[batch_size, hidden_size]` tensor and passed through the
-    /// transformer blocks, returning logits for the first batch element.
     fn forward_cpu_impl(
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
-        batch_size: usize,
     ) -> TransformerResult<Array1<f32>> {
-        let bs = if batch_size == 0 { 1 } else { batch_size };
-        if bs > input_ids.len() {
+        if input_ids.is_empty() {
+            return Err(TransformerError::Implementation(
+                "forward_cpu_impl called with empty input_ids".into()
+            ));
+        }
+
+        let token_id = input_ids.last().copied().unwrap() as usize;
+        if token_id >= self.config.vocab_size {
             return Err(TransformerError::Implementation(format!(
-                "batch_size {} exceeds input_ids len {}",
-                bs,
-                input_ids.len()
+                "Token ID {} out of range [0, {})",
+                token_id, self.config.vocab_size
             )));
         }
 
-        let mut h = Array2::zeros((bs, self.config.hidden_size));
-
-        let start = input_ids.len() - bs;
-        for b in 0..bs {
-            let token_id = input_ids[start + b];
-            let tid = token_id as usize;
-            if tid >= self.config.vocab_size {
-                return Err(TransformerError::Implementation(format!(
-                    "Token ID {} out of range [0, {})",
-                    tid, self.config.vocab_size
-                )));
-            }
-            h.row_mut(b).assign(&self.get_token_embedding().row(tid));
-        }
+        let te = self.get_token_embedding()?;
+        let mut h = Array2::zeros((1, self.config.hidden_size));
+        h.row_mut(0).assign(&te.row(token_id));
 
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let half = self.config.head_dim() / 2;
@@ -516,29 +506,17 @@ impl CausalLM {
         }
         let (cos_slice, sin_slice) = self.get_cos_sin_slices(pos);
 
-        // Validate token_embedding shape vs config
-        let te = self.get_token_embedding();
-        let (embed_vocab, embed_hidden) = te.dim();
-        if embed_vocab != self.config.vocab_size || embed_hidden != self.config.hidden_size {
+        let (embed_vocab, _embed_hidden) = te.dim();
+        if embed_vocab != self.config.vocab_size {
             return Err(TransformerError::Implementation(format!(
-                "token_embedding shape ({},{}) != config ({},{})",
-                embed_vocab, embed_hidden, self.config.vocab_size, self.config.hidden_size
-            )));
-        }
-        // Validate lm_head shape vs config
-        let lh = self.get_lm_head();
-        let (lm_vocab, lm_hidden) = lh.dim();
-        if lm_vocab != self.config.vocab_size || lm_hidden != self.config.hidden_size {
-            return Err(TransformerError::Implementation(format!(
-                "lm_head shape ({},{}) != config ({},{})",
-                lm_vocab, lm_hidden, self.config.vocab_size, self.config.hidden_size
+                "token_embedding vocab {} != config {}",
+                embed_vocab, self.config.vocab_size
             )));
         }
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward(&h, kv_cache, layer_idx, cos_slice, sin_slice);
+            h = block.forward(&h, kv_cache, layer_idx, cos_slice, sin_slice)?;
 
-            // Run any registered injectors after this layer
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
                     let mut guard = injector.lock().map_err(|e| {
@@ -549,9 +527,10 @@ impl CausalLM {
             }
         }
 
-        h = self.norm.forward(&h);
+        h = self.norm.forward(&h)?;
 
-        Ok(h.row(0).dot(&self.get_lm_head().t()))
+        let lh = self.get_lm_head()?;
+        Ok(h.row(0).dot(&lh.t()))
     }
 
     pub fn reset_cache(&self) -> CpuKVCache {
@@ -579,8 +558,7 @@ impl CausalLM {
         kv_cache: &mut dyn PagedCacheReader,
         seq_id: u64,
     ) -> TransformerResult<Array1<f32>> {
-        let batch_size = 1;
-        let mut h = Array2::zeros((batch_size, self.config.hidden_size));
+        let mut h = Array2::zeros((1, self.config.hidden_size));
 
         if let Some(&token_id) = input_ids.last() {
             let tid = token_id as usize;
@@ -590,7 +568,8 @@ impl CausalLM {
                     tid, self.config.vocab_size
                 )));
             }
-            h.row_mut(0).assign(&self.get_token_embedding().row(tid));
+            let te = self.get_token_embedding()?;
+            h.row_mut(0).assign(&te.row(tid));
         }
 
         let token_pos = kv_cache.num_tokens(seq_id).unwrap_or(0);
@@ -599,12 +578,13 @@ impl CausalLM {
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_paged(
                 &h, kv_cache, seq_id, layer_idx, token_pos, cos_slice, sin_slice,
-            );
+            )?;
         }
 
-        h = self.norm.forward(&h);
+        h = self.norm.forward(&h)?;
 
-        Ok(h.row(0).dot(&self.get_lm_head().t()))
+        let lh = self.get_lm_head()?;
+        Ok(h.row(0).dot(&lh.t()))
     }
 
     pub fn parameter_count(&self) -> usize {

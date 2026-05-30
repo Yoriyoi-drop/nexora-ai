@@ -66,8 +66,11 @@ impl CudaRuntime {
     // ── CUDA kernel compilation ──────────────────────────────────────
 
     fn get_or_compile_kernel(&self, name: &str, source: &str) -> Result<CudaFunction, String> {
-        if let Some(f) = self.kernels.lock().unwrap().get(name) {
-            return Ok(f.clone());
+        {
+            let lock = self.kernels.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(f) = lock.get(name) {
+                return Ok(f.clone());
+            }
         }
         let ptx = compile_ptx(source).map_err(|e| format!("NVRTC compile '{name}': {e}"))?;
         let module = self
@@ -79,7 +82,7 @@ impl CudaRuntime {
             .map_err(|e| format!("CUDA load function '{name}': {e}"))?;
         self.kernels
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(name.to_string(), func.clone());
         Ok(func)
     }

@@ -2,6 +2,8 @@ use ndarray::Array2;
 use rand::Rng;
 use std::sync::OnceLock;
 
+use crate::{TransformerError, TransformerResult};
+
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::GpuTensor;
 
@@ -85,9 +87,22 @@ impl SwiGLU {
 
     pub fn pack_f16_weights(&mut self) {
         if let (Some(w1), Some(w2), Some(w3)) = (&self.w1, &self.w2, &self.w3) {
-            self.w1_f16 = Some(crate::pack_f32_slice_to_f16(w1.as_slice().unwrap()));
-            self.w2_f16 = Some(crate::pack_f32_slice_to_f16(w2.as_slice().unwrap()));
-            self.w3_f16 = Some(crate::pack_f32_slice_to_f16(w3.as_slice().unwrap()));
+            let w1_slice = w1.as_slice().unwrap_or_else(|| {
+                let v: Vec<f32> = w1.iter().copied().collect();
+                // Leak the Vec to get a static &[f32] — safe because pack_f32_slice_to_f16 copies.
+                Box::leak(v.into_boxed_slice())
+            });
+            let w2_slice = w2.as_slice().unwrap_or_else(|| {
+                let v: Vec<f32> = w2.iter().copied().collect();
+                Box::leak(v.into_boxed_slice())
+            });
+            let w3_slice = w3.as_slice().unwrap_or_else(|| {
+                let v: Vec<f32> = w3.iter().copied().collect();
+                Box::leak(v.into_boxed_slice())
+            });
+            self.w1_f16 = Some(crate::pack_f32_slice_to_f16(w1_slice));
+            self.w2_f16 = Some(crate::pack_f32_slice_to_f16(w2_slice));
+            self.w3_f16 = Some(crate::pack_f32_slice_to_f16(w3_slice));
         }
     }
 
@@ -111,22 +126,28 @@ impl SwiGLU {
         }
     }
 
-    fn get_w1(&self) -> &Array2<f32> {
-        self.w1.as_ref().expect("SwiGLU w1 not available — use readback_weights() or forward_gpu()")
+    fn get_w1(&self) -> TransformerResult<&Array2<f32>> {
+        self.w1.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("SwiGLU w1 not available — use readback_weights() or forward_gpu()".into())
+        })
     }
 
-    fn get_w2(&self) -> &Array2<f32> {
-        self.w2.as_ref().expect("SwiGLU w2 not available")
+    fn get_w2(&self) -> TransformerResult<&Array2<f32>> {
+        self.w2.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("SwiGLU w2 not available".into())
+        })
     }
 
-    fn get_w3(&self) -> &Array2<f32> {
-        self.w3.as_ref().expect("SwiGLU w3 not available")
+    fn get_w3(&self) -> TransformerResult<&Array2<f32>> {
+        self.w3.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("SwiGLU w3 not available".into())
+        })
     }
 
-    pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        let w1 = self.get_w1();
-        let w2 = self.get_w2();
-        let w3 = self.get_w3();
+    pub fn forward(&self, x: &Array2<f32>) -> TransformerResult<Array2<f32>> {
+        let w1 = self.get_w1()?;
+        let w2 = self.get_w2()?;
+        let w3 = self.get_w3()?;
         let gate = self.maybe_f16_matmul(x, w1, &self.w1_f16);
         let hidden = self.maybe_f16_matmul(x, w3, &self.w3_f16);
 
@@ -140,7 +161,7 @@ impl SwiGLU {
                 *g = gv * sigmoid * hv;
             });
 
-        self.maybe_f16_matmul(&gated, w2, &self.w2_f16)
+        Ok(self.maybe_f16_matmul(&gated, w2, &self.w2_f16))
     }
 
     /// Upload weight data directly to GPU from slices.
@@ -226,7 +247,7 @@ mod tests {
         let mut ffn = SwiGLU::new(8, 16);
         ffn.init_random(8, 16);
         let x = array![[1.0; 8], [2.0; 8]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         assert_eq!(out.dim(), (2, 8));
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -236,7 +257,7 @@ mod tests {
         let mut ffn = SwiGLU::new(4, 6);
         ffn.init_random(4, 6);
         let x = array![[0.5, -0.3, 1.2, -0.7]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         assert_eq!(out.dim(), (1, 4));
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -246,8 +267,8 @@ mod tests {
         let mut ffn = SwiGLU::new(4, 8);
         ffn.init_random(4, 8);
         let x = array![[0.1, 0.2, 0.3, 0.4]];
-        let out1 = ffn.forward(&x);
-        let out2 = ffn.forward(&x);
+        let out1 = ffn.forward(&x).unwrap();
+        let out2 = ffn.forward(&x).unwrap();
         for j in 0..4 {
             assert!(
                 (out1[[0, j]] - out2[[0, j]]).abs() < 1e-5,
@@ -261,7 +282,7 @@ mod tests {
         let mut ffn = SwiGLU::new(8, 16);
         ffn.init_random(8, 16);
         let x = array![[1.0; 8]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         let has_some_signal = out.iter().any(|v| v.abs() > 1e-6);
         assert!(
             has_some_signal,
@@ -274,7 +295,7 @@ mod tests {
         let mut ffn = SwiGLU::new(4, 8);
         ffn.init_random(4, 8);
         let x = array![[0.0; 4]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         // With zero input, gate=0 so sigmoid(gate)=0.5, silu=0*0.5=0, but hidden=0 also -> 0
         for j in 0..4 {
             assert!(
@@ -290,7 +311,7 @@ mod tests {
         let mut ffn = SwiGLU::new(4, 4);
         ffn.init_random(4, 4);
         let x = array![[-10.0, -1.0, 0.0, 10.0]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         assert!(out.iter().all(|v| v.is_finite()));
     }
 
@@ -299,7 +320,7 @@ mod tests {
         let mut ffn = SwiGLU::new(4, 8);
         ffn.init_random(4, 8);
         let x = array![[-5.0; 4]];
-        let out = ffn.forward(&x);
+        let out = ffn.forward(&x).unwrap();
         assert_eq!(out.dim(), (1, 4));
         assert!(out.iter().all(|v| v.is_finite()));
     }

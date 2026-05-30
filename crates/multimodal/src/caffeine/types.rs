@@ -45,6 +45,84 @@ pub struct MultiModalInputs {
     pub context: Option<ContextInfo>,
 }
 
+/// Image input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageInput {
+    /// Image data (raw pixels or encoded file bytes)
+    pub data: Vec<u8>,
+    /// Image format
+    pub format: ImageFormat,
+    /// Width (0 = auto-detect from encoded data if possible)
+    pub width: usize,
+    /// Height (0 = auto-detect from encoded data if possible)
+    pub height: usize,
+    /// Channels (3 = RGB, 4 = RGBA, 1 = Grayscale)
+    pub channels: usize,
+}
+
+impl ImageInput {
+    /// Create an ImageInput from raw pixel data with known dimensions.
+    pub fn from_raw(data: Vec<u8>, width: usize, height: usize, channels: usize) -> Self {
+        Self { data, format: ImageFormat::Raw, width, height, channels }
+    }
+
+    /// Create an ImageInput from encoded file bytes (PNG/JPEG).
+    /// Parses the header to determine dimensions and format.
+    /// Falls back to default 224x224 RGB if header parsing fails.
+    pub fn from_encoded(data: Vec<u8>) -> Self {
+        let mut input = Self { data, format: ImageFormat::PNG, width: 0, height: 0, channels: 3 };
+        input.detect_format();
+        if input.width == 0 { input.width = 224; }
+        if input.height == 0 { input.height = 224; }
+        input
+    }
+
+    /// Detect image format and parse dimensions from header.
+    fn detect_format(&mut self) {
+        if self.data.len() < 24 { return; }
+
+        // PNG: 8-byte signature + IHDR chunk
+        if self.data[0] == 0x89 && self.data[1] == b'P' && self.data[2] == b'N' && self.data[3] == b'G' {
+            self.format = ImageFormat::PNG;
+            // IHDR chunk starts at byte 16 (8 sig + 4 len + 4 "IHDR")
+            if self.data.len() >= 24 {
+                self.width = u32::from_be_bytes([self.data[16], self.data[17], self.data[18], self.data[19]]) as usize;
+                self.height = u32::from_be_bytes([self.data[20], self.data[21], self.data[22], self.data[23]]) as usize;
+                self.channels = if self.data.len() > 24 { match self.data[24] { 6 => 4, 2 => 3, 0 => 1, _ => 3 } } else { 3 };
+            }
+            return;
+        }
+
+        // JPEG: starts with FF D8
+        if self.data[0] == 0xFF && self.data[1] == 0xD8 {
+            self.format = ImageFormat::JPEG;
+            // Parse SOF markers for dimensions
+            let mut i = 2;
+            while i + 8 < self.data.len() {
+                if self.data[i] == 0xFF {
+                    match self.data[i + 1] {
+                        0xC0 | 0xC1 | 0xC2 => {
+                            if i + 9 < self.data.len() {
+                                self.height = u16::from_be_bytes([self.data[i + 5], self.data[i + 6]]) as usize;
+                                self.width = u16::from_be_bytes([self.data[i + 7], self.data[i + 8]]) as usize;
+                                self.channels = self.data[i + 9] as usize;
+                            }
+                            return;
+                        }
+                        0xD9 => return, // EOI
+                        _ => {
+                            let seg_len = u16::from_be_bytes([self.data[i + 2], self.data[i + 3]]) as usize;
+                            i += seg_len + 2;
+                            continue;
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+}
+
 /// Text input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextInput {
@@ -56,25 +134,10 @@ pub struct TextInput {
     pub language: String,
 }
 
-/// Image input
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageInput {
-    /// Image data (raw bytes or path)
-    pub data: Vec<u8>,
-    /// Image format
-    pub format: ImageFormat,
-    /// Width
-    pub width: usize,
-    /// Height
-    pub height: usize,
-    /// Channels
-    pub channels: usize,
-}
-
 /// Audio input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioInput {
-    /// Audio data
+    /// Audio data (float PCM samples)
     pub data: Vec<f32>,
     /// Sample rate
     pub sample_rate: usize,
@@ -82,6 +145,18 @@ pub struct AudioInput {
     pub duration: f32,
     /// Number of channels
     pub channels: usize,
+}
+
+impl AudioInput {
+    /// Create an AudioInput from float PCM samples.
+    pub fn from_pcm(data: Vec<f32>, sample_rate: usize, channels: usize) -> Self {
+        let duration = if sample_rate > 0 {
+            (data.len() as f32) / (sample_rate as f32 * channels as f32)
+        } else {
+            0.0
+        };
+        Self { data, sample_rate, duration, channels }
+    }
 }
 
 /// Video input
@@ -388,6 +463,7 @@ pub enum ImageFormat {
     WEBP,
     BMP,
     TIFF,
+    Raw,
 }
 
 /// Bounding box formats

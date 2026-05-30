@@ -547,7 +547,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                 // Take GPU entries from ALL sequences at once.
                 let mut gpu_entries_owned: Vec<Vec<nexora_transformer::GpuKVCacheEntry>> = caches
                     .iter_mut()
-                    .map(|c| std::mem::take(c.as_gpu_entries().expect("prefill_full: gpu entries confirmed earlier")))
+                    .map(|c| std::mem::take(c.as_gpu_entries().unwrap_or(&mut Vec::new())))
                     .collect();
 
                 let result = self.forward_gpu_batched_prefill_full(inputs, &mut gpu_entries_owned);
@@ -555,8 +555,9 @@ impl ModelForward for nexora_transformer::CausalLM {
                 // Restore GPU entries to caches
                 for (i, entries) in gpu_entries_owned.into_iter().enumerate() {
                     if i < caches.len() {
-                        let dst = caches[i].as_gpu_entries().expect("prefill_full: gpu entries confirmed earlier");
-                        *dst = entries;
+                        if let Some(dst) = caches[i].as_gpu_entries() {
+                            *dst = entries;
+                        }
                     }
                 }
 
@@ -629,7 +630,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                 // Take GPU entries from all sequences
                 let mut gpu_entries: Vec<Vec<nexora_transformer::GpuKVCacheEntry>> = caches
                     .iter_mut()
-                    .map(|c| std::mem::take(c.as_gpu_entries().expect("sample: gpu entries confirmed earlier")))
+                    .map(|c| std::mem::take(c.as_gpu_entries().unwrap_or(&mut Vec::new())))
                     .collect();
 
                 // Per-seq seeds: mix base seed with sequence index
@@ -650,8 +651,9 @@ impl ModelForward for nexora_transformer::CausalLM {
                 // Restore GPU entries
                 for (i, entries) in gpu_entries.into_iter().enumerate() {
                     if i < caches.len() {
-                        let dst = caches[i].as_gpu_entries().expect("sample: gpu entries confirmed earlier");
-                        *dst = entries;
+                        if let Some(dst) = caches[i].as_gpu_entries() {
+                            *dst = entries;
+                        }
                     }
                 }
 

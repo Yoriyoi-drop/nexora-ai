@@ -20,6 +20,7 @@
 use std::sync::{Arc, Mutex};
 
 use nexora_transformer::{KVCacheEntry, KVCacheProvider};
+use tracing::warn;
 
 use crate::paged_cache::{PagedCacheConfig, PagedKVCache};
 
@@ -81,12 +82,24 @@ impl PagedKVCacheProvider {
     ) -> Self {
         // Read dimensions from the underlying paged cache config
         let (num_kv_heads, head_dim, max_seq_len) = {
-            let guard = cache.lock().expect("paged cache lock in new_shared");
+            let guard = match cache.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("paged cache lock poisoned in new_shared: {}", e);
+                    e.into_inner()
+                }
+            };
             let cfg = guard.config();
             (cfg.num_kv_heads, cfg.head_dim, cfg.max_seq_len)
         };
         {
-            let mut guard = cache.lock().expect("paged cache lock in new_shared");
+            let mut guard = match cache.lock() {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("paged cache lock poisoned in new_shared (register): {}", e);
+                    e.into_inner()
+                }
+            };
             guard.register_sequence(seq_id);
         }
         Self {
@@ -128,7 +141,13 @@ impl PagedKVCacheProvider {
         if !self.dirty {
             return;
         }
-        let guard = self.cache.lock().expect("paged cache lock in ensure_flat_synced");
+        let guard = match self.cache.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
+                return;
+            }
+        };
         if let Some(entries) = guard.to_flat_cache(self.seq_id) {
             self.flat = entries;
         }
@@ -183,7 +202,13 @@ impl PagedKVCacheProvider {
         let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
 
         // For each layer, read existing tokens from paged cache and upload to GPU
-        let guard = self.cache.lock().expect("paged cache lock in sync_paged_to_gpu");
+        let guard = match self.cache.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("paged cache lock poisoned in sync_paged_to_gpu: {}", e);
+                return;
+            }
+        };
         for layer in 0..self.num_layers.min(self.gpu_entries.len()) {
             for pos in 0..self.total_tokens {
                 let (k_row, v_row) = match guard.read(self.seq_id, layer, pos) {
@@ -238,7 +263,13 @@ impl PagedKVCacheProvider {
                     Some(kv) => kv,
                     None => continue,
                 };
-                let mut guard = self.cache.lock().expect("paged cache lock in sync_gpu_to_paged");
+                let mut guard = match self.cache.lock() {
+                    Ok(g) => g,
+                    Err(e) => {
+                        warn!("paged cache lock poisoned in sync_gpu_to_paged: {}", e);
+                        continue;
+                    }
+                };
                 guard.append(self.seq_id, layer, pos, &k_vec, &v_vec);
                 drop(guard);
             }
@@ -272,7 +303,13 @@ impl PagedKVCacheProvider {
 impl KVCacheProvider for PagedKVCacheProvider {
     fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
         let token_pos = self.total_tokens;
-        let mut guard = self.cache.lock().expect("paged cache lock in append");
+        let mut guard = match self.cache.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("paged cache lock poisoned in append: {}", e);
+                return;
+            }
+        };
         guard.append(self.seq_id, layer_idx, token_pos, k, v);
         drop(guard);
         self.total_tokens += 1;
@@ -324,7 +361,13 @@ impl KVCacheProvider for PagedKVCacheProvider {
         }
         #[cfg(feature = "gpu")]
         self.gpu_entries.clear();
-        let mut guard = self.cache.lock().expect("paged cache lock in clear");
+        let mut guard = match self.cache.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("paged cache lock poisoned in clear: {}", e);
+                return;
+            }
+        };
         guard.remove_sequence(self.seq_id);
         guard.register_sequence(self.seq_id);
         drop(guard);

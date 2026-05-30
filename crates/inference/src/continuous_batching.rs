@@ -480,12 +480,15 @@ where
     /// prefix, so the prefill forward pass only processes non-shared tokens.
     /// Only operates when GPU is active and the prefix trie is available.
     fn try_gpu_prefix_sharing(&mut self, prefill_ids: &[u64]) {
-        if !self.use_gpu || self.prefix_trie.is_none() {
+        if !self.use_gpu {
             return;
         }
         #[cfg(feature = "gpu")]
         {
-            let trie = self.prefix_trie.as_ref().unwrap();
+            let trie = match self.prefix_trie.as_ref() {
+                Some(t) => t,
+                None => return,
+            };
             let ctx = match nexora_autograd::gpu::GpuContext::global() {
                 Ok(c) => c,
                 _ => return,
@@ -1072,7 +1075,13 @@ where
             for (seq_idx, (&seq_id, logits_arr)) in
                 gen_ids.iter().zip(all_logits.iter()).enumerate()
             {
-                let logits_slice = logits_arr.as_slice().unwrap();
+                let logits_slice = match logits_arr.as_slice() {
+                    Some(s) => s,
+                    None => {
+                        warn!("Non-contiguous logits array for sequence {}, skipping", seq_id);
+                        continue;
+                    }
+                };
 
                 let token_id = if let Some(gpu_tok) = gpu_tokens[seq_idx] {
                     gpu_tok

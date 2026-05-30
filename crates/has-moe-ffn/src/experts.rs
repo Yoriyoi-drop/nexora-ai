@@ -340,28 +340,29 @@ impl Expert {
     }
 
     /// Batched forward: processes N tokens, tries CUDA → wgpu → CPU fallback.
-    pub fn forward_batched(&self, inputs: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {
+    /// Returns `Err` if weights are not initialized.
+    pub fn forward_batched(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
         #[cfg(feature = "cuda")]
         if let Some(result) = self.forward_batched_cuda(inputs) {
-            return result;
+            return Ok(result);
         }
         #[cfg(feature = "gpu")]
         if let Some(result) = self.forward_batched_gpu(inputs) {
-            return result;
+            return Ok(result);
         }
         let (_n, h) = inputs.dim();
         let i_size = self.config.intermediate_size;
 
-        let fc1_w = self.fc1_weights.as_ref().expect("weights initialized");
-        let fc1_b = self.fc1_bias.as_ref().expect("bias initialized");
-        let fc2_w = self.fc2_weights.as_ref().expect("weights initialized");
-        let fc2_b = self.fc2_bias.as_ref().expect("bias initialized");
+        let fc1_w = self.fc1_weights.as_ref().ok_or_else(|| "fc1_weights not initialized".to_string())?;
+        let fc1_b = self.fc1_bias.as_ref().ok_or_else(|| "fc1_bias not initialized".to_string())?;
+        let fc2_w = self.fc2_weights.as_ref().ok_or_else(|| "fc2_weights not initialized".to_string())?;
+        let fc2_b = self.fc2_bias.as_ref().ok_or_else(|| "fc2_bias not initialized".to_string())?;
 
         // Build weight matrices for batched matmul
         let w1_flat: Vec<f32> = fc1_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w1 = ndarray::Array2::from_shape_vec((i_size, h), w1_flat).expect("fc1 shape");
+        let w1 = ndarray::Array2::from_shape_vec((i_size, h), w1_flat).map_err(|e| format!("fc1 shape: {e}"))?;
         let w2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w2 = ndarray::Array2::from_shape_vec((h, i_size), w2_flat).expect("fc2 shape");
+        let w2 = ndarray::Array2::from_shape_vec((h, i_size), w2_flat).map_err(|e| format!("fc2 shape: {e}"))?;
         let b1 = ndarray::Array1::from_vec(fc1_b.clone());
         let b2 = ndarray::Array1::from_vec(fc2_b.clone());
 
@@ -383,7 +384,7 @@ impl Expert {
         };
 
         // fc2: [N × I] @ [I × H] + [H] → [N × H]
-        dropped.dot(&w2.t()) + b2
+        Ok(dropped.dot(&w2.t()) + b2)
     }
 
     /// First linear layer forward pass

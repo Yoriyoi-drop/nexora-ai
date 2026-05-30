@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, RwLock};
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::GeneratedToken;
@@ -120,7 +120,10 @@ impl StreamingEngine {
                 let streams = self.active_streams.read().await;
                 if let Some(entry) = streams.get(&stream_id) {
                     entry.token_count.fetch_add(1, Ordering::Relaxed);
-                    *entry.last_token_at.lock().unwrap() = Instant::now();
+                    match entry.last_token_at.lock() {
+                        Ok(mut guard) => *guard = Instant::now(),
+                        Err(e) => warn!("last_token_at lock poisoned: {}", e),
+                    }
                 }
                 Ok(())
             }
@@ -186,7 +189,15 @@ impl StreamingEngine {
 
     fn evict_stale_locked(&self, streams: &mut HashMap<Uuid, ActiveStream>) -> usize {
         let before = streams.len();
-        streams.retain(|_, s| s.last_token_at.lock().unwrap().elapsed() < self.stream_timeout);
+        streams.retain(|_, s| {
+            match s.last_token_at.lock() {
+                Ok(guard) => guard.elapsed() < self.stream_timeout,
+                Err(e) => {
+                    warn!("last_token_at lock poisoned, evicting stream: {}", e);
+                    false
+                }
+            }
+        });
         let evicted = before - streams.len();
         if evicted > 0 {
             debug!("Evicted {} stale streams", evicted);

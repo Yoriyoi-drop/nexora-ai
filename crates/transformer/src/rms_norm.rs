@@ -1,6 +1,8 @@
 use ndarray::{Array1, Array2};
 use std::sync::OnceLock;
 
+use crate::{TransformerError, TransformerResult};
+
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::GpuTensor;
 
@@ -58,8 +60,10 @@ impl RMSNorm {
 
     /// CPU forward — only works if CPU weight is available.
     /// After GPU upload, call `readback_weight()` first if CPU path needed.
-    pub fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
-        let weight = self.weight.as_ref().expect("RMSNorm CPU weight not available — call readback_weight() or use forward_gpu()");
+    pub fn forward(&self, x: &Array2<f32>) -> TransformerResult<Array2<f32>> {
+        let weight = self.weight.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("RMSNorm CPU weight not available — call readback_weight() or use forward_gpu()".into())
+        })?;
         let (batch_size, hidden_size) = x.dim();
         let mut output = Array2::zeros((batch_size, hidden_size));
 
@@ -72,18 +76,20 @@ impl RMSNorm {
             }
         }
 
-        output
+        Ok(output)
     }
 
-    pub fn forward_1d(&self, x: &Array1<f32>) -> Array1<f32> {
-        let weight = self.weight.as_ref().expect("RMSNorm CPU weight not available");
+    pub fn forward_1d(&self, x: &Array1<f32>) -> TransformerResult<Array1<f32>> {
+        let weight = self.weight.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("RMSNorm CPU weight not available".into())
+        })?;
         let n = x.len();
         let ssq = x.iter().map(|v| v * v).sum::<f32>();
         let rms = (ssq / n as f32 + self.eps).sqrt();
-        x.iter()
+        Ok(x.iter()
             .zip(weight.iter())
             .map(|(&v, &w)| (v / rms) * w)
-            .collect()
+            .collect())
     }
 
     /// Upload weight data directly to GPU — takes `&[f32]` so caller
@@ -176,7 +182,7 @@ mod tests {
     fn test_rms_norm_forward_shape() {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]];
-        let out = norm.forward(&x);
+        let out = norm.forward(&x).unwrap();
         assert_eq!(out.dim(), (2, 4));
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -185,7 +191,7 @@ mod tests {
     fn test_rms_norm_forward_unit_weight() {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![[3.0, -1.0, 2.0, 0.5]];
-        let out = norm.forward(&x);
+        let out = norm.forward(&x).unwrap();
         let ssq = x.row(0).mapv(|v| v * v).sum();
         let rms = (ssq / 4.0 + 1e-6).sqrt();
         let expected = x.row(0).mapv(|v| v / rms);
@@ -198,7 +204,7 @@ mod tests {
     fn test_rms_norm_forward_1d() {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![2.0, 4.0, 6.0, 8.0];
-        let out = norm.forward_1d(&x);
+        let out = norm.forward_1d(&x).unwrap();
         assert_eq!(out.len(), 4);
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -207,7 +213,7 @@ mod tests {
     fn test_rms_norm_forward_zero_input() {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![[0.0, 0.0, 0.0, 0.0]];
-        let out = norm.forward(&x);
+        let out = norm.forward(&x).unwrap();
         for j in 0..4 {
             assert_eq!(
                 out[[0, j]],
@@ -221,8 +227,8 @@ mod tests {
     fn test_rms_norm_forward_1d_matches_forward() {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![1.5, -2.5, 3.5, -4.5];
-        let out_1d = norm.forward_1d(&x);
-        let out_2d = norm.forward(&x.view().insert_axis(ndarray::Axis(0)).to_owned());
+        let out_1d = norm.forward_1d(&x).unwrap();
+        let out_2d = norm.forward(&x.view().insert_axis(ndarray::Axis(0)).to_owned()).unwrap();
         for j in 0..4 {
             assert!((out_1d[j] - out_2d[[0, j]]).abs() < 1e-5, "mismatch at {j}");
         }
@@ -233,7 +239,7 @@ mod tests {
         let weight = array![2.0, 0.5, 1.0, 3.0];
         let norm = RMSNorm::from_weights(weight, 1e-6);
         let x = array![[1.0, 1.0, 1.0, 1.0]];
-        let out = norm.forward(&x);
+        let out = norm.forward(&x).unwrap();
         let ssq = 4.0_f32;
         let rms = (ssq / 4.0 + 1e-6).sqrt();
         assert!((out[[0, 0]] - 1.0 * 2.0 / rms).abs() < 1e-5);
@@ -244,7 +250,7 @@ mod tests {
     fn test_rms_norm_custom_eps() {
         let norm = RMSNorm::from_weights(array![1.0, 1.0, 1.0], 1.0);
         let x = array![[1e-6, 1e-6, 1e-6]];
-        let out = norm.forward(&x);
+        let out = norm.forward(&x).unwrap();
         let rms = (3e-12f32 / 3.0 + 1.0).sqrt();
         let expected = (1e-6 / rms) * 1.0;
         for j in 0..3 {

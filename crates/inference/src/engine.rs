@@ -502,10 +502,13 @@ impl InferenceEngine {
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
-                Some(tok) => {
-                let t = tok.lock().unwrap();
-                t.encode(&augmented_prompt)
-                }
+                Some(tok) => match tok.lock() {
+                    Ok(t) => t.encode(&augmented_prompt),
+                    Err(e) => {
+                        warn!("Tokenizer lock poisoned for streaming request {}: {}", request_id, e);
+                        return;
+                    }
+                },
                 None => {
                     warn!(
                         "No tokenizer configured for streaming request {}",
@@ -579,10 +582,13 @@ impl InferenceEngine {
                     };
 
                     let token_text = match &tokenizer {
-                        Some(tok) => {
-                        let t = tok.lock().unwrap();
-                        t.decode(&[token_id])
-                        }
+                        Some(tok) => match tok.lock() {
+                            Ok(t) => t.decode(&[token_id]),
+                            Err(e) => {
+                                warn!("Tokenizer lock poisoned: {}", e);
+                                token_id_to_text_fallback(token_id)
+                            }
+                        },
                         None => token_id_to_text_fallback(token_id),
                     };
                     let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
@@ -625,10 +631,13 @@ impl InferenceEngine {
             if let Some(ref memory) = memory_clone {
                 if !generated_ids.is_empty() {
                     let response_text = match &tokenizer {
-                        Some(tok) => {
-                        let t = tok.lock().unwrap();
-                        t.decode(&generated_ids)
-                        }
+                        Some(tok) => match tok.lock() {
+                            Ok(t) => t.decode(&generated_ids),
+                            Err(e) => {
+                                warn!("Tokenizer lock poisoned: {}", e);
+                                format!("[{} tokens generated]", generated_ids.len())
+                            }
+                        },
                         None => format!("[{} tokens generated]", generated_ids.len()),
                     };
                     let _ = memory
@@ -863,8 +872,13 @@ impl InferenceEngine {
                     .iter()
                     .map(|&id| {
                         if let Some(ref tok) = tokenizer {
-                            let t = tok.lock().unwrap();
-                            t.decode(&[id])
+                            match tok.lock() {
+                                Ok(t) => t.decode(&[id]),
+                                Err(e) => {
+                                    warn!("Tokenizer lock poisoned: {}", e);
+                                    format!("[{}]", id)
+                                }
+                            }
                         } else {
                             format!("[{}]", id)
                         }
@@ -1044,12 +1058,15 @@ impl InferenceEngine {
                     let mut finish_reason = FinishReason::Unknown;
                     for (i, &token_id) in out_tokens.iter().enumerate() {
                         let token_text: String = match &self.tokenizer {
-                    Some(tok) => {
-                        let t = tok.lock().unwrap();
-                        t.decode(&[token_id])
-                    }
-                            None => token_id_to_text_fallback(token_id),
-                        };
+                        Some(tok) => match tok.lock() {
+                            Ok(t) => t.decode(&[token_id]),
+                            Err(e) => {
+                                warn!("Tokenizer lock poisoned: {}", e);
+                                token_id_to_text_fallback(token_id)
+                            }
+                        },
+                        None => token_id_to_text_fallback(token_id),
+                    };
                         let log_prob = 0.0;
                         response.add_token(GeneratedToken::new(token_id, token_text, log_prob, i));
                         if token_id == 0 || token_id == 2 {
@@ -1502,8 +1519,10 @@ impl InferenceEngine {
     async fn encode_prompt(&self, prompt: &str) -> Result<Vec<u32>> {
         match &self.tokenizer {
             Some(tok) => {
-                let t = tok.lock().unwrap();
-                Ok(t.encode(prompt))
+                let guard = tok.lock().map_err(|e| {
+                    InferenceError::InternalError(format!("Tokenizer lock poisoned: {}", e))
+                })?;
+                Ok(guard.encode(prompt))
             }
             None => Err(InferenceError::InvalidRequest(
                 "No tokenizer configured".to_string(),
@@ -1513,10 +1532,13 @@ impl InferenceEngine {
 
     async fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
-            Some(tok) => {
-                let guard = tok.lock().unwrap();
-                guard.decode(&[token_id])
-            }
+            Some(tok) => match tok.lock() {
+                Ok(guard) => guard.decode(&[token_id]),
+                Err(e) => {
+                    warn!("Tokenizer lock poisoned: {}", e);
+                    token_id_to_text_fallback(token_id)
+                }
+            },
             None => token_id_to_text_fallback(token_id),
         }
     }
@@ -1655,10 +1677,13 @@ fn run_generation_loop(
         }
 
         let token_text: String = match tokenizer {
-            Some(tok) => {
-                let t = tok.lock().unwrap();
-                t.decode(&[token_id])
-            }
+            Some(tok) => match tok.lock() {
+                Ok(t) => t.decode(&[token_id]),
+                Err(e) => {
+                    warn!("Tokenizer lock poisoned: {}", e);
+                    token_id_to_text_fallback(token_id)
+                }
+            },
             None => token_id_to_text_fallback(token_id),
         };
 
@@ -1782,20 +1807,21 @@ impl InferenceEngineHandle {
                     return;
                 }
 
-                let prompt_ids: Vec<u32> = match &tokenizer {
-                    Some(tok) => {
-                        let t = tok.lock().unwrap();
-                        t.encode(&breq.prompt)
+                let encode_outcome: std::result::Result<Vec<u32>, &str> = {
+                    match &tokenizer {
+                        Some(tok) => match tok.lock() {
+                            Ok(guard) => Ok(guard.encode(&breq.prompt)),
+                            Err(_) => Err("Tokenizer lock poisoned"),
+                        },
+                        None => Err("No tokenizer configured"),
                     }
-                    None => {
-                        warn!(
-                            "No tokenizer configured for batch request {}",
-                            breq.request_id
-                        );
-                        let err_resp = response
-                            .with_finish_reason(FinishReason::Error(
-                                "No tokenizer configured".to_string(),
-                            ))
+                };
+                let prompt_ids: Vec<u32> = match encode_outcome {
+                    Ok(ids) => ids,
+                    Err(msg) => {
+                        warn!("{} for batch request {}", msg, breq.request_id);
+                        let err_resp = response.clone()
+                            .with_finish_reason(FinishReason::Error(msg.to_string()))
                             .with_inference_time(start.elapsed().as_millis() as u64);
                         if let Err(e) = scheduler
                             .read()
@@ -1803,10 +1829,7 @@ impl InferenceEngineHandle {
                             .send_response(breq.request_id, err_resp)
                             .await
                         {
-                            warn!(
-                                "Failed to send tokenizer error to {}: {}",
-                                breq.request_id, e
-                            );
+                            warn!("Failed to send tokenizer error to {}: {}", breq.request_id, e);
                         }
                         return;
                     }

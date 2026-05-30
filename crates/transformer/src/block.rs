@@ -3,6 +3,7 @@ use ndarray::{Array1, Array2};
 use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;
 use super::swiglu::SwiGLU;
+use crate::TransformerResult;
 
 #[derive(Debug, Clone)]
 pub struct TransformerBlock {
@@ -50,18 +51,16 @@ impl TransformerBlock {
         layer_idx: usize,
         cos: &[f32],
         sin: &[f32],
-    ) -> Array2<f32> {
-        // Pure CPU forward path.
-        // GPU-resident execution uses `forward_gpu` (no per-layer readback).
-        let normed = self.attention_norm.forward(x);
+    ) -> TransformerResult<Array2<f32>> {
+        let normed = self.attention_norm.forward(x)?;
         let attn_out = self
             .attention
-            .forward_with_kv(&normed, cache, layer_idx, cos, sin);
+            .forward_with_kv(&normed, cache, layer_idx, cos, sin)?;
         let after_attn = x + attn_out;
 
-        let normed_ffn = self.ffn_norm.forward(&after_attn);
-        let ffn_out = self.ffn.forward(&normed_ffn);
-        after_attn + ffn_out
+        let normed_ffn = self.ffn_norm.forward(&after_attn)?;
+        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        Ok(after_attn + ffn_out)
     }
 
     pub fn forward_no_cache(
@@ -69,20 +68,20 @@ impl TransformerBlock {
         x: &Array2<f32>,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
-    ) -> Array2<f32> {
-        let normed = self.attention_norm.forward(x);
+    ) -> TransformerResult<Array2<f32>> {
+        let normed = self.attention_norm.forward(x)?;
         let attn_out = self.attention.forward(
             &normed,
             None,
             0,
             cos.as_slice().unwrap_or(&[]),
             sin.as_slice().unwrap_or(&[]),
-        );
+        )?;
         let after_attn = x + attn_out;
 
-        let normed_ffn = self.ffn_norm.forward(&after_attn);
-        let ffn_out = self.ffn.forward(&normed_ffn);
-        after_attn + ffn_out
+        let normed_ffn = self.ffn_norm.forward(&after_attn)?;
+        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        Ok(after_attn + ffn_out)
     }
 
     pub fn forward_paged(
@@ -94,16 +93,16 @@ impl TransformerBlock {
         token_pos: usize,
         cos: &[f32],
         sin: &[f32],
-    ) -> Array2<f32> {
-        let normed = self.attention_norm.forward(x);
+    ) -> TransformerResult<Array2<f32>> {
+        let normed = self.attention_norm.forward(x)?;
         let attn_out = self
             .attention
-            .forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin);
+            .forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin)?;
         let after_attn = x + attn_out;
 
-        let normed_ffn = self.ffn_norm.forward(&after_attn);
-        let ffn_out = self.ffn.forward(&normed_ffn);
-        after_attn + ffn_out
+        let normed_ffn = self.ffn_norm.forward(&after_attn)?;
+        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        Ok(after_attn + ffn_out)
     }
 
     /// GPU forward with pre-uploaded cos/sin GPU tensors.
@@ -261,7 +260,7 @@ fn small_block() -> TransformerBlock {
         }];
         let cos = vec![0.0, 1.0];
         let sin = vec![1.0, 0.0];
-        let out = block.forward(&x, &mut cache, 0, &cos, &sin);
+        let out = block.forward(&x, &mut cache, 0, &cos, &sin).unwrap();
         assert_eq!(out.dim(), (1, 8));
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -272,7 +271,7 @@ fn small_block() -> TransformerBlock {
         let x = array![[1.0; 8]];
         let cos = ndarray::Array1::from(vec![0.0, 1.0]);
         let sin = ndarray::Array1::from(vec![1.0, 0.0]);
-        let out = block.forward_no_cache(&x, &cos, &sin);
+        let out = block.forward_no_cache(&x, &cos, &sin).unwrap();
         assert_eq!(out.dim(), (1, 8));
         assert!(out.iter().all(|v| v.is_finite()));
     }
@@ -288,7 +287,7 @@ fn small_block() -> TransformerBlock {
         }];
         let cos = vec![0.0, 1.0];
         let sin = vec![1.0, 0.0];
-        let out = block.forward(&x, &mut cache, 0, &cos, &sin);
+        let out = block.forward(&x, &mut cache, 0, &cos, &sin).unwrap();
         assert_eq!(out.dim(), (2, 8));
     }
 
@@ -300,11 +299,11 @@ fn small_block() -> TransformerBlock {
         let sin = vec![1.0, 0.0];
 
         let x1 = array![[1.0; 8]];
-        let _ = block.forward(&x1, &mut cache, 0, &cos, &sin);
+        let _ = block.forward(&x1, &mut cache, 0, &cos, &sin).unwrap();
         let seq1 = cache[0].seq_len();
 
         let x2 = array![[2.0; 8]];
-        let _ = block.forward(&x2, &mut cache, 0, &cos, &sin);
+        let _ = block.forward(&x2, &mut cache, 0, &cos, &sin).unwrap();
         let seq2 = cache[0].seq_len();
 
         assert_eq!(seq1, 1);

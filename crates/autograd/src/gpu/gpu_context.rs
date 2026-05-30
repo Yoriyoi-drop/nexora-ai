@@ -1521,8 +1521,20 @@ impl GpuContext {
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: buf,
                         offset: byte_offset,
-                        size: Some(wgpu::BufferSize::new(chunk_bytes).unwrap()),
-                    }),
+                        size: wgpu::BufferSize::new(chunk_bytes),
+                    });
+                }
+                for &(binding, buf) in uniform_bindings {
+                    entries.push(wgpu::BindGroupEntry {
+                        binding,
+                        resource: buf.as_entire_binding(),
+                    });
+                }
+
+                let chunk_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("dispatch_1d_chunk"),
+                    layout: &pipeline.bind_group_layout,
+                    entries: &entries,
                 });
             }
             for &(binding, buf) in uniform_bindings {
@@ -3329,9 +3341,7 @@ impl GpuContext {
                                         wgpu::BufferBinding {
                                             buffer: &current_buffer,
                                             offset: input_offset,
-                                            size: Some(
-                                                wgpu::BufferSize::new(chunk_bytes).unwrap(),
-                                            ),
+                                            size: wgpu::BufferSize::new(chunk_bytes),
                                         },
                                     ),
                                 },
@@ -3341,9 +3351,7 @@ impl GpuContext {
                                         wgpu::BufferBinding {
                                             buffer: &out_buffer,
                                             offset: output_offset,
-                                            size: Some(
-                                                wgpu::BufferSize::new(chunk_out_bytes).unwrap(),
-                                            ),
+                                            size: wgpu::BufferSize::new(chunk_out_bytes),
                                         },
                                     ),
                                 },

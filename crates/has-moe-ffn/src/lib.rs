@@ -124,7 +124,13 @@ impl HasMoeFFN {
             }
 
             // Batched expert forward (GPU if available, CPU fallback)
-            let batch_output = self.experts[expert_idx].forward_batched(&batch_input);
+            let batch_output = match self.experts[expert_idx].forward_batched(&batch_input) {
+                Ok(o) => o,
+                Err(e) => {
+                    tracing::warn!("Expert {} forward failed: {}", expert_idx, e);
+                    continue;
+                }
+            };
 
             // Scatter weighted results back to output
             for (k, &(token_idx, weight)) in tokens.iter().enumerate() {

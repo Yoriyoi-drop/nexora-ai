@@ -153,42 +153,72 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
         syn::visit::visit_expr_call(self, node);
     }
 
-    fn visit_expr(&mut self, node: &'ast Expr) {
-        match node {
-            Expr::Macro(ref mac) => {
-            let mac_path = path_to_string(&mac.mac.path);
-            let lower = mac_path.to_lowercase();
-            if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable" {
-                let ln = syn::spanned::Spanned::span(node).start().line;
-                let severity = match lower.as_str() {
-                    "panic" | "unreachable" => IssueSeverity::Error,
-                    "todo" | "unimplemented" => IssueSeverity::Warning,
-                    _ => IssueSeverity::Warning,
-                };
-                self.findings.push(CodeIssue {
-                    severity,
-                    category: "Reliability".to_string(),
-                    message: format!(
-                        "`{}!()` call in production code — {}",
-                        mac_path,
-                        match lower.as_str() {
-                            "panic" => "will abort execution on error path. Use Result instead",
-                            "todo" => "incomplete implementation placeholder",
-                            "unimplemented" => "unimplemented code path. Fill in before release",
-                            "unreachable" => "marks code as unreachable. Verify assumption holds",
-                            _ => "use with caution in production",
-                        },
-                    ),
-                    line_number: Some(ln),
-                    column_number: None,
-                    rule_id: format!("AST-{}-MACRO", mac_path.to_uppercase()),
-                });
-            }
-            }
-            _ => {}
-        }
+    fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+        syn::visit::visit_expr_if(self, node);
+    }
 
-        syn::visit::visit_expr(self, node);
+    fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
+        let mac_path = path_to_string(&node.mac.path);
+        let lower = mac_path.to_lowercase();
+        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable" {
+            let ln = syn::spanned::Spanned::span(node).start().line;
+            let severity = match lower.as_str() {
+                "panic" | "unreachable" => IssueSeverity::Error,
+                "todo" | "unimplemented" => IssueSeverity::Warning,
+                _ => IssueSeverity::Warning,
+            };
+            self.findings.push(CodeIssue {
+                severity,
+                category: "Reliability".to_string(),
+                message: format!(
+                    "`{}!()` call in production code — {}",
+                    mac_path,
+                    match lower.as_str() {
+                        "panic" => "will abort execution on error path. Use Result instead",
+                        "todo" => "incomplete implementation placeholder",
+                        "unimplemented" => "unimplemented code path. Fill in before release",
+                        "unreachable" => "marks code as unreachable. Verify assumption holds",
+                        _ => "use with caution in production",
+                    },
+                ),
+                line_number: Some(ln),
+                column_number: None,
+                rule_id: format!("AST-{}-MACRO", mac_path.to_uppercase()),
+            });
+        }
+        syn::visit::visit_stmt_macro(self, node);
+    }
+
+    fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
+        let mac_path = path_to_string(&node.mac.path);
+        let lower = mac_path.to_lowercase();
+        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable" {
+            let ln = syn::spanned::Spanned::span(node).start().line;
+            let severity = match lower.as_str() {
+                "panic" | "unreachable" => IssueSeverity::Error,
+                "todo" | "unimplemented" => IssueSeverity::Warning,
+                _ => IssueSeverity::Warning,
+            };
+            self.findings.push(CodeIssue {
+                severity,
+                category: "Reliability".to_string(),
+                message: format!(
+                    "`{}!()` call in production code — {}",
+                    mac_path,
+                    match lower.as_str() {
+                        "panic" => "will abort execution on error path. Use Result instead",
+                        "todo" => "incomplete implementation placeholder",
+                        "unimplemented" => "unimplemented code path. Fill in before release",
+                        "unreachable" => "marks code as unreachable. Verify assumption holds",
+                        _ => "use with caution in production",
+                    },
+                ),
+                line_number: Some(ln),
+                column_number: None,
+                rule_id: format!("AST-{}-MACRO", mac_path.to_uppercase()),
+            });
+        }
+        syn::visit::visit_expr_macro(self, node);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
@@ -230,18 +260,34 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
                 }
             }
 
-            let lower = expr_text.to_lowercase();
-            if lower.contains("password") || lower.contains("api_key") || lower.contains("secret") || lower.contains("auth_token") {
-                if lower.contains(r#""#) || lower.contains(r#"'"#) {
-                    self.findings.push(CodeIssue {
-                        severity: IssueSeverity::Error,
-                        category: "Security".to_string(),
-                        message: "Hardcoded secret detected — use environment variables or secret store".to_string(),
-                        line_number: Some(ln),
-                        column_number: None,
-                        rule_id: "AST-HARDCODED-SECRET".to_string(),
-                    });
+            let pat_text = quote::quote!(#node.pat).to_string();
+            let pat_lower = pat_text.to_lowercase();
+
+            let mut hardcoded = false;
+            if pat_lower.contains("password") || pat_lower.contains("api_key") || pat_lower.contains("secret") || pat_lower.contains("auth_token") || pat_lower.contains("token") || pat_lower.contains("credential") || pat_lower.contains("apikey") {
+                if expr_text.contains(r#"""#) || expr_text.contains(r#"'"#) {
+                    hardcoded = true;
                 }
+            }
+
+            if !hardcoded {
+                let expr_lower = expr_text.to_lowercase();
+                if expr_lower.contains("password") || expr_lower.contains("api_key") || expr_lower.contains("secret") || expr_lower.contains("auth_token") {
+                    if expr_lower.contains(r#""#) || expr_lower.contains(r#"'"#) {
+                        hardcoded = true;
+                    }
+                }
+            }
+
+            if hardcoded {
+                self.findings.push(CodeIssue {
+                    severity: IssueSeverity::Error,
+                    category: "Security".to_string(),
+                    message: "Hardcoded secret detected — use environment variables or secret store".to_string(),
+                    line_number: Some(ln),
+                    column_number: None,
+                    rule_id: "AST-HARDCODED-SECRET".to_string(),
+                });
             }
         }
         syn::visit::visit_local(self, node);
@@ -539,7 +585,6 @@ fn check(x: i32) {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        eprintln!("DBG test_ast_panic_macro: issues={:#?}", findings.issues);
         assert!(findings.issues.iter().any(|i| i.rule_id == "AST-PANIC-MACRO"));
     }
 

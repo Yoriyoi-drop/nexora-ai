@@ -182,7 +182,9 @@ impl BlockData {
             BlockData::F32(a) => {
                 let mut out = Vec::with_capacity(count * a.shape()[1]);
                 for r in row_start..row_start + count {
-                    out.extend_from_slice(a.slice(s![r, ..]).as_slice().unwrap());
+                    if let Some(slice) = a.slice(s![r, ..]).as_slice() {
+                        out.extend_from_slice(slice);
+                    }
                 }
                 out
             }
