@@ -160,6 +160,7 @@ impl PrefixCache {
 
         let mut nodes = self.nodes.write().await;
         let mut current_id = self.root_id;
+        let mut pending = Some((value, kvcache));
 
         for &token in tokens {
             let child_id = {
@@ -202,8 +203,10 @@ impl PrefixCache {
                     let mut new_node =
                         RadixNode::new(new_id, Some(current_id), Some(vec![token]), depth);
                     if tokens.last().map_or(false, |t| token == *t) {
-                        new_node.value = Some(value.clone());
-                        new_node.kvcache = kvcache.clone();
+                        if let Some((v, kv)) = pending.take() {
+                            new_node.value = Some(v);
+                            new_node.kvcache = kv;
+                        }
                     }
                     if let Some(parent) = nodes.get_mut(&current_id) {
                         parent.children.insert(token as u64, new_id);
@@ -223,9 +226,11 @@ impl PrefixCache {
 
         if let Some(node) = nodes.get_mut(&current_id) {
             if node.value.is_none() {
-                self.total_memory.fetch_add(value_size, Ordering::Relaxed);
-                node.value = Some(value);
-                node.kvcache = kvcache;
+                if let Some((v, kv)) = pending.take() {
+                    self.total_memory.fetch_add(value_size, Ordering::Relaxed);
+                    node.value = Some(v);
+                    node.kvcache = kv;
+                }
             }
         }
     }

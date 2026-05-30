@@ -3,41 +3,49 @@
 //! Implementasi LRU cache untuk fast access dan memory optimization
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use tracing::{debug, trace};
 
-/// LRU (Least Recently Used) Cache implementation
+/// LRU (Least Recently Used) Cache implementation.
+///
+/// Uses HashMap + BTreeMap for O(log n) eviction (vs O(n) previously).
+/// - `map`: key → (value, access_counter) for O(1) lookup
+/// - `order`: access_counter → key for O(log n) min-find during eviction
 #[derive(Debug)]
 pub struct LRUCache<K, V> {
     capacity: usize,
-    map: HashMap<K, (V, usize)>, // key -> (value, access_order)
+    map: HashMap<K, (V, usize)>,
+    order: BTreeMap<usize, K>,
     access_counter: usize,
 }
 
-impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
+impl<K: Clone + Eq + Hash + Ord + std::fmt::Debug, V: Clone> LRUCache<K, V> {
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
             map: HashMap::new(),
+            order: BTreeMap::new(),
             access_counter: 0,
         }
     }
 
     /// Get value dari cache
     pub fn get(&mut self, key: &K) -> Option<V> {
-        if let Some((value, _)) = self.map.get(key) {
-            let _ = value;
-            if let Some((_, counter)) = self.map.get_mut(key) {
-                *counter = self.access_counter;
-                self.access_counter += 1;
+        if let Some((value, old_counter)) = self.map.get(key) {
+            let value = value.clone();
+            let old_counter = *old_counter;
+            let new_counter = self.access_counter;
+            self.access_counter += 1;
+
+            if let Some(entry) = self.map.get_mut(key) {
+                entry.1 = new_counter;
             }
-            if let Some((value, _)) = self.map.get(key) {
-                trace!("Cache hit for key: {:?}", key);
-                Some(value.clone())
-            } else {
-                None
-            }
+            self.order.remove(&old_counter);
+            self.order.insert(new_counter, key.clone());
+
+            trace!("Cache hit for key: {:?}", key);
+            Some(value)
         } else {
             trace!("Cache miss for key: {:?}", key);
             None
@@ -46,30 +54,29 @@ impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
 
     /// Put value ke cache
     pub fn put(&mut self, key: K, value: V) {
-        if self.map.contains_key(&key) {
-            self.map.insert(key.clone(), (value, self.access_counter));
-        } else {
-            if self.map.len() >= self.capacity {
-                let lru_key = self
-                    .map
-                    .iter()
-                    .min_by_key(|(_, (_, c))| *c)
-                    .map(|(k, _)| k.clone());
-                if let Some(lru_key) = lru_key {
-                    self.map.remove(&lru_key);
-                    debug!("Evicted LRU key: {:?}", lru_key);
+        let counter = self.access_counter;
+        self.access_counter += 1;
+
+        if let Some((_, old_counter)) = self.map.get(&key) {
+            self.order.remove(old_counter);
+        } else if self.map.len() >= self.capacity {
+            if let Some((&oldest_counter, _)) = self.order.iter().next() {
+                if let Some(evicted_key) = self.order.remove(&oldest_counter) {
+                    self.map.remove(&evicted_key);
+                    debug!("Evicted LRU key: {:?}", evicted_key);
                 }
             }
-            self.map.insert(key.clone(), (value, self.access_counter));
         }
 
-        self.access_counter += 1;
+        self.order.insert(counter, key.clone());
+        self.map.insert(key, (value, counter));
         trace!("Cache updated, current size: {}", self.map.len());
     }
 
     /// Remove key dari cache
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        if let Some((value, _)) = self.map.remove(key) {
+        if let Some((value, counter)) = self.map.remove(key) {
+            self.order.remove(&counter);
             debug!("Removed key from cache: {:?}", key);
             Some(value)
         } else {
@@ -85,6 +92,7 @@ impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
     /// Clear cache
     pub fn clear(&mut self) {
         self.map.clear();
+        self.order.clear();
         self.access_counter = 0;
         debug!("Cache cleared");
     }
@@ -106,11 +114,7 @@ impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
 
     /// Get keys dalam access order (most recent first)
     pub fn keys(&self) -> Vec<&K> {
-        let mut keys: Vec<&K> = self.map.keys().collect();
-        keys.sort_by_key(|k| {
-            let (_, counter) = &self.map[k];
-            std::cmp::Reverse(*counter)
-        });
+        let keys: Vec<&K> = self.order.values().rev().collect();
         keys
     }
 
@@ -125,19 +129,13 @@ impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> LRUCache<K, V> {
 
     /// Resize cache
     pub fn resize(&mut self, new_capacity: usize) {
-        if new_capacity < self.capacity {
-            while self.map.len() > new_capacity {
-                let lru_key = self
-                    .map
-                    .iter()
-                    .min_by_key(|(_, (_, c))| *c)
-                    .map(|(k, _)| k.clone());
-                if let Some(lru_key) = lru_key {
-                    self.map.remove(&lru_key);
+        while self.map.len() > new_capacity {
+            if let Some((&oldest_counter, _)) = self.order.iter().next() {
+                if let Some(evicted_key) = self.order.remove(&oldest_counter) {
+                    self.map.remove(&evicted_key);
                 }
             }
         }
-
         self.capacity = new_capacity;
         debug!("Cache resized to capacity: {}", new_capacity);
     }
@@ -299,7 +297,7 @@ impl Default for MemoryCache {
     }
 }
 
-impl<K: Clone + Eq + Hash + std::fmt::Debug, V: Clone> Default for LRUCache<K, V> {
+impl<K: Clone + Eq + Hash + Ord + std::fmt::Debug, V: Clone> Default for LRUCache<K, V> {
     fn default() -> Self {
         Self::new(100)
     }

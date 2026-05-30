@@ -148,8 +148,8 @@ pub struct BeamHypothesis {
     pub finished: bool,
     /// Finish reason
     pub finish_reason: Option<String>,
-    /// Generation metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    /// Generation metadata (Arc for O(1) clone)
+    pub metadata: Arc<HashMap<String, serde_json::Value>>,
 }
 
 impl BeamHypothesis {
@@ -164,7 +164,28 @@ impl BeamHypothesis {
             length_penalty,
             finished: false,
             finish_reason: None,
-            metadata: HashMap::new(),
+            metadata: Arc::new(HashMap::new()),
+        }
+    }
+
+    /// Create hypothesis from parent — shares metadata Arc (O(1))
+    fn from_parent(
+        parent: &BeamHypothesis,
+        tokens: Option<Arc<PersistentTokens>>,
+        token_count: usize,
+        cumulative_log_prob: f32,
+        score: f32,
+    ) -> Self {
+        Self {
+            id: parent.id,
+            tokens,
+            token_count,
+            cumulative_log_prob,
+            score,
+            length_penalty: parent.length_penalty,
+            finished: parent.finished,
+            finish_reason: parent.finish_reason.clone(),
+            metadata: Arc::clone(&parent.metadata),
         }
     }
 
@@ -367,17 +388,13 @@ impl BeamSearchEngine {
                 let new_len = new_token_count as f32;
                 let lp = ((new_len + 5.0) / (6.0)).powf(hypothesis.length_penalty);
                 let new_score = new_cumulative_log_prob / lp;
-                let new_hypothesis = BeamHypothesis {
-                    id: hypothesis.id,
-                    tokens: Some(new_tokens),
-                    token_count: new_token_count,
-                    cumulative_log_prob: new_cumulative_log_prob,
-                    score: new_score,
-                    length_penalty: hypothesis.length_penalty,
-                    finished: hypothesis.finished,
-                    finish_reason: hypothesis.finish_reason.clone(),
-                    metadata: hypothesis.metadata.clone(),
-                };
+                let new_hypothesis = BeamHypothesis::from_parent(
+                    hypothesis,
+                    Some(new_tokens),
+                    new_token_count,
+                    new_cumulative_log_prob,
+                    new_score,
+                );
 
                 new_candidates.push(new_hypothesis);
             }

@@ -290,36 +290,8 @@ impl Router {
 
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {
         let input_slice = input.as_slice().unwrap_or(&[]);
-        let mut gating_weights = Vec::with_capacity(self.config.num_experts);
-        for j in 0..self.config.num_experts {
-            let weight = self.compute_gating_weight(input_slice, j);
-            gating_weights.push(weight);
-        }
-
-        // Apply softmax
-        let softmax_weights = self.softmax(&gating_weights);
-
-        // Get top-k experts using O(E) select_nth_unstable
-        let mut expert_scores: Vec<(usize, f32)> = softmax_weights
-            .iter()
-            .enumerate()
-            .map(|(i, &score)| (i, score))
-            .collect();
-
-        let k = self.config.top_k.min(expert_scores.len());
-        if k > 1 {
-            expert_scores.select_nth_unstable_by(k - 1, |a, b| {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
-        }
-
-        let top_experts: Vec<usize> = expert_scores
-            .iter()
-            .take(k)
-            .map(|(expert_idx, _)| *expert_idx)
-            .collect();
-
-        Ok(top_experts)
+        self.route_single_with_weights(input_slice)
+            .map(|(experts, _)| experts)
     }
 
     /// Route batch of inputs dengan Capped Routing + Load Balancing Loss

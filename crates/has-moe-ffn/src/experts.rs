@@ -176,47 +176,31 @@ impl Expert {
             }
         };
         let dim = input.len();
-        let fc1_w = self.get_fc1_weights();
-        let fc1_b = self.get_fc1_bias();
+
+        // Use cached weights — avoids re-flattening + re-upload per forward
+        let (w1, b1, w2, b2) = self.ensure_weights_gpu()?;
 
         // Upload input as [1, hidden_size]
         let input_gpu = GpuTensor::from_slice(vec![1, dim], input).ok()?;
 
-        // fc1 weights: [intermediate_size, hidden_size]
-        let fc1_flat: Vec<f32> = fc1_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w1_gpu = GpuTensor::from_slice(vec![fc1_w.len(), dim], &fc1_flat).ok()?;
-        let w1t_gpu = ctx.transpose(&w1_gpu).ok()?;
-        let b1_gpu = GpuTensor::from_slice(vec![1, fc1_b.len()], fc1_b).ok()?;
-
-        let hidden_gpu = ctx.matmul(&input_gpu, &w1t_gpu).ok()?;
-        let mut hidden_gpu = ctx.add(&hidden_gpu, &b1_gpu).ok()?;
+        let mut hidden_gpu = ctx.matmul(&input_gpu, w1).ok()?;
+        hidden_gpu = ctx.add(&hidden_gpu, b1).ok()?;
 
         ctx.gelu_inplace(&mut hidden_gpu).ok()?;
-
-        // fc2 weights: [hidden_size, intermediate_size]
-        let fc2_w = self.get_fc2_weights();
-        let fc2_b = self.get_fc2_bias();
-        let inter_size = fc2_w.len();
-        let fc2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w2_gpu = GpuTensor::from_slice(vec![inter_size, dim], &fc2_flat).ok()?;
-        let w2t_gpu = ctx.transpose(&w2_gpu).ok()?;
-        let b2_gpu = GpuTensor::from_slice(vec![1, fc2_b.len()], fc2_b).ok()?;
 
         let act_gpu = if self.config.use_dropout {
             let rate = self.config.dropout_rate;
             let scale = 1.0 / (1.0 - rate);
             let inter_size = hidden_gpu.shape()[1];
-            let mask: Vec<f32> = (0..inter_size)
-                .map(|_| if rand::random::<f32>() < rate { 0.0 } else { scale })
-                .collect();
-            let mask_gpu = GpuTensor::from_slice(vec![1, inter_size], &mask).ok()?;
+            let mask_gpu = GpuTensor::zeros(&[1, inter_size]).ok()?;
+            ctx.generate_dropout_mask(&mask_gpu, rate, scale, 42).ok()?;
             ctx.mul(&hidden_gpu, &mask_gpu).ok()?
         } else {
             hidden_gpu
         };
 
-        let out_gpu = ctx.matmul(&act_gpu, &w2t_gpu).ok()?;
-        let out_gpu = ctx.add(&out_gpu, &b2_gpu).ok()?;
+        let out_gpu = ctx.matmul(&act_gpu, w2).ok()?;
+        let out_gpu = ctx.add(&out_gpu, b2).ok()?;
 
         let out_cpu = out_gpu.to_cpu().ok()?;
         Some(out_cpu.iter().copied().collect())
@@ -328,10 +312,13 @@ impl Expert {
         let n = inputs.shape()[0];
         let dim = inputs.shape()[1];
 
-        // Upload input to GPU
-        let input_flat: Vec<f32> = inputs.iter().copied().collect();
+        // Upload input to GPU (zero-copy contiguous path, fallback to iter)
+        let input_data: Vec<f32> = inputs.as_slice().map_or_else(
+            || inputs.iter().copied().collect(),
+            |s| s.to_vec(),
+        );
         let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.device, vec![n, dim], &input_flat,
+            &cuda.device, vec![n, dim], &input_data,
         ).ok()?;
 
         // fc1: [n, dim] @ [inter, dim] → [n, inter]

@@ -46,7 +46,7 @@ impl<T: Send + 'static> AsyncReadback<T> {
                             "GPU async readback timed out after 10s".into(),
                         ));
                     }
-                    std::thread::yield_now();
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

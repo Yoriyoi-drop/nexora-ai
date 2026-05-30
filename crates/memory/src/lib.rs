@@ -33,6 +33,15 @@ use tokio::sync::RwLock;
 use tracing::debug;
 
 /// Memory management system dengan multi-layer architecture
+///
+/// ## Lock ordering (WAJIB dipatuhi untuk menghindari deadlock):
+///   1. `layers`     → acquire first
+///   2. `episodic`   → acquire second
+///   3. `cache`       → acquire third
+///   4. `compressor`  → acquire last
+///
+/// ⚠️ JANGAN pernah acquire lock dalam urutan berbeda.
+/// ⚠️ JANGAN pernah hold satu lock sambil acquire lock sebelumnya.
 #[derive(Debug)]
 pub struct MemoryManager {
     layers: Arc<RwLock<MemoryLayers>>,

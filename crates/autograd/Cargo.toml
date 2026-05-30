@@ -17,7 +17,7 @@ parking_lot = { workspace = true }
 chrono = { workspace = true }
 
 # GPU compute backend (wgpu)
-wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl", "vulkan", "gles"] }
+wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl", "vulkan"] }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", optional = true }
 

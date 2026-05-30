@@ -163,7 +163,11 @@ impl MLPExpert {
     }
 
     fn gelu(&self, x: &Array1<f32>) -> Array1<f32> {
-        x.mapv(|x| 0.5 * x * (1.0 + (0.7978845608 * x).tanh()))
+        let sqrt_2_over_pi = (2.0 / std::f32::consts::PI).sqrt();
+        x.mapv(|x| {
+            let x3 = x * x * x;
+            0.5 * x * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x3)).tanh())
+        })
     }
 }
 

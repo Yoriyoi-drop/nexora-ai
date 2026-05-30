@@ -27,9 +27,7 @@ nexora-infrastructure = { path = "../infrastructure" }
 nexora-common = { path = "../infrastructure/common" }
 
 [features]
-default = ["cors", "metrics"]
-cors = []
-metrics = []
+default = []
 tls = ["tokio-rustls", "axum-server", "rustls-pemfile", "rcgen", "time"]
 rustls = ["tokio-rustls"]
 

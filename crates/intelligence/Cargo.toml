@@ -37,7 +37,7 @@ futures = "0.3"  # For async utilities
 
 # System monitoring dependencies
 sysinfo = "0.30"  # For system information
-psutil = "3.2"    # For process and system stats
+# psutil removed — use sysinfo for system stats
 
 # HTTP server
 axum.workspace = true

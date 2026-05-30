@@ -449,21 +449,15 @@ impl CausalLM {
         let gpu_available = nexora_autograd::gpu::GpuContext::global().is_ok();
 
         #[cfg(feature = "gpu")]
-        if gpu_available && self.keep_on_gpu {
-            match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
-                Ok(logits) => return Ok(logits),
-                Err(e) => {
-                    tracing::warn!("keep_on_gpu forward failed, falling back to CPU: {e}");
-                }
-            }
-        }
-
-        #[cfg(feature = "gpu")]
         if gpu_available {
             match self.forward_gpu_with_cache_provider(input_ids, kv_cache) {
                 Ok(logits) => return Ok(logits),
                 Err(e) => {
-                    tracing::error!(error = %e, "GPU forward pass failed");
+                    if self.keep_on_gpu {
+                        tracing::warn!(error = %e, "GPU forward pass failed, falling back to CPU");
+                    } else {
+                        tracing::error!(error = %e, "GPU forward pass failed, falling back to CPU");
+                    }
                     GPU_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
                 }
             }

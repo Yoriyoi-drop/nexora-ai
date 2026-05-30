@@ -51,7 +51,7 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 sysinfo = "0.30"
-psutil = "3.2"
+# psutil removed — sysinfo covers system stats
 reqwest.workspace = true
 arrow = { version = "53", default-features = false, features = ["ipc"] }
 blas-src = { version = "0.14.0", optional = true }

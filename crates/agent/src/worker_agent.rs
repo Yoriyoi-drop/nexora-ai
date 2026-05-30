@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,15 @@ use crate::{
 };
 use crate::inference_agent::InferenceEngine;
 use crate::planner_agent::{PlanStep, StepStatus, StepType, PlanStatus};
+
+/// Helper: pre-allocate prompt string with known capacity to reduce heap churn.
+fn build_prompt(prefix: &str, description: &str) -> String {
+    let cap = prefix.len() + description.len() + 4;
+    let mut s = String::with_capacity(cap);
+    s.push_str(prefix);
+    s.push_str(description);
+    s
+}
 
 #[derive(Debug, Clone)]
 pub struct WorkerAgentConfig {
@@ -231,198 +241,233 @@ impl WorkerAgent {
     async fn process_step_inner(&self, work: &WorkItem) -> Result<Value> {
         let engine = self.inference_engine.as_ref();
 
+        let desc = &work.step.description;
         match work.step.step_type {
             StepType::Generation => {
-                let prompt = format!(
-                    "Generate content for: {}",
-                    work.step.description,
-                );
+                let prompt = build_prompt("Generate content for: ", desc);
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 512)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_generate".to_string(),
+                            operation: "worker_generate".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "generation",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "generation",
-                        "description": work.step.description,
-                        "result": format!("[mock] Generated content for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Generated content for: ", desc),
                     }))
                 }
             }
             StepType::Analysis => {
-                let prompt = format!("Analyze the following: {}", work.step.description);
+                let prompt = build_prompt("Analyze the following: ", desc);
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 256)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_analysis".to_string(),
+                            operation: "worker_analysis".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "analysis",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "analysis",
-                        "description": work.step.description,
-                        "result": format!("[mock] Analysis complete for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Analysis complete for: ", desc),
                     }))
                 }
             }
             StepType::Processing => {
-                let prompt = format!("Process the following: {}", work.step.description);
+                let prompt = build_prompt("Process the following: ", desc);
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 256)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_processing".to_string(),
+                            operation: "worker_processing".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "processing",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "processing",
-                        "description": work.step.description,
-                        "result": format!("[mock] Processing complete for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Processing complete for: ", desc),
                     }))
                 }
             }
             StepType::Validation => {
-                let prompt = format!("Validate the following and respond with 'valid' or 'invalid': {}", work.step.description);
+                let prompt = {
+                    let pfx = "Validate the following and respond with 'valid' or 'invalid': ";
+                    let cap = pfx.len() + desc.len() + 4;
+                    let mut s = String::with_capacity(cap);
+                    s.push_str(pfx);
+                    s.push_str(desc);
+                    s
+                };
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 128)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_validation".to_string(),
+                            operation: "worker_validation".into(),
                             reason: e.to_string(),
                         })?;
                     let valid = result.to_lowercase().contains("valid");
                     Ok(json!({
                         "type": "validation",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                         "valid": valid,
                     }))
                 } else {
                     Ok(json!({
                         "type": "validation",
-                        "description": work.step.description,
-                        "result": format!("[mock] Validation passed for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Validation passed for: ", desc),
                         "valid": true,
                     }))
                 }
             }
             StepType::DataCollection => {
-                let prompt = format!("Collect data about: {}", work.step.description);
+                let prompt = build_prompt("Collect data about: ", desc);
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 256)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_data_collection".to_string(),
+                            operation: "worker_data_collection".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "data_collection",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "data_collection",
-                        "description": work.step.description,
-                        "result": format!("[mock] Data collected for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Data collected for: ", desc),
                     }))
                 }
             }
             StepType::Communication => {
-                let prompt = format!("Compose a communication about: {}", work.step.description);
+                let prompt = build_prompt("Compose a communication about: ", desc);
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 256)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_communication".to_string(),
+                            operation: "worker_communication".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "communication",
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "communication",
-                        "description": work.step.description,
-                        "result": format!("[mock] Communication sent for: {}", work.step.description),
+                        "description": desc,
+                        "result": build_prompt("[mock] Communication sent for: ", desc),
                     }))
                 }
             }
             StepType::Decision => {
-                let prompt = format!("Make a decision about: {}. Respond with approved or rejected.", work.step.description);
+                let prompt = {
+                    let pfx = "Make a decision about: ";
+                    let sfx = ". Respond with approved or rejected.";
+                    let cap = pfx.len() + desc.len() + sfx.len() + 4;
+                    let mut s = String::with_capacity(cap);
+                    s.push_str(pfx);
+                    s.push_str(desc);
+                    s.push_str(sfx);
+                    s
+                };
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 64)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_decision".to_string(),
+                            operation: "worker_decision".into(),
                             reason: e.to_string(),
                         })?;
                     let decision = if result.to_lowercase().contains("approve") { "approved" } else { "rejected" };
                     Ok(json!({
                         "type": "decision",
-                        "description": work.step.description,
+                        "description": desc,
                         "decision": decision,
                         "reasoning": result,
                     }))
                 } else {
                     Ok(json!({
                         "type": "decision",
-                        "description": work.step.description,
+                        "description": desc,
                         "decision": "approved",
                     }))
                 }
             }
             StepType::Custom(ref label) => {
-                let prompt = format!("Execute custom step '{}': {}", label, work.step.description);
+                let prompt = {
+                    let pfx = "Execute custom step '";
+                    let mid = "': ";
+                    let cap = pfx.len() + label.len() + mid.len() + desc.len() + 4;
+                    let mut s = String::with_capacity(cap);
+                    s.push_str(pfx);
+                    s.push_str(label);
+                    s.push_str(mid);
+                    s.push_str(desc);
+                    s
+                };
                 if let Some(eng) = engine {
                     let result = eng
                         .generate_tokens(Uuid::new_v4(), &prompt, 256)
                         .await
                         .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_custom".to_string(),
+                            operation: "worker_custom".into(),
                             reason: e.to_string(),
                         })?;
                     Ok(json!({
                         "type": "custom",
                         "label": label,
-                        "description": work.step.description,
+                        "description": desc,
                         "result": result,
                     }))
                 } else {
+                    let mock = {
+                        let pfx = "[mock] Custom step '";
+                        let mid = "' executed: ";
+                        let cap = pfx.len() + label.len() + mid.len() + desc.len() + 4;
+                        let mut s = String::with_capacity(cap);
+                        s.push_str(pfx);
+                        s.push_str(label);
+                        s.push_str(mid);
+                        s.push_str(desc);
+                        s
+                    };
                     Ok(json!({
                         "type": "custom",
                         "label": label,
-                        "description": work.step.description,
-                        "result": format!("[mock] Custom step '{}' executed: {}", label, work.step.description),
+                        "description": desc,
+                        "result": mock,
                     }))
                 }
             }

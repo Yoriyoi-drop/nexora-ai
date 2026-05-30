@@ -311,7 +311,7 @@ impl GpuTensor {
                     if std::time::Instant::now() > deadline {
                         break Err(wgpu::BufferAsyncError);
                     }
-                    std::thread::yield_now();
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(_) => break Err(wgpu::BufferAsyncError),

@@ -219,8 +219,10 @@ impl ClusteringOrchestrator {
         centroids.push(request.data[first_idx].clone());
         used[first_idx] = true;
 
+        // Pre-allocate dists once and reuse (avoid O(k) Vec alloc)
+        let mut dists: Vec<f32> = Vec::with_capacity(n);
         for _ in 1..k {
-            let mut dists = Vec::with_capacity(n);
+            dists.clear();
             for (i, point) in request.data.iter().enumerate() {
                 if used[i] {
                     dists.push(0.0);

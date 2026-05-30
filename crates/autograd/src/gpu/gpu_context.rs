@@ -437,9 +437,9 @@ impl GpuContext {
         };
 
         let auto_flush_ops = if caps.device_type == wgpu::DeviceType::DiscreteGpu {
-            64 // NVIDIA/AMD: batch more before flush
+            256 // NVIDIA/AMD: batch more before flush
         } else {
-            16 // Integrated: avoid TDR
+            64 // Integrated: avoid TDR
         };
 
         let enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -536,6 +536,7 @@ impl GpuContext {
         self.compile_top_k_mask()?;
         self.compile_top_p_mask()?;
         self.compile_multinomial_sample()?;
+        self.compile_dropout_mask()?;
         // Mixed precision converters
         use crate::gpu_mixed::{
             compile_f16_packed_to_f32_pipeline, compile_f32_to_f16_packed_pipeline,
@@ -780,6 +781,50 @@ impl GpuContext {
             std::borrow::Cow::Borrowed(MULTINOMIAL_SAMPLE_WGSL),
             "multinomial_main",
         )
+    }
+
+    fn compile_dropout_mask(&mut self) -> Result<(), GpuError> {
+        self.compile_pipeline(
+            "dropout_mask",
+            &[
+                storage_binding(0, false),
+                uniform_binding(1),
+            ],
+            std::borrow::Cow::Borrowed(DROPOUT_MASK_WGSL),
+            "dropout_mask_main",
+        )
+    }
+
+    /// Generate dropout mask directly on GPU — avoids CPU random + upload.
+    /// Fills `mask` buffer with 0.0 or `scale` based on random samples.
+    pub fn generate_dropout_mask(
+        &self,
+        mask: &GpuTensor,
+        rate: f32,
+        scale: f32,
+        seed: u32,
+    ) -> Result<(), GpuError> {
+        let pipeline = self
+            .pipelines
+            .get("dropout_mask")
+            .ok_or_else(|| GpuError::Pipeline("dropout_mask not compiled".into()))?;
+        let numel = u32::try_from(mask.numel()).unwrap_or(u32::MAX);
+        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("dropout_mask_cfg"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cfg: [u32; 4] = [
+            numel,
+            f32::to_bits(rate),
+            f32::to_bits(scale),
+            seed,
+        ];
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        self.dispatch_1d_chunked(pipeline, &[(0, mask.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
+        Ok(())
     }
 
     /// Zero out a GPU tensor buffer in-place.
@@ -4344,6 +4389,8 @@ impl GpuContext {
         let numel = q.numel();
 
         // CUDA FlashAttention path (preferred when CUDA backend is active)
+        // Avoids Vec<u8>/Vec<f32> intermediate allocations by working directly
+        // with the mapped wgpu staging buffer and CUDA dtoh_sync_copy.
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             // Batch QKV into a single contiguous readback (1 staging buffer instead of 3)
@@ -4369,8 +4416,13 @@ impl GpuContext {
             encoder.copy_buffer_to_buffer(k.buffer(), 0, &staging, q_size, k_size);
             encoder.copy_buffer_to_buffer(v.buffer(), 0, &staging, q_size + k_size, v_size);
             self.queue.submit(Some(encoder.finish()));
-            let qkv_raw = {
-                self.readback_limiter
+
+            // Read QKV from staging, upload to CUDA — NO Vec<u8> intermediate
+            let q_len = q.numel();
+            let k_len = k.numel();
+            let v_len = v.numel();
+            let (q_cuda, k_cuda, v_cuda) = {
+                let _limiter_token = self.readback_limiter
                     .acquire(std::time::Duration::from_secs(30))
                     .then_some(())
                     .ok_or_else(|| GpuError::Timeout("GPU readback limiter".into()))?;
@@ -4381,7 +4433,7 @@ impl GpuContext {
                 });
                 let deadline = std::time::Instant::now()
                     + std::time::Duration::from_secs(30);
-                let data = loop {
+                let result = loop {
                     self.device.poll(wgpu::PollType::Wait {
                         submission_index: None,
                         timeout: Some(std::time::Duration::from_millis(100)),
@@ -4389,58 +4441,101 @@ impl GpuContext {
                     match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                         Ok(Ok(())) => {
                             let mapped = slice.get_mapped_range();
-                            let d = mapped.to_vec();
+                            let qkv_f32: &[f32] = bytemuck::cast_slice(&mapped);
+
+                            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &qkv_f32[..q_len]);
+                            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &qkv_f32[q_len..q_len + k_len]);
+                            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len]);
+
                             drop(mapped);
                             staging.unmap();
-                            break d;
+
+                            match (q_cuda, k_cuda, v_cuda) {
+                                (Ok(q), Ok(k), Ok(v)) => break (q, k, v),
+                                (e, _, _) => break Err(e.unwrap_err()),
+                                (_, e, _) => break Err(e.unwrap_err()),
+                                (_, _, e) => break Err(e.unwrap_err()),
+                            }
                         }
                         Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            return Err(GpuError::Timeout("fused_attn QKV readback".into()));
+                            break Err(GpuError::Timeout("fused_attn QKV readback".into()));
                         }
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                             if std::time::Instant::now() > deadline {
-                                return Err(GpuError::Timeout("fused_attn QKV readback".into()));
+                                break Err(GpuError::Timeout("fused_attn QKV readback".into()));
                             }
-                            std::thread::yield_now();
+                            std::thread::sleep(std::time::Duration::from_millis(1));
                         }
                     }
                 };
-                self.readback_limiter.release();
                 crate::gpu::gpu_observability::PCIE_READ_BYTES
                     .fetch_add(total_bytes, std::sync::atomic::Ordering::Relaxed);
-                data
+                result.map_err(|e| e)?
             };
-
-            let qkv_f32: &[f32] = bytemuck::cast_slice(&qkv_raw);
-            let q_len = q.numel();
-            let k_len = k.numel();
-            let v_len = v.numel();
-
-            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &qkv_f32[..q_len])
-                .map_err(|e| GpuError::Transfer(format!("CUDA upload Q: {e}")))?;
-            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &qkv_f32[q_len..q_len + k_len])
-                .map_err(|e| GpuError::Transfer(format!("CUDA upload K: {e}")))?;
-            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len])
-                .map_err(|e| GpuError::Transfer(format!("CUDA upload V: {e}")))?;
 
             let result_cuda = cuda
                 .fused_attention(&q_cuda, &k_cuda, &v_cuda, scale, causal)
                 .map_err(|e| GpuError::Compute(format!("CUDA fused_attention: {e}")))?;
 
-            let result_cpu = result_cuda
-                .to_cpu_vec(&cuda.device)
-                .map_err(|e| GpuError::Transfer(format!("CUDA readback result: {e}")))?;
-
+            // Write result to wgpu output buffer via staging — NO Vec<f32> intermediate
             let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("fused_attention_output_cuda"),
                 size: (numel * 4) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            self.queue
-                .write_buffer(&out_buffer, 0, bytemuck::cast_slice(&result_cpu));
+            {
+                let result_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("fused_attn_result_staging"),
+                    size: (numel * 4) as u64,
+                    usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                });
+                let rslice = result_staging.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                rslice.map_async(wgpu::MapMode::Write, move |r| {
+                    let _ = tx.send(r);
+                });
+                let deadline = std::time::Instant::now()
+                    + std::time::Duration::from_secs(30);
+                loop {
+                    self.device.poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: Some(std::time::Duration::from_millis(100)),
+                    });
+                    match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(Ok(())) => {
+                            let mut mapped = rslice.get_mapped_range_mut();
+                            let result_f32: &mut [f32] = bytemuck::cast_slice_mut(&mut mapped);
+                            cuda.device
+                                .dtoh_sync_copy(&result_cuda.buffer, result_f32)
+                                .map_err(|e| GpuError::Transfer(format!("CUDA result dtoh: {e}")))?;
+                            drop(mapped);
+                            result_staging.unmap();
+
+                            let mut encoder = self
+                                .device
+                                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                    label: Some("fused_attn_result_encoder"),
+                                });
+                            encoder.copy_buffer_to_buffer(
+                                &result_staging, 0, &out_buffer, 0, (numel * 4) as u64,
+                            );
+                            self.queue.submit(Some(encoder.finish()));
+                            break;
+                        }
+                        Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            return Err(GpuError::Timeout("fused_attn result staging map".into()));
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if std::time::Instant::now() > deadline {
+                                return Err(GpuError::Timeout("fused_attn result staging map".into()));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                    }
+                }
+            }
 
             return Ok(GpuTensor {
                 shape: q_shape.clone(),
@@ -6828,6 +6923,36 @@ fn top_p_mask_main(
         }
         i += BLOCK_SIZE;
     }
+}
+"#;
+
+const DROPOUT_MASK_WGSL: &str = r#"
+@group(0) @binding(0) var<storage, read_write> mask: array<f32>;
+@group(0) @binding(1) var<uniform> cfg: vec4<u32>;
+
+fn xorshift64(state: ptr<function, u32>) -> u32 {
+    var x = *state;
+    x = x ^ (x << 13u);
+    x = x ^ (x >> 17u);
+    x = x ^ (x << 5u);
+    *state = x;
+    return x;
+}
+
+fn random_f32(state: ptr<function, u32>) -> f32 {
+    return f32(xorshift64(state) & 0x7FFFFFu) / f32(0x7FFFFFu);
+}
+
+@compute @workgroup_size(256)
+fn dropout_mask_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if (idx >= cfg.x) { return; }
+    let rate = bitcast<f32>(cfg.y);
+    let scale = bitcast<f32>(cfg.z);
+    var rng_state = cfg.w ^ (idx * 0x9E3779B9u);
+    let _ = xorshift64(&rng_state);
+    let r = random_f32(&rng_state);
+    mask[idx] = select(0.0, scale, r >= rate);
 }
 "#;
 

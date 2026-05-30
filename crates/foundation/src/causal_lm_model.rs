@@ -449,50 +449,43 @@ impl CausalLmModel {
         val_data: Option<&[String]>,
     ) -> NxrModelResult<TrainingReport> {
         let seq_length = cfg.seq_length;
-        let batch_size = cfg.batch_size;
         let max_steps = cfg.max_steps;
 
-        let (train_tokens, val_tokens) = {
+        // TRN-C3: validation data is tokenized upfront (usually small)
+        let val_tokens: Vec<Vec<u32>> = {
             let tokenizer = self.tokenizer.read().await;
             let tok = tokenizer
                 .as_ref()
                 .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-
-            let train_tokens: Vec<Vec<u32>> = data
-                .iter()
-                .filter_map(|t| {
-                    let ids = tok.encode(t);
-                    if ids.len() >= 2 {
-                        Some(ids)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            let val_tokens: Vec<Vec<u32>> = match val_data {
+            match val_data {
                 Some(vd) => vd
                     .iter()
                     .filter_map(|t| {
                         let ids = tok.encode(t);
-                        if ids.len() >= 2 {
-                            Some(ids)
-                        } else {
-                            None
-                        }
+                        if ids.len() >= 2 { Some(ids) } else { None }
                     })
                     .collect(),
                 None => Vec::new(),
-            };
-
-            (train_tokens, val_tokens)
+            }
         };
 
-        let total_tokens: usize = train_tokens.iter().map(|t| t.len()).sum();
+        // TRN-C3: count tokens without storing them
+        let estimated_tokens: usize = {
+            let tokenizer = self.tokenizer.read().await;
+            let tok = tokenizer
+                .as_ref()
+                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+            data.iter()
+                .filter_map(|t| {
+                    let ids = tok.encode(t);
+                    if ids.len() >= 2 { Some(ids.len()) } else { None }
+                })
+                .sum()
+        };
         info!(
-            "Training data: {} sequences, {} tokens",
-            train_tokens.len(),
-            total_tokens
+            "Training data: {} sequences, ~{} tokens (streaming tokenization)",
+            data.len(),
+            estimated_tokens
         );
 
         let mut model = self.model.write().await;
@@ -524,22 +517,39 @@ impl CausalLmModel {
         let mut early_stop_counter = 0;
 
         while trainer.step < max_steps {
-            let mut epoch: Vec<&Vec<u32>> = train_tokens.iter().collect();
+            // TRN-C3: tokenize one epoch on-the-fly → O(epoch) memory instead of O(dataset)
+            let mut epoch: Vec<Vec<u32>> = {
+                let tokenizer = self.tokenizer.read().await;
+                let tok = tokenizer
+                    .as_ref()
+                    .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+                let mut batch: Vec<Vec<u32>> = Vec::with_capacity(data.len().min(10000));
+                for text in data {
+                    let ids = tok.encode(text);
+                    if ids.len() >= 2 {
+                        batch.push(ids);
+                    }
+                }
+                batch
+            };
             epoch.shuffle(&mut rng);
 
             for sample in &epoch {
                 if trainer.step >= max_steps {
                     break;
                 }
-                for chunk in sample.chunks(seq_length + 1) {
-                    if chunk.len() < 2 {
-                        continue;
-                    }
-                    let (input, target) = trainer.prepare_batch(chunk);
-                    if input.is_empty() {
-                        continue;
-                    }
-                    if let Some(loss) = trainer.train_batch(&input, &target) {
+                // TRN-C2: collect all chunks into one batch call
+                let mut chunks: Vec<(&[u32], &[u32])> = Vec::new();
+                chunks.extend(sample.chunks(seq_length + 1).filter_map(|c| {
+                    if c.len() < 2 { return None; }
+                    let seq = c.len().min(seq_length + 1);
+                    if seq < 2 { return None; }
+                    let input = &c[..seq - 1];
+                    let target = &c[1..seq];
+                    Some((input, target))
+                }));
+                if !chunks.is_empty() {
+                    if let Some(loss) = trainer.train_batch_multi(&chunks) {
                         let step = trainer.step;
                         if step % trainer.config.report_every == 0 {
                             let lr = trainer.optimizer.as_ref().map(|o| o.lr).unwrap_or(0.0);
@@ -556,11 +566,10 @@ impl CausalLmModel {
                             }
                         }
                     }
-                    if trainer.step >= max_steps {
-                        break;
-                    }
                 }
             }
+
+            // TRN-C3: epoch dropped here → memory freed
 
             if !val_tokens.is_empty()
                 && trainer.step % trainer.config.val_every_steps == 0

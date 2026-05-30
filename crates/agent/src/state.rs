@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{AgentError, Result};
@@ -85,6 +85,11 @@ pub struct AgentMetrics {
     pub last_request_at: Option<DateTime<Utc>>,
 }
 
+/// Default max sessions before eviction
+const DEFAULT_MAX_SESSIONS: usize = 10_000;
+/// Default max agents before eviction
+const DEFAULT_MAX_AGENTS: usize = 1_000;
+
 /// Shared runtime state manager
 pub struct AgentState {
     /// Global state
@@ -97,6 +102,10 @@ pub struct AgentState {
     state_listeners: Arc<RwLock<Vec<StateChangeListener>>>,
     /// Optional memory store for persistence
     memory_store: Option<Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>>,
+    /// Max sessions before eviction
+    max_sessions: usize,
+    /// Max agents before eviction
+    max_agents: usize,
 }
 
 /// Listener untuk state changes
@@ -149,7 +158,21 @@ impl AgentState {
             agent_states: Arc::new(RwLock::new(HashMap::new())),
             state_listeners: Arc::new(RwLock::new(Vec::new())),
             memory_store: None,
+            max_sessions: DEFAULT_MAX_SESSIONS,
+            max_agents: DEFAULT_MAX_AGENTS,
         }
+    }
+
+    /// Set max sessions (triggers eviction if exceeded)
+    pub fn with_max_sessions(mut self, max: usize) -> Self {
+        self.max_sessions = max;
+        self
+    }
+
+    /// Set max agents (triggers eviction if exceeded)
+    pub fn with_max_agents(mut self, max: usize) -> Self {
+        self.max_agents = max;
+        self
     }
 
     /// Attach memory store for state persistence
@@ -253,6 +276,16 @@ impl AgentState {
 
         {
             let mut session_states = self.session_states.write().await;
+            if session_states.len() >= self.max_sessions {
+                let lru = session_states
+                    .iter()
+                    .min_by_key(|(_, s)| s.last_activity)
+                    .map(|(k, _)| *k);
+                if let Some(evict) = lru {
+                    session_states.remove(&evict);
+                    tracing::warn!("Evicted session {} (max {})", evict, self.max_sessions);
+                }
+            }
             session_states.insert(session_id, session_state);
         }
 
@@ -342,6 +375,16 @@ impl AgentState {
 
         {
             let mut agent_states = self.agent_states.write().await;
+            if agent_states.len() >= self.max_agents {
+                let lru = agent_states
+                    .iter()
+                    .min_by_key(|(_, a)| a.last_updated)
+                    .map(|(k, _)| *k);
+                if let Some(evict) = lru {
+                    agent_states.remove(&evict);
+                    tracing::warn!("Evicted agent {} (max {})", evict, self.max_agents);
+                }
+            }
             agent_states.insert(agent_id, agent_state);
         }
 

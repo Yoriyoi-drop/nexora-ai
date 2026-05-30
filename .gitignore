@@ -2,6 +2,8 @@
 /target/
 **/*.rs.bk
 
+/landing-page/node_modules/
+
 # IDE
 .vscode/
 .idea/

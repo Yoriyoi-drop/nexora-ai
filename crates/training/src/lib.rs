@@ -319,6 +319,20 @@ impl Trainer {
         }
     }
 
+    /// TRN-C1: Process multiple chunk pairs in a single call — absorbs chunk loop
+    /// into one batch cycle. Each pair runs forward+backward; optimizer step fires
+    /// when `accumulation_counter >= batch_size`.
+    pub fn train_batch_multi(&mut self, chunks: &[(&[u32], &[u32])]) -> Option<f32> {
+        let mut last_loss = None;
+        for &(tokens, targets) in chunks {
+            last_loss = self.train_batch(tokens, targets);
+            if last_loss.is_none() {
+                return None;
+            }
+        }
+        last_loss
+    }
+
     pub fn train_batch(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
         if self.should_stop() {
             return None;

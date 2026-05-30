@@ -103,11 +103,11 @@ sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlit
 postgres = "0.19"
 mysql = "25"
 # HTTP client (untuk API requests)
-reqwest = { version = "0.11", features = ["json", "stream", "blocking"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
 
 # Dataset format parsers
 csv = "1.3"
-parquet = { version = "53", default-features = false, features = [] }
+parquet = { version = "53", default-features = false, features = ["arrow"] }
 
 # Dataset streaming
 zstd = "0.13"
@@ -124,6 +124,6 @@ crossterm = "0.27"
 tui-input = "0.8"
 arboard = "3.3"  # For clipboard access
 sysinfo = "0.30"  # For system monitoring
-psutil = "3.2"    # For process stats
+# psutil removed — use sysinfo (already included) for process stats
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
