@@ -514,16 +514,7 @@ impl CausalLM {
                 half
             )));
         }
-        let cos_slice: &[f32] = if pos * half < self.precomputed_cos.len() {
-            &self.precomputed_cos.as_slice().unwrap_or(&[])[pos * half..(pos + 1) * half]
-        } else {
-            &[]
-        };
-        let sin_slice: &[f32] = if pos * half < self.precomputed_sin.len() {
-            &self.precomputed_sin.as_slice().unwrap_or(&[])[pos * half..(pos + 1) * half]
-        } else {
-            &[]
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_slices(pos);
 
         // Validate token_embedding shape vs config
         let te = self.get_token_embedding();
@@ -603,19 +594,7 @@ impl CausalLM {
         }
 
         let token_pos = kv_cache.num_tokens(seq_id).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: &[f32] = if token_pos * half < self.precomputed_cos.len() {
-            &self.precomputed_cos.as_slice().unwrap_or(&[])
-                [token_pos * half..(token_pos + 1) * half]
-        } else {
-            &[]
-        };
-        let sin_slice: &[f32] = if token_pos * half < self.precomputed_sin.len() {
-            &self.precomputed_sin.as_slice().unwrap_or(&[])
-                [token_pos * half..(token_pos + 1) * half]
-        } else {
-            &[]
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_slices(token_pos);
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_paged(
@@ -1419,29 +1398,15 @@ impl CausalLM {
         };
 
         let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-            self.precomputed_cos
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-            self.precomputed_sin
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
         // Upload cos/sin to GPU ONCE — reused across all layers
         let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
+            &ndarray::ArrayD::from_shape_vec(vec![1, cos_slice.len()], cos_slice.to_vec())
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
         let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
+            &ndarray::ArrayD::from_shape_vec(vec![1, sin_slice.len()], sin_slice.to_vec())
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
 
@@ -1519,28 +1484,14 @@ impl CausalLM {
         };
 
         let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-            self.precomputed_cos
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-            self.precomputed_sin
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
         let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], cos_slice.to_vec())
+            &ndarray::ArrayD::from_shape_vec(vec![1, cos_slice.len()], cos_slice.to_vec())
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
         let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, half], sin_slice.to_vec())
+            &ndarray::ArrayD::from_shape_vec(vec![1, sin_slice.len()], sin_slice.to_vec())
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
 
@@ -2062,21 +2013,7 @@ impl CausalLM {
 
         // 2. Get RoPE cos/sin for current position
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-            self.precomputed_cos
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-            self.precomputed_sin
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
         // 3. Forward through all transformer blocks on GPU
         for (layer_idx, block) in self.blocks.iter().enumerate() {
@@ -2155,21 +2092,7 @@ impl CausalLM {
         };
 
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
-        let half = self.config.head_dim() / 2;
-        let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-            self.precomputed_cos
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
-        let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-            self.precomputed_sin
-                .slice(ndarray::s![pos * half..(pos + 1) * half])
-                .to_owned()
-        } else {
-            Array1::zeros(half)
-        };
+        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
@@ -2300,20 +2223,7 @@ impl CausalLM {
             let mut sin_flat = Vec::with_capacity(batch_size * half);
             for seq_idx in 0..batch_size {
                 let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
-                let cos_slice: Array1<f32> = if pos * half < self.precomputed_cos.len() {
-                    self.precomputed_cos
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
-                let sin_slice: Array1<f32> = if pos * half < self.precomputed_sin.len() {
-                    self.precomputed_sin
-                        .slice(ndarray::s![pos * half..(pos + 1) * half])
-                        .to_owned()
-                } else {
-                    Array1::zeros(half)
-                };
+                let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
                 cos_flat.extend_from_slice(cos_slice.as_slice().ok_or_else(|| {
                     nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
                 })?);
@@ -3329,6 +3239,40 @@ impl CausalLM {
             .map(|(name, arr)| (name.as_str(), arr.clone()))
             .collect();
         crate::safetensors::save_safetensors(path, &refs)
+    }
+
+    fn get_cos_sin_slices(&self, pos: usize) -> (&[f32], &[f32]) {
+        let half = self.config.head_dim() / 2;
+        let cos = if pos * half < self.precomputed_cos.len() {
+            &self.precomputed_cos.as_slice().unwrap_or(&[])[pos * half..(pos + 1) * half]
+        } else {
+            &[]
+        };
+        let sin = if pos * half < self.precomputed_sin.len() {
+            &self.precomputed_sin.as_slice().unwrap_or(&[])[pos * half..(pos + 1) * half]
+        } else {
+            &[]
+        };
+        (cos, sin)
+    }
+
+    fn get_cos_sin_arrays(&self, pos: usize) -> (ndarray::Array1<f32>, ndarray::Array1<f32>) {
+        let half = self.config.head_dim() / 2;
+        let cos = if pos * half < self.precomputed_cos.len() {
+            self.precomputed_cos
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            ndarray::Array1::zeros(half)
+        };
+        let sin = if pos * half < self.precomputed_sin.len() {
+            self.precomputed_sin
+                .slice(ndarray::s![pos * half..(pos + 1) * half])
+                .to_owned()
+        } else {
+            ndarray::Array1::zeros(half)
+        };
+        (cos, sin)
     }
 }
 

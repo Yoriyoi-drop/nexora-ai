@@ -153,19 +153,6 @@ impl Router {
         dot_product
     }
 
-    /// Apply softmax to a row of gating weights
-    fn apply_softmax_row(&self, gating_weights: &mut ndarray::Array2<f32>, row_idx: usize) {
-        let row_vals: Vec<f32> = (0..self.config.num_experts)
-            .map(|j| gating_weights[[row_idx, j]])
-            .collect();
-
-        let softmax_vals = self.softmax(&row_vals);
-
-        for (j, &val) in softmax_vals.iter().enumerate() {
-            gating_weights[[row_idx, j]] = val;
-        }
-    }
-
     /// Softmax function
     fn softmax(&self, input: &[f32]) -> Vec<f32> {
         // Find max for numerical stability
@@ -194,19 +181,28 @@ impl Router {
             return result;
         }
 
-        let (batch_size, _hidden_size) = input.dim();
-        let mut gating_weights = ndarray::Array2::zeros((batch_size, self.config.num_experts));
+        let (_batch_size, hidden_size) = input.dim();
+        let num_experts = self.config.num_experts;
 
-        for i in 0..batch_size {
-            let row_view = input.row(i);
-            let token_slice = row_view.as_slice().unwrap_or(&[]);
-            for j in 0..self.config.num_experts {
-                let expert_weight = self.compute_gating_weight(token_slice, j);
-                gating_weights[[i, j]] = expert_weight;
+        // Batched matmul: input [batch × hidden] @ weightsᵀ [hidden × experts] = [batch × experts]
+        // Replaces O(batch × num_experts × hidden) sequential dot products
+        let mut gating_weights = {
+            let w = self.get_weights();
+            let w_flat: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+            let w_arr = ndarray::Array2::from_shape_vec((num_experts, hidden_size), w_flat)
+                .expect("weight matrix shape");
+            input.dot(&w_arr.t().to_owned())
+        };
+
+        // Row-wise softmax in-place
+        for mut row in gating_weights.rows_mut() {
+            let max_val = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let exp_sum: f32 = row.iter().map(|x| (x - max_val).exp()).sum();
+            if exp_sum > 0.0 {
+                row.mapv_inplace(|x| (x - max_val).exp() / exp_sum);
+            } else {
+                row.fill(1.0 / row.len() as f32);
             }
-
-            // Apply softmax to get probability distribution
-            self.apply_softmax_row(&mut gating_weights, i);
         }
 
         gating_weights

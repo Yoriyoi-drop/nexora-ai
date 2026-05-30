@@ -665,19 +665,25 @@ impl PagedKVCache {
             return 0;
         }
 
-        // Capture src data before mutable borrow
+        // Process layer-by-layer: drain src_table, then borrow dst
         let src_layers_len = src_table.layers.len();
-        let src_rows: Vec<Vec<Option<usize>>> = (0..src_layers_len)
-            .map(|l| {
-                let count = num_logical.min(src_table.layers[l].len());
-                src_table.layers[l][..count].to_vec()
-            })
-            .collect();
-        let src_total_before = src_table.num_tokens;
-        let _ = src_total_before;
-        drop(src_table);
+        let mut layer_data: Vec<(usize, Vec<(usize, usize)>)> = Vec::new();
+        for layer_idx in 0..src_layers_len {
+            let count = num_logical.min(src_table.layers[layer_idx].len());
+            if count == 0 {
+                continue;
+            }
+            let phys_blocks: Vec<(usize, usize)> = src_table.layers[layer_idx][..count]
+                .iter()
+                .enumerate()
+                .filter_map(|(logical, &phys)| phys.map(|p| (logical, p)))
+                .collect();
+            if !phys_blocks.is_empty() {
+                layer_data.push((layer_idx, phys_blocks));
+            }
+        }
 
-        // Update dst block table: extend layers & assign physical block indices
+        // Apply to dst
         let Some(dst_table) = self.sequences.get_mut(&dst_seq) else {
             return 0;
         };
@@ -685,25 +691,18 @@ impl PagedKVCache {
             dst_table.layers.push(Vec::new());
         }
         let mut shared = 0usize;
-        let mut refcount_increments: Vec<(usize, usize)> = Vec::new();
-        for (layer_idx, src_row) in src_rows.iter().enumerate() {
-            for (logical, &phys_opt) in src_row.iter().enumerate() {
-                if let Some(phys) = phys_opt {
-                    while dst_table.layers[layer_idx].len() <= logical {
-                        dst_table.layers[layer_idx].push(None);
-                    }
-                    dst_table.layers[layer_idx][logical] = Some(phys);
-                    dst_table.num_tokens = dst_table.num_tokens.max(prefix_tokens);
-                    refcount_increments.push((layer_idx, phys));
-                    shared += 1;
+        for (layer_idx, blocks) in layer_data.iter() {
+            for &(logical, phys) in blocks {
+                while dst_table.layers[*layer_idx].len() <= logical {
+                    dst_table.layers[*layer_idx].push(None);
                 }
-            }
-        }
-
-        // Increment refcounts (separate borrow from sequences)
-        for (layer_idx, phys) in refcount_increments {
-            if layer_idx < self.blocks.len() && phys < self.blocks[layer_idx].len() {
-                self.blocks[layer_idx][phys].ref_count += 1;
+                dst_table.layers[*layer_idx][logical] = Some(phys);
+                dst_table.num_tokens = dst_table.num_tokens.max(prefix_tokens);
+                // Increment refcount directly (no deferred Vec needed)
+                if *layer_idx < self.blocks.len() && phys < self.blocks[*layer_idx].len() {
+                    self.blocks[*layer_idx][phys].ref_count += 1;
+                }
+                shared += 1;
             }
         }
 
@@ -725,12 +724,12 @@ impl PagedKVCache {
 
         let cols = self.config.num_kv_heads * self.config.head_dim;
         let mut entries = Vec::with_capacity(self.config.num_layers);
+        let total = num_tokens * cols;
 
         for layer in 0..self.config.num_layers {
-            let mut k_flat = Array2::zeros((num_tokens, cols));
-            let mut v_flat = Array2::zeros((num_tokens, cols));
+            let mut k_flat = vec![0f32; total];
+            let mut v_flat = vec![0f32; total];
 
-            // Group by block and use slice assignment for contiguous regions
             let mut pos = 0;
             while pos < num_tokens {
                 let logical = pos / self.config.block_size;
@@ -742,18 +741,11 @@ impl PagedKVCache {
                     if let Some(block) = self.blocks[layer].get(phys) {
                         let valid = tokens_in_block.min(block.filled.saturating_sub(offset));
                         if valid > 0 {
-                            let k_vals = block.k.slice_rows(offset, valid);
-                            let v_vals = block.v.slice_rows(offset, valid);
-                            let k_view = Array2::from_shape_vec((valid, cols), k_vals)
-                                .expect("valid k_vals shape");
-                            let v_view = Array2::from_shape_vec((valid, cols), v_vals)
-                                .expect("valid v_vals shape");
-                            k_flat
-                                .slice_mut(s![pos..pos + valid, ..])
-                                .assign(&k_view);
-                            v_flat
-                                .slice_mut(s![pos..pos + valid, ..])
-                                .assign(&v_view);
+                            let k_src = block.k.slice_rows(offset, valid);
+                            let v_src = block.v.slice_rows(offset, valid);
+                            let dst_start = pos * cols;
+                            k_flat[dst_start..dst_start + k_src.len()].copy_from_slice(&k_src);
+                            v_flat[dst_start..dst_start + v_src.len()].copy_from_slice(&v_src);
                         }
                     }
                 }
@@ -761,8 +753,8 @@ impl PagedKVCache {
             }
 
             entries.push(KVCacheEntry {
-                k: k_flat.into_raw_vec(),
-                v: v_flat.into_raw_vec(),
+                k: k_flat,
+                v: v_flat,
                 kv_dim: cols,
             });
         }

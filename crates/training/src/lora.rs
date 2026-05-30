@@ -340,13 +340,10 @@ mod tests {
         lora_model.merge_all(&mut model);
         lora_model.unmerge_all(&mut model);
 
-        let max_diff = model.blocks[0]
-            .attention
-            .wq
-            .iter()
-            .zip(original_wq.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0f32, f32::max);
+        let wq = model.blocks[0].attention.wq.as_ref().unwrap();
+        let orig = original_wq.as_ref().unwrap();
+        let diff = (wq - orig).mapv(f32::abs);
+        let max_diff = diff.iter().fold(0.0f32, |m, &v| m.max(v));
         assert!(max_diff < 1e-5, "max_diff = {max_diff}");
     }
 }

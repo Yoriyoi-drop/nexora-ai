@@ -13,7 +13,7 @@ use nexora_inference::sampler::{Sampler, SamplingConfig, SamplingMethod};
 use nexora_inference::{GeneratedToken, InferenceRequest};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 use nexora_transformer::{CausalLM, TransformerConfig};
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 

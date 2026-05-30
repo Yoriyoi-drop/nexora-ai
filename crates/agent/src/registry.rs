@@ -6,7 +6,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockWriteGuard};
+use tokio::time::timeout;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -171,7 +173,12 @@ impl AgentRegistry {
         &self,
         agent_id: Uuid,
     ) -> Result<RwLockMappedWriteGuard<'_, Box<dyn Agent>>> {
-        let guard = self.agents.write().await;
+        let guard = timeout(Duration::from_secs(5), self.agents.write())
+            .await
+            .map_err(|_| AgentError::ProcessingError {
+                operation: "get_agent".to_string(),
+                reason: format!("Deadlock detected: timeout acquiring registry write lock for agent {agent_id}"),
+            })?;
         RwLockWriteGuard::try_map(guard, |map| map.get_mut(&agent_id)).map_err(|_| {
             AgentError::AgentNotFound {
                 agent_id: agent_id.to_string(),
@@ -187,7 +194,12 @@ impl AgentRegistry {
 
     /// Update agent status
     pub async fn update_agent_status(&self, agent_id: Uuid, status: AgentStatus) -> Result<()> {
-        let mut agent_info = self.agent_info.write().await;
+        let mut agent_info = timeout(Duration::from_secs(5), self.agent_info.write())
+            .await
+            .map_err(|_| AgentError::ProcessingError {
+                operation: "update_agent_status".to_string(),
+                reason: format!("Deadlock detected: timeout acquiring agent_info write lock for {agent_id}"),
+            })?;
         if let Some(info) = agent_info.get_mut(&agent_id) {
             info.status = status.clone();
             info.last_updated = Utc::now();

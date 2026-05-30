@@ -248,6 +248,7 @@ mod tests {
         drop(cancel_tx);
     }
 
+    #[cfg(feature = "toxicity")]
     #[tokio::test]
     async fn test_toxicity_filter() {
         let filter = ToxicityFilter::default();

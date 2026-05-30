@@ -915,6 +915,7 @@ pub struct NeuralAttentionMemoryConfig {
     pub temperature: f32,
     pub top_k_retrieval: usize,
     pub learning_rate: f32,
+    pub max_query_entries: usize,
 }
 
 impl Default for NeuralAttentionMemoryConfig {
@@ -926,6 +927,7 @@ impl Default for NeuralAttentionMemoryConfig {
             temperature: 0.1,
             top_k_retrieval: 16,
             learning_rate: 1e-3,
+            max_query_entries: 512,
         }
     }
 }
@@ -962,33 +964,40 @@ impl NeuralAttentionMemory {
 
     /// Write memory menggunakan soft addressing (differentiable)
     /// output = Σ_i α_i · V_i  where α = softmax(K·Q / τ)
+    /// Subsampling when entries > max_query_entries to cap O(N) scan cost.
     pub fn read(&self, query: &[f32]) -> Vec<f32> {
         if self.entries.is_empty() || query.len() != self.config.key_dim {
             return vec![0.0; self.config.value_dim];
         }
 
-        let n = self.entries.len();
+        let candidates: Vec<&NeuralMemoryEntry> = if self.entries.len() > self.config.max_query_entries {
+            use rand::seq::SliceRandom;
+            self.entries
+                .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
+                .collect()
+        } else {
+            self.entries.iter().collect()
+        };
+
+        let n = candidates.len();
         let mut scores = Vec::with_capacity(n);
 
-        // Compute attention scores: α_i = exp(K_i · Q / τ)
-        let max_score = self
-            .entries
+        let max_score = candidates
             .iter()
             .map(|e| self.dot_product(query, &e.key) / self.config.temperature)
             .fold(f32::NEG_INFINITY, f32::max);
 
         let mut sum_exp = 0.0;
-        for entry in &self.entries {
+        for entry in &candidates {
             let s = self.dot_product(query, &entry.key) / self.config.temperature;
             let e = (s - max_score).exp();
             scores.push(e);
             sum_exp += e;
         }
 
-        // Weighted sum of values
         let mut output = vec![0.0; self.config.value_dim];
         if sum_exp > 1e-10 {
-            for (i, entry) in self.entries.iter().enumerate() {
+            for (i, entry) in candidates.into_iter().enumerate() {
                 let alpha = scores[i] / sum_exp;
                 for j in 0..self.config.value_dim.min(entry.value.len()) {
                     output[j] += alpha * entry.value[j];
@@ -1000,14 +1009,23 @@ impl NeuralAttentionMemory {
     }
 
     /// Top-k retrieval (untuk non-differentiable inference / fast path)
+    /// Subsampling when entries > max_query_entries to cap O(N) scan cost.
     pub fn read_top_k(&self, query: &[f32], k: usize) -> Vec<(Vec<f32>, f32)> {
         if self.entries.is_empty() {
             return Vec::new();
         }
 
-        let k = k.min(self.entries.len());
-        let mut similarities: Vec<(usize, f32)> = self
-            .entries
+        let candidates: Vec<&NeuralMemoryEntry> = if self.entries.len() > self.config.max_query_entries {
+            use rand::seq::SliceRandom;
+            self.entries
+                .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
+                .collect()
+        } else {
+            self.entries.iter().collect()
+        };
+
+        let k = k.min(candidates.len());
+        let mut similarities: Vec<(usize, f32)> = candidates
             .iter()
             .enumerate()
             .map(|(i, e)| (i, self.dot_product(query, &e.key)))
