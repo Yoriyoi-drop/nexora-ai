@@ -617,13 +617,13 @@ mod tests {
         let (_, rx) = tokio::sync::watch::channel(false);
         let result = g.execute(sample(), rx).await;
         assert!(!result.is_accepted());
-        match result {
-            ExecutionResult::Rejected {
-                ref filter_name, ..
-            } => {
+        match &result {
+            ExecutionResult::Rejected { filter_name, .. } => {
                 assert_eq!(filter_name, "fail");
             }
-            _ => panic!("Expected Rejected"),
+            other => {
+                panic!("Expected ExecutionResult::Rejected, got {:?}", other);
+            }
         }
     }
 

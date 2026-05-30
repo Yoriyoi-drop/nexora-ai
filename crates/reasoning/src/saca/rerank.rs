@@ -547,7 +547,7 @@ impl PerformanceCalculator {
         }
     }
 
-    fn _with_thresholds(thresholds: PerformanceThresholds) -> Self {
+    fn with_thresholds(thresholds: PerformanceThresholds) -> Self {
         Self {
             _base: BaseMetricCalculator::new(),
             thresholds,

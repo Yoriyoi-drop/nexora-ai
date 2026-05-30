@@ -282,7 +282,7 @@ impl TrainableCausalLM {
         }
     }
 
-    pub fn save_checkpoint(&self, path: &str) -> crate::TransformerResult<()> {
+    pub fn collect_checkpoint_tensors(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
         let suffix_names = [
             "attention_norm.weight",
             "ffn_norm.weight",
@@ -316,6 +316,11 @@ impl TrainableCausalLM {
                 tensors.push((key, data_refs[j].clone()));
             }
         }
+        tensors
+    }
+
+    pub fn save_checkpoint(&self, path: &str) -> crate::TransformerResult<()> {
+        let tensors = self.collect_checkpoint_tensors();
         let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors
             .iter()
             .map(|(name, arr)| (name.as_str(), arr.clone()))

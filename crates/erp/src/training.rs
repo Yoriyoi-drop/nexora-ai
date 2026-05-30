@@ -294,7 +294,7 @@ impl ERPTrainer {
     }
 
     /// Update gate weights
-    fn _update_gate_weights(
+    fn update_gate_weights(
         &self,
         gate_network: &mut crate::reconstruction::GateNetwork,
         gradient: &Array2<f32>,

@@ -3,7 +3,9 @@
 //! Inference: bulk upconvert F16→f32 temp di awal `forward_gpu_batched()`.
 //! ✅ F16 KV cache: `GpuKVCacheEntry.f16_storage` — packed F16 append/read/clear.
 //! ✅ F16 Sampler: `GpuContext::gpu_sample_f16()` + `gpu_sample_batched_f16()`.
-//! TODO: F16 LM head output — biarkan logits tetap F16 dari matmul, hindari F16→F32 upconvert.
+//! Direncanakan: F16 LM head output — biarkan logits tetap F16 dari matmul, hindari F16→F32 upconvert.
+//! Saat ini LM head matmul masih menghasilkan f32. Optimasi throughput via F16 LM head
+//! membutuhkan WGSL `enable f16;` atau matmul kustom half-precision di GPU path.
 
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 

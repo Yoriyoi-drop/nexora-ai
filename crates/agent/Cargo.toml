@@ -28,6 +28,14 @@ nexora-memory = { path = "../memory" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-autograd = { path = "../autograd", optional = true }
 
+# Cross-layer dependencies (Phase 5 wiring)
+nexora-isolation = { path = "../isolation" }
+nexora-database = { path = "../database" }
+nexora-cognition = { path = "../cognition" }
+nexora-monitoring = { path = "../monitoring" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-validation = { path = "../validation" }
+
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu"]

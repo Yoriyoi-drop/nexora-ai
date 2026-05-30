@@ -21,3 +21,4 @@ bytemuck = { version = "1", optional = true }
 default = ["std", "gpu"]
 std = []
 gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:bytemuck"]
+examples = []

@@ -6,6 +6,7 @@ description = "Runtime abstraction and infrastructure layer for Nexora AI"
 
 [dependencies]
 # Core dependencies
+nexora-core = { path = "../core" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,6 +21,11 @@ rand.workspace = true
 reqwest.workspace = true
 num_cpus = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
+
+# Cross-layer dependencies (Phase 5 wiring)
+nexora-monitoring = { path = "../monitoring" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-isolation = { path = "../isolation" }
 
 [dev-dependencies]
 mockall.workspace = true

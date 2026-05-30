@@ -1,6 +1,7 @@
 //! Configuration management module for Nexora-AI
 
 pub mod api;
+pub mod billing;
 pub mod core;
 pub mod loader;
 pub mod logging;
@@ -12,6 +13,7 @@ pub mod utils;
 
 // Re-export main configuration types
 pub use api::{ApiConfig, ApiResponse, HttpClientConfig, RateLimitConfig};
+pub use billing::BillingConfig;
 pub use core::CoreConfig;
 pub use loader::NexoraConfig;
 pub use logging::LoggingConfig;

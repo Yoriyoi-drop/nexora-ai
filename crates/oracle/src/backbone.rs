@@ -110,6 +110,99 @@ impl SparseMoELayer {
         Ok(output)
     }
 
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
+
+        let (batch_size, d_model) = (x.shape()[0], x.shape()[1]);
+        let top_k = self.router.top_k;
+        let n_experts = self.experts.len();
+
+        // 1. Gate scores on GPU
+        let gate_gpu = self.gate.forward_gpu(x)?;
+        let gate_arr = gate_gpu.to_cpu()?;
+        let gate_vec: Vec<f32> = gate_arr.iter().copied().collect();
+        let gate_arr = ndarray::Array2::from_shape_vec((batch_size, n_experts), gate_vec)
+            .map_err(|e| anyhow::anyhow!("Gate shape error: {}", e))?;
+
+        // 2. Route on CPU (cheap)
+        let expert_indices = self.router.route(&gate_arr)?;
+
+        // 3. Group tokens by expert
+        let mut expert_tokens: Vec<Vec<(usize, Vec<f32>)>> = vec![Vec::new(); n_experts];
+        let x_arr = x.to_cpu()?;
+        let x_vec: Vec<f32> = x_arr.iter().copied().collect();
+        for token_idx in 0..batch_size {
+            for k in 0..top_k {
+                let flat_idx = token_idx * top_k + k;
+                if flat_idx >= expert_indices.len() {
+                    break;
+                }
+                let expert_idx = expert_indices[flat_idx];
+                let start = token_idx * d_model;
+                expert_tokens[expert_idx].push((token_idx, x_vec[start..start + d_model].to_vec()));
+            }
+        }
+
+        // 4. Run batched expert forward on GPU, scatter back
+        if expert_tokens.iter().all(|e| e.is_empty()) {
+            return GpuTensor::zeros(&[batch_size, d_model])
+                .map_err(|e| anyhow::anyhow!("GPU zeros: {}", e));
+        }
+
+        let mut output_data: Vec<f32> = vec![0.0; batch_size * d_model];
+        let mut weight_sum = vec![0.0f32; batch_size];
+
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            if tokens.is_empty() {
+                continue;
+            }
+            let n_tokens = tokens.len();
+            let mut batch_input = Vec::with_capacity(n_tokens * d_model);
+            for (_, token_data) in tokens {
+                batch_input.extend_from_slice(token_data);
+            }
+            let input_arr = ndarray::ArrayView2::from_shape((n_tokens, d_model), &batch_input)
+                .map_err(|e| anyhow::anyhow!("Input shape: {}", e))?;
+            let gpu_input = GpuTensor::from_slice(vec![n_tokens, d_model], &batch_input)
+                .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))?;
+            let gpu_output = self.experts[expert_idx].forward_gpu(&gpu_input)?;
+            let out_arr = gpu_output
+                .to_cpu()
+                .map_err(|e| anyhow::anyhow!("GPU readback: {}", e))?;
+            let out_vec: Vec<f32> = out_arr.iter().copied().collect();
+
+            for (j, (token_idx, _)) in tokens.iter().enumerate() {
+                let out_start = j * d_model;
+                let dst_start = token_idx * d_model;
+                for k in 0..d_model {
+                    output_data[dst_start + k] += out_vec[out_start + k];
+                }
+                weight_sum[*token_idx] += 1.0;
+            }
+        }
+
+        for token_idx in 0..batch_size {
+            if weight_sum[token_idx] > 0.0 {
+                let inv = 1.0 / weight_sum[token_idx];
+                let start = token_idx * d_model;
+                for v in output_data[start..start + d_model].iter_mut() {
+                    *v *= inv;
+                }
+            }
+        }
+
+        let out_arr = ndarray::ArrayView2::from_shape((batch_size, d_model), &output_data)
+            .map_err(|e| anyhow::anyhow!("Output shape: {}", e))?;
+        GpuTensor::from_slice(vec![batch_size, d_model], &output_data)
+            .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))
+    }
+
     pub fn get_expert_usage<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
     where
         S: Data<Elem = f32>,
@@ -142,8 +235,12 @@ fn xavier_uniform_1d(dim: usize) -> f32 {
 impl MLPExpert {
     pub fn new(input_dim: usize, hidden_dim: usize) -> Self {
         Self {
-            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| xavier_uniform(input_dim, hidden_dim)),
-            w2: Array2::from_shape_fn((hidden_dim, input_dim), |_| xavier_uniform(hidden_dim, input_dim)),
+            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| {
+                xavier_uniform(input_dim, hidden_dim)
+            }),
+            w2: Array2::from_shape_fn((hidden_dim, input_dim), |_| {
+                xavier_uniform(hidden_dim, input_dim)
+            }),
             b1: Array1::from_shape_fn(hidden_dim, |_| xavier_uniform_1d(hidden_dim)),
             b2: Array1::from_shape_fn(input_dim, |_| xavier_uniform_1d(input_dim)),
         }
@@ -153,11 +250,8 @@ impl MLPExpert {
     where
         S: Data<Elem = f32>,
     {
-        // First linear layer + activation
         let hidden = x.dot(&self.w1) + &self.b1;
         let activated = self.gelu(&hidden);
-
-        // Second linear layer
         let output = activated.dot(&self.w2) + &self.b2;
         Ok(output)
     }
@@ -168,6 +262,36 @@ impl MLPExpert {
             let x3 = x * x * x;
             0.5 * x * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x3)).tanh())
         })
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
+
+        let w1_shape = vec![self.w1.shape()[0], self.w1.shape()[1]];
+        let w1_flat: Vec<f32> = self.w1.iter().copied().collect();
+        let w1_gpu = GpuTensor::from_slice(w1_shape, &w1_flat)?;
+
+        let w2_shape = vec![self.w2.shape()[0], self.w2.shape()[1]];
+        let w2_flat: Vec<f32> = self.w2.iter().copied().collect();
+        let w2_gpu = GpuTensor::from_slice(w2_shape, &w2_flat)?;
+
+        let b1_flat: Vec<f32> = self.b1.iter().copied().collect();
+        let b1_gpu = GpuTensor::from_slice(vec![1, self.b1.len()], &b1_flat)?;
+
+        let b2_flat: Vec<f32> = self.b2.iter().copied().collect();
+        let b2_gpu = GpuTensor::from_slice(vec![1, self.b2.len()], &b2_flat)?;
+
+        let hidden = ctx.matmul(x, &w1_gpu)?;
+        let hidden_bias = ctx.add(&hidden, &b1_gpu)?;
+        let activated = ctx.gelu(&hidden_bias)?;
+        let output = ctx.matmul(&activated, &w2_gpu)?;
+        Ok(ctx.add(&output, &b2_gpu)?)
     }
 }
 
@@ -282,12 +406,9 @@ impl MultiHeadLatentAttention {
         let output_reshaped = concatenated
             .view()
             .into_shape((batch_size * seq_len, self.config.latent_dim))?;
-        let output = self
-            .output_projection
-            .forward(&output_reshaped)?;
+        let output = self.output_projection.forward(&output_reshaped)?;
 
-        Ok(output
-            .into_shape((batch_size, seq_len, d_model))?)
+        Ok(output.into_shape((batch_size, seq_len, d_model))?)
     }
 
     fn concatenate_heads(&self, heads: &[Array3<f32>]) -> Result<Array3<f32>> {
@@ -349,12 +470,10 @@ impl LatentAttentionHead {
         let attention_output = self.scaled_dot_product_attention(&q_3d, &k_3d, &v_3d, mask)?;
 
         // Project output
-        let output_reshaped = attention_output
-            .into_shape((batch_size * seq_len, self.head_dim))?;
+        let output_reshaped = attention_output.into_shape((batch_size * seq_len, self.head_dim))?;
         let output = self.out_proj.forward(&output_reshaped)?;
 
-        Ok(output
-            .into_shape((batch_size, seq_len, self.latent_dim))?)
+        Ok(output.into_shape((batch_size, seq_len, self.latent_dim))?)
     }
 
     fn scaled_dot_product_attention(
@@ -490,7 +609,9 @@ pub struct LinearLayer {
 impl LinearLayer {
     pub fn new(input_dim: usize, output_dim: usize) -> Self {
         Self {
-            weight: Array2::from_shape_fn((input_dim, output_dim), |_| xavier_uniform(input_dim, output_dim)),
+            weight: Array2::from_shape_fn((input_dim, output_dim), |_| {
+                xavier_uniform(input_dim, output_dim)
+            }),
             bias: Array1::from_shape_fn(output_dim, |_| xavier_uniform_1d(output_dim)),
         }
     }
@@ -500,6 +621,26 @@ impl LinearLayer {
         S: Data<Elem = f32>,
     {
         Ok(x.dot(&self.weight) + &self.bias)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
+
+        let w_shape = vec![self.weight.shape()[0], self.weight.shape()[1]];
+        let w_flat: Vec<f32> = self.weight.iter().copied().collect();
+        let w_gpu = GpuTensor::from_slice(w_shape, &w_flat)?;
+
+        let b_flat: Vec<f32> = self.bias.iter().copied().collect();
+        let b_gpu = GpuTensor::from_slice(vec![1, self.bias.len()], &b_flat)?;
+
+        let result = ctx.matmul(x, &w_gpu)?;
+        Ok(ctx.add(&result, &b_gpu)?)
     }
 }
 
@@ -569,16 +710,71 @@ impl OracleBackbone {
             .into_shape((batch_size * seq_len, self.config.d_model))?;
         let logits = self.output_projection.forward(&hidden_reshaped)?;
 
-        Ok(logits
-            .into_shape((batch_size, seq_len, self.output_projection.weight.dim().1))?)
+        Ok(logits.into_shape((batch_size, seq_len, self.output_projection.weight.dim().1))?)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(&self, input_ids: &Array2<i32>) -> Result<Array3<f32>> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
+
+        let (batch_size, seq_len) = input_ids.dim();
+
+        // Embedding on CPU (lookup — not worth GPU upload)
+        let hidden_cpu = self.embedding.forward(input_ids)?;
+        let d_model = hidden_cpu.dim().2;
+
+        // Upload embedding to GPU as [batch*seq, d_model]
+        let hidden_flat: Vec<f32> = hidden_cpu.iter().copied().collect();
+        let mut hidden = GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &hidden_flat)?;
+
+        // Transformer layers
+        for i in 0..self.moe_layers.len() {
+            // CPU round-trip for LayerNorm (elementwise, not worth GPU)
+            let hidden_arr = hidden.to_cpu()?;
+            let hidden_3d = hidden_arr
+                .into_shape((batch_size, seq_len, d_model))
+                .map_err(|e| anyhow::anyhow!("Reshape: {}", e))?;
+            let normed = self.norm_layers[i].forward(&hidden_3d)?;
+            let normed_flat: Vec<f32> = normed.iter().copied().collect();
+            let gpu_in = GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &normed_flat)?;
+
+            // MoE layer on GPU
+            let moe_out = self.moe_layers[i].forward_gpu(&gpu_in)?;
+            hidden = ctx.add(&gpu_in, &moe_out)?;
+
+            // CPU round-trip for norm + attention
+            let hidden_arr2 = hidden.to_cpu()?;
+            let hidden_3d2 = hidden_arr2
+                .into_shape((batch_size, seq_len, d_model))
+                .map_err(|e| anyhow::anyhow!("Reshape: {}", e))?;
+            let normed2 = self.norm_layers[i + 1].forward(&hidden_3d2)?;
+            let attn_out = self.attention_layers[i].forward(&normed2, None)?;
+
+            // Upload attention + residual add on GPU
+            let attn_flat: Vec<f32> = attn_out.iter().copied().collect();
+            let normed2_flat: Vec<f32> = normed2.iter().copied().collect();
+            let attn_gpu = GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &attn_flat)?;
+            let normed2_gpu =
+                GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &normed2_flat)?;
+            hidden = ctx.add(&normed2_gpu, &attn_gpu)?;
+        }
+
+        // Output projection on GPU
+        let logits_gpu = self.output_projection.forward_gpu(&hidden)?;
+        let logits_arr = logits_gpu.to_cpu()?;
+        let vocab_size = self.output_projection.weight.dim().1;
+        let logits_data: Vec<f32> = logits_arr.iter().copied().collect();
+        let result = Array3::from_shape_vec((batch_size, seq_len, vocab_size), logits_data)
+            .map_err(|e| anyhow::anyhow!("Logits shape error: {}", e))?;
+        Ok(result)
     }
 
     pub fn get_expert_usage_stats(&self, input_ids: &Array2<i32>) -> Result<Vec<Vec<f32>>> {
         let hidden = self.embedding.forward(input_ids)?;
         let (batch_size, seq_len, d_model) = hidden.dim();
-        let hidden_2d = hidden
-            .view()
-            .into_shape((batch_size * seq_len, d_model))?;
+        let hidden_2d = hidden.view().into_shape((batch_size * seq_len, d_model))?;
         let mut usage_stats = Vec::new();
 
         for moe_layer in &self.moe_layers {
@@ -598,7 +794,9 @@ pub struct EmbeddingLayer {
 impl EmbeddingLayer {
     pub fn new(vocab_size: usize, d_model: usize) -> Self {
         Self {
-            embeddings: Array2::from_shape_fn((vocab_size, d_model), |_| xavier_uniform(vocab_size, d_model)),
+            embeddings: Array2::from_shape_fn((vocab_size, d_model), |_| {
+                xavier_uniform(vocab_size, d_model)
+            }),
         }
     }
 

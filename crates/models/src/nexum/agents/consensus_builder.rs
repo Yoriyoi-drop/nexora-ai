@@ -1091,8 +1091,42 @@ mod tests {
                     metadata: HashMap::new(),
                 },
             ],
-            reasoning_traces: vec![],
-            confidence_scores: vec![],
+            reasoning_traces: vec![
+                ReasoningTrace {
+                    agent_id: "agent1".to_string(),
+                    steps: vec![
+                        ReasoningStep {
+                            step_id: "s1".to_string(),
+                            description: "Evaluate both solutions".to_string(),
+                            step_type: "analysis".to_string(),
+                            evidence: vec![],
+                            logic: "comparison".to_string(),
+                        },
+                    ],
+                    conclusion: "Solution A is best".to_string(),
+                    confidence: 0.8,
+                },
+                ReasoningTrace {
+                    agent_id: "agent2".to_string(),
+                    steps: vec![],
+                    conclusion: "Solution A is optimal".to_string(),
+                    confidence: 0.7,
+                },
+            ],
+            confidence_scores: vec![
+                ConfidenceScore {
+                    agent_id: "agent1".to_string(),
+                    confidence: 0.8,
+                    breakdown: HashMap::new(),
+                    uncertainty_sources: vec![],
+                },
+                ConfidenceScore {
+                    agent_id: "agent2".to_string(),
+                    confidence: 0.7,
+                    breakdown: HashMap::new(),
+                    uncertainty_sources: vec![],
+                },
+            ],
             conflict_map: ConflictMap {
                 conflicts: vec![],
                 severity: HashMap::new(),

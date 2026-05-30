@@ -19,6 +19,7 @@ pub mod rlaif;
 pub mod rlvf;
 pub mod spin;
 pub mod trainer;
+pub mod utils;
 
 // Re-export main components
 pub use core::*;

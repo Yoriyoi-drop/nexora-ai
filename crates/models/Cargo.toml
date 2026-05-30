@@ -15,7 +15,14 @@ nexora-oracle = { path = "../oracle" }
 nexora-reasoning = { path = "../reasoning" }
 nexora-transformer = { path = "../transformer" }
 nexora-alignment = { path = "../alignment" }
-nexora-hallucination = { path = "../hallucination", optional = true }
+nexora-hallucination = { path = "../hallucination" }
+nexora-database = { path = "../database" }
+nexora-monitoring = { path = "../monitoring" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-validation = { path = "../validation" }
+nexora-quantization = { path = "../quantization" }
+nexora-isolation = { path = "../isolation" }
+nexora-memory = { path = "../memory" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 uuid = { workspace = true, features = ["v4"] }
@@ -27,10 +34,12 @@ tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
 
 [features]
-default = ["hallucination"]
-hallucination = ["nexora-hallucination"]
+default = []
 
 # Simulated model architectures — keyword-matching/template-based agent models.
 # These are NOT real neural networks. They exist for legacy agent orchestration flows.
 # Default OFF. All real inference uses CausalLM-backed foundation models instead.
 simulated-models = []
+
+# Hallucination detection and mitigation pipelines for production inference
+hallucination = []

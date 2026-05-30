@@ -901,7 +901,7 @@ pub async fn handle_error(error: &NexoraError, component: &str) -> Result<Recove
     init_error_handler();
     let handler = ERROR_HANDLER
         .get()
-        .unwrap_or_else(|| panic!("ERROR_HANDLER not initialized by init_error_handler() call on line above — this is a logic bug in the initialization order"));
+        .expect("ERROR_HANDLER initialized by init_error_handler() call right above");
     let mut guard = handler.lock().await;
     guard.handle_error(error, component).await
 }

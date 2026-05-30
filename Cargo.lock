@@ -1909,8 +1909,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2308,16 +2310,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.5.0"
+name = "hyper-rustls"
+version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
+checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
 dependencies = [
- "bytes",
+ "futures-util",
+ "http 0.2.12",
  "hyper 0.14.32",
- "native-tls",
+ "rustls 0.21.12",
  "tokio",
- "tokio-native-tls",
+ "tokio-rustls 0.24.1",
 ]
 
 [[package]]
@@ -2630,6 +2633,21 @@ dependencies = [
  "pest",
  "pest_derive",
  "serde",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64 0.22.1",
+ "js-sys",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
 ]
 
 [[package]]
@@ -3214,10 +3232,16 @@ dependencies = [
  "futures",
  "mockall",
  "nexora-autograd",
+ "nexora-cognition",
  "nexora-common",
  "nexora-core",
+ "nexora-database",
  "nexora-intelligence",
+ "nexora-isolation",
  "nexora-memory",
+ "nexora-monitoring",
+ "nexora-utils",
+ "nexora-validation",
  "parking_lot",
  "rand 0.8.6",
  "regex",
@@ -3247,8 +3271,10 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "hyper 1.9.0",
+ "jsonwebtoken",
  "mimalloc",
  "nexora-agent",
+ "nexora-api",
  "nexora-blaa",
  "nexora-core",
  "nexora-datastream",
@@ -3317,7 +3343,11 @@ dependencies = [
  "futures",
  "hyper 1.9.0",
  "nexora-common",
+ "nexora-database",
  "nexora-infrastructure",
+ "nexora-isolation",
+ "nexora-monitoring",
+ "nexora-validation",
  "rand 0.8.6",
  "rcgen",
  "regex",
@@ -3511,6 +3541,8 @@ dependencies = [
  "nexora-autograd",
  "nexora-common",
  "nexora-tokenizer",
+ "nexora-utils",
+ "nexora-validation",
  "parking_lot",
  "parquet",
  "rand 0.8.6",
@@ -3595,13 +3627,17 @@ dependencies = [
  "nexora-atqs",
  "nexora-common",
  "nexora-core",
+ "nexora-database",
  "nexora-deeplearning",
  "nexora-echo-net",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
  "nexora-hldva-t",
+ "nexora-isolation",
+ "nexora-memory",
  "nexora-models",
+ "nexora-monitoring",
  "nexora-multimodal",
  "nexora-oracle",
  "nexora-quantization",
@@ -3610,6 +3646,7 @@ dependencies = [
  "nexora-tokenizer",
  "nexora-training",
  "nexora-transformer",
+ "nexora-utils",
  "nexora-validation",
  "nexora-vogp",
  "once_cell",
@@ -3709,14 +3746,21 @@ dependencies = [
  "ndarray 0.15.6",
  "nexora-autograd",
  "nexora-blaa",
+ "nexora-cognition",
  "nexora-common",
  "nexora-core",
+ "nexora-database",
  "nexora-foundation",
  "nexora-intelligence",
+ "nexora-isolation",
  "nexora-memory",
+ "nexora-monitoring",
+ "nexora-quantization",
  "nexora-runtime",
  "nexora-tokenizer",
  "nexora-transformer",
+ "nexora-utils",
+ "nexora-validation",
  "num_cpus",
  "nvml-wrapper",
  "ordered-float 3.9.2",
@@ -3774,10 +3818,18 @@ dependencies = [
  "ndarray 0.15.6",
  "ndarray-rand",
  "nexora-autograd",
+ "nexora-cognition",
  "nexora-common",
  "nexora-core",
+ "nexora-database",
  "nexora-foundation",
+ "nexora-isolation",
+ "nexora-memory",
+ "nexora-monitoring",
+ "nexora-quantization",
  "nexora-tokenizer",
+ "nexora-utils",
+ "nexora-validation",
  "num_cpus",
  "once_cell",
  "parking_lot",
@@ -3829,6 +3881,7 @@ dependencies = [
  "anyhow",
  "mockall",
  "nexora-core",
+ "nexora-database",
  "once_cell",
  "parking_lot",
  "proptest",
@@ -3851,14 +3904,21 @@ dependencies = [
  "ndarray 0.15.6",
  "nexora-alignment",
  "nexora-core",
+ "nexora-database",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
+ "nexora-isolation",
+ "nexora-memory",
+ "nexora-monitoring",
  "nexora-multimodal",
  "nexora-oracle",
+ "nexora-quantization",
  "nexora-reasoning",
  "nexora-shared",
  "nexora-transformer",
+ "nexora-utils",
+ "nexora-validation",
  "nexora-vogp",
  "rand 0.8.6",
  "serde",
@@ -3909,10 +3969,13 @@ dependencies = [
  "nexora-autograd",
  "nexora-core",
  "once_cell",
+ "proc-macro2",
+ "quote",
  "rand 0.8.6",
  "regex",
  "serde",
  "serde_json",
+ "syn 2.0.117",
  "tracing",
  "uuid",
 ]
@@ -3959,6 +4022,10 @@ dependencies = [
  "chrono",
  "criterion",
  "mockall",
+ "nexora-core",
+ "nexora-isolation",
+ "nexora-monitoring",
+ "nexora-utils",
  "num_cpus",
  "proptest",
  "rand 0.8.6",
@@ -4043,7 +4110,9 @@ dependencies = [
  "bytemuck",
  "ndarray 0.15.6",
  "nexora-autograd",
+ "nexora-monitoring",
  "nexora-transformer",
+ "nexora-utils",
  "rand 0.8.6",
  "serde",
  "tracing",
@@ -5342,15 +5411,15 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.32",
- "hyper-tls",
+ "hyper-rustls",
  "ipnet",
  "js-sys",
  "log",
  "mime",
- "native-tls",
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.21.12",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -5358,7 +5427,7 @@ dependencies = [
  "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
- "tokio-native-tls",
+ "tokio-rustls 0.24.1",
  "tokio-util",
  "tower-service",
  "url",
@@ -5366,6 +5435,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+ "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -5951,6 +6021,18 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "simple_asn1"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "thiserror 2.0.18",
+ "time",
+]
 
 [[package]]
 name = "siphasher"
@@ -6630,16 +6712,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
 ]
 
 [[package]]
@@ -7391,6 +7463,12 @@ checksum = "b291546d5d9d1eab74f069c77749f2cb8504a12caa20f0f2de93ddbf6f411888"
 dependencies = [
  "rustls-webpki 0.101.7",
 ]
+
+[[package]]
+name = "webpki-roots"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "webpki-roots"

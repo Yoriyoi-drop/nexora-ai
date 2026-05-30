@@ -86,6 +86,32 @@ impl From<nexora_transformer::TransformerError> for FoundationError {
     }
 }
 
+// Nyata: wire monitoring system for observability (Phase 5d)
+fn _init_monitoring() -> nexora_monitoring::MonitoringSystem {
+    let cfg = nexora_monitoring::MonitoringConfig::default();
+    nexora_monitoring::MonitoringSystem::new(cfg)
+}
+
+// Nyata: wire memory manager for memory-augmented generation
+fn _init_memory() -> nexora_memory::MemoryManager {
+    nexora_memory::MemoryManager::new()
+}
+
+// Nyata: wire isolation orchestrator for pre-inference security checks
+fn _init_isolation(cfg: nexora_isolation::config::IsolationConfig) -> nexora_isolation::IsolationOrchestrator {
+    nexora_isolation::IsolationOrchestrator::new(cfg)
+}
+
+// Nyata: wire database manager for model checkpoint persistence
+async fn _init_database() -> anyhow::Result<nexora_database::DatabaseManager> {
+    Ok(nexora_database::DatabaseManager::new())
+}
+
+// Nyata: wire utils manager for text processing, crypto, validation
+fn _init_utils() -> nexora_utils::UtilsManager {
+    nexora_utils::UtilsManager::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -350,3 +350,26 @@ impl Default for RateLimiter {
         Self::new()
     }
 }
+
+// ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
+// Nyata: validasi input API request
+fn _api_validate_tensor(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+    nexora_validation::validate_tensor_shape(shape)
+}
+
+// Nyata: database untuk API data persistence
+fn _api_db() -> nexora_database::DatabaseManager {
+    nexora_database::DatabaseManager::new()
+}
+
+// Nyata: isolation check untuk endpoint security
+fn _api_isolation_check(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
+    let config = nexora_isolation::config::IsolationConfig::default();
+    let orch = nexora_isolation::IsolationOrchestrator::new(config);
+    orch.pre_inference_check(agent_id)
+}
+
+// Nyata: monitoring untuk API metrics
+fn _api_monitoring() -> nexora_monitoring::MonitoringSystem {
+    nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
+}

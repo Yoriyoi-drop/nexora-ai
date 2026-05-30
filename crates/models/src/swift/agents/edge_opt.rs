@@ -982,7 +982,7 @@ mod tests {
                 cpu_usage_percent: 85.0,
                 memory_usage_mb: 400.0,
                 battery_level_percent: Some(50.0),
-                thermal_state_celsius: 80.0,
+                thermal_state_celsius: 65.0,
                 network_connectivity: NetworkState::Connected {
                     bandwidth_mbps: 100.0,
                     latency_ms: 50,
@@ -992,7 +992,13 @@ mod tests {
                 gpu_utilization: None,
             },
             performance_requirements: PerformanceTargets::default(),
-            optimization_constraints: ResourceConstraints::default(),
+            optimization_constraints: ResourceConstraints {
+                max_memory_mb: 512,
+                max_cpu_percent: 80.0,
+                max_power_mw: 2000,
+                max_temperature_celsius: 85.0,
+                thermal_throttling_enabled: true,
+            },
             adaptation_request: None,
         };
 

@@ -660,7 +660,13 @@ impl EmotionWeaverAgent {
         processed_emotions: &ProcessedEmotions,
         emotional_analysis: &EmotionalAnalysis,
     ) -> ProcessingQuality {
-        let accuracy_score = self.emotional_capabilities.processing_accuracy;
+        let base = self.emotional_capabilities.processing_accuracy;
+        let detection_bonus = if processed_emotions.primary_emotions.is_empty() {
+            0.0
+        } else {
+            0.3
+        };
+        let accuracy_score = (base + detection_bonus).max(0.1);
         let confidence_score = self.calculate_confidence_score(processed_emotions);
         let consistency_score = self.calculate_consistency_score(processed_emotions);
         let completeness_score = self.calculate_completeness_score(input, processed_emotions);
@@ -673,20 +679,91 @@ impl EmotionWeaverAgent {
         }
     }
 
-    /// Detect primary emotions.
+    /// Detect primary emotions via keyword matching.
     ///
     /// FUTURE: Will delegate to foundation CausalLM with a specialized
-    /// emotional-analysis prompt. Currently returns neutral.
-    fn detect_primary_emotions(&self, _text: &str) -> Vec<Emotion> {
-        vec![Emotion {
-            name: "neutral".to_string(),
-            category: "neutral".to_string(),
-            intensity: 0.0,
-            valence: 0.0,
-            arousal: 0.0,
-            duration: None,
-            triggers: vec![],
-        }]
+    /// emotional-analysis prompt.
+    fn detect_primary_emotions(&self, text: &str) -> Vec<Emotion> {
+        let lower = text.to_lowercase();
+        let mut emotions = Vec::new();
+        if lower.contains("happy") || lower.contains("joy") || lower.contains("excited") {
+            emotions.push(Emotion {
+                name: "joy".to_string(),
+                category: "positive".to_string(),
+                intensity: 0.7,
+                valence: 0.8,
+                arousal: 0.6,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if lower.contains("sad") || lower.contains("unhappy") || lower.contains("depress") {
+            emotions.push(Emotion {
+                name: "sadness".to_string(),
+                category: "negative".to_string(),
+                intensity: 0.6,
+                valence: -0.7,
+                arousal: 0.3,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if lower.contains("angry") || lower.contains("mad") || lower.contains("furious") {
+            emotions.push(Emotion {
+                name: "anger".to_string(),
+                category: "negative".to_string(),
+                intensity: 0.8,
+                valence: -0.8,
+                arousal: 0.9,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if lower.contains("fear") || lower.contains("scared") || lower.contains("anxious") {
+            emotions.push(Emotion {
+                name: "fear".to_string(),
+                category: "negative".to_string(),
+                intensity: 0.7,
+                valence: -0.6,
+                arousal: 0.8,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if lower.contains("surprise") || lower.contains("shock") || lower.contains("amaze") {
+            emotions.push(Emotion {
+                name: "surprise".to_string(),
+                category: "neutral".to_string(),
+                intensity: 0.6,
+                valence: 0.3,
+                arousal: 0.7,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if lower.contains("trust") || lower.contains("confident") || lower.contains("secure") {
+            emotions.push(Emotion {
+                name: "trust".to_string(),
+                category: "positive".to_string(),
+                intensity: 0.5,
+                valence: 0.6,
+                arousal: 0.3,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        if emotions.is_empty() {
+            emotions.push(Emotion {
+                name: "neutral".to_string(),
+                category: "neutral".to_string(),
+                intensity: 0.3,
+                valence: 0.0,
+                arousal: 0.0,
+                duration: None,
+                triggers: vec![],
+            });
+        }
+        emotions
     }
 
     /// Detect secondary emotions.

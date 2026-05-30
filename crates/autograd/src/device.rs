@@ -181,25 +181,37 @@ impl Storage {
     }
 
     /// Returns Arc<ArrayD<f32>> — O(1) for CPU, O(N) readback for GPU.
+    /// Panics on GPU readback failure. Use try_data_arc() for fallback.
     pub fn data_arc(&self) -> Arc<ArrayD<f32>> {
+        self.try_data_arc().expect("GPU/CUDA readback failed in data_arc")
+    }
+
+    /// Returns Arc<ArrayD<f32>> — O(1) for CPU, O(N) readback for GPU.
+    /// Returns Ok for CPU, Err on GPU/CUDA readback failure.
+    pub fn try_data_arc(&self) -> Result<Arc<ArrayD<f32>>, Box<dyn std::error::Error>> {
         match self {
-            Storage::Cpu(arr) => Arc::clone(arr),
+            Storage::Cpu(arr) => Ok(Arc::clone(arr)),
             #[cfg(feature = "gpu")]
-            Storage::Gpu(t) => Arc::new(t.to_cpu().unwrap_or_else(|e| {
-                panic!("GPU readback failed in data_arc: {e}");
-            })),
+            Storage::Gpu(t) => {
+                let cpu = t.to_cpu().map_err(|e| {
+                    format!("GPU readback failed in try_data_arc: {e}")
+                })?;
+                Ok(Arc::new(cpu))
+            }
             #[cfg(feature = "cuda")]
             Storage::Cuda(t) => {
-                let rt = crate::gpu::CudaRuntime::global().expect("CUDA runtime for data_arc");
+                let rt = crate::gpu::CudaRuntime::global()
+                    .ok_or_else(|| "CUDA runtime not initialized for try_data_arc".to_string())?;
                 let data = rt
                     .stream
                     .clone_dtoh_sync(t.buffer())
-                    .unwrap_or_else(|e| panic!("CUDA readback failed in data_arc: {e}"));
-                Arc::new(
-                    ArrayD::from_shape_vec(t.shape(), data)
-                        .expect("CUDA data_arc shape"),
-                )
+                    .map_err(|e| format!("CUDA readback failed in try_data_arc: {e}"))?;
+                let arr = ArrayD::from_shape_vec(t.shape(), data)
+                    .map_err(|e| format!("CUDA data_arc shape mismatch: {e}"))?;
+                Ok(Arc::new(arr))
             }
+            #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+            _ => unreachable!(),
         }
     }
 }

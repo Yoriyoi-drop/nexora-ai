@@ -661,7 +661,9 @@ impl CodeLinterManager {
         for issue in &all_issues {
             tracing::info!(
                 "Issue: {} - {} (Line: {:?})",
-                issue.category, issue.message, issue.line_number
+                issue.category,
+                issue.message,
+                issue.line_number
             );
         }
 

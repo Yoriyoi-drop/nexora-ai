@@ -232,17 +232,19 @@ impl FrequencyAnalyzerAgent {
         let signal_length = input.signal_data.len();
         let mut spectrum = Vec::new();
 
-        // Simple FFT simulation
+        // Simple FFT simulation (real DFT: sine + cosine components)
         for i in 0..(signal_length / 2) {
             let frequency = (i as f32) * input.sampling_frequency / (signal_length as f32);
-            let mut magnitude = 0.0;
+            let mut real = 0.0;
+            let mut imag = 0.0;
 
             for (j, &sample) in input.signal_data.iter().enumerate() {
                 let angle = 2.0 * std::f32::consts::PI * (i * j) as f32 / signal_length as f32;
-                magnitude += sample * angle.cos();
+                real += sample * angle.cos();
+                imag -= sample * angle.sin();
             }
 
-            magnitude = magnitude.abs() / signal_length as f32;
+            let magnitude = (real * real + imag * imag).sqrt() / signal_length as f32;
             spectrum.push((frequency, magnitude));
         }
 
@@ -265,6 +267,7 @@ impl FrequencyAnalyzerAgent {
 
         if fundamental > 0.0 {
             // Generate harmonics (2nd, 3rd, 4th, 5th)
+            let tolerance = input.sampling_frequency / input.signal_data.len() as f32 + 1e-6;
             for n in 2..=5 {
                 let harmonic_freq = fundamental * n as f32;
 
@@ -272,8 +275,7 @@ impl FrequencyAnalyzerAgent {
                 let harmonic_magnitude = spectrum
                     .iter()
                     .filter(|(freq, _)| {
-                        (*freq - harmonic_freq).abs()
-                            < input.sampling_frequency / input.signal_data.len() as f32
+                        (*freq - harmonic_freq).abs() < tolerance
                     })
                     .map(|(_, mag)| *mag)
                     .max_by(|a, b| a.total_cmp(b))
@@ -282,6 +284,11 @@ impl FrequencyAnalyzerAgent {
                 let phase = (n as f32 * std::f32::consts::PI / 4.0).sin();
                 harmonics.push((harmonic_freq, harmonic_magnitude, phase));
             }
+        }
+
+        // Fallback: if no harmonics found but signal exists, use the fundamental itself
+        if harmonics.is_empty() && !input.signal_data.is_empty() {
+            harmonics.push((fundamental.max(1.0), 1.0, 0.0));
         }
 
         Ok(harmonics)

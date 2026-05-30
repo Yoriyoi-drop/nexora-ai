@@ -862,7 +862,7 @@ pub mod utils {
         }
     }
 
-    fn _estimate_flops_per_step(backbone_config: &OracleBackboneConfig, vocab_size: usize) -> u64 {
+    fn estimate_flops_per_step(backbone_config: &OracleBackboneConfig, vocab_size: usize) -> u64 {
         // Simplified FLOP estimation
         let d_model = backbone_config.d_model;
         let _n_heads = backbone_config.n_heads;

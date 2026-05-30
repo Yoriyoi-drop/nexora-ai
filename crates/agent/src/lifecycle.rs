@@ -524,10 +524,11 @@ mod tests {
             error: "crash".into(),
             timestamp: Utc::now(),
         };
-        if let AgentLifecycleEvent::Error { error, .. } = &event {
-            assert_eq!(error, "crash");
-        } else {
-            panic!("Expected Error variant");
+        match &event {
+            AgentLifecycleEvent::Error { error, .. } => {
+                assert_eq!(error, "crash");
+            }
+            other => panic!("Expected AgentLifecycleEvent::Error, got {:?}", other),
         }
     }
 

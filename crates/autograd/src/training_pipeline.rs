@@ -63,6 +63,7 @@ impl GpuOptimizerState {
     }
 
     /// Convert to CPU state for checkpointing
+    /// Panics on GPU readback failure — checkpoint cannot proceed without valid data.
     pub fn to_cpu(&self) -> OptimizerState {
         fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
             match t.to_cpu() {
@@ -73,6 +74,10 @@ impl GpuOptimizerState {
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
+                    tracing::error!(
+                        "FATAL: GpuOptimizerState::to_cpu GPU readback failed: {e}. \
+                         Checkpoint save cannot continue."
+                    );
                     panic!("GpuOptimizerState::to_cpu GPU readback failed: {e}");
                 }
             }
@@ -137,19 +142,35 @@ impl OptimizerState {
         }
     }
 
+    /// Apply optimizer state to Adam parameters.
+    /// Logs error and skips mismatched entries instead of panicking.
     pub fn apply_to_adam(&self, adam: &mut Adam, shapes: &[Vec<usize>]) {
         for (i, shape) in shapes.iter().enumerate() {
             if i < self.m.len() {
-                let m_arr = ArrayD::from_shape_vec(shape.clone(), self.m[i].clone())
-                    .unwrap_or_else(|e| {
-                        panic!("Adam m shape mismatch at index {i}: expected shape {shape:?} but data length {} doesn't match product {}: {e}",
-                            self.m[i].len(), shape.iter().product::<usize>())
-                    });
-                let v_arr = ArrayD::from_shape_vec(shape.clone(), self.v[i].clone())
-                    .unwrap_or_else(|e| {
-                        panic!("Adam v shape mismatch at index {i}: expected shape {shape:?} but data length {} doesn't match product {}: {e}",
-                            self.v[i].len(), shape.iter().product::<usize>())
-                    });
+                let m_arr = match ArrayD::from_shape_vec(shape.clone(), self.m[i].clone()) {
+                    Ok(arr) => arr,
+                    Err(e) => {
+                        tracing::error!(
+                            "Adam m shape mismatch at index {i}: expected shape {shape:?} but \
+                             data length {} doesn't match product {}: {e}. Skipping.",
+                            self.m[i].len(),
+                            shape.iter().product::<usize>()
+                        );
+                        continue;
+                    }
+                };
+                let v_arr = match ArrayD::from_shape_vec(shape.clone(), self.v[i].clone()) {
+                    Ok(arr) => arr,
+                    Err(e) => {
+                        tracing::error!(
+                            "Adam v shape mismatch at index {i}: expected shape {shape:?} but \
+                             data length {} doesn't match product {}: {e}. Skipping.",
+                            self.v[i].len(),
+                            shape.iter().product::<usize>()
+                        );
+                        continue;
+                    }
+                };
                 if i < adam.m.len() {
                     adam.m[i] = m_arr;
                 }
@@ -223,6 +244,7 @@ impl GpuCheckpoint {
     }
 
     /// Convert to CPU checkpoint for serialization
+    /// Panics on GPU readback failure — checkpoint cannot proceed without valid data.
     pub fn to_cpu(&self) -> Checkpoint {
         fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
             match t.to_cpu() {
@@ -233,6 +255,10 @@ impl GpuCheckpoint {
                     cpu.iter().copied().collect()
                 }),
                 Err(e) => {
+                    tracing::error!(
+                        "FATAL: CheckpointGpu::to_cpu GPU readback failed: {e}. \
+                         Checkpoint save cannot continue."
+                    );
                     panic!("CheckpointGpu::to_cpu GPU readback failed: {e}");
                 }
             }
@@ -327,19 +353,26 @@ impl Checkpoint {
         Ok(ckpt)
     }
 
-    /// Apply saved weights to model parameters
+    /// Apply saved weights to model parameters.
+    /// Logs error and skips mismatched entries instead of panicking.
     pub fn restore_params(&self, params: &[Tensor]) {
         for (i, p) in params.iter().enumerate() {
             if i < self.model_params.len() && i < self.model_shapes.len() {
-                let arr = ArrayD::from_shape_vec(
+                match ArrayD::from_shape_vec(
                     self.model_shapes[i].clone(),
                     self.model_params[i].clone(),
-                )
-                .unwrap_or_else(|e| {
-                    panic!("param shape mismatch at index {i}: expected shape {:?} but data length {} doesn't match product {}: {e}",
-                        self.model_shapes[i], self.model_params[i].len(), self.model_shapes[i].iter().product::<usize>())
-                });
-                p.set_data(arr);
+                ) {
+                    Ok(arr) => p.set_data(arr),
+                    Err(e) => {
+                        tracing::error!(
+                            "param shape mismatch at index {i}: expected shape {:?} but \
+                             data length {} doesn't match product {}: {e}. Skipping.",
+                            self.model_shapes[i],
+                            self.model_params[i].len(),
+                            self.model_shapes[i].iter().product::<usize>()
+                        );
+                    }
+                }
             }
         }
     }

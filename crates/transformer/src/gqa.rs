@@ -31,6 +31,10 @@ pub(crate) struct GqaGpuWeights {
     pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wo_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wq_shape: Vec<usize>,
+    pub wk_shape: Vec<usize>,
+    pub wv_shape: Vec<usize>,
+    pub wo_shape: Vec<usize>,
 }
 
 /// GPU-resident KV cache entry.
@@ -772,10 +776,17 @@ impl GQA {
         } else {
             (None, None, None, None)
         };
-        // F16 mode: f32 transposed weights are dummy
         let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
-            let d = GpuTensor::zeros(&[1])?;
-            (d.clone(), d.clone(), d.clone(), d)
+            // F16 mode: store valid f32 transposed weights for readback scenarios
+            // that don't support F16 (e.g., safetensors checkpoint save).
+            // We keep both f32 and f16 copies — the f32 copy is needed for
+            // readback_weights() which must return f32 arrays.
+            (
+                ctx.transpose(&wq)?,
+                ctx.transpose(&wk)?,
+                ctx.transpose(&wv)?,
+                ctx.transpose(&wo)?,
+            )
         } else {
             (
                 ctx.transpose(&wq)?,
@@ -785,7 +796,14 @@ impl GQA {
             )
         };
         self.gpu_weights
-            .set(GqaGpuWeights { wq_t, wk_t, wv_t, wo_t, wq_f16, wk_f16, wv_f16, wo_f16 })
+            .set(GqaGpuWeights {
+                wq_t, wk_t, wv_t, wo_t,
+                wq_f16, wk_f16, wv_f16, wo_f16,
+                wq_shape: wq_shape.to_vec(),
+                wk_shape: wk_shape.to_vec(),
+                wv_shape: wv_shape.to_vec(),
+                wo_shape: wo_shape.to_vec(),
+            })
             .map_err(|_| GpuError::Unsupported("already set".into()))?;
         Ok(())
     }
@@ -797,7 +815,15 @@ impl GQA {
         let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported("no gpu weights".into())
         })?;
-        let read = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+        let read_f16 = |f16_t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+            let f32_t = ctx.f16_packed_to_f32(f16_t)?;
+            let arr_d = f32_t.to_cpu()?;
+            let shape = vec![orig_shape[0], orig_shape[1]];
+            ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))
+                .map(|a| a.into_dimensionality::<ndarray::Ix2>().unwrap())
+        };
+        let read_f32 = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
             let t_t = ctx.transpose(t)?;
             let arr_d = t_t.to_cpu()?;
             let shape = vec![orig_shape[0], orig_shape[1]];
@@ -805,18 +831,32 @@ impl GQA {
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))
                 .map(|a| a.into_dimensionality::<ndarray::Ix2>().unwrap())
         };
-        let wq_shape = self.wq.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
-            .unwrap_or_default();
-        let wk_shape = self.wk.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
-            .unwrap_or_default();
-        let wv_shape = self.wv.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
-            .unwrap_or_default();
-        let wo_shape = self.wo.as_ref().map(|w| vec![w.shape()[0], w.shape()[1]])
-            .unwrap_or_default();
-        let wq = read(&gw.wq_t, &wq_shape)?;
-        let wk = read(&gw.wk_t, &wk_shape)?;
-        let wv = read(&gw.wv_t, &wv_shape)?;
-        let wo = read(&gw.wo_t, &wo_shape)?;
+        // Use stored shapes from GqaGpuWeights (not self.wq which may be None after drop_cpu_weights)
+        let wq_shape = &gw.wq_shape;
+        let wk_shape = &gw.wk_shape;
+        let wv_shape = &gw.wv_shape;
+        let wo_shape = &gw.wo_shape;
+        // If F16 weights exist, read via F16→f32 conversion on GPU
+        let wq = if let Some(ref f16) = gw.wq_f16 {
+            read_f16(f16, wq_shape)?
+        } else {
+            read_f32(&gw.wq_t, wq_shape)?
+        };
+        let wk = if let Some(ref f16) = gw.wk_f16 {
+            read_f16(f16, wk_shape)?
+        } else {
+            read_f32(&gw.wk_t, wk_shape)?
+        };
+        let wv = if let Some(ref f16) = gw.wv_f16 {
+            read_f16(f16, wv_shape)?
+        } else {
+            read_f32(&gw.wv_t, wv_shape)?
+        };
+        let wo = if let Some(ref f16) = gw.wo_f16 {
+            read_f16(f16, wo_shape)?
+        } else {
+            read_f32(&gw.wo_t, wo_shape)?
+        };
         Ok((wq, wk, wv, wo))
     }
 
@@ -901,51 +941,69 @@ impl GQA {
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
         for b in 0..batch_size {
-            let results: Vec<(usize, Vec<f32>)> = (0..self.num_heads)
-                .into_par_iter()
-                .map(|h| {
-                    let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
-                    let kv_off = kv_h * self.head_dim;
+            let k_start = b * total_seq * kv_dim;
+            let k_end = k_start + total_seq * kv_dim;
+            let v_start = b * total_seq * kv_dim;
+            let v_end = v_start + total_seq * kv_dim;
+            if k_end > k_cached.len() || v_end > v_cached.len() {
+                continue;
+            }
+            let Ok(k_2d) = ndarray::ArrayView2::from_shape(
+                (total_seq, kv_dim),
+                &k_cached[k_start..k_end],
+            ) else { continue };
+            let Ok(v_2d) = ndarray::ArrayView2::from_shape(
+                (total_seq, kv_dim),
+                &v_cached[v_start..v_end],
+            ) else { continue };
 
-                    let q_slice = q.slice(ndarray::s![b, h, ..]);
-                    let mut scores = Vec::with_capacity(total_seq);
-                    let mut max_score = f32::NEG_INFINITY;
-                    for t in 0..total_seq {
-                        let k_idx = (b * total_seq + t) * kv_dim + kv_off;
-                        let k_view =
-                            ndarray::ArrayView1::from(&k_cached[k_idx..k_idx + self.head_dim]);
-                        let score = q_slice.dot(&k_view) * self.head_dim_rs;
-                        if score > max_score {
-                            max_score = score;
+            for kv_h in 0..self.num_kv_heads {
+                let kv_off = kv_h * self.head_dim;
+                let heads_in_group = (kv_h + 1) * self.num_groups.min(self.num_heads - kv_h * self.num_groups);
+                let start_head = kv_h * self.num_groups;
+                let end_head = (start_head + self.num_groups).min(self.num_heads);
+                let n_heads = end_head - start_head;
+
+                let k_slice = k_2d.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
+                let v_slice = v_2d.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
+
+                let mut q_group = Array2::zeros((n_heads, self.head_dim));
+                for (i, h) in (start_head..end_head).enumerate() {
+                    let q_row = q.slice(ndarray::s![b, h, ..]);
+                    q_group.row_mut(i).assign(&q_row);
+                }
+
+                let scores = q_group.dot(&k_slice.t().to_owned());
+                let scaled = scores.mapv(|s| s * self.head_dim_rs);
+
+                let softmax_out = {
+                    let mut out = Array2::zeros((n_heads, total_seq));
+                    for r in 0..n_heads {
+                        let max_v = scaled.row(r).iter()
+                            .cloned()
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        let mut sum = 0.0;
+                        for c in 0..total_seq {
+                            let v = (scaled[[r, c]] - max_v).exp();
+                            out[[r, c]] = v;
+                            sum += v;
                         }
-                        scores.push(score);
+                        if sum > 0.0 {
+                            let inv = 1.0 / sum;
+                            for c in 0..total_seq {
+                                out[[r, c]] *= inv;
+                            }
+                        }
                     }
+                    out
+                };
 
-                    let mut exp_sum = 0.0;
-                    for s in scores.iter_mut() {
-                        *s = (*s - max_score).exp();
-                        exp_sum += *s;
-                    }
-
-                    let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                    let mut out_row = vec![0.0; self.head_dim];
+                let attn_out = softmax_out.dot(&v_slice);
+                for (i, h) in (start_head..end_head).enumerate() {
+                    let out_base = h * self.head_dim;
                     for d in 0..self.head_dim {
-                        let mut weighted = 0.0;
-                        for t in 0..total_seq {
-                            weighted += scores[t]
-                                * inv_exp_sum
-                                * v_cached[(b * total_seq + t) * kv_dim + kv_off + d];
-                        }
-                        out_row[d] = weighted;
+                        output[[b, out_base + d]] = attn_out[[i, d]];
                     }
-                    (h, out_row)
-                })
-                .collect();
-
-            for (h, row) in results {
-                let out_base = h * self.head_dim;
-                for d in 0..self.head_dim {
-                    output[[b, out_base + d]] = row[d];
                 }
             }
         }
@@ -1291,6 +1349,10 @@ impl GQA {
                 ctx.transpose(&wo)?,
             )
         };
+        let wq_shape = wq.shape().to_vec();
+        let wk_shape = wk.shape().to_vec();
+        let wv_shape = wv.shape().to_vec();
+        let wo_shape = wo.shape().to_vec();
         let _ = self.gpu_weights.set(GqaGpuWeights {
             wq_t,
             wk_t,
@@ -1300,6 +1362,10 @@ impl GQA {
             wk_f16,
             wv_f16,
             wo_f16,
+            wq_shape,
+            wk_shape,
+            wv_shape,
+            wo_shape,
         });
         Ok(())
     }

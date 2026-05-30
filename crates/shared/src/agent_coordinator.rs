@@ -125,7 +125,11 @@ impl<T> AgentCoordinator<T> {
     /// Route task to appropriate agent
     pub fn route_task(&self, task_description: &str) -> AgentResult<String> {
         for rule in &self.routing_rules {
-            if task_description.contains(&rule.pattern) {
+            let matches = rule.pattern.split('|').any(|kw| {
+                let kw = kw.trim();
+                !kw.is_empty() && task_description.contains(kw)
+            });
+            if matches {
                 return Ok(rule.target_agent.clone());
             }
         }

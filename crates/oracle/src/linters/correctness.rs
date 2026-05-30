@@ -258,7 +258,9 @@ impl CodeLinter for CorrectnessLinter {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Info,
                     category: "Correctness".to_string(),
-                    message: format!("Language '{language}' is not supported by the correctness verifier"),
+                    message: format!(
+                        "Language '{language}' is not supported by the correctness verifier"
+                    ),
                     line_number: None,
                     column_number: None,
                     rule_id: "lang_unsupported".to_string(),

@@ -13,6 +13,8 @@ tracing.workspace = true
 rand.workspace = true
 anyhow.workspace = true
 bytemuck = "1"
+nexora-monitoring = { path = "../monitoring" }
+nexora-utils = { path = "../infrastructure/utils" }
 
 [features]
 default = ["gpu"]

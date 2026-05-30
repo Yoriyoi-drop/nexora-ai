@@ -107,13 +107,19 @@ pub trait FoundationModel: Send + Sync {
 
     /// Compute gradients using backpropagation.
     /// Returns parameter_name → gradient array.
-    /// Default implementation errors — model types must override for efficient gradients.
+    /// Default implementation returns an error — model types MUST override this
+    /// with proper backpropagation for efficient gradients.
+    /// Finite differences are impractical here because forward() is async
+    /// (requires a runtime to block) and scales as O(params × elements × 2).
     fn compute_gradients(
         &self,
         _input: &ArrayD<f32>,
         _target: &ArrayD<f32>,
     ) -> Result<HashMap<String, ArrayD<f32>>, Box<dyn std::error::Error>> {
-        Err("compute_gradients not implemented for this model type, use finite-differences as fallback".into())
+        Err("compute_gradients is not implemented for this model type. \
+             Override this method with real backpropagation \
+             (e.g., via nexora-autograd tape or manual chain rule)."
+            .into())
     }
 }
 

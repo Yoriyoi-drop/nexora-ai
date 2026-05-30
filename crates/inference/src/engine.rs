@@ -924,8 +924,8 @@ impl InferenceEngine {
                         entry_id: Uuid::new_v4(),
                         request_id: request.request_id,
                         timestamp: chrono::Utc::now(),
-                        prompt: String::new(),
-                        response: String::new(),
+                        prompt: Arc::from(""),
+                        response: Arc::from(""),
                         tokens_generated: 0,
                         processing_time_ms: start.elapsed().as_millis() as u64,
                         metadata: HashMap::new(),
@@ -969,6 +969,7 @@ impl InferenceEngine {
         let max_gen = request.max_tokens.min(2048) as usize;
 
         // Check prefix cache for warm-start opportunity
+        let prompt_ids = Arc::new(prompt_ids);
         let prefix_match = self.prefix_cache.match_prefix(&prompt_ids).await;
         let prefix_len = prefix_match.prefix_len;
         let prefix_logits = prefix_match.cached_value;
@@ -1016,10 +1017,10 @@ impl InferenceEngine {
         #[cfg(feature = "gpu")]
         if self.config.use_gpu_resident {
             let model = Arc::clone(&self.model);
-            let prompt_ids_for_loop = prompt_ids.clone();
+            let prompt_ids_for_loop = Arc::clone(&prompt_ids);
             let result = tokio::task::spawn_blocking(move || {
                 model.generate_with_gpu_keep_gpu(
-                    &prompt_ids_for_loop,
+                    &*prompt_ids_for_loop,
                     max_gen,
                     request.temperature,
                     request.top_k as usize,
@@ -1081,7 +1082,7 @@ impl InferenceEngine {
         // Run CPU-bound generation loop on blocking thread to avoid async runtime starvation
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
-        let prompt_ids_for_loop = prompt_ids.clone();
+        let prompt_ids_for_loop = Arc::clone(&prompt_ids);
         let generation_timeout = Duration::from_secs(self.config.generation_timeout_seconds);
         let include_kv_cache = true;
         let (tokens, last_logits, timed_out, prefix_kv_cache) =
@@ -1118,7 +1119,7 @@ impl InferenceEngine {
 
         // Cache generated sequence + last logits + KV cache for future prefix reuse
         let generated_ids: Vec<u32> = response.tokens.iter().map(|t| t.token_id).collect();
-        let mut full_seq = prompt_ids;
+        let mut full_seq = (*prompt_ids).clone();
         full_seq.extend(&generated_ids);
         if !full_seq.is_empty() && !last_logits.is_empty() {
             let kvcache = if prefix_kv_cache.is_empty() {
@@ -1136,13 +1137,12 @@ impl InferenceEngine {
             self.prefix_cache.hit_rate()
         );
 
-        // Store interaction in memory for future RAG
+        // Store interaction in memory for future RAG (no clone — borrow response.text directly)
         if let Some(memory) = &self.memory {
             let mem = memory.lock().await;
-            let response_text = response.text.clone();
-            if !response_text.is_empty() {
+            if !response.text.is_empty() {
                 let _ = mem
-                    .store_interaction(&augmented_prompt, &response_text)
+                    .store_interaction(&augmented_prompt, &response.text)
                     .await;
             }
         }
@@ -1152,6 +1152,8 @@ impl InferenceEngine {
         let response = response.with_inference_time(inference_time);
 
         // Record session entry for this inference request
+        // prompt: move original_prompt String into Arc (eliminates clone)
+        // response: clone String into Arc (still need response.text for return)
         if let Some(ref s) = session {
             let tokens_generated = response.tokens.len();
             let _ = s
@@ -1159,8 +1161,8 @@ impl InferenceEngine {
                     entry_id: Uuid::new_v4(),
                     request_id: request.request_id,
                     timestamp: chrono::Utc::now(),
-                    prompt: original_prompt.clone(),
-                    response: response.text.clone(),
+                    prompt: Arc::from(original_prompt),
+                    response: Arc::from(response.text.clone()),
                     tokens_generated,
                     processing_time_ms: inference_time,
                     metadata: HashMap::new(),

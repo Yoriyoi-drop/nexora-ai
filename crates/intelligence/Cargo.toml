@@ -59,6 +59,16 @@ arboard = "3.3"  # For clipboard access
 # GPU acceleration
 nexora-autograd = { path = "../autograd", optional = true }
 
+# Cross-layer dependencies (Phase 5 wiring)
+nexora-cognition = { path = "../cognition" }
+nexora-memory = { path = "../memory" }
+nexora-database = { path = "../database" }
+nexora-monitoring = { path = "../monitoring" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-validation = { path = "../validation" }
+nexora-isolation = { path = "../isolation" }
+nexora-quantization = { path = "../quantization" }
+
 # SPARO specific dependencies
 # Note: These are older packages - implement custom logic instead
 

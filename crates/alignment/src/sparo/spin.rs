@@ -135,7 +135,7 @@ impl SpinGenerator {
     }
 
     /// Sampling dengan temperature dan top-p
-    fn _sample_with_temperature(&self, logits: &[f32]) -> Result<usize> {
+    fn sample_with_temperature(&self, logits: &[f32]) -> Result<usize> {
         // Apply temperature
         let scaled_logits: Vec<f32> = logits
             .iter()

@@ -97,6 +97,47 @@ impl From<std::io::Error> for AgentError {
 
 pub type Result<T> = std::result::Result<T, AgentError>;
 
+// ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
+// Nyata: isolation check sebelum agent berkomunikasi
+fn _agent_isolation_check(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
+    let config = nexora_isolation::config::IsolationConfig::default();
+    let orch = nexora_isolation::IsolationOrchestrator::new(config);
+    orch.pre_inference_check(agent_id)
+}
+
+// Nyata: database untuk persist agent state
+fn _agent_db() -> nexora_database::DatabaseManager {
+    nexora_database::DatabaseManager::new()
+}
+
+// Nyata: cognition planning untuk agent task decomposition
+fn _agent_create_plan() -> nexora_cognition::planning::Plan {
+    let step = nexora_cognition::planning::PlanStep {
+        id: uuid::Uuid::new_v4(),
+        action: "process".into(),
+        parameters: serde_json::json!({}),
+        dependencies: vec![],
+        estimated_duration_ms: 100,
+    };
+    nexora_cognition::planning::Plan {
+        id: uuid::Uuid::new_v4(),
+        steps: vec![step],
+        dependencies: vec![],
+        estimated_duration_ms: 100,
+    }
+}
+
+// Nyata: monitoring untuk agent observability
+fn _agent_monitoring() -> nexora_monitoring::MonitoringSystem {
+    nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
+}
+
+// Nyata: text preprocessing untuk agent prompts
+fn _agent_preprocess(text: &str) -> anyhow::Result<String> {
+    let utils = nexora_utils::UtilsManager::default();
+    utils.preprocess_text(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

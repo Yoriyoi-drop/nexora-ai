@@ -555,18 +555,49 @@ impl EmpathyPrimeAgent {
         (emotional_score + cultural_score + sensitivity_score) / 3.0
     }
 
-    /// Detect emotions from text.
+    /// Detect emotions from text via keyword matching.
     ///
     /// FUTURE: Will delegate to foundation CausalLM with a specialized
-    /// emotional-analysis prompt. Currently returns a single neutral emotion
-    /// as a structured older — NOT performing real emotion detection.
-    fn detect_emotions(&self, _text: &str) -> Vec<Emotion> {
-        vec![Emotion {
-            name: "neutral".to_string(),
-            intensity: 0.0,
-            valence: 0.0,
-            arousal: 0.0,
-        }]
+    /// emotional-analysis prompt.
+    fn detect_emotions(&self, text: &str) -> Vec<Emotion> {
+        let lower = text.to_lowercase();
+        let mut emotions = Vec::new();
+        if lower.contains("happy") || lower.contains("joy") || lower.contains("excited") {
+            emotions.push(Emotion {
+                name: "joy".to_string(), intensity: 0.7, valence: 0.8, arousal: 0.6,
+            });
+        }
+        if lower.contains("sad") || lower.contains("unhappy") || lower.contains("depress") {
+            emotions.push(Emotion {
+                name: "sadness".to_string(), intensity: 0.6, valence: -0.7, arousal: 0.3,
+            });
+        }
+        if lower.contains("angry") || lower.contains("mad") || lower.contains("furious") {
+            emotions.push(Emotion {
+                name: "anger".to_string(), intensity: 0.8, valence: -0.8, arousal: 0.9,
+            });
+        }
+        if lower.contains("fear") || lower.contains("scared") || lower.contains("anxious") {
+            emotions.push(Emotion {
+                name: "fear".to_string(), intensity: 0.7, valence: -0.6, arousal: 0.8,
+            });
+        }
+        if lower.contains("surprise") || lower.contains("shock") || lower.contains("amaze") {
+            emotions.push(Emotion {
+                name: "surprise".to_string(), intensity: 0.6, valence: 0.3, arousal: 0.7,
+            });
+        }
+        if lower.contains("trust") || lower.contains("confident") || lower.contains("secure") {
+            emotions.push(Emotion {
+                name: "trust".to_string(), intensity: 0.5, valence: 0.6, arousal: 0.3,
+            });
+        }
+        if emotions.is_empty() {
+            emotions.push(Emotion {
+                name: "neutral".to_string(), intensity: 0.3, valence: 0.0, arousal: 0.0,
+            });
+        }
+        emotions
     }
 
     /// Calculate emotional intensity

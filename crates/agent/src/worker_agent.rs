@@ -238,6 +238,25 @@ impl WorkerAgent {
         }
     }
 
+    /// Call inference engine or return fallback message when engine unavailable.
+    async fn infer_or_fallback(
+        engine: Option<&Arc<dyn InferenceEngine>>,
+        operation: &str,
+        prompt: &str,
+        max_tokens: u32,
+    ) -> Result<String> {
+        match engine {
+            Some(eng) => eng
+                .generate_tokens(Uuid::new_v4(), prompt, max_tokens)
+                .await
+                .map_err(|e| AgentError::ProcessingError {
+                    operation: operation.into(),
+                    reason: e.to_string(),
+                }),
+            None => Ok(format!("[no engine] {} step deferred: engine unavailable", operation)),
+        }
+    }
+
     async fn process_step_inner(&self, work: &WorkItem) -> Result<Value> {
         let engine = self.inference_engine.as_ref();
 
@@ -245,72 +264,30 @@ impl WorkerAgent {
         match work.step.step_type {
             StepType::Generation => {
                 let prompt = build_prompt("Generate content for: ", desc);
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 512)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_generate".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "generation",
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "generation",
-                        "description": desc,
-                        "result": build_prompt("[mock] Generated content for: ", desc),
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "generate", &prompt, 512).await?;
+                Ok(json!({
+                    "type": "generation",
+                    "description": desc,
+                    "result": result,
+                }))
             }
             StepType::Analysis => {
                 let prompt = build_prompt("Analyze the following: ", desc);
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 256)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_analysis".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "analysis",
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "analysis",
-                        "description": desc,
-                        "result": build_prompt("[mock] Analysis complete for: ", desc),
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "analysis", &prompt, 256).await?;
+                Ok(json!({
+                    "type": "analysis",
+                    "description": desc,
+                    "result": result,
+                }))
             }
             StepType::Processing => {
                 let prompt = build_prompt("Process the following: ", desc);
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 256)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_processing".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "processing",
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "processing",
-                        "description": desc,
-                        "result": build_prompt("[mock] Processing complete for: ", desc),
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "processing", &prompt, 256).await?;
+                Ok(json!({
+                    "type": "processing",
+                    "description": desc,
+                    "result": result,
+                }))
             }
             StepType::Validation => {
                 let prompt = {
@@ -321,75 +298,32 @@ impl WorkerAgent {
                     s.push_str(desc);
                     s
                 };
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 128)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_validation".into(),
-                            reason: e.to_string(),
-                        })?;
-                    let valid = result.to_lowercase().contains("valid");
-                    Ok(json!({
-                        "type": "validation",
-                        "description": desc,
-                        "result": result,
-                        "valid": valid,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "validation",
-                        "description": desc,
-                        "result": build_prompt("[mock] Validation passed for: ", desc),
-                        "valid": true,
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "validation", &prompt, 128).await?;
+                let valid = result.to_lowercase().contains("valid");
+                Ok(json!({
+                    "type": "validation",
+                    "description": desc,
+                    "result": result,
+                    "valid": valid,
+                }))
             }
             StepType::DataCollection => {
                 let prompt = build_prompt("Collect data about: ", desc);
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 256)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_data_collection".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "data_collection",
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "data_collection",
-                        "description": desc,
-                        "result": build_prompt("[mock] Data collected for: ", desc),
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "data_collection", &prompt, 256).await?;
+                Ok(json!({
+                    "type": "data_collection",
+                    "description": desc,
+                    "result": result,
+                }))
             }
             StepType::Communication => {
                 let prompt = build_prompt("Compose a communication about: ", desc);
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 256)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_communication".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "communication",
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "communication",
-                        "description": desc,
-                        "result": build_prompt("[mock] Communication sent for: ", desc),
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "communication", &prompt, 256).await?;
+                Ok(json!({
+                    "type": "communication",
+                    "description": desc,
+                    "result": result,
+                }))
             }
             StepType::Decision => {
                 let prompt = {
@@ -402,28 +336,14 @@ impl WorkerAgent {
                     s.push_str(sfx);
                     s
                 };
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 64)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_decision".into(),
-                            reason: e.to_string(),
-                        })?;
-                    let decision = if result.to_lowercase().contains("approve") { "approved" } else { "rejected" };
-                    Ok(json!({
-                        "type": "decision",
-                        "description": desc,
-                        "decision": decision,
-                        "reasoning": result,
-                    }))
-                } else {
-                    Ok(json!({
-                        "type": "decision",
-                        "description": desc,
-                        "decision": "approved",
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "decision", &prompt, 64).await?;
+                let decision = if result.to_lowercase().contains("approve") { "approved" } else { "rejected" };
+                Ok(json!({
+                    "type": "decision",
+                    "description": desc,
+                    "decision": decision,
+                    "reasoning": result,
+                }))
             }
             StepType::Custom(ref label) => {
                 let prompt = {
@@ -437,39 +357,13 @@ impl WorkerAgent {
                     s.push_str(desc);
                     s
                 };
-                if let Some(eng) = engine {
-                    let result = eng
-                        .generate_tokens(Uuid::new_v4(), &prompt, 256)
-                        .await
-                        .map_err(|e| AgentError::ProcessingError {
-                            operation: "worker_custom".into(),
-                            reason: e.to_string(),
-                        })?;
-                    Ok(json!({
-                        "type": "custom",
-                        "label": label,
-                        "description": desc,
-                        "result": result,
-                    }))
-                } else {
-                    let mock = {
-                        let pfx = "[mock] Custom step '";
-                        let mid = "' executed: ";
-                        let cap = pfx.len() + label.len() + mid.len() + desc.len() + 4;
-                        let mut s = String::with_capacity(cap);
-                        s.push_str(pfx);
-                        s.push_str(label);
-                        s.push_str(mid);
-                        s.push_str(desc);
-                        s
-                    };
-                    Ok(json!({
-                        "type": "custom",
-                        "label": label,
-                        "description": desc,
-                        "result": mock,
-                    }))
-                }
+                let result = Self::infer_or_fallback(engine, "custom", &prompt, 256).await?;
+                Ok(json!({
+                    "type": "custom",
+                    "label": label,
+                    "description": desc,
+                    "result": result,
+                }))
             }
         }
     }

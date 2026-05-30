@@ -864,6 +864,10 @@ impl CausalLM {
             let wk = to_gpu(get_arr(&format!("{}attention.wk", p))?)?;
             let wv = to_gpu(get_arr(&format!("{}attention.wv", p))?)?;
             let wo = to_gpu(get_arr(&format!("{}attention.wo", p))?)?;
+            let wq_shape = wq.shape().to_vec();
+            let wk_shape = wk.shape().to_vec();
+            let wv_shape = wv.shape().to_vec();
+            let wo_shape = wo.shape().to_vec();
             let wq_t = ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?;
             let wk_t = ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?;
             let wv_t = ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?;
@@ -871,6 +875,7 @@ impl CausalLM {
             let _ = block.attention.gpu_weights.set(super::gqa::GqaGpuWeights {
                 wq_t: wq_t.clone(), wk_t: wk_t.clone(), wv_t: wv_t.clone(), wo_t: wo_t.clone(),
                 wq_f16: None, wk_f16: None, wv_f16: None, wo_f16: None,
+                wq_shape, wk_shape, wv_shape, wo_shape,
             });
 
             let w1 = to_gpu(get_arr(&format!("{}ffn.w1", p))?)?;

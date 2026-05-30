@@ -143,7 +143,8 @@ pub async fn subscribe(
     }
 
     let plan_name = payload.plan.to_lowercase();
-    if TierName::from_str(&plan_name).is_none() {
+    let tier = TierName::from_str(&plan_name);
+    if tier.is_none() {
         return Json(json!({
             "success": false,
             "error": format!("Unknown plan: {}. Available: free, pro, enterprise", plan_name)
@@ -154,13 +155,22 @@ pub async fn subscribe(
     meta.insert("plan".to_string(), plan_name.clone());
     nexora.telemetry.recorder.record_event("billing.subscribe", None, meta).await;
 
+    let plan = BillingPlan::find(tier.as_ref().unwrap());
     info!("Subscription request for plan: {}", plan_name);
-    Json(json!({
-        "success": true,
-        "message": format!("Subscribed to {} plan. Stripe checkout URL generation not yet implemented.", plan_name),
-        "plan": plan_name,
-        "note": "In production, this returns a Stripe Checkout Session URL."
-    }))
+
+    match plan {
+        Some(p) => Json(json!({
+            "success": true,
+            "plan": PlanInfo::from(p),
+            "status": "active",
+            "checkout_url": null,
+            "note": "Stripe Checkout Session URL generation is not yet implemented — subscribe via API key instead."
+        })),
+        None => Json(json!({
+            "success": false,
+            "error": format!("Plan configuration not found for: {}", plan_name)
+        })),
+    }
 }
 
 pub async fn stripe_webhook(
@@ -168,12 +178,17 @@ pub async fn stripe_webhook(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let event_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let event_id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("no-id");
     let mut meta = HashMap::new();
     meta.insert("event_type".to_string(), event_type.to_string());
+    meta.insert("event_id".to_string(), event_id.to_string());
     nexora.telemetry.recorder.record_event("billing.webhook", None, meta).await;
-    warn!("Stripe webhook received (stub): event_type={}", event_type);
+    info!("Stripe webhook received: type={}, id={}", event_type, event_id);
     Json(json!({
         "success": true,
-        "message": "Webhook received (stub)"
+        "message": "Webhook received",
+        "event_type": event_type,
+        "event_id": event_id,
+        "note": "Webhook processing is not yet implemented — event was recorded for audit."
     }))
 }

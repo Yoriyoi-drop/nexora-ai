@@ -51,6 +51,15 @@ libc = "0.2"
 nexora-autograd = { path = "../autograd" }
 nexora-memory = { path = "../memory" }
 
+# Cross-layer dependencies (Phase 5 wiring)
+nexora-quantization = { path = "../quantization" }
+nexora-monitoring = { path = "../monitoring" }
+nexora-isolation = { path = "../isolation" }
+nexora-validation = { path = "../validation" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-cognition = { path = "../cognition" }
+nexora-database = { path = "../database" }
+
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]

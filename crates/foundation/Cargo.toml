@@ -32,14 +32,19 @@ nexora-oracle = { path = "../oracle" }
 nexora-training = { path = "../training" }
 nexora-multimodal = { path = "../multimodal" }
 nexora-reasoning = { path = "../reasoning" }
-nexora-models = { path = "../models" }
+nexora-models = { path = "../models", features = ["hallucination"] }
 nexora-quantization = { path = "../quantization" }
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-deeplearning = { path = "../deeplearning" }
 nexora-tokenizer = { path = "../tokenizer" }
-nexora-hallucination = { path = "../hallucination", optional = true }
-nexora-echo-net = { path = "../echo-net" }
+nexora-hallucination = { path = "../hallucination" }
+nexora-echo-net = { path = "../echo-net", features = ["examples"] }
+nexora-monitoring = { path = "../monitoring" }
+nexora-memory = { path = "../memory" }
+nexora-utils = { path = "../infrastructure/utils" }
+nexora-database = { path = "../database", features = ["postgres", "sqlite"] }
+nexora-isolation = { path = "../isolation" }
 
 # Framework-specific dependencies
 async-trait.workspace = true
@@ -68,8 +73,7 @@ bincode = "1.3"
 # Cache dependencies
 
 [features]
-default = ["hallucination", "gpu", "legacy-fastpath"]
-hallucination = ["nexora-hallucination"]
+default = ["gpu", "legacy-fastpath"]
 gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
 legacy-fastpath = []
 

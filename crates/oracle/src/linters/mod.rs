@@ -14,9 +14,15 @@
 //! - correctness.rs: Correctness pattern detection
 //! - style.rs: Style pattern detection
 
+pub mod ast_analyzer;
 pub mod correctness;
+pub mod dep_scanner;
+pub mod go_analyzer;
+pub mod java_analyzer;
+pub mod javascript_analyzer;
 pub mod manager;
 pub mod performance;
+pub mod python_analyzer;
 pub mod security;
 pub mod style;
 
@@ -24,24 +30,24 @@ pub mod style;
 pub use correctness::CorrectnessLinter;
 pub use manager::CodeLinterManager;
 pub use performance::PerformanceLinter;
-pub use security::SecurityLinter;
+pub use security::{detect_language, SecurityLinter};
 pub use style::StyleLinter;
 
 // Re-export types
-pub use manager::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterType, LintSummary};
+pub use manager::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LintSummary, LinterType};
 
-// Backward-compat deprecated aliases
-#[allow(deprecated)]
+// Backward-compat aliases — prefer Linter-prefixed names
+#[deprecated(note = "use LinterType instead")]
 pub type VerifierType = LinterType;
-#[allow(deprecated)]
+#[deprecated(note = "use LintResult instead")]
 pub type VerificationResult = LintResult;
-#[allow(deprecated)]
+#[deprecated(note = "use LintSummary instead")]
 pub type VerificationSummary = LintSummary;
-#[allow(deprecated)]
+#[deprecated(note = "use SecurityLinter instead")]
 pub type SecurityVerifier = SecurityLinter;
-#[allow(deprecated)]
+#[deprecated(note = "use PerformanceLinter instead")]
 pub type PerformanceVerifier = PerformanceLinter;
-#[allow(deprecated)]
+#[deprecated(note = "use CorrectnessLinter instead")]
 pub type CorrectnessVerifier = CorrectnessLinter;
-#[allow(deprecated)]
+#[deprecated(note = "use StyleLinter instead")]
 pub type StyleVerifier = StyleLinter;

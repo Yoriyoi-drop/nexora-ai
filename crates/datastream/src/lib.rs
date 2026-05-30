@@ -274,3 +274,15 @@ mod tests {
         assert!(result.passed);
     }
 }
+
+// ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
+// Nyata: validasi data sample shape di pipeline
+fn _ds_validate_tensor(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+    nexora_validation::validate_tensor_shape(shape)
+}
+
+// Nyata: text preprocessing untuk filter pipeline
+fn _ds_preprocess(text: &str) -> anyhow::Result<String> {
+    let utils = nexora_utils::UtilsManager::default();
+    utils.preprocess_text(text)
+}

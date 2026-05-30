@@ -541,43 +541,54 @@ impl Tensor {
 
     /// Accumulate gradient from Storage (CPU or GPU).
     /// GPU+GPU accumulates entirely on GPU without CPU round-trip.
+    /// Returns error if GPU readback fails (caller can skip or propagate).
     #[cfg(feature = "gpu")]
-    pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
+    pub(crate) fn try_accumulate_grad_storage(
+        &self,
+        grad: &Storage,
+    ) -> Result<(), crate::gpu::GpuError> {
         let mut inner = self.0.write();
         match (&mut inner.grad, grad) {
             (Some(Storage::Cpu(existing)), Storage::Cpu(g)) => {
-                *Arc::make_mut(existing) += g.as_ref()
+                *Arc::make_mut(existing) += g.as_ref();
+                Ok(())
             }
             (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
-                let g_cpu = g.to_cpu().unwrap_or_else(|e| {
-                    panic!("accumulate_grad_storage GPU readback failed: {e}");
-                });
+                let g_cpu = g.to_cpu()?;
                 *Arc::make_mut(existing) += &g_cpu;
+                Ok(())
             }
             (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
-                let mut e = existing.to_cpu().unwrap_or_else(|err| {
-                    panic!("accumulate_grad_storage GPU readback failed: {err}");
-                });
+                let mut e = existing.to_cpu()?;
                 e += g.as_ref();
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));
+                Ok(())
             }
             (Some(Storage::Gpu(existing)), Storage::Gpu(g)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    let _ = ctx.add_inplace(existing, g);
+                    ctx.add_inplace(existing, g)
+                        .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()))
                 } else {
-                    let mut e = existing.to_cpu().unwrap_or_else(|err| {
-                        panic!("accumulate_grad_storage GPU readback failed: {err}");
-                    });
-                    e += &g.to_cpu().unwrap_or_else(|err| {
-                        panic!("accumulate_grad_storage GPU readback failed: {err}");
-                    });
+                    let mut e = existing.to_cpu()?;
+                    e += &g.to_cpu()?;
                     inner.grad = Some(Storage::Cpu(Arc::new(e)));
+                    Ok(())
                 }
             }
             (None, g) => {
                 inner.grad = Some(g.clone());
+                Ok(())
             }
         }
+    }
+
+    /// Legacy wrapper — panics on GPU readback failure.
+    /// Prefer try_accumulate_grad_storage() for production code.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
+        self.try_accumulate_grad_storage(grad).unwrap_or_else(|e| {
+            panic!("accumulate_grad_storage GPU readback/accumulation failed: {e}");
+        })
     }
 
     pub(crate) fn get_grad_fn_idx(&self) -> Option<usize> {
@@ -629,9 +640,13 @@ impl Tensor {
     #[cfg(feature = "gpu")]
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.write();
-        let current = inner.storage.to_cpu().unwrap_or_else(|e| {
-            panic!("subtract_from_data: GPU readback failed: {e}");
-        });
+        let current = match inner.storage.to_cpu() {
+            Ok(cpu) => cpu,
+            Err(e) => {
+                tracing::error!("subtract_from_data: GPU readback failed: {e}. Skipping.");
+                return;
+            }
+        };
         let new_data = &current - delta;
         inner.storage = Storage::Cpu(Arc::new(new_data));
     }

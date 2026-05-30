@@ -106,10 +106,9 @@ async fn filter_dataset(samples: Vec<DataSample>) -> NexoraResult<Vec<String>> {
     let mut accepted: Vec<String> = Vec::new();
     let mut filter_rejected: HashMap<String, u64> = HashMap::new();
 
+    let (_, cancel_rx) = tokio::sync::watch::channel(false);
     for s in samples {
-        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
-        let result = graph.execute(s, cancel_rx).await;
-        drop(cancel_tx);
+        let result = graph.execute(s, cancel_rx.clone()).await;
         if let ExecutionResult::Rejected {
             ref filter_name, ..
         } = &result

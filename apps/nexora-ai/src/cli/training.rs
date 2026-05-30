@@ -452,7 +452,14 @@ impl crate::cli::commands::Cli {
                 let samples = provider.fetch_samples().await;
                 let count = samples.len();
                 info!("[HF] Fetched {} raw samples from '{}'", count, hf);
-                let text = samples.iter().map(|s| s.text.as_str()).collect::<Vec<&str>>().join("\n");
+                let text: String = {
+                    let mut t = String::new();
+                    for s in &samples {
+                        t.push_str(&s.text);
+                        t.push('\n');
+                    }
+                    t
+                };
                 (samples, text, count)
             } else {
                 let data = data.as_ref().ok_or_else(|| {
@@ -532,11 +539,15 @@ impl crate::cli::commands::Cli {
                     info!("  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)",
                         data.display(), count, file_mb, load_elapsed,
                         if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 });
-                    let corpus: String = arrow_samples
-                        .iter()
-                        .map(|s| { total_chars += s.text.len(); s.text.as_str() })
-                        .collect::<Vec<&str>>()
-                        .join("\n");
+                    let corpus: String = {
+                        let mut c = String::new();
+                        for s in &arrow_samples {
+                            total_chars += s.text.len();
+                            c.push_str(&s.text);
+                            c.push('\n');
+                        }
+                        c
+                    };
                     info!("  📊 {:.1}M chars loaded, est. tokens: ~{}k (seq_len={})",
                         total_chars as f64 / 1_000_000.0, (total_chars / 4) / 1000, seq_length);
                     info!("  🧠 RAM: sebelum load ~{:.1} GB", available_system_memory_gb());
@@ -1359,11 +1370,11 @@ impl crate::cli::commands::Cli {
 
                     progress.add_samples(batch.len() as u64, 1);
 
+                    let tok = tokenizer
+                        .read()
+                        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
                     for sample in &batch {
-                        let tokens: Vec<u32> = tokenizer
-                            .read()
-                            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?
-                            .encode(&sample.text);
+                        let tokens: Vec<u32> = tok.encode(&sample.text);
 
                         if tokens.len() < 2 {
                             continue;

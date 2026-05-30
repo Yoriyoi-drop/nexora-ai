@@ -70,7 +70,8 @@ pub async fn delegate(prompt: &str) -> String {
     let focus = classifier::threat_focus(primary);
 
     let linter = LINTER.get_or_init(CodeLinterManager::new);
-    let findings = match linter.verify_detailed(prompt, "text") {
+    let detected_lang = nexora_oracle::linters::security::detect_language(prompt);
+    let findings = match linter.verify_detailed(prompt, detected_lang) {
         Ok(results) => {
             let issues: Vec<String> = results
                 .iter()

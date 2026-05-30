@@ -244,9 +244,11 @@ impl AxiomPrimeAgent {
     async fn calculate_confidence(
         &self,
         _input: &AxiomPrimeTaskInput,
-        _axioms: &[String],
+        axioms: &[String],
     ) -> AgentResult<f32> {
-        Ok(0.0)
+        let base = if axioms.is_empty() { 0.3 } else { 0.6 };
+        let boost = (axioms.len() as f32).min(3.0) * 0.1;
+        Ok((base + boost).min(1.0))
     }
 }
 

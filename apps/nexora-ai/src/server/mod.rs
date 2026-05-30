@@ -13,6 +13,24 @@ pub mod handlers;
 pub mod router;
 pub mod tls;
 
+// Feature-gated handler modules: build with the corresponding feature flag
+// to enable. These reference optional subsystems on NexoraAI.
+//   cargo run --features server-billing   → enables billing_handlers
+//   cargo run --features server-auth      → enables auth_handlers
+//   etc.
+#[cfg(feature = "server-auth")]
+pub mod auth_handlers;
+#[cfg(feature = "server-billing")]
+pub mod billing_handlers;
+#[cfg(feature = "server-dashboard")]
+pub mod dashboard_handlers;
+#[cfg(feature = "server-gossip")]
+pub mod gossip_handlers;
+#[cfg(feature = "server-telemetry")]
+pub mod telemetry_handlers;
+#[cfg(feature = "server-telemetry")]
+pub mod telemetry_middleware;
+
 pub use crate::config::server::ServerConfig;
 pub use handlers::*;
 pub use router::create_router;

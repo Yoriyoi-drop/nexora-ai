@@ -788,7 +788,7 @@ mod tests {
                 assert_eq!(max, 10);
             }
             other => {
-                panic!("Expected AutoCpu variant, got {:?}. This indicates a logic bug in the CPU affinity selection.", other);
+                panic!("Expected ScalingPolicy::AutoCpu, got {:?}", other);
             }
         }
     }

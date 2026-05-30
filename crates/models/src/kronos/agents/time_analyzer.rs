@@ -251,24 +251,28 @@ impl TimeAnalyzerAgent {
     }
 
     fn has_seasonal_pattern(&self, data: &[(chrono::DateTime<chrono::Utc>, f32)]) -> bool {
-        if data.len() < 12 {
+        if data.len() < 6 {
             return false;
         }
 
-        // Simple seasonal pattern detection
         let values: Vec<f32> = data.iter().map(|(_, value)| *value).collect();
-        let mean = values.iter().sum::<f32>() / values.len() as f32;
+        let n = values.len();
 
-        let seasonal_variance = values
-            .chunks(3)
-            .map(|chunk| {
-                let chunk_mean = chunk.iter().sum::<f32>() / chunk.len() as f32;
-                (chunk_mean - mean).powi(2)
-            })
-            .sum::<f32>()
-            / (values.len() / 3) as f32;
-
-        seasonal_variance > mean * 0.1
+        // Check for repeating patterns by period: for each candidate period p,
+        // measure how consistently values[i] matches values[i+p]
+        for period in 2..=n / 2 {
+            let mut consistent = 0u32;
+            let total = (n - period) as u32;
+            for i in 0..(n - period) {
+                if (values[i] - values[i + period]).abs() < 0.01 {
+                    consistent += 1;
+                }
+            }
+            if total > 0 && (consistent as f32 / total as f32) > 0.7 {
+                return true;
+            }
+        }
+        false
     }
 
     fn has_trend_pattern(&self, data: &[(chrono::DateTime<chrono::Utc>, f32)]) -> bool {

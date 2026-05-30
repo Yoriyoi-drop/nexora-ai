@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub mod api;
+pub mod auth;
 pub mod cli;
 pub mod config;
 pub mod core;
@@ -22,6 +23,7 @@ pub mod server;
 
 pub use api::{ApiConfig, ApiResponse, NexoraApi};
 pub use cli::Cli;
+pub use nexora_api;
 pub use config::NexoraConfig;
 pub use core::*;
 pub use server::{NexoraServer, ServerConfig};

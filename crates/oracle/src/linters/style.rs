@@ -47,7 +47,64 @@ pub struct StyleLinter {
 impl StyleLinter {
     pub fn new() -> Self {
         Self {
-            style_patterns: Vec::new(),
+            style_patterns: vec![
+                StylePattern {
+                    name: "Long Line".to_string(),
+                    pattern: &LONG_LINE_REGEX,
+                    severity: IssueSeverity::Style,
+                    description: "Line exceeds 80 characters - consider breaking into multiple lines".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Trailing Whitespace".to_string(),
+                    pattern: &TRAILING_WHITESPACE_REGEX,
+                    severity: IssueSeverity::Style,
+                    description: "Trailing whitespace detected - remove to keep diffs clean".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Tab Character".to_string(),
+                    pattern: &TAB_CHARACTER_REGEX,
+                    severity: IssueSeverity::Style,
+                    description: "Tab character detected - use spaces for indentation".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Missing Documentation".to_string(),
+                    pattern: &MISSING_DOCUMENTATION_REGEX,
+                    severity: IssueSeverity::Info,
+                    description: "Function may be missing documentation comment".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Camel Case Variable".to_string(),
+                    pattern: &CAMEL_CASE_REGEX,
+                    severity: IssueSeverity::Style,
+                    description: "Variable uses camelCase - prefer snake_case in Rust".to_string(),
+                    language: "rust".to_string(),
+                },
+                StylePattern {
+                    name: "Magic Number".to_string(),
+                    pattern: &MAGIC_NUMBER_REGEX,
+                    severity: IssueSeverity::Info,
+                    description: "Magic number detected - extract to named constant".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Deep Nesting".to_string(),
+                    pattern: &DEEP_NESTING_REGEX,
+                    severity: IssueSeverity::Warning,
+                    description: "Deep nesting detected (16+ spaces) - consider refactoring".to_string(),
+                    language: "all".to_string(),
+                },
+                StylePattern {
+                    name: "Large Function".to_string(),
+                    pattern: &LARGE_FUNCTION_REGEX,
+                    severity: IssueSeverity::Warning,
+                    description: "Function body exceeds 500 characters - consider splitting".to_string(),
+                    language: "all".to_string(),
+                },
+            ],
         }
     }
 }
@@ -264,7 +321,9 @@ impl CodeLinter for StyleLinter {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Info,
                     category: "Style".to_string(),
-                    message: format!("Language '{language}' is not supported by the style verifier"),
+                    message: format!(
+                        "Language '{language}' is not supported by the style verifier"
+                    ),
                     line_number: None,
                     column_number: None,
                     rule_id: "lang_unsupported".to_string(),

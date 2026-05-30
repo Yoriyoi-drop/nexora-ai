@@ -111,10 +111,10 @@ pub struct SessionEntry {
     pub request_id: Uuid,
     /// Timestamp
     pub timestamp: DateTime<Utc>,
-    /// Request prompt
-    pub prompt: String,
-    /// Generated response
-    pub response: String,
+    /// Request prompt (Arc<str> untuk menghindari clone di hot path)
+    pub prompt: Arc<str>,
+    /// Generated response (Arc<str> untuk menghindari clone di hot path)
+    pub response: Arc<str>,
     /// Tokens generated
     pub tokens_generated: usize,
     /// Processing time (ms)
@@ -483,8 +483,8 @@ impl SessionEntry {
     /// Create new session entry
     pub fn new(
         request_id: Uuid,
-        prompt: String,
-        response: String,
+        prompt: impl Into<Arc<str>>,
+        response: impl Into<Arc<str>>,
         tokens_generated: usize,
         processing_time_ms: u64,
     ) -> Self {
@@ -492,8 +492,8 @@ impl SessionEntry {
             entry_id: Uuid::new_v4(),
             request_id,
             timestamp: Utc::now(),
-            prompt,
-            response,
+            prompt: prompt.into(),
+            response: response.into(),
             tokens_generated,
             processing_time_ms,
             metadata: HashMap::new(),
