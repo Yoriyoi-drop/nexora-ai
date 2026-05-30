@@ -540,8 +540,7 @@ impl AgentManager {
                 .ok_or_else(|| AgentError::ProcessingError {
                     operation: "dispatch_plan".to_string(),
                     reason: "Invalid plan response from planner".to_string(),
-                })?
-                .clone();
+                })?;
 
             let pending_steps: Vec<(usize, &Value)> = plan_steps.iter()
                 .enumerate()

@@ -345,10 +345,13 @@ Target: 90%+ GPU utilization by Week 6
 | 65 | **MEM-H2: NeuralAttentionMemory read/read_top_k O(N) scan all entries** — added `max_query_entries` config (default 512). When entries exceed threshold, `read()` and `read_top_k()` randomly subsample before computing softmax/top-k scores. `backward()` still scans full (differentiable write needs all entries). | `memory_model.rs:967-1030` | ✅ Done | Query latency -100x at 50K entries |
 | 66 | **MEM-H1: AgentRegistry write-lock deadlock risk (4×RwLock)** — `get_agent` now uses `timeout(Duration::from_secs(5), self.agents.write())` instead of blocking `write().await`. Same for `update_agent_status`. Deadlock converts to timeout error instead of hang. | `registry.rs:172-186` + `registry.rs:196-207` | ✅ Done | Deadlock → fail-fast 5s |
 | 67 | **TEST-FIX: test_episodic_memory_get_related_episodes flaky assertion** — `find_similar_episodes` auto-links episodes with shared tags ("project"), so episode 1 gets 2 related (manual + auto) instead of 1. Changed assertion from strict `== 1` to existential check (`any`). | `episodic.rs:780-784` | ✅ Done | Test stability |
+| 68 | **MDL-H1: Duplicated RoPE cos/sin slice extraction (6 sites in model.rs)** — added `get_cos_sin_slices()` and `get_cos_sin_arrays()` helpers. Replaced 6 duplicate sites (2 `&[f32]` slice extraction + 4 `Array1` extraction + 1 batch per-seq extraction) with single-line helper calls. | `model.rs:3271-3306` | ✅ Done | Code quality, -60 LOC |
+| 69 | **MEM-H3: AgentManager clone-heavy dispatch — `plan_steps.clone()` tiap iterasi** — hapus `.clone()` dari `as_array()`, pake reference langsung. `plan_steps` cuma dipake `iter()` di step filtering — owned `Vec<Value>` → `&Vec<Value>`. | `agent_manager.rs:537-544` | ✅ Done | Memory -1 deep copy/iter |
+| 70 | **TRN-M4: Multi-model training `train_sequences.clone()` × 10 models** — `Vec<Vec<u32>>` → `Arc<Vec<Vec<u32>>`, clone Arc (O(1)) instead of full Vec deep copy per model. Updated `run_parallel_training` call and `spawn_blocking` deref. | `training.rs:756-780`, `922-935` | ✅ Done | 400MB waste eliminated |
 
 ## Remaining Priority Items
 
-_(Sesi 2-13 complete: 66 fixes total. — last session finalized all remaining items in the original audit (CPU, GPU, MEM, CONC, BLD). Minor items (MDL-H1 RoPE dedup, CPU-H5 serde JSON) are code quality only, no perf impact.)_
+_9 items unresolved: CPU-H5 (safetensors bound), TRN-M1/2/3/5 (training pipeline), MDL-C1 (oracle attention), CONC-H5 (unbounded channel), BLD-H4 (openssl)._
 
 ## Implementation Priority Matrix
 

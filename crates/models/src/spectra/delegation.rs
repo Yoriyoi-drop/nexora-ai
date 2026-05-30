@@ -4,8 +4,7 @@ use crate::spectra::classifier::StyleClassifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
 use nexora_multimodal::MultimodalResult;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -22,9 +21,10 @@ fn init_classifier() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            StyleClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                StyleClassifier::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
@@ -38,25 +38,6 @@ fn token_ids(text: &str) -> Vec<u32> {
 fn classify_style(text: &str) -> Vec<(String, f32)> {
     let ids = token_ids(text);
     classifier::detect_creative_style(text, &ids)
-}
-
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
 }
 
 fn unique_word_ratio(s: &str) -> f64 {
@@ -75,7 +56,6 @@ pub async fn delegate(prompt: &str) -> String {
     let (base_temp, _) = classifier::style_params(primary);
     let framing = classifier::style_framing(primary);
 
-    // Phase 4: Run through Caffeine multimodal pipeline
     let mut mm = CaffeineProcessor::with_caffeine(CaffeineConfig::default()).unwrap_or_default();
     let multimodal = MultiModalInputs {
         text: Some(nexora_multimodal::TextInput {
@@ -102,7 +82,7 @@ pub async fn delegate(prompt: &str) -> String {
              {framing}\n\n\
              Generate original content for: {prompt}"
         );
-        if let Ok(text) = call(&creative_prompt, 256, t).await {
+        if let Ok(text) = crate::foundation::call_model(foundation(), &creative_prompt, 256, t).await {
             let score = unique_word_ratio(&text);
             results.push((text, score));
         }

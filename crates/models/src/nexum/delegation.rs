@@ -3,8 +3,6 @@ use crate::nexum::classifier;
 use crate::nexum::classifier::ComplexityClassifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -22,12 +20,15 @@ fn init_classifier() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            ComplexityClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                ComplexityClassifier::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
+
+static SACA: OnceLock<SacaEngine> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
     let f = foundation();
@@ -38,25 +39,6 @@ fn token_ids(text: &str) -> Vec<u32> {
 fn classify_complexity(text: &str) -> Vec<(String, f32)> {
     let ids = token_ids(text);
     classifier::detect_complexity(text, &ids)
-}
-
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
 }
 
 fn decompose(text: &str, complexity: &str) -> Vec<String> {
@@ -88,15 +70,14 @@ pub async fn delegate(prompt: &str) -> String {
     let strategy = classifier::decomposition_strategy(primary);
 
     if primary == "simple" {
-        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
     }
 
-    // Phase 4: SACA reasoning for smarter decomposition on complex tasks
     let subtasks = if primary == "complex" || primary == "multi_domain" {
-        let engine = SacaEngine::new();
+        let engine = SACA.get_or_init(SacaEngine::new);
         match engine.reason(prompt, strategy).await {
             Ok(r) if r.conclusion.len() > 20 => {
                 let tasks: Vec<String> = r.conclusion
@@ -116,13 +97,12 @@ pub async fn delegate(prompt: &str) -> String {
     };
 
     if subtasks.len() <= 1 {
-        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
     }
 
-    // Phase 4: Oracle linter for quality checking each subtask result
     let linter = LINTER_MGR.get_or_init(CodeLinterManager::new);
     let mut results: Vec<(String, f32)> = Vec::new();
 
@@ -132,7 +112,7 @@ pub async fn delegate(prompt: &str) -> String {
              {strategy}\n\n\
              {task}"
         );
-        match call(&sub_prompt, 256, 0.6).await {
+        match crate::foundation::call_model(foundation(), &sub_prompt, 256, 0.6).await {
             Ok(r) => {
                 let quality = linter.verify_code(&r, "text").unwrap_or(0.5);
                 tracing::debug!("nexum subtask {i} quality: {:.2}", quality);
@@ -146,7 +126,7 @@ pub async fn delegate(prompt: &str) -> String {
     }
 
     if results.is_empty() {
-        return call(prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -158,7 +138,8 @@ pub async fn delegate(prompt: &str) -> String {
     if needs_synthesis {
         let merged: String = results.iter().map(|(r, _)| r.as_str()).collect::<Vec<_>>().join("\n");
         let avg_quality: f32 = results.iter().map(|(_, q)| q).sum::<f32>() / results.len() as f32;
-        let synthesis = call(
+        let synthesis = crate::foundation::call_model(
+            foundation(),
             &format!(
                 "[Nexum synthesis | multi-domain | avg quality: {avg_quality:.2}]\n\
                  Synthesize these partial results into a coherent response.\n\

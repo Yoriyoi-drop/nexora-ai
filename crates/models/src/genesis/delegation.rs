@@ -2,8 +2,6 @@ use crate::foundation::NxrGenesisModel;
 use crate::genesis::classifier;
 use crate::genesis::classifier::QualityClassifier;
 use nexora_reasoning::SacaEngine;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 const MAX_REFINEMENT_ITERATIONS: usize = 3;
@@ -23,12 +21,15 @@ fn init_classifier() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            QualityClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                QualityClassifier::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
+
+static SACA: OnceLock<SacaEngine> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
     let f = foundation();
@@ -41,33 +42,13 @@ fn classify_quality(text: &str) -> Vec<(String, f32)> {
     classifier::detect_quality_focus(text, &ids)
 }
 
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
-}
-
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let dims = classify_quality(prompt);
     let primary = dims.first().map(|(d, _)| d.as_str()).unwrap_or("clarity");
     let focus = classifier::refinement_focus(primary);
 
-    // Phase 4: SACA reasoning for structured generation + quality-based iterative refinement
-    let engine = SacaEngine::new();
+    let engine = SACA.get_or_init(SacaEngine::new);
     let mut current = match engine.reason(prompt, focus).await {
         Ok(r) if !r.conclusion.is_empty() => {
             tracing::debug!("genesis SACA generation succeeded (focus: {primary})");
@@ -75,7 +56,7 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("genesis SACA reasoning unavailable, using direct generation");
-            call(prompt, 256, 0.8).await.unwrap_or_else(|e| {
+            crate::foundation::call_model(foundation(), prompt, 256, 0.8).await.unwrap_or_else(|e| {
                 format!("[genesis inference error: {}]", e)
             })
         }
@@ -85,7 +66,6 @@ pub async fn delegate(prompt: &str) -> String {
         return current;
     }
 
-    // Multi-iteration quality-based self-improvement loop
     for iteration in 0..MAX_REFINEMENT_ITERATIONS {
         let q = classify_quality(&current);
         if let Some((weakest, score)) = q.first() {
@@ -101,7 +81,8 @@ pub async fn delegate(prompt: &str) -> String {
                     current = r.conclusion;
                 }
                 _ => {
-                    let improved = call(
+                    let improved = crate::foundation::call_model(
+                        foundation(),
                         &format!(
                             "[Genesis refinement | focus: {weakest}]\n\
                              {refocus}\n\n\

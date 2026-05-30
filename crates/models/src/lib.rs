@@ -19,11 +19,8 @@
 // Re-export shared components from nexora-shared
 pub use nexora_shared::*;
 
-// Foundation module — CausalLM-backed real inference (always available)
+pub mod classifier_util;
 pub mod foundation;
-
-// Per-model agent-based modules.
-// The `architecture` submodule within each is gated behind `simulated-models`.
 pub mod aether;
 pub mod axiom;
 pub mod cipher;

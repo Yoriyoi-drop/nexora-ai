@@ -2,8 +2,6 @@ use crate::foundation::NxrVortexModel;
 use crate::vortex::analyzer;
 use crate::vortex::analyzer::CodeReviewClassifier;
 use nexora_oracle::CodeLinterManager;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -20,9 +18,10 @@ fn init_analyzer() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            CodeReviewClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                CodeReviewClassifier::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
@@ -42,27 +41,10 @@ fn classify_review(text: &str) -> Vec<(String, f32)> {
     analyzer::analyze_review_type(text, &ids)
 }
 
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
-}
+static LINTER: OnceLock<CodeLinterManager> = OnceLock::new();
 
 fn run_linters(code: &str, language: &str) -> String {
-    let mgr = CodeLinterManager::new();
+    let mgr = LINTER.get_or_init(CodeLinterManager::new);
     match mgr.verify_detailed(code, language) {
         Ok(results) => {
             let mut report = String::new();
@@ -111,7 +93,7 @@ pub async fn delegate(prompt: &str) -> String {
          ```\n{prompt}\n```\n\n\
          Code review:"
     );
-    call(&framed, 512, 0.4).await.unwrap_or_else(|e| {
+    crate::foundation::call_model(foundation(), &framed, 512, 0.4).await.unwrap_or_else(|e| {
         tracing::warn!("vortex delegation call failed: {}", e);
         format!("[vortex inference error: {}]", e)
     })

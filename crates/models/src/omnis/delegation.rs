@@ -1,8 +1,6 @@
 use crate::foundation::NxrOmnisModel;
 use crate::omnis::router;
 use crate::omnis::router::OmnisMoERouter;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -19,9 +17,10 @@ fn init_router() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            OmnisMoERouter::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                OmnisMoERouter::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
@@ -41,25 +40,6 @@ fn classify_domains(text: &str) -> Vec<(String, f32)> {
     router::detect_domains(text, &ids)
 }
 
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
-}
-
 pub async fn delegate(prompt: &str) -> String {
     init_router();
     let domains = classify_domains(prompt);
@@ -76,7 +56,7 @@ pub async fn delegate(prompt: &str) -> String {
          Response:"
     );
 
-    let primary_result = call(&framed, 512, 0.7).await.unwrap_or_else(|e| {
+    let primary_result = crate::foundation::call_model(foundation(), &framed, 512, 0.7).await.unwrap_or_else(|e| {
         tracing::warn!("omnis delegation call failed: {}", e);
         format!("[omnis inference error: {}]", e)
     });
@@ -89,11 +69,12 @@ pub async fn delegate(prompt: &str) -> String {
              User input: {prompt}\n\
              Response:"
         );
-        let sec_result = call(&sec_framed, 512, 0.7).await.unwrap_or_else(|e| {
+        let sec_result = crate::foundation::call_model(foundation(), &sec_framed, 512, 0.7).await.unwrap_or_else(|e| {
             tracing::warn!("omnis delegation call failed: {}", e);
             format!("[omnis inference error: {}]", e)
         });
-        let synthesis = call(
+        let synthesis = crate::foundation::call_model(
+            foundation(),
             &format!(
                 "[Omnis synthesis | domains: {primary}, {sec_domain}]\n\
                  Synthesize these two expert perspectives into a unified response.\n\n\

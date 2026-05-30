@@ -753,7 +753,7 @@ impl crate::cli::commands::Cli {
         let tok = tokenizer
             .read()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let train_sequences: Vec<Vec<u32>> = train_samples
+        let raw_train: Vec<Vec<u32>> = train_samples
             .iter()
             .filter_map(|s| {
                 let tokens = tok.encode(&s.text);
@@ -764,7 +764,7 @@ impl crate::cli::commands::Cli {
                 }
             })
             .collect();
-        let val_sequences: Vec<Vec<u32>> = val_samples
+        let raw_val: Vec<Vec<u32>> = val_samples
             .iter()
             .filter_map(|s| {
                 let tokens = tok.encode(&s.text);
@@ -776,6 +776,8 @@ impl crate::cli::commands::Cli {
             })
             .collect();
         drop(tok);
+        let train_sequences = Arc::new(raw_train);
+        let val_sequences = Arc::new(raw_val);
         info!(
             "  Train sequences: {}, Validation sequences: {}",
             train_sequences.len(),
@@ -840,8 +842,8 @@ impl crate::cli::commands::Cli {
         let model_reports: Vec<serde_json::Value> = if parallel && model_ids.len() > 1 {
             run_parallel_training(
                 &model_ids,
-                &train_sequences,
-                &val_sequences,
+                &*train_sequences,
+                &*val_sequences,
                 &trainer_config,
                 &output,
                 epochs,
@@ -929,7 +931,7 @@ impl crate::cli::commands::Cli {
                 let hp = half_precision;
                 let result = tokio::task::spawn_blocking(move || {
                     train_nxr_model_pre_tokenized(
-                        model_id, model_name, tf_config, cfg, &train_seq, &val_seq, &out, epochs,
+                        model_id, model_name, tf_config, cfg, &*train_seq, &*val_seq, &out, epochs,
                         seq_length, sf, hp,
                     )
                 })

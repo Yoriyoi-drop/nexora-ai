@@ -97,6 +97,30 @@ fn byte_decode(ids: &[u32]) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
+pub(crate) async fn call_model<M: NxrModel<Config = Value, Metrics = Value, State = Value>>(
+    model: &M,
+    prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+) -> Result<String, String> {
+    let input = NxrInput {
+        id: uuid::Uuid::new_v4(),
+        timestamp: chrono::Utc::now(),
+        data: InputData::Text(prompt.to_string()),
+        parameters: HashMap::from([
+            ("max_tokens".into(), serde_json::json!(max_tokens)),
+            ("temperature".into(), serde_json::json!(temperature)),
+            ("top_k".into(), serde_json::json!(50)),
+        ]),
+        metadata: HashMap::new(),
+    };
+    let output = model.infer(&input).await.map_err(|e| e.to_string())?;
+    match output.data {
+        OutputData::Text(t) => Ok(t),
+        _ => Err("unexpected output type".into()),
+    }
+}
+
 fn extract_params(input: &NxrInput) -> (usize, f32, usize) {
     let max_tokens = input
         .parameters

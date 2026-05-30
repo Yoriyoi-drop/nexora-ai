@@ -4,8 +4,6 @@ use crate::foundation::NxrAetherModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
 use nexora_multimodal::MultimodalResult;
-use nexora_shared::base_model::{InputData, NxrInput, OutputData};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -22,9 +20,10 @@ fn init_classifier() {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let embed = model.token_embedding.clone().unwrap();
-            classifier::EmotionClassifier::init(embed);
-            let _ = INITIALIZED.set(true);
+            if let Some(ref embed) = model.token_embedding {
+                classifier::EmotionClassifier::init(embed.clone());
+                let _ = INITIALIZED.set(true);
+            }
         }
     }
 }
@@ -49,31 +48,11 @@ fn dominant_emotion(emotions: &[(String, f32)]) -> String {
     emotions.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(e, _)| e.clone()).unwrap_or_default()
 }
 
-async fn call(prompt: &str, max_tokens: usize, temperature: f32) -> Result<String, String> {
-    let input = NxrInput {
-        id: uuid::Uuid::new_v4(),
-        timestamp: chrono::Utc::now(),
-        data: InputData::Text(prompt.to_string()),
-        parameters: HashMap::from([
-            ("max_tokens".into(), serde_json::json!(max_tokens)),
-            ("temperature".into(), serde_json::json!(temperature)),
-            ("top_k".into(), serde_json::json!(50)),
-        ]),
-        metadata: HashMap::new(),
-    };
-    let output = foundation().infer(&input).await.map_err(|e| e.to_string())?;
-    match output.data {
-        OutputData::Text(t) => Ok(t),
-        _ => Err("unexpected output type".into()),
-    }
-}
-
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let emotions = classify(prompt);
     let dominant = dominant_emotion(&emotions);
 
-    // Phase 4: Run through Caffeine multimodal pipeline for sentiment enrichment
     let mut mm = CaffeineProcessor::with_caffeine(CaffeineConfig::default()).unwrap_or_default();
     let multimodal = MultiModalInputs {
         text: Some(nexora_multimodal::TextInput {
@@ -98,7 +77,7 @@ pub async fn delegate(prompt: &str) -> String {
          User input: {prompt}\n\
          Response (empathetic, emotionally aware):"
     );
-    call(&framed, 512, 0.8).await.unwrap_or_else(|e| {
+    crate::foundation::call_model(foundation(), &framed, 512, 0.8).await.unwrap_or_else(|e| {
         tracing::warn!("aether delegation call failed: {}", e);
         format!("[aether inference error: {}]", e)
     })
