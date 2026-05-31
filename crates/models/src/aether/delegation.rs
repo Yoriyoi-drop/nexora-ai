@@ -4,13 +4,19 @@ use crate::foundation::NxrAetherModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
 use nexora_multimodal::MultimodalResult;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn foundation() -> &'static NxrAetherModel {
     static F: OnceLock<NxrAetherModel> = OnceLock::new();
     F.get_or_init(NxrAetherModel::new)
+}
+
+pub fn inject_model(model_arc: Arc<CausalLM>) {
+    foundation().set_model_arc(model_arc);
 }
 
 fn init_classifier() {

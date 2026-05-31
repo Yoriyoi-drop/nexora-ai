@@ -2,13 +2,19 @@ use crate::cipher::classifier;
 use crate::cipher::classifier::ThreatClassifier;
 use crate::foundation::NxrCipherModel;
 use nexora_oracle::CodeLinterManager;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn foundation() -> &'static NxrCipherModel {
     static F: OnceLock<NxrCipherModel> = OnceLock::new();
     F.get_or_init(NxrCipherModel::new)
+}
+
+pub fn inject_model(model_arc: Arc<CausalLM>) {
+    foundation().set_model_arc(model_arc);
 }
 
 fn init_classifier() {

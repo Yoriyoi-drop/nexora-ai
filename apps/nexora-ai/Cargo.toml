@@ -20,6 +20,7 @@ nexora-monitoring = { path = "../../crates/monitoring" }
 nexora-agent = { path = "../../crates/agent" }
 nexora-api = { path = "../../crates/api" }
 nexora-runtime = { path = "../../crates/runtime" }
+nexora-models = { path = "../../crates/models" }
 
 tokio.workspace = true
 serde.workspace = true

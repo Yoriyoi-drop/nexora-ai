@@ -3,7 +3,9 @@ use crate::nexum::classifier;
 use crate::nexum::classifier::ComplexityClassifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
@@ -11,6 +13,10 @@ static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
 fn foundation() -> &'static NxrNexumModel {
     static F: OnceLock<NxrNexumModel> = OnceLock::new();
     F.get_or_init(NxrNexumModel::new)
+}
+
+pub fn inject_model(model_arc: Arc<CausalLM>) {
+    foundation().set_model_arc(model_arc);
 }
 
 fn init_classifier() {

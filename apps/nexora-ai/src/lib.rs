@@ -31,6 +31,27 @@ pub use server::{NexoraServer, ServerConfig};
 // --- Foundation model integration ---
 use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::global_registry};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
+
+// --- Model delegation agents ---
+use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis};
+
+/// Route a prompt through the active model's delegation agent.
+/// Each agent classifies the input, applies domain-specific framing,
+/// and generates a response using its internal CausalLM (shared with the registry).
+async fn delegate_for_model(model_id: NxrModelId, prompt: &str) -> String {
+    match model_id {
+        NxrModelId::Omnis => omnis::delegation::delegate(prompt).await,
+        NxrModelId::Vortex => vortex::delegation::delegate(prompt).await,
+        NxrModelId::Aether => aether::delegation::delegate(prompt).await,
+        NxrModelId::Spectra => spectra::delegation::delegate(prompt).await,
+        NxrModelId::Nexum => nexum::delegation::delegate(prompt).await,
+        NxrModelId::Axiom => axiom::delegation::delegate(prompt).await,
+        NxrModelId::Cipher => cipher::delegation::delegate(prompt).await,
+        NxrModelId::Swift => swift::delegation::delegate(prompt).await,
+        NxrModelId::Kronos => kronos::delegation::delegate(prompt).await,
+        NxrModelId::Genesis => genesis::delegation::delegate(prompt).await,
+    }
+}
 /// Create an InferenceEngine sharing the model from the registry via with_model().
 /// This avoids InferenceEngine::new() which creates a separate uninitialized CausalLM.
 pub async fn create_inference_engine(
@@ -547,32 +568,13 @@ impl NexoraAI {
         }
 
         info!(
-            "Generating text via inference engine ({} model): prompt={}, max_tokens={}, temperature={}",
+            "Generating text via {} model delegation agent: prompt={} chars",
             self.active_model_id,
             prompt.len(),
-            max_tokens,
-            temperature
         );
 
-        let request = nexora_inference::InferenceRequest {
-            request_id: uuid::Uuid::new_v4(),
-            model_id: self.active_model_id.to_string(),
-            prompt: prompt.to_string(),
-            max_tokens: max_tokens as u32,
-            temperature,
-            top_k: 50,
-            top_p: 1.0,
-            streaming: false,
-            ..Default::default()
-        };
-
-        let response = self
-            .inference_engine
-            .generate_internal(request)
-            .await
-            .map_err(|e| NexoraError::model(format!("Inference failed: {}", e)))?;
-
-        Ok(response.text)
+        let result = delegate_for_model(self.active_model_id, prompt).await;
+        Ok(result)
     }
 
     /// Chat conversation using inference engine
@@ -595,25 +597,14 @@ impl NexoraAI {
             conversation_id
         );
 
-        let request = nexora_inference::InferenceRequest {
-            request_id: uuid::Uuid::new_v4(),
-            model_id: self.active_model_id.to_string(),
-            prompt: message.to_string(),
-            max_tokens: 1024,
-            temperature: 0.7,
-            top_k: 50,
-            top_p: 0.95,
-            streaming: false,
-            ..Default::default()
-        };
+        info!(
+            "Chat via {} model delegation agent: {} chars",
+            self.active_model_id,
+            message.len(),
+        );
 
-        let response = self
-            .inference_engine
-            .generate_internal(request)
-            .await
-            .map_err(|e| NexoraError::model(format!("Chat inference failed: {}", e)))?;
-
-        Ok(response.text)
+        let result = delegate_for_model(self.active_model_id, message).await;
+        Ok(result)
     }
 
     /// Analyze code using inference engine

@@ -2,13 +2,19 @@ use crate::foundation::NxrKronosModel;
 use crate::kronos::classifier;
 use crate::kronos::classifier::TemporalClassifier;
 use nexora_reasoning::SacaEngine;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 fn foundation() -> &'static NxrKronosModel {
     static F: OnceLock<NxrKronosModel> = OnceLock::new();
     F.get_or_init(NxrKronosModel::new)
+}
+
+pub fn inject_model(model_arc: Arc<CausalLM>) {
+    foundation().set_model_arc(model_arc);
 }
 
 fn init_classifier() {

@@ -3284,6 +3284,7 @@ dependencies = [
  "nexora-infrastructure",
  "nexora-intelligence",
  "nexora-memory",
+ "nexora-models",
  "nexora-monitoring",
  "nexora-runtime",
  "nexora-tokenizer",

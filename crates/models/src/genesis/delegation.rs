@@ -2,7 +2,9 @@ use crate::foundation::NxrGenesisModel;
 use crate::genesis::classifier;
 use crate::genesis::classifier::QualityClassifier;
 use nexora_reasoning::SacaEngine;
+use std::sync::Arc;
 use std::sync::OnceLock;
+use nexora_transformer::CausalLM;
 
 const MAX_REFINEMENT_ITERATIONS: usize = 3;
 const QUALITY_THRESHOLD: f32 = 0.6;
@@ -12,6 +14,10 @@ static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 fn foundation() -> &'static NxrGenesisModel {
     static F: OnceLock<NxrGenesisModel> = OnceLock::new();
     F.get_or_init(NxrGenesisModel::new)
+}
+
+pub fn inject_model(model_arc: Arc<CausalLM>) {
+    foundation().set_model_arc(model_arc);
 }
 
 fn init_classifier() {

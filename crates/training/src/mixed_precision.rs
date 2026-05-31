@@ -176,7 +176,9 @@ impl MixedPrecisionTrainer {
             );
             optimizer.lr = new_lr;
 
-            optimizer.step();
+            if let Err(e) = optimizer.step() {
+                tracing::warn!("Mixed precision Adam step failed: {}", e);
+            }
             optimizer.zero_grad();
             self.base.step += 1;
             self.base.accumulation_counter = 0;

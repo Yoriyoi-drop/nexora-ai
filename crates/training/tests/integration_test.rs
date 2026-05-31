@@ -182,19 +182,19 @@ fn test_adam_converges_on_quadratic() {
     let mut opt = Adam::new(vec![x.clone()], 0.1);
 
     let mut prev_loss = f32::INFINITY;
-    for _ in 0..100 {
+    for step in 0..100 {
         let pred = x.clone().mul(&x.clone());
         let t_tensor = nexora_autograd::Tensor::from_slice(&[target * target], &[1]);
         let loss = (pred.sub(&t_tensor)).powf(2.0).mean();
         loss.backward();
 
-        opt.step();
-        opt.zero_grad();
-
-        let current_loss = loss.data()[0];
-        if current_loss < prev_loss {
-            prev_loss = current_loss;
+        let g = x.grad().map(|g| g[0]);
+        if step < 5 || step % 20 == 0 {
+            eprintln!("step={}: x={:.6}, loss={:.6}, grad={:?}", step, x.data()[0], loss.data()[0], g);
         }
+
+        opt.step().expect("Adam step should succeed");
+        opt.zero_grad();
     }
 
     let final_val = x.data()[0];

@@ -255,6 +255,7 @@ impl Tensor {
     }
 
     /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
+    #[cfg(any(feature = "gpu", feature = "cuda"))]
     pub fn data(&self) -> ArrayD<f32> {
         self.0.read().storage.to_cpu().unwrap_or_else(|e| {
             error!("Tensor::data GPU readback failed: {e}");
@@ -262,6 +263,13 @@ impl Tensor {
         })
     }
 
+    /// Returns an owned copy of the tensor data (CPU-only path).
+    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+    pub fn data(&self) -> ArrayD<f32> {
+        self.0.read().storage.to_cpu()
+    }
+
+    #[cfg(any(feature = "gpu", feature = "cuda"))]
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         match self.0.read().grad.as_ref() {
             Some(g) => match g.to_cpu() {
@@ -273,6 +281,11 @@ impl Tensor {
             },
             None => None,
         }
+    }
+
+    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+    pub fn grad(&self) -> Option<ArrayD<f32>> {
+        self.0.read().grad.as_ref().map(|g| g.to_cpu())
     }
 
     /// Returns the gradient storage directly (no CPU readback if on GPU).
@@ -288,10 +301,13 @@ impl Tensor {
         if inner.device == *target {
             return self.clone();
         }
+        #[cfg(any(feature = "gpu", feature = "cuda"))]
         let cpu_data = inner.storage.to_cpu().unwrap_or_else(|e| {
             error!("Tensor::to_device GPU readback failed: {e}, falling back to CPU");
             ArrayD::zeros(vec![0])
         });
+        #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+        let cpu_data = inner.storage.to_cpu();
         let requires_grad = inner.requires_grad;
         let grad = inner.grad.clone();
         let grad_fn_idx = inner.grad_fn_idx;

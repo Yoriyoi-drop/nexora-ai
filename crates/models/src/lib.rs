@@ -32,6 +32,27 @@ pub mod spectra;
 pub mod swift;
 pub mod vortex;
 
+use std::sync::Arc;
+use nexora_shared::model_identity::NxrModelId;
+use nexora_transformer::CausalLM;
+
+/// Inject a CausalLM model instance into the corresponding delegation agent singleton.
+/// Called during system initialization so the agent shares the registry's model.
+pub fn wire_model(model_id: NxrModelId, model_arc: Arc<CausalLM>) {
+    match model_id {
+        NxrModelId::Omnis => omnis::delegation::inject_model(model_arc),
+        NxrModelId::Vortex => vortex::delegation::inject_model(model_arc),
+        NxrModelId::Aether => aether::delegation::inject_model(model_arc),
+        NxrModelId::Spectra => spectra::delegation::inject_model(model_arc),
+        NxrModelId::Nexum => nexum::delegation::inject_model(model_arc),
+        NxrModelId::Axiom => axiom::delegation::inject_model(model_arc),
+        NxrModelId::Cipher => cipher::delegation::inject_model(model_arc),
+        NxrModelId::Swift => swift::delegation::inject_model(model_arc),
+        NxrModelId::Kronos => kronos::delegation::inject_model(model_arc),
+        NxrModelId::Genesis => genesis::delegation::inject_model(model_arc),
+    }
+}
+
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: quantized weight storage untuk model weights
 fn _models_quantize(weights: &ndarray::Array2<f32>, dtype: nexora_quantization::QuantizedDtype) -> nexora_quantization::QuantizedTensor {

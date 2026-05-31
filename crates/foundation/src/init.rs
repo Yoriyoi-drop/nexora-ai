@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use tracing::info;
 
-use nexora_transformer::TransformerConfig;
+use nexora_models::wire_model;
+use nexora_transformer::{CausalLM, TransformerConfig};
 
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
 use crate::shared::NxrModel;
@@ -170,21 +171,28 @@ async fn register_causal_lm(
 pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
-    // Register only actively used models (Omnis by default).
-    // Set NEXORA_ALL_MODELS=1 or enable feature "all-models" to load all 10.
-    let model_ids: Vec<NxrModelId> = if std::env::var("NEXORA_ALL_MODELS").is_ok() {
-        info!("NEXORA_ALL_MODELS set — registering all 10 NXR models");
-        NxrModelId::all()
-    } else {
-        vec![NxrModelId::Omnis]
-    };
+    // All 10 NXR models are active by default — each gets a real CausalLM instance.
+    let model_ids = NxrModelId::all();
 
-    for model_id in model_ids {
-        let tc = tier_config(model_id, vocab_size);
-        register_causal_lm(model_id, vocab_size, tc).await?;
+    for model_id in &model_ids {
+        let tc = tier_config(*model_id, vocab_size);
+        register_causal_lm(*model_id, vocab_size, tc).await?;
     }
 
-    info!("Foundation model(s) registered ✓");
+    // Wire each delegation agent to share the registry model instance
+    let registry = global_registry();
+    for model_id in &model_ids {
+        if let Ok(model_raw) = registry.get_model_raw(model_id).await {
+            if let Some(causal_lm_model) = model_raw.downcast_ref::<CausalLmModel>() {
+                if let Some(model_arc) = causal_lm_model.get_model_arc().await {
+                    wire_model(*model_id, model_arc);
+                    info!("Delegation agent wired for {}", model_id);
+                }
+            }
+        }
+    }
+
+    info!("All 10 NXR foundation models active with delegation agents ✓");
     Ok(())
 }
 

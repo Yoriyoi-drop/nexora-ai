@@ -191,10 +191,13 @@ pub(crate) fn backward_engine(output: &Tensor) {
                 if !used_gpu {
                     let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
                     if let Some(backward) = backward_fn {
+                        #[cfg(any(feature = "gpu", feature = "cuda"))]
                         let grad_cpu = grad_out_storage.to_cpu().unwrap_or_else(|e| {
                             tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}");
                             ndarray::ArrayD::zeros(grad_out_storage.shape())
                         });
+                        #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+                        let grad_cpu = grad_out_storage.to_cpu();
                         let grad_inputs = backward(&grad_cpu, &saved);
                         for (i, inp) in inputs.iter().enumerate() {
                             if i < grad_inputs.len() && inp.requires_grad() {
@@ -241,14 +244,21 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                         }
                                     }
                                 } else {
-                                    let storage = match crate::gpu::GpuContext::global() {
-                                        Ok(ctx) => match crate::gpu::GpuTensor::from_cpu(&g) {
-                                            Ok(g_gpu) => Storage::Gpu(g_gpu),
+                                    #[cfg(any(feature = "gpu", feature = "cuda"))]
+                                    {
+                                        let storage = match crate::gpu::GpuContext::global() {
+                                            Ok(ctx) => match crate::gpu::GpuTensor::from_cpu(&g) {
+                                                Ok(g_gpu) => Storage::Gpu(g_gpu),
+                                                Err(_) => Storage::Cpu(Arc::new(g)),
+                                            },
                                             Err(_) => Storage::Cpu(Arc::new(g)),
-                                        },
-                                        Err(_) => Storage::Cpu(Arc::new(g)),
-                                    };
-                                    grads.insert(inp.id(), storage);
+                                        };
+                                        grads.insert(inp.id(), storage);
+                                    }
+                                    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+                                    {
+                                        grads.insert(inp.id(), Storage::Cpu(Arc::new(g)));
+                                    }
                                 }
                             }
                         }

@@ -234,6 +234,13 @@ macro_rules! define_foundation_model {
                 guard
             }
 
+            /// Inject an externally-loaded CausalLM (e.g. from the registry)
+            /// so the delegation agent shares the same model instance as the inference engine.
+            pub fn set_model_arc(&self, model: Arc<CausalLM>) {
+                let mut guard = self.model.lock().unwrap();
+                *guard = Some((*model).clone());
+            }
+
             fn encode_text(&self, text: &str) -> Vec<u32> {
                 if let Some(ref tk) = self.tokenizer {
                     tk.read().encode(text)

@@ -441,7 +441,9 @@ impl Trainer {
 
             self.last_grad_norm = Some(compute_grad_norm(&optimizer.parameters));
 
-            optimizer.step();
+            if let Err(e) = optimizer.step() {
+                warn!("Adam step failed at step {}: {}", self.step, e);
+            }
             optimizer.zero_grad();
             self.step += 1;
             self.accumulation_counter = 0;

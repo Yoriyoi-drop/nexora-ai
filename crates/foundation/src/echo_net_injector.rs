@@ -41,6 +41,11 @@ impl EchoNetInjector {
         max_window: usize,
         alpha: f32,
     ) -> TransformerResult<Self> {
+        if hidden_size == 0 {
+            return Err(TransformerError::Implementation(
+                "hidden_size must be greater than 0".to_string(),
+            ));
+        }
         let apss = AdaptivePhaseSeparationStabilizer::new(
             hidden_size,
             phase_separation_strength,

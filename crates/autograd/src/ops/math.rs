@@ -862,14 +862,15 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                             return Tensor::from_cuda(cuda_result, id, false);
                         }
                         let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
-                        let result_cpu = input.data().mapv(|x| x.powf(exponent));
+                        let input_cpu = input.data();
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_result,
                             vec![input.clone()],
-                            vec![exponent_saved, result_cpu],
+                            vec![exponent_saved, input_cpu],
                             Box::new(|grad, saved| {
                                 let exp = saved[0][IxDyn(&[])];
-                                let da = grad.clone() * exp * saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                let input_val = &saved[1];
+                                let da = grad.clone() * exp * input_val.mapv(|x| x.powf(exp - 1.0));
                                 vec![da]
                             }),
                         );
@@ -898,19 +899,18 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                                 return Tensor::from_gpu(gpu_result, id, false);
                             }
                             let exponent_saved = ArrayD::from_elem(IxDyn(&[]), exponent);
-                            let result_cpu = result_arr;
+                            let input_cpu = input.data();
                             let exponent_val = exponent;
                             let gpu_result_for_saved = gpu_result.clone();
                             return Tensor::from_gpu_with_grad_fn(
                                 gpu_result,
                                 vec![input.clone()],
-                                vec![exponent_saved, result_cpu],
+                                vec![exponent_saved, input_cpu],
                                 vec![gpu_input.clone(), gpu_result_for_saved],
                                 Box::new(|grad, saved| {
                                     let exp = saved[0][IxDyn(&[])];
-                                    let result_val = &saved[1];
-                                    let da = grad.clone() * exp * result_val
-                                        / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+                                    let input_val = &saved[1];
+                                    let da = grad.clone() * exp * input_val.mapv(|x| x.powf(exp - 1.0));
                                     vec![da]
                                 }),
                                 Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
@@ -949,11 +949,11 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
     Tensor::with_grad_fn(
         result.clone(),
         vec![input.clone()],
-        vec![ArrayD::from_elem(IxDyn(&[]), exponent), result.clone()],
+        vec![ArrayD::from_elem(IxDyn(&[]), exponent), data.clone()],
         Box::new(|grad, saved| {
             let exp = saved[0][IxDyn(&[])];
-            let result_val = &saved[1];
-            let da = grad.clone() * exp * result_val / saved[1].mapv(|x| x.powf((exp - 1.0) / exp));
+            let input_val = &saved[1];
+            let da = grad.clone() * exp * input_val.mapv(|x| x.powf(exp - 1.0));
             vec![da]
         }),
     )

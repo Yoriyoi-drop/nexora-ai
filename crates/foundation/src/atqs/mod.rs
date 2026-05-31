@@ -212,8 +212,11 @@ mod tests {
         let mut result = EdgeOptimizedCompression::new();
         let config = AtqsSwiftConfig::default();
         result.combine_results(&config);
+        // Default config: target_latency_ms=1 → ultra-low latency rec,
+        // edge_compression_level=4 → high compression ratio rec
         assert!(result.edge_recommendations.len() >= 2);
-        assert!(result.edge_recommendations[0].contains("4-bit quantization"));
+        assert!(result.edge_recommendations[0].contains("Ultra-low latency"));
+        assert!(result.edge_recommendations[1].contains("High compression"));
     }
 
     #[test]
