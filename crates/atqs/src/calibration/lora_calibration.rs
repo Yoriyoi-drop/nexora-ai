@@ -238,8 +238,8 @@ fn compute_adaptive_lora_rank(in_dim: usize, out_dim: usize) -> Result<usize, cr
 fn create_optimizer(config: &LoRACalibrationConfig) -> Result<LoRAOptimizer, crate::ATQSError> {
     Ok(LoRAOptimizer {
         learning_rate: config.learning_rate,
-        momentum: 0.9,
-        weight_decay: 0.01,
+        _momentum: 0.9,
+        _weight_decay: 0.01,
         step: 0,
     })
 }
@@ -564,8 +564,8 @@ struct CalibrationBatch {
 #[derive(Debug, Clone)]
 struct LoRAOptimizer {
     learning_rate: f32,
-    momentum: f32,
-    weight_decay: f32,
+    _momentum: f32,
+    _weight_decay: f32,
     step: usize,
 }
 

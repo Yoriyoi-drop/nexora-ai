@@ -47,26 +47,32 @@ pub async fn delegate(prompt: &str) -> String {
     let ids = token_ids(prompt);
     let expert_route = {
         let f = foundation();
-        let guard = f.model.lock().unwrap();
-        let embed = guard.as_ref().and_then(|m| m.token_embedding.as_ref());
-        embed.and_then(|embed_table| {
-            let avg = classifier_util::embed_average(embed_table, &ids);
-            let embed_dim = avg.len();
-            if embed_dim == 0 { return None; }
-            let moe = Router::new(embed_dim, 5, 1);
-            let input_array = avg.into_shape((1, embed_dim)).ok()?;
-            let moe_weights = moe.forward(&input_array);
-            let top_expert = (0..moe_weights.shape()[1])
-                .max_by(|&a, &b| moe_weights[[0, a]].partial_cmp(&moe_weights[[0, b]]).unwrap_or(std::cmp::Ordering::Equal))
-                .unwrap_or(0);
-            Some(match top_expert {
-                0 => "qa",
-                1 => "summarize",
-                2 => "translate",
-                3 => "generate",
-                _ => "analyze",
-            })
-        })
+        match f.model.lock() {
+            Ok(guard) => {
+                guard.as_ref().and_then(|m| m.token_embedding.as_ref()).and_then(|embed_table| {
+                    let avg = classifier_util::embed_average(embed_table, &ids);
+                    let embed_dim = avg.len();
+                    if embed_dim == 0 { return None; }
+                    let moe = Router::new(embed_dim, 5, 1);
+                    let input_array = avg.into_shape((1, embed_dim)).ok()?;
+                    let moe_weights = moe.forward(&input_array);
+                    let top_expert = (0..moe_weights.shape()[1])
+                        .max_by(|&a, &b| moe_weights[[0, a]].partial_cmp(&moe_weights[[0, b]]).unwrap_or(std::cmp::Ordering::Equal))
+                        .unwrap_or(0);
+                    Some(match top_expert {
+                        0 => "qa",
+                        1 => "summarize",
+                        2 => "translate",
+                        3 => "generate",
+                        _ => "analyze",
+                    })
+                })
+            }
+            Err(e) => {
+                tracing::warn!("Swift model lock poisoned: {}", e);
+                None
+            }
+        }
     };
 
     let framed = if let Some(route) = expert_route {

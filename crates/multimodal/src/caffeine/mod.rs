@@ -175,7 +175,7 @@ impl Caffeine {
             let compressor = self
                 .atqs_compression
                 .as_mut()
-                .unwrap_or_else(|| unreachable!("atqs_compression checked Some above"));
+                .expect("atqs_compression checked Some above");
             let compressed = compressor.compress_tensor_data(&tensor)?;
             self.tensor_to_tokens(&compressed, &tokens)?
         } else {

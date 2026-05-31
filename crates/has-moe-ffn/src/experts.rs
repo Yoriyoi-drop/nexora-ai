@@ -164,7 +164,6 @@ impl Expert {
     /// GPU-accelerated forward pass
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: &[f32]) -> Option<Vec<f32>> {
-        use ndarray::ArrayD;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
         use tracing::warn;

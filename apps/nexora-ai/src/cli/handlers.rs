@@ -350,6 +350,16 @@ impl Cli {
                             .await
                     }
                     Commands::Memory { action } => self.run_memory(&nexora, action).await,
+                    Commands::Benchmark {
+                        model: _model,
+                        warmup,
+                        samples,
+                        output,
+                        format,
+                        no_gpu,
+                    } => self
+                        .run_benchmark(&nexora, *warmup, *samples, output, format, *no_gpu)
+                        .await,
                     other => {
                         warn!("Unexpected command variant in inner handler: {:?}", other);
                         return Err(NexoraError::processing(format!(
@@ -1413,6 +1423,47 @@ impl Cli {
                 println!("Memory imported: {} entries restored.", content.len());
             }
         }
+        Ok(())
+    }
+
+    /// Run benchmark command — mengukur 9 metrik production
+    async fn run_benchmark(
+        &self,
+        nexora: &NexoraAI,
+        warmup: usize,
+        samples: usize,
+        output: &Option<PathBuf>,
+        format: &str,
+        _no_gpu: bool,
+    ) -> NexoraResult<()> {
+        info!("Starting benchmark with warmup={}, samples={}", warmup, samples);
+
+        let runner = super::benchmark::BenchmarkRunner::new(std::sync::Arc::new(nexora.clone()))
+            .with_warmup(warmup)
+            .with_samples(samples);
+
+        let report = runner.run_full().await?;
+
+        match format {
+            "json" => {
+                let json_str = report.to_json_string()?;
+                self.write_output(&json_str, output)?;
+            }
+            "text" => {
+                let formatted = report.to_formatted_string();
+                // Intentional CLI stdout output for benchmark results
+                println!("{}", formatted);
+                if let Some(path) = output {
+                    std::fs::write(path, &formatted)
+                        .map_err(|e| NexoraError::Io { source: e })?;
+                    info!("Benchmark report written to {:?}", path);
+                }
+            }
+            _ => {
+                return Err(NexoraError::validation("format", "Unsupported format. Use text or json."))
+            }
+        }
+
         Ok(())
     }
 }

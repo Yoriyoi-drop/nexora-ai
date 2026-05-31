@@ -316,9 +316,9 @@ impl TimeAnalyzerAgent {
 
         // Simple trend calculation
         if values.len() > 1 {
-            let trend = (values.last().expect("values.len() > 1")
-                - values.first().expect("values.len() > 1"))
-                / values.len() as f32;
+            let last = values.last().copied().unwrap_or(values[0]);
+            let first = values.first().copied().unwrap_or(values[0]);
+            let trend = (last - first) / values.len() as f32;
             trends.insert("trend".to_string(), trend);
         }
 

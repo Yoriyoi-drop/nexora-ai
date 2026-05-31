@@ -88,6 +88,23 @@ pub static POOL_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 pub static POOL_BYTES_ALLOCATED: AtomicU64 = AtomicU64::new(0);
 pub static POOL_BYTES_REUSED: AtomicU64 = AtomicU64::new(0);
 
+// ── Benchmark / Profiling Accumulators ──────────────────────────────────
+
+/// Cumulative prefill time in microseconds (all steps).
+pub static TOTAL_PREFILL_TIME_US: AtomicU64 = AtomicU64::new(0);
+/// Cumulative decode time in microseconds (all steps).
+pub static TOTAL_DECODE_TIME_US: AtomicU64 = AtomicU64::new(0);
+/// Total tokens processed during prefill phases.
+pub static TOTAL_PREFILL_TOKENS: AtomicU64 = AtomicU64::new(0);
+/// Total tokens generated during decode phases.
+pub static TOTAL_DECODE_TOKENS: AtomicU64 = AtomicU64::new(0);
+/// Number of step() calls recorded (for averaging).
+pub static TOTAL_STEPS: AtomicU64 = AtomicU64::new(0);
+/// Peak GPU memory bytes observed (via nvml or process RSS).
+pub static PEAK_GPU_MEM_BYTES: AtomicU64 = AtomicU64::new(0);
+/// Peak CPU memory bytes observed.
+pub static PEAK_CPU_MEM_BYTES: AtomicU64 = AtomicU64::new(0);
+
 /// Returns current GPU forward error count.
 pub fn gpu_forward_error_count() -> u64 {
     GPU_FORWARD_ERRORS.load(Ordering::Relaxed)

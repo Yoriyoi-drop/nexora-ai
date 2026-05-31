@@ -195,6 +195,14 @@ pub struct StepResult {
     /// Padding waste ratio for this batch (0.0 = perfect fill, 1.0 = all waste).
     /// Higher values indicate inefficient batching.
     pub padding_waste: f64,
+    /// Time spent in prefill phase (PHASE 1) in microseconds.
+    pub prefill_time_us: u64,
+    /// Time spent in generation phase (PHASE 2) in microseconds.
+    pub decode_time_us: u64,
+    /// Number of tokens prefilled in this step.
+    pub prefill_tokens: usize,
+    /// Number of tokens decoded in this step.
+    pub decode_tokens: usize,
 }
 
 /// A continuous batching engine that manages multiple sequences.
@@ -818,6 +826,10 @@ where
                 idle: active_count == 0,
                 batch_size: 0,
                 padding_waste: 0.0,
+                prefill_time_us: 0,
+                decode_time_us: 0,
+                prefill_tokens: 0,
+                decode_tokens: 0,
             };
         }
 
@@ -841,21 +853,25 @@ where
             0.0
         };
 
+        let mut prefill_time_us: u64 = 0;
+        let mut decode_time_us: u64 = 0;
+        let mut prefill_tokens: usize = 0;
+        let mut decode_tokens: usize = 0;
+
         // --- PHASE 0: GPU prefix cache sharing ---
-        // Before executing prefill, copy K/V from previously-prefilled sequences
-        // that share a prompt prefix, so we can skip the common prefix computation.
         if !prefill_ids.is_empty() {
             self.try_gpu_prefix_sharing(&prefill_ids);
             self.try_paged_prefix_sharing(&prefill_ids);
         }
 
         // --- PHASE 1: Position-by-position batched prefill ---
-        // All prefill sequences' remaining prompt tokens are processed via
-        // [`forward_prefill_batched`], which processes position-by-position:
-        // at each position P, ALL sequences still in prefill have their P-th
-        // remaining token processed together. This replaces the old per-sequence
-        // prefill loop and provides the foundation for true GPU batched prefill.
+        let phase1_start = Instant::now();
         if !prefill_ids.is_empty() {
+            // Count remaining prompt tokens for prefill tracking
+            let prefill_tokens_before: usize = prefill_ids.iter().filter_map(|sid| {
+                self.sequences.get(sid).map(|seq| seq.prompt.len().saturating_sub(seq.prompt_pos))
+            }).sum();
+
             // Extract KV caches for prefill sequences
             let mut prefill_caches: Vec<(u64, Box<dyn KVCacheProvider>)> = prefill_ids
                 .iter()
@@ -873,6 +889,8 @@ where
                     prompt_tokens.push(&seq.prompt[seq.prompt_pos..]);
                 }
             }
+
+            prefill_tokens = prefill_tokens_before;
 
             let logits_vec = self
                 .model
@@ -897,6 +915,13 @@ where
                 if let Some(seq) = self.sequences.get_mut(&sid) {
                     seq.prompt_pos = seq.prompt.len();
                     seq.state = SeqState::Generating;
+                }
+            }
+
+            // Count tokens processed in prefill
+            for sid in &prefill_ids {
+                if let Some(seq) = self.sequences.get(sid) {
+                    prefill_tokens += seq.prompt.len().saturating_sub(seq.prompt_pos - seq.prompt.len().min(seq.prompt_pos));
                 }
             }
 
@@ -954,7 +979,11 @@ where
             }
         }
 
+        // Record prefill timing
+        prefill_time_us = phase1_start.elapsed().as_micros() as u64;
+
         // --- PHASE 2: Batched generation for non-prefill sequences ---
+        let phase2_start = Instant::now();
         if !gen_ids.is_empty() {
             let mut gen_boxed_caches: Vec<Box<dyn KVCacheProvider>> =
                 Vec::with_capacity(gen_ids.len());
@@ -1174,8 +1203,20 @@ where
             count.max(1)
         };
 
+        // Record decode timing and count decoded tokens
+        decode_time_us = phase2_start.elapsed().as_micros() as u64;
+        decode_tokens = gen_ids.len();
+
         // Update adaptive batching and load shedding after each step
         self.update_adaptive_batch_size(tokens_in_step);
+
+        // Update cumulative benchmark statics
+        use crate::inference_trait::*;
+        TOTAL_PREFILL_TIME_US.fetch_add(prefill_time_us, std::sync::atomic::Ordering::Relaxed);
+        TOTAL_DECODE_TIME_US.fetch_add(decode_time_us, std::sync::atomic::Ordering::Relaxed);
+        TOTAL_PREFILL_TOKENS.fetch_add(prefill_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+        TOTAL_DECODE_TOKENS.fetch_add(decode_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+        TOTAL_STEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // Update global observability atomics
         crate::inference_trait::SCHEDULER_QUEUE_DEPTH
@@ -1197,6 +1238,10 @@ where
             idle: ready.is_empty() && active_count == 0,
             batch_size: total_in_batch,
             padding_waste,
+            prefill_time_us,
+            decode_time_us,
+            prefill_tokens,
+            decode_tokens,
         }
     }
 

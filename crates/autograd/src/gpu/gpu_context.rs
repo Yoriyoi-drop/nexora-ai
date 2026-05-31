@@ -1522,19 +1522,7 @@ impl GpuContext {
                         buffer: buf,
                         offset: byte_offset,
                         size: wgpu::BufferSize::new(chunk_bytes),
-                    });
-                }
-                for &(binding, buf) in uniform_bindings {
-                    entries.push(wgpu::BindGroupEntry {
-                        binding,
-                        resource: buf.as_entire_binding(),
-                    });
-                }
-
-                let chunk_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("dispatch_1d_chunk"),
-                    layout: &pipeline.bind_group_layout,
-                    entries: &entries,
+                    }),
                 });
             }
             for &(binding, buf) in uniform_bindings {
@@ -6958,7 +6946,7 @@ fn dropout_mask_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let rate = bitcast<f32>(cfg.y);
     let scale = bitcast<f32>(cfg.z);
     var rng_state = cfg.w ^ (idx * 0x9E3779B9u);
-    let _ = xorshift64(&rng_state);
+    _ = xorshift64(&rng_state);
     let r = random_f32(&rng_state);
     mask[idx] = select(0.0, scale, r >= rate);
 }

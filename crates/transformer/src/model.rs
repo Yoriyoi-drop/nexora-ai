@@ -3178,39 +3178,40 @@ impl CausalLM {
                 tensors.push((format!("{}ffn_norm.weight", p), cpu.into_dyn()));
             }
 
-            // GQA weights
-            let gqa_all = if block.attention.wq.is_some() { None } else {
-                Some(block.attention.readback_weights().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}attention readback: {:?}", p, e)))?)
-            };
-            let gqa_get = |idx: usize| -> Array2<f32> {
-                match idx {
-                    0 => gqa_all.as_ref().map(|a| a.0.clone()).unwrap_or_else(|| block.attention.wq.as_ref().unwrap().clone()),
-                    1 => gqa_all.as_ref().map(|a| a.1.clone()).unwrap_or_else(|| block.attention.wk.as_ref().unwrap().clone()),
-                    2 => gqa_all.as_ref().map(|a| a.2.clone()).unwrap_or_else(|| block.attention.wv.as_ref().unwrap().clone()),
-                    _ => gqa_all.as_ref().map(|a| a.3.clone()).unwrap_or_else(|| block.attention.wo.as_ref().unwrap().clone()),
-                }
-            };
-            tensors.push((format!("{}attention.wq", p), gqa_get(0).into_dyn()));
-            tensors.push((format!("{}attention.wk", p), gqa_get(1).into_dyn()));
-            tensors.push((format!("{}attention.wv", p), gqa_get(2).into_dyn()));
-            tensors.push((format!("{}attention.wo", p), gqa_get(3).into_dyn()));
+            // GQA weights — readback from GPU if no CPU copy, else use CPU weights
+            if block.attention.wq.is_some() {
+                let a = block.attention.wq.as_ref().expect("wq available per guard above");
+                tensors.push((format!("{}attention.wq", p), a.clone().into_dyn()));
+                let a = block.attention.wk.as_ref().expect("wk available per guard above");
+                tensors.push((format!("{}attention.wk", p), a.clone().into_dyn()));
+                let a = block.attention.wv.as_ref().expect("wv available per guard above");
+                tensors.push((format!("{}attention.wv", p), a.clone().into_dyn()));
+                let a = block.attention.wo.as_ref().expect("wo available per guard above");
+                tensors.push((format!("{}attention.wo", p), a.clone().into_dyn()));
+            } else {
+                let g = block.attention.readback_weights().map_err(|e|
+                    crate::TransformerError::Implementation(format!("{}attention readback: {:?}", p, e)))?;
+                tensors.push((format!("{}attention.wq", p), g.0.into_dyn()));
+                tensors.push((format!("{}attention.wk", p), g.1.into_dyn()));
+                tensors.push((format!("{}attention.wv", p), g.2.into_dyn()));
+                tensors.push((format!("{}attention.wo", p), g.3.into_dyn()));
+            }
 
-            // SwiGLU weights
-            let ffn_all = if block.ffn.w1.is_some() { None } else {
-                Some(block.ffn.readback_weights().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}ffn readback: {:?}", p, e)))?)
-            };
-            let ffn_get = |idx: usize| -> Array2<f32> {
-                match idx {
-                    0 => ffn_all.as_ref().map(|a| a.0.clone()).unwrap_or_else(|| block.ffn.w1.as_ref().unwrap().clone()),
-                    1 => ffn_all.as_ref().map(|a| a.1.clone()).unwrap_or_else(|| block.ffn.w2.as_ref().unwrap().clone()),
-                    _ => ffn_all.as_ref().map(|a| a.2.clone()).unwrap_or_else(|| block.ffn.w3.as_ref().unwrap().clone()),
-                }
-            };
-            tensors.push((format!("{}ffn.w1", p), ffn_get(0).into_dyn()));
-            tensors.push((format!("{}ffn.w2", p), ffn_get(1).into_dyn()));
-            tensors.push((format!("{}ffn.w3", p), ffn_get(2).into_dyn()));
+            // SwiGLU weights — same pattern
+            if block.ffn.w1.is_some() {
+                let a = block.ffn.w1.as_ref().expect("w1 available per guard above");
+                tensors.push((format!("{}ffn.w1", p), a.clone().into_dyn()));
+                let a = block.ffn.w2.as_ref().expect("w2 available per guard above");
+                tensors.push((format!("{}ffn.w2", p), a.clone().into_dyn()));
+                let a = block.ffn.w3.as_ref().expect("w3 available per guard above");
+                tensors.push((format!("{}ffn.w3", p), a.clone().into_dyn()));
+            } else {
+                let g = block.ffn.readback_weights().map_err(|e|
+                    crate::TransformerError::Implementation(format!("{}ffn readback: {:?}", p, e)))?;
+                tensors.push((format!("{}ffn.w1", p), g.0.into_dyn()));
+                tensors.push((format!("{}ffn.w2", p), g.1.into_dyn()));
+                tensors.push((format!("{}ffn.w3", p), g.2.into_dyn()));
+            }
         }
 
         Ok(tensors)

@@ -361,6 +361,34 @@ pub enum Commands {
         #[command(subcommand)]
         action: MemoryAction,
     },
+
+    /// Benchmark & profiling nyata — mengukur 9 metrik production
+    #[command(aliases = &["bench", "perf"])]
+    Benchmark {
+        /// Model ID to benchmark (default: active model)
+        #[arg(short, long)]
+        model: Option<String>,
+
+        /// Number of warmup rounds
+        #[arg(long, default_value = "2")]
+        warmup: usize,
+
+        /// Number of sample rounds
+        #[arg(long, default_value = "5")]
+        samples: usize,
+
+        /// Output file for JSON report
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+
+        /// Skip GPU benchmarks
+        #[arg(long)]
+        no_gpu: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

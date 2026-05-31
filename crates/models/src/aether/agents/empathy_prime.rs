@@ -625,7 +625,7 @@ impl EmpathyPrimeAgent {
         let primary_emotion = emotions
             .iter()
             .max_by(|a, b| a.intensity.total_cmp(&b.intensity))
-            .expect("emotions is non-empty");
+            .unwrap_or(&emotions[0]);
 
         match primary_emotion.name.as_str() {
             "sadness" => "feeling down and experiencing sadness".to_string(),

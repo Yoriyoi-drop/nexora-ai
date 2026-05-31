@@ -426,7 +426,7 @@ impl NexoraAI {
         })
     }
 
-    fn model_id(&self) -> NxrModelId {
+    pub fn model_id(&self) -> NxrModelId {
         self.active_model_id
     }
 

@@ -48,7 +48,7 @@ impl OmnisMoERouter {
         }
 
         let avg = classifier_util::embed_average(&self.embed_table, token_ids);
-        let input = avg.clone().into_shape((1, avg.len())).unwrap();
+        let input = avg.clone().into_shape((1, avg.len())).expect("reshape 1D→2D with matching element count");
         let probs = self.moe_router.forward(&input);
 
         let mut results: Vec<_> = DOMAINS

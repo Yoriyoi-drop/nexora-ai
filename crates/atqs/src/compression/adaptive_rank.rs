@@ -643,7 +643,7 @@ impl CompressionEngine {
             }
             _ => {
                 // 3D+: Tucker decomposition
-                let mut ranks = vec![rank; ndim];
+                let ranks = vec![rank; ndim];
                 let decomp = crate::core::tensor_ops::tucker_decompose(tensor, &ranks)?;
                 let reconstructed = crate::core::tensor_ops::tucker_reconstruct(&decomp)?;
                 Ok(reconstructed)
