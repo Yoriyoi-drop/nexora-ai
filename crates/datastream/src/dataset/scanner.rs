@@ -25,6 +25,7 @@ impl Default for ShardScanner {
                 "arrow.zst".into(),
                 "arrow.zstd".into(),
                 "arrow.lz4".into(),
+                "parquet".into(),
             ],
         }
     }
@@ -85,7 +86,7 @@ impl ShardScanner {
         let fname = path.file_name()?.to_string_lossy().to_lowercase();
         let ext = path.extension()?.to_string_lossy().to_lowercase();
 
-        if ext == "arrow" {
+        if ext == "arrow" || ext == "parquet" {
             let compression = Compression::None;
             let size = match std::fs::metadata(path) {
                 Ok(m) => m.len(),
@@ -169,7 +170,7 @@ mod tests {
     fn test_scanner_default() {
         let s = ShardScanner::default();
         assert!(s.recursive);
-        assert_eq!(s.allowed_extensions.len(), 4);
+        assert_eq!(s.allowed_extensions.len(), 5);
     }
 
     #[test]
@@ -196,6 +197,19 @@ mod tests {
         let path = std::env::temp_dir().join("test_shard.arrow");
         // Create a minimal file so metadata works
         std::fs::write(&path, b"some data").ok();
+        let s = ShardScanner::default();
+        let result = s.classify_shard(&path);
+        assert!(result.is_some());
+        let shard = result.unwrap();
+        assert_eq!(shard.compression, Compression::None);
+        assert!(!shard.path.to_string_lossy().is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_classify_shard_parquet() {
+        let path = std::env::temp_dir().join("test_shard.parquet");
+        std::fs::write(&path, b"PAR1some data").ok();
         let s = ShardScanner::default();
         let result = s.classify_shard(&path);
         assert!(result.is_some());

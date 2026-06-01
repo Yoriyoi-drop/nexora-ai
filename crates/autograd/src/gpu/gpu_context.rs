@@ -2306,6 +2306,12 @@ impl GpuContext {
             .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
         let c_buffer = self.alloc_or_create_buffer(
             c_size,
             wgpu::BufferUsages::STORAGE
@@ -2416,6 +2422,12 @@ impl GpuContext {
             .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul_f16 output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
         let c_buffer = self.alloc_or_create_buffer(
             c_size,
             wgpu::BufferUsages::STORAGE
@@ -2536,6 +2548,12 @@ impl GpuContext {
             .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul_int8 output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
         let c_buffer = self.alloc_or_create_buffer(
             c_size,
             wgpu::BufferUsages::STORAGE
@@ -2666,6 +2684,12 @@ impl GpuContext {
             .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
 
         let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul_int8_weight output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
         let c_buffer = self.alloc_or_create_buffer(
             c_size,
             wgpu::BufferUsages::STORAGE

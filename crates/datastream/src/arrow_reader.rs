@@ -1,9 +1,29 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::path::Path;
 use uuid::Uuid;
 
 use crate::types::{DataSample, SampleStats, SourceInfo};
 use arrow::array::{Array, LargeStringArray, StringArray};
+
+/// Check magic bytes to help diagnose mislabeled files.
+/// Returns a description of the detected format, or None if unrecognized.
+fn detect_actual_format(path: &Path) -> Option<&'static str> {
+    let mut buf = [0u8; 8];
+    let file = std::fs::File::open(path).ok()?;
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(file);
+    reader.read_exact(&mut buf).ok()?;
+
+    match &buf[..4] {
+        b"PAR1" => Some("Apache Parquet"),
+        [0x28, 0xB5, 0x2F, 0xFD] => Some("Zstandard compressed data"),
+        [0x04, 0x22, 0x4D, 0x18] => Some("LZ4 compressed data"),
+        _ => match &buf[..6] {
+            b"ARROW1" => None, // correct format
+            _ => Some("unknown (not Arrow IPC File format)"),
+        },
+    }
+}
 
 fn get_text_value(col: &dyn Array, i: usize) -> Option<String> {
     if let Some(arr) = col.as_any().downcast_ref::<StringArray>() {
@@ -19,20 +39,87 @@ fn get_text_value(col: &dyn Array, i: usize) -> Option<String> {
     None
 }
 
+fn is_zstd_compressed(path: &Path) -> bool {
+    use std::io::Read;
+    let mut buf = [0u8; 4];
+    if let Ok(file) = std::fs::File::open(path) {
+        let mut reader = std::io::BufReader::new(file);
+        if reader.read_exact(&mut buf).is_ok() {
+            return &buf == &[0x28, 0xB5, 0x2F, 0xFD];
+        }
+    }
+    false
+}
+
+fn decompress_zstd(path: &Path) -> Result<std::fs::File> {
+    #[cfg(feature = "compression-zstd")]
+    {
+        let compressed = std::fs::read(path)
+            .with_context(|| format!("Failed to read compressed file: {}", path.display()))?;
+
+        let decoder = zstd::decode_all(&compressed[..])
+            .with_context(|| format!("Failed to decompress zstd file: {}", path.display()))?;
+
+        // Write to temp file
+        let temp_path = path.with_extension("arrow.tmp");
+        std::fs::write(&temp_path, decoder)
+            .with_context(|| format!("Failed to write decompressed data: {}", temp_path.display()))?;
+
+        std::fs::File::open(&temp_path)
+            .with_context(|| format!("Failed to open decompressed file: {}", temp_path.display()))
+    }
+
+    #[cfg(not(feature = "compression-zstd"))]
+    {
+        anyhow::bail!("zstd compression support not enabled. Rebuild with --features compression-zstd or decompress the file manually: zstd -d {} -o {}", path.display(), path.with_extension("arrow").display())
+    }
+}
+
 pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>> {
     use arrow::ipc::reader::FileReader;
 
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("Failed to open arrow file: {}", path.display()))?;
+    // Check if file is zstd-compressed and decompress if needed
+    let file = if is_zstd_compressed(path) {
+        decompress_zstd(path)?
+    } else {
+        std::fs::File::open(path)
+            .with_context(|| format!("Failed to open arrow file: {}", path.display()))?
+    };
 
-    let reader = FileReader::try_new(file, None)
-        .with_context(|| format!("Failed to read arrow IPC file: {}", path.display()))?;
+    let reader = match FileReader::try_new(file, None) {
+        Ok(r) => r,
+        Err(err) => {
+            let hint = detect_actual_format(path)
+                .map(|fmt| format!(". Detected format: {fmt}. If this is a {fmt} file, rename to .parquet or use the correct --data format."))
+                .unwrap_or_default();
+            bail!(
+                "Failed to read arrow IPC file: {}\n  Reason: {}\n  Hint: File has .arrow extension but is not valid Arrow IPC format{}",
+                path.display(),
+                err,
+                hint,
+            );
+        }
+    };
 
     let schema = reader.schema();
+
     let text_idx = schema
         .index_of("text")
         .or_else(|_| schema.index_of("Text"))
-        .map_err(|_| anyhow::anyhow!("Arrow file must have a 'text' or 'Text' column"))?;
+        .or_else(|_| schema.index_of("input"))
+        .or_else(|_| schema.index_of("Input"));
+
+    let output_idx = schema
+        .index_of("output")
+        .or_else(|_| schema.index_of("Output"))
+        .ok();
+
+    let text_idx = text_idx.map_err(|_| {
+        anyhow::anyhow!(
+            "Arrow file must have a 'text', 'Text', or 'input' column. Found columns: {:?}",
+            schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>()
+        )
+    })?;
 
     let mut samples = Vec::new();
 
@@ -42,6 +129,19 @@ pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample
 
         for i in 0..col.len() {
             let text = get_text_value(col, i).unwrap_or_default();
+            let text = if let Some(out_idx) = &output_idx {
+                let output_col = batch.column(*out_idx);
+                let output = get_text_value(output_col, i).unwrap_or_default();
+                if output.is_empty() {
+                    text
+                } else if text.is_empty() {
+                    output
+                } else {
+                    format!("{}\n{}", text, output)
+                }
+            } else {
+                text
+            };
             samples.push(DataSample {
                 id: Uuid::new_v4(),
                 text,

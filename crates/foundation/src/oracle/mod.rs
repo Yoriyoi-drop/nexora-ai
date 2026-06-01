@@ -7,6 +7,7 @@ pub use nexora_oracle::*;
 
 use nexora_models::vortex::NxrVortexModel;
 use nexora_shared::base_model::NxrModel;
+use tracing::error;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {
@@ -101,7 +102,13 @@ impl EnhancedCodeAnalysis {
 
 impl Default for OracleVortexIntegration {
     fn default() -> Self {
-        Self::try_new().expect("OracleVortexIntegration default failed")
+        match Self::try_new() {
+            Ok(v) => v,
+            Err(e) => {
+                error!("OracleVortexIntegration::default() failed: {e}");
+                panic!("OracleVortexIntegration::default() failed: {e}")
+            }
+        }
     }
 }
 

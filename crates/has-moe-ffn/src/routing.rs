@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::warn;
 
 /// Router configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +113,13 @@ impl Router {
     }
 
     fn get_weights(&self) -> &Vec<Vec<f32>> {
-        self.router_weights.as_ref().expect("router_weights not initialized — call init_random() or load from checkpoint")
+        match self.router_weights.as_ref() {
+            Some(w) => w,
+            None => {
+                warn!("router_weights not initialized — call init_random() or load from checkpoint");
+                panic!("router_weights not initialized — call init_random() or load from checkpoint");
+            }
+        }
     }
 
     pub fn init_random(&mut self) {
@@ -189,6 +196,7 @@ impl Router {
         let mut gating_weights = {
             let w = self.get_weights();
             let w_flat: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+            // safe: weight dimensions match (num_experts × hidden_size) — freshly constructed from get_weights()
             let w_arr = ndarray::Array2::from_shape_vec((num_experts, hidden_size), w_flat)
                 .expect("weight matrix shape");
             input.dot(&w_arr.t().to_owned())

@@ -55,15 +55,35 @@ pub struct TrainableSwiGLU {
 
 impl TrainableCausalLM {
     pub fn from_inference(model: &CausalLM) -> Self {
-        let to_tensor = |arr: &Array2<f32>| -> Tensor {
-            let t = Tensor::new(arr.clone().into_dyn());
-            t.set_requires_grad(true);
-            t
+        let to_tensor = |arr: Option<&Array2<f32>>, name: &str| -> Tensor {
+            match arr {
+                Some(a) => {
+                    let t = Tensor::new(a.clone().into_dyn());
+                    t.set_requires_grad(true);
+                    t
+                }
+                None => {
+                    tracing::warn!("{} not available during from_inference", name);
+                    let t = Tensor::new(Array2::zeros((0, 0)).into_dyn());
+                    t.set_requires_grad(true);
+                    t
+                }
+            }
         };
-        let to_tensor_1d = |arr: &Array1<f32>| -> Tensor {
-            let t = Tensor::new(arr.clone().into_dyn());
-            t.set_requires_grad(true);
-            t
+        let to_tensor_1d = |arr: Option<&Array1<f32>>, name: &str| -> Tensor {
+            match arr {
+                Some(a) => {
+                    let t = Tensor::new(a.clone().into_dyn());
+                    t.set_requires_grad(true);
+                    t
+                }
+                None => {
+                    tracing::warn!("{} not available during from_inference", name);
+                    let t = Tensor::new(Array1::zeros(0).into_dyn());
+                    t.set_requires_grad(true);
+                    t
+                }
+            }
         };
 
         let blocks = model
@@ -71,11 +91,11 @@ impl TrainableCausalLM {
             .iter()
             .map(|b| TrainableBlock {
                 attention_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(b.attention_norm.weight.as_ref().unwrap()),
+                    weight: to_tensor_1d(b.attention_norm.weight.as_ref(), "attention_norm.weight"),
                     eps: b.attention_norm.eps,
                 },
                 ffn_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(b.ffn_norm.weight.as_ref().unwrap()),
+                    weight: to_tensor_1d(b.ffn_norm.weight.as_ref(), "ffn_norm.weight"),
                     eps: b.ffn_norm.eps,
                 },
                 attention: TrainableGQA {
@@ -83,28 +103,28 @@ impl TrainableCausalLM {
                     num_kv_heads: b.attention.num_kv_heads,
                     head_dim: b.attention.head_dim,
                     num_groups: b.attention.num_groups,
-                    wq: to_tensor(b.attention.wq.as_ref().unwrap()),
-                    wk: to_tensor(b.attention.wk.as_ref().unwrap()),
-                    wv: to_tensor(b.attention.wv.as_ref().unwrap()),
-                    wo: to_tensor(b.attention.wo.as_ref().unwrap()),
+                    wq: to_tensor(b.attention.wq.as_ref(), "attention.wq"),
+                    wk: to_tensor(b.attention.wk.as_ref(), "attention.wk"),
+                    wv: to_tensor(b.attention.wv.as_ref(), "attention.wv"),
+                    wo: to_tensor(b.attention.wo.as_ref(), "attention.wo"),
                 },
                 ffn: TrainableSwiGLU {
-                    w1: to_tensor(b.ffn.w1.as_ref().unwrap()),
-                    w2: to_tensor(b.ffn.w2.as_ref().unwrap()),
-                    w3: to_tensor(b.ffn.w3.as_ref().unwrap()),
+                    w1: to_tensor(b.ffn.w1.as_ref(), "ffn.w1"),
+                    w2: to_tensor(b.ffn.w2.as_ref(), "ffn.w2"),
+                    w3: to_tensor(b.ffn.w3.as_ref(), "ffn.w3"),
                 },
             })
             .collect();
 
         Self {
             config: model.config.clone(),
-            token_embedding: to_tensor(model.token_embedding.as_ref().unwrap()),
+            token_embedding: to_tensor(model.token_embedding.as_ref(), "token_embedding"),
             blocks,
             norm: TrainableRMSNorm {
-                weight: to_tensor_1d(model.norm.weight.as_ref().unwrap()),
+                weight: to_tensor_1d(model.norm.weight.as_ref(), "norm.weight"),
                 eps: model.norm.eps,
             },
-            lm_head: to_tensor(model.lm_head.as_ref().unwrap()),
+            lm_head: to_tensor(model.lm_head.as_ref(), "lm_head"),
         }
     }
 

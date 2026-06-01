@@ -350,7 +350,7 @@ impl EnvironmentValidator {
             name: "DATABASE_URL".to_string(),
             required: true,
             validator: Some(Regex::new(r"^[a-zA-Z]+://.*")
-                .expect("Failed to create database URL regex")),
+                .expect("Failed to create database URL regex")), // safe: hardcoded regex pattern
             default_value: Some("postgres://localhost:5432/mydb".to_string()),
             description: "Database connection URL".to_string(),
         });
@@ -359,7 +359,7 @@ impl EnvironmentValidator {
             name: "LOG_LEVEL".to_string(),
             required: false,
             validator: Some(Regex::new(r"^(trace|debug|info|warn|error)$")
-                .expect("Failed to create log level regex")),
+                .expect("Failed to create log level regex")), // safe: hardcoded regex pattern
             default_value: Some("info".to_string()),
             description: "Logging level".to_string(),
         });
@@ -376,7 +376,7 @@ impl EnvironmentValidator {
             name: "NODE_ENV".to_string(),
             required: false,
             validator: Some(Regex::new(r"^(development|production|test)$")
-                .expect("Failed to create node environment regex")),
+                .expect("Failed to create node environment regex")), // safe: hardcoded regex pattern
             default_value: Some("development".to_string()),
             description: "Node environment".to_string(),
         });

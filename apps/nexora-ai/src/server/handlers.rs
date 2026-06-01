@@ -179,7 +179,7 @@ pub async fn process_request(
     let start = std::time::Instant::now();
     let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
 
-    if let Err((status, err_json)) = validate_prompt(input) {
+    if let Err((_status, err_json)) = validate_prompt(input) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
@@ -221,7 +221,7 @@ pub async fn generate_text(
     let start = std::time::Instant::now();
     let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
 
-    if let Err((status, err_json)) = validate_prompt(prompt) {
+    if let Err((_status, err_json)) = validate_prompt(prompt) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
@@ -345,7 +345,7 @@ pub async fn chat(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    if let Err((status, err_json)) = validate_prompt(message) {
+    if let Err((_status, err_json)) = validate_prompt(message) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
@@ -392,7 +392,7 @@ pub async fn analyze_code(
 ) -> Json<Value> {
     let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("");
 
-    if let Err((status, err_json)) = validate_prompt(code) {
+    if let Err((_status, err_json)) = validate_prompt(code) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
@@ -441,7 +441,7 @@ pub async fn generate_code(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    if let Err((status, err_json)) = validate_prompt(description) {
+    if let Err((_status, err_json)) = validate_prompt(description) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),

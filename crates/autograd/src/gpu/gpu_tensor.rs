@@ -217,16 +217,9 @@ impl GpuTensor {
         }
     }
 
-    fn return_staging(ctx: &GpuContext, buffer: wgpu::Buffer, byte_size: u64, readable: bool) {
-        let usage = if readable {
-            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ
-        } else {
-            wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE
-        };
-        let key = (crate::gpu_memory::bucket_for(byte_size), usage);
-        if let Ok(mut pool) = ctx.memory_pool.lock() {
-            pool.return_buffer_raw(buffer, key);
-        }
+    fn return_staging(ctx: &GpuContext, buffer: wgpu::Buffer, _byte_size: u64, _readable: bool) {
+        buffer.destroy();
+        let _ = ctx;
     }
 
     pub fn zeros(shape: &[usize]) -> Result<Self, GpuError> {

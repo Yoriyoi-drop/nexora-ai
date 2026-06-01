@@ -84,6 +84,33 @@ impl DatasetSchema {
             issues,
         }
     }
+
+    #[cfg(feature = "parquet")]
+    pub fn validate_parquet(
+        &self,
+        schema_descr: &parquet::schema::types::SchemaDescriptor,
+    ) -> SchemaValidation {
+        let mut issues = Vec::with_capacity(self.fields.len());
+
+        let num_cols = schema_descr.num_columns();
+        let parquet_cols: Vec<String> = (0..num_cols)
+            .map(|i| schema_descr.get_column_root(i).name().to_lowercase())
+            .collect();
+
+        for field in &self.fields {
+            let found = parquet_cols.iter().any(|name| name == &field.name.to_lowercase());
+            if !found && !field.nullable {
+                issues.push(SchemaIssue::MissingColumn {
+                    field: field.name.clone(),
+                });
+            }
+        }
+
+        SchemaValidation {
+            valid: issues.is_empty(),
+            issues,
+        }
+    }
 }
 
 #[derive(Debug)]

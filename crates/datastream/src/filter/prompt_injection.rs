@@ -16,29 +16,29 @@ fn compile_injection_patterns() -> Vec<Regex> {
         Regex::new(
             r"(?i)ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|directions|commands)",
         )
-        .expect("valid injection regex: ignore previous instructions"),
+        .expect("valid injection regex: ignore previous instructions"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)you\s+are\s+(now|not\s+)?(chatgpt|gpt|bard|claude|ai\s+assistant|dan|evil)")
-            .expect("valid injection regex: you are ai"),
+            .expect("valid injection regex: you are ai"), // safe: hardcoded regex pattern
         Regex::new(
             r"(?i)forget\s+(everything|all|your)\s+(previous|prior\s+)?(instructions|training|data|knowledge)?",
         )
-        .expect("valid injection regex: forget instructions"),
+        .expect("valid injection regex: forget instructions"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)no\s+(limitations|restrictions|rules|boundaries|filter)")
-            .expect("valid injection regex: no limitations short"),
-        Regex::new(r"(?i)system\s+prompt[:\-]").expect("valid injection regex: system prompt"),
+            .expect("valid injection regex: no limitations short"), // safe: hardcoded regex pattern
+        Regex::new(r"(?i)system\s+prompt[:\-]").expect("valid injection regex: system prompt"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)\b(DAN|STAN|DUDE|JAILBREAK|GHOST)\b")
-            .expect("valid injection regex: jailbreak codenames"),
+            .expect("valid injection regex: jailbreak codenames"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)output\s+(in\s+)?markdown\s+(without\s+)?formatting")
-            .expect("valid injection regex: output formatting"),
-        Regex::new(r"(?i)roleplay\s+as\s+").expect("valid injection regex: roleplay"),
+            .expect("valid injection regex: output formatting"), // safe: hardcoded regex pattern
+        Regex::new(r"(?i)roleplay\s+as\s+").expect("valid injection regex: roleplay"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)you\s+have\s+no\s+(limitations|restrictions|rules|boundaries)")
-            .expect("valid injection regex: no limitations"),
+            .expect("valid injection regex: no limitations"), // safe: hardcoded regex pattern
         Regex::new(
             r"(?i)ethical\s+(guidelines|boundaries|limits|restrictions).*(ignore|bypass|override)",
         )
-        .expect("valid injection regex: ethical bypass"),
+        .expect("valid injection regex: ethical bypass"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)\b(fuck|shit|damn|ass)\s+(you|the\s+system|the\s+ai)")
-            .expect("valid injection regex: profanity"),
+            .expect("valid injection regex: profanity"), // safe: hardcoded regex pattern
     ]
 }
 

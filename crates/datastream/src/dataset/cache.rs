@@ -82,7 +82,6 @@ pub fn read_arrow_mmap(
     source: crate::types::SourceInfo,
 ) -> anyhow::Result<Vec<DataSample>> {
     use arrow::array::Array;
-    use arrow::array::AsArray;
     use arrow::ipc::reader::FileReader;
     use memmap2::Mmap;
 

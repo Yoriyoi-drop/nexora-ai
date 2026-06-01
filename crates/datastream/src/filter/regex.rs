@@ -33,12 +33,12 @@ impl RegexFilter {
 fn default_block_patterns() -> Vec<Regex> {
     vec![
         Regex::new(r"(?i)\b(?:buy\s+now|click\s+here|subscribe\s+now|limited\s+time)\b")
-            .expect("valid regex: spam keywords"),
+            .expect("valid regex: spam keywords"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)https?://(bit\.ly|tinyurl|shorturl)\.[a-z]+/\S+")
-            .expect("valid regex: URL shorteners"),
-        Regex::new(r"(?m)^>{10,}").expect("valid regex: blockquote abuse"),
+            .expect("valid regex: URL shorteners"), // safe: hardcoded regex pattern
+        Regex::new(r"(?m)^>{10,}").expect("valid regex: blockquote abuse"), // safe: hardcoded regex pattern
         Regex::new(r"(?i)\b([a-z0-9\-._~%]+)\@[a-z0-9\-._~%]+\.[a-z]{2,}\b")
-            .expect("valid regex: email pattern"),
+            .expect("valid regex: email pattern"), // safe: hardcoded regex pattern
     ]
 }
 

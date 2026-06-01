@@ -20,7 +20,32 @@ use uuid::Uuid;
 
 use crate::types::{DataSample, SourceInfo};
 
-/// Detect format from file extension and load samples.
+/// Detect file format via magic bytes, returning the extension that should be used.
+fn detect_format_by_magic(path: &Path) -> Option<&'static str> {
+    let mut buf = [0u8; 8];
+    let file = std::fs::File::open(path).ok()?;
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(file);
+    reader.read_exact(&mut buf).ok()?;
+
+    match &buf[..4] {
+        b"PAR1" => Some("parquet"),
+        [0x28, 0xB5, 0x2F, 0xFD] => {
+            warn!("{} appears to be Zstandard-compressed data. Decompress before loading or use a .arrow.zst extension.", path.display());
+            None
+        }
+        [0x04, 0x22, 0x4D, 0x18] => {
+            warn!("{} appears to be LZ4-compressed data. Decompress before loading or use a .arrow.lz4 extension.", path.display());
+            None
+        }
+        _ => match &buf[..6] {
+            b"ARROW1" => Some("arrow"),
+            _ => None,
+        },
+    }
+}
+
+/// Detect format from file extension (with magic byte fallback) and load samples.
 pub fn load_dataset(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
     let ext = path
         .extension()
@@ -28,33 +53,62 @@ pub fn load_dataset(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, 
         .unwrap_or("")
         .to_lowercase();
 
-    match ext.as_str() {
-        "csv" => {
-            info!("Loading CSV: {}", path.display());
-            load_csv(path, source)
+    let load_by_ext = |ext: &str| -> Option<Result<Vec<DataSample>, String>> {
+        match ext {
+            "csv" => {
+                info!("Loading CSV: {}", path.display());
+                Some(load_csv(path, source.clone()))
+            }
+            "tsv" => {
+                info!("Loading TSV: {}", path.display());
+                Some(load_tsv(path, source.clone()))
+            }
+            "json" => {
+                info!("Loading JSON: {}", path.display());
+                Some(load_json(path, source.clone()))
+            }
+            "jsonl" | "ndjson" => {
+                info!("Loading JSONL: {}", path.display());
+                Some(load_jsonl(path, source.clone()))
+            }
+            "parquet" => {
+                info!("Loading Parquet: {}", path.display());
+                Some(load_parquet(path, source.clone()))
+            }
+            "arrow" | "ipc" | "feather" => {
+                info!("Loading Arrow: {}", path.display());
+                Some(load_arrow(path, source.clone()))
+            }
+            _ => None,
         }
-        "tsv" => {
-            info!("Loading TSV: {}", path.display());
-            load_tsv(path, source)
+    };
+
+    // Detect by magic bytes first (more reliable than extension)
+    if let Some(actual_ext) = detect_format_by_magic(path) {
+        if actual_ext != ext {
+            warn!(
+                "File {} has extension '.{}' but detected as '.{}' format. Loading as {}.",
+                path.display(),
+                ext,
+                actual_ext,
+                actual_ext.to_uppercase(),
+            );
         }
-        "json" => {
-            info!("Loading JSON: {}", path.display());
-            load_json(path, source)
+        if let Some(result) = load_by_ext(actual_ext) {
+            return result;
         }
-        "jsonl" | "ndjson" => {
-            info!("Loading JSONL: {}", path.display());
-            load_jsonl(path, source)
-        }
-        "parquet" => {
-            info!("Loading Parquet: {}", path.display());
-            load_parquet(path, source)
-        }
-        "arrow" | "ipc" | "feather" => {
-            info!("Loading Arrow: {}", path.display());
-            load_arrow(path, source)
-        }
-        other => Err(format!("Unsupported dataset format '.{}'", other)),
     }
+
+    // Fallback: try extension-based detection
+    if let Some(result) = load_by_ext(&ext) {
+        return result;
+    }
+
+    Err(format!(
+        "Unsupported dataset format '.{}' for file {}",
+        ext,
+        path.display()
+    ))
 }
 
 fn make_sample(text: String, source: &SourceInfo) -> DataSample {
@@ -315,7 +369,6 @@ fn extract_text(value: &serde_json::Value) -> Option<String> {
 #[cfg(feature = "parquet")]
 fn load_parquet(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
     use parquet::file::reader::{FileReader, SerializedFileReader};
-    use parquet::record::Row;
 
     let file = std::fs::File::open(path).map_err(|e| format!("Parquet open error: {}", e))?;
 

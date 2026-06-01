@@ -482,7 +482,9 @@ impl CausalLM {
             ));
         }
 
-        let token_id = input_ids.last().copied().unwrap() as usize;
+        let token_id = input_ids.last().copied().ok_or_else(|| {
+            TransformerError::Implementation("forward_cpu_impl called with empty input_ids".into())
+        })? as usize;
         if token_id >= self.config.vocab_size {
             return Err(TransformerError::Implementation(format!(
                 "Token ID {} out of range [0, {})",
@@ -3179,15 +3181,17 @@ impl CausalLM {
             }
 
             // GQA weights — readback from GPU if no CPU copy, else use CPU weights
-            if block.attention.wq.is_some() {
-                let a = block.attention.wq.as_ref().expect("wq available per guard above");
-                tensors.push((format!("{}attention.wq", p), a.clone().into_dyn()));
-                let a = block.attention.wk.as_ref().expect("wk available per guard above");
-                tensors.push((format!("{}attention.wk", p), a.clone().into_dyn()));
-                let a = block.attention.wv.as_ref().expect("wv available per guard above");
-                tensors.push((format!("{}attention.wv", p), a.clone().into_dyn()));
-                let a = block.attention.wo.as_ref().expect("wo available per guard above");
-                tensors.push((format!("{}attention.wo", p), a.clone().into_dyn()));
+            if let Some(w) = &block.attention.wq {
+                tensors.push((format!("{}attention.wq", p), w.clone().into_dyn()));
+                if let Some(wk) = &block.attention.wk {
+                    tensors.push((format!("{}attention.wk", p), wk.clone().into_dyn()));
+                }
+                if let Some(wv) = &block.attention.wv {
+                    tensors.push((format!("{}attention.wv", p), wv.clone().into_dyn()));
+                }
+                if let Some(wo) = &block.attention.wo {
+                    tensors.push((format!("{}attention.wo", p), wo.clone().into_dyn()));
+                }
             } else {
                 let g = block.attention.readback_weights().map_err(|e|
                     crate::TransformerError::Implementation(format!("{}attention readback: {:?}", p, e)))?;
@@ -3198,13 +3202,14 @@ impl CausalLM {
             }
 
             // SwiGLU weights — same pattern
-            if block.ffn.w1.is_some() {
-                let a = block.ffn.w1.as_ref().expect("w1 available per guard above");
-                tensors.push((format!("{}ffn.w1", p), a.clone().into_dyn()));
-                let a = block.ffn.w2.as_ref().expect("w2 available per guard above");
-                tensors.push((format!("{}ffn.w2", p), a.clone().into_dyn()));
-                let a = block.ffn.w3.as_ref().expect("w3 available per guard above");
-                tensors.push((format!("{}ffn.w3", p), a.clone().into_dyn()));
+            if let Some(w) = &block.ffn.w1 {
+                tensors.push((format!("{}ffn.w1", p), w.clone().into_dyn()));
+                if let Some(w2) = &block.ffn.w2 {
+                    tensors.push((format!("{}ffn.w2", p), w2.clone().into_dyn()));
+                }
+                if let Some(w3) = &block.ffn.w3 {
+                    tensors.push((format!("{}ffn.w3", p), w3.clone().into_dyn()));
+                }
             } else {
                 let g = block.ffn.readback_weights().map_err(|e|
                     crate::TransformerError::Implementation(format!("{}ffn readback: {:?}", p, e)))?;

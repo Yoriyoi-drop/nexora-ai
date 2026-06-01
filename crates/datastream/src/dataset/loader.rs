@@ -15,6 +15,7 @@ use super::schema::{
 };
 use super::shuffle::shuffle_shards;
 use crate::arrow_reader;
+use crate::format_loader;
 use crate::types::{DataSample, SourceCategory, SourceInfo};
 
 #[derive(Debug, Clone)]
@@ -160,7 +161,7 @@ impl StreamingLoader {
 
         // --- 7. Validate schema on first shard if configured ---
         if let Some(ref schema) = config.schema {
-            if let Some(first_compatible) = shard_paths.iter().find(|s| is_arrow_file(&s.path)) {
+            if let Some(first_compatible) = shard_paths.iter().find(|s| is_supported_shard_file(&s.path)) {
                 debug!(
                     "Validating schema against: {}",
                     first_compatible.path.display()
@@ -409,6 +410,18 @@ async fn load_shard_integrated(
         fetch_timestamp: chrono::Utc::now().timestamp(),
     };
 
+    // ── Parquet path: load directly via format_loader ──
+    if is_parquet_file(&shard.path) {
+        let samples = format_loader::load_dataset(&shard.path, source)
+            .map_err(|e| LoaderError::Parquet(e.to_string()))?;
+        info!(
+            "Loaded {} samples from parquet shard {}",
+            samples.len(),
+            shard.path.display()
+        );
+        return Ok(samples);
+    }
+
     // Fast path: mmap for uncompressed arrow files
     if shard.compression == Compression::None {
         #[cfg(feature = "mmap")]
@@ -487,21 +500,41 @@ fn validate_shard_schema(
     schema: &DatasetSchema,
     path: &Path,
 ) -> Result<SchemaValidation, LoaderError> {
-    #[cfg(feature = "arrow")]
-    {
-        let file = std::fs::File::open(path).map_err(|e| LoaderError::Io(e.to_string()))?;
-        use arrow::ipc::reader::FileReader;
-        let reader =
-            FileReader::try_new(file, None).map_err(|e| LoaderError::Arrow(e.to_string()))?;
-        Ok(schema.validate_arrow(reader.schema().as_ref()))
-    }
-    #[cfg(not(feature = "arrow"))]
-    {
-        // Without arrow feature, skip validation
-        Ok(SchemaValidation {
-            valid: true,
-            issues: vec![],
-        })
+    if is_parquet_file(path) {
+        #[cfg(feature = "parquet")]
+        {
+            use parquet::file::reader::{FileReader, SerializedFileReader};
+            let file = std::fs::File::open(path).map_err(|e| LoaderError::Io(e.to_string()))?;
+            let reader =
+                SerializedFileReader::new(file).map_err(|e| LoaderError::Parquet(e.to_string()))?;
+            let schema_descr = reader.metadata().file_metadata().schema_descr();
+            Ok(schema.validate_parquet(schema_descr))
+        }
+        #[cfg(not(feature = "parquet"))]
+        {
+            let _ = schema;
+            Ok(SchemaValidation {
+                valid: true,
+                issues: vec![],
+            })
+        }
+    } else {
+        #[cfg(feature = "arrow")]
+        {
+            let file = std::fs::File::open(path).map_err(|e| LoaderError::Io(e.to_string()))?;
+            use arrow::ipc::reader::FileReader;
+            let reader =
+                FileReader::try_new(file, None).map_err(|e| LoaderError::Arrow(e.to_string()))?;
+            Ok(schema.validate_arrow(reader.schema().as_ref()))
+        }
+        #[cfg(not(feature = "arrow"))]
+        {
+            let _ = schema;
+            Ok(SchemaValidation {
+                valid: true,
+                issues: vec![],
+            })
+        }
     }
 }
 
@@ -510,6 +543,17 @@ fn is_arrow_file(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e == "arrow")
         .unwrap_or(false)
+}
+
+fn is_parquet_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e == "parquet")
+        .unwrap_or(false)
+}
+
+fn is_supported_shard_file(path: &Path) -> bool {
+    is_arrow_file(path) || is_parquet_file(path)
 }
 
 fn estimate_samples(path: &Path) -> Option<u64> {
@@ -536,6 +580,7 @@ pub enum LoaderError {
     Io(String),
     Compression(String),
     Arrow(String),
+    Parquet(String),
     Join(String),
     Manifest(String),
     Schema(String),
@@ -548,6 +593,7 @@ impl std::fmt::Display for LoaderError {
             LoaderError::Io(msg) => write!(f, "IO error: {}", msg),
             LoaderError::Compression(msg) => write!(f, "Compression error: {}", msg),
             LoaderError::Arrow(msg) => write!(f, "Arrow error: {}", msg),
+            LoaderError::Parquet(msg) => write!(f, "Parquet error: {}", msg),
             LoaderError::Join(msg) => write!(f, "Worker join error: {}", msg),
             LoaderError::Manifest(msg) => write!(f, "Manifest error: {}", msg),
             LoaderError::Schema(msg) => write!(f, "Schema error: {}", msg),

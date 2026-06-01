@@ -1,6 +1,7 @@
 //! Expert modules for HAS-MoE-FFN
 
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 /// GELU activation function (standalone, for sharing across modules)
 pub fn gelu(x: f32) -> f32 {
@@ -85,19 +86,43 @@ impl Expert {
     }
 
     fn get_fc1_weights(&self) -> &Vec<Vec<f32>> {
-        self.fc1_weights.as_ref().expect("fc1_weights not initialized — call init_random()")
+        match self.fc1_weights.as_ref() {
+            Some(w) => w,
+            None => {
+                warn!("fc1_weights not initialized — call init_random()");
+                panic!("fc1_weights not initialized — call init_random()");
+            }
+        }
     }
 
     fn get_fc1_bias(&self) -> &Vec<f32> {
-        self.fc1_bias.as_ref().expect("fc1_bias not initialized — call init_random()")
+        match self.fc1_bias.as_ref() {
+            Some(b) => b,
+            None => {
+                warn!("fc1_bias not initialized — call init_random()");
+                panic!("fc1_bias not initialized — call init_random()");
+            }
+        }
     }
 
     fn get_fc2_weights(&self) -> &Vec<Vec<f32>> {
-        self.fc2_weights.as_ref().expect("fc2_weights not initialized — call init_random()")
+        match self.fc2_weights.as_ref() {
+            Some(w) => w,
+            None => {
+                warn!("fc2_weights not initialized — call init_random()");
+                panic!("fc2_weights not initialized — call init_random()");
+            }
+        }
     }
 
     fn get_fc2_bias(&self) -> &Vec<f32> {
-        self.fc2_bias.as_ref().expect("fc2_bias not initialized — call init_random()")
+        match self.fc2_bias.as_ref() {
+            Some(b) => b,
+            None => {
+                warn!("fc2_bias not initialized — call init_random()");
+                panic!("fc2_bias not initialized — call init_random()");
+            }
+        }
     }
 
     pub fn init_random(&mut self) {

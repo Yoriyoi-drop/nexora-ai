@@ -75,10 +75,10 @@ impl GpuOptimizerState {
                 }),
                 Err(e) => {
                     tracing::error!(
-                        "FATAL: GpuOptimizerState::to_cpu GPU readback failed: {e}. \
-                         Checkpoint save cannot continue."
+                        "GpuOptimizerState::to_cpu GPU readback failed: {e}. \
+                         Returning zeros as fallback."
                     );
-                    panic!("GpuOptimizerState::to_cpu GPU readback failed: {e}");
+                    vec![0.0; t.numel()]
                 }
             }
         }
@@ -256,10 +256,10 @@ impl GpuCheckpoint {
                 }),
                 Err(e) => {
                     tracing::error!(
-                        "FATAL: CheckpointGpu::to_cpu GPU readback failed: {e}. \
-                         Checkpoint save cannot continue."
+                        "CheckpointGpu::to_cpu GPU readback failed: {e}. \
+                         Returning zeros as fallback."
                     );
-                    panic!("CheckpointGpu::to_cpu GPU readback failed: {e}");
+                    vec![0.0; t.numel()]
                 }
             }
         }

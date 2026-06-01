@@ -444,7 +444,7 @@ impl crate::cli::commands::Cli {
             fetch_timestamp: Utc::now().timestamp(),
         };
 
-        let (mut raw_samples, raw_text, loaded_count): (Vec<DataSample>, String, usize) =
+        let (raw_samples, _raw_text, loaded_count): (Vec<DataSample>, String, usize) =
             if let Some(hf) = hf_dataset {
                 let max_s = if hf_max_samples > 0 { hf_max_samples } else { 10000 };
                 let provider = nexora_datastream::source::huggingface::HuggingFaceDatasetProvider::new(hf, max_s)
@@ -478,7 +478,13 @@ impl crate::cli::commands::Cli {
                 if data.is_dir() {
                     let mut entries: Vec<_> = std::fs::read_dir(data)?
                         .filter_map(|e| e.ok())
-                        .filter(|e| e.path().extension().map_or(false, |ext| ext == "arrow"))
+                        .filter(|e| {
+                            e.path()
+                                .extension()
+                                .and_then(|ext| ext.to_str())
+                                .map(|ext| ext == "arrow" || ext == "parquet")
+                                .unwrap_or(false)
+                        })
                         .collect();
                     entries.sort_by_key(|e| e.file_name());
                     let mut all_samples: Vec<DataSample> = Vec::with_capacity(entries.len());
@@ -497,8 +503,13 @@ impl crate::cli::commands::Cli {
                         let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                         total_file_size += file_size;
                         let file_start = std::time::Instant::now();
-                        let samples =
-                            nexora_datastream::arrow_reader::read_arrow_file(&path, source.clone())?;
+                        let samples = match nexora_datastream::format_loader::load_dataset(&path, source.clone()) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!("  ⚠️  Skipping corrupt file {}: {}", path.display(), e);
+                                continue;
+                            }
+                        };
                         let file_elapsed = file_start.elapsed();
                         let file_mb = file_size as f64 / 1_048_576.0;
                         info!("  📄 {}: {} records, {:.2} MB, loaded in {:?}",
@@ -522,7 +533,7 @@ impl crate::cli::commands::Cli {
                         (total_chars / 4) / 1000, seq_length);
                     info!("  🧠 RAM: sebelum load ~{:.1} GB", available_system_memory_gb());
                     (all_samples, corpus, count)
-                } else if data.extension().map_or(false, |e| e == "arrow") {
+                } else if data.extension().and_then(|e| e.to_str()).map_or(false, |e| e == "arrow" || e == "parquet") {
                     info!("{}",
                         bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"));
                     info!("{}",
@@ -532,7 +543,8 @@ impl crate::cli::commands::Cli {
                     let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
                     let file_mb = file_size as f64 / 1_048_576.0;
                     let load_start = std::time::Instant::now();
-                    let arrow_samples = nexora_datastream::arrow_reader::read_arrow_file(data, source)?;
+                    let arrow_samples = nexora_datastream::format_loader::load_dataset(data, source)
+                        .map_err(|e| anyhow::anyhow!("{}", e))?;
                     let load_elapsed = load_start.elapsed();
                     let count = arrow_samples.len();
                     let mut total_chars: usize = 0;
@@ -1127,7 +1139,7 @@ impl crate::cli::commands::Cli {
             for shard in manifest.shards.iter().take(5) {
                 let shard_path = data.join(&shard.path);
                 if let Ok(samples) =
-                    nexora_datastream::arrow_reader::read_arrow_file(&shard_path, source.clone())
+                    nexora_datastream::format_loader::load_dataset(&shard_path, source.clone())
                 {
                     for s in &samples {
                         corpus.push_str(&s.text);

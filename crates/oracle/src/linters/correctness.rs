@@ -4,7 +4,6 @@
 //! BUKAN semantic analysis — mendeteksi pola berbahaya umum via regex.
 
 use anyhow::Result;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -14,31 +13,13 @@ use crate::linters::{CodeIssue, CodeLinter, IssueSeverity, LintResult, LinterTyp
 #[derive(Debug, Clone)]
 struct CorrectnessPattern {
     name: &'static str,
-    pattern: &'static Lazy<Regex>,
+    pattern: Option<Regex>,
     severity: IssueSeverity,
     description: &'static str,
     language: &'static str,
     rule_id: &'static str,
     score_penalty: f32,
 }
-
-/// Regex patterns — all patterns are static and verified at first use
-static DIV_ZERO_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"/\s*0+(\.0+)?\b").expect("valid division-by-zero regex"));
-
-static INFINITE_LOOP_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"while\s*\(\s*(true|1)\s*\)").expect("valid infinite-loop regex"));
-
-static C_UNINIT_VAR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;")
-        .expect("valid C uninitialized var regex")
-});
-
-static JS_LOOSE_EQUALITY_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?<![=!])==(?!=)").expect("valid JS loose equality regex"));
-
-static PY_BARE_EXCEPT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"except\s*:").expect("valid Python bare-except regex"));
 
 /// Correctness verifier
 pub struct CorrectnessLinter {
@@ -51,7 +32,13 @@ impl CorrectnessLinter {
             correctness_patterns: vec![
                 CorrectnessPattern {
                     name: "Division By Zero",
-                    pattern: &DIV_ZERO_REGEX,
+                    pattern: match Regex::new(r"/\s*0+(\.0+)?\b") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Division By Zero': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Error,
                     description: "Division by literal zero detected",
                     language: "all",
@@ -60,7 +47,13 @@ impl CorrectnessLinter {
                 },
                 CorrectnessPattern {
                     name: "Potential Infinite Loop",
-                    pattern: &INFINITE_LOOP_REGEX,
+                    pattern: match Regex::new(r"while\s*\(\s*(true|1)\s*\)") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Potential Infinite Loop': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Infinite loop detected, ensure termination logic exists",
                     language: "all",
@@ -69,7 +62,13 @@ impl CorrectnessLinter {
                 },
                 CorrectnessPattern {
                     name: "Uninitialized Variable",
-                    pattern: &C_UNINIT_VAR_REGEX,
+                    pattern: match Regex::new(r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Uninitialized Variable': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Variable declared without initialization",
                     language: "c",
@@ -78,7 +77,13 @@ impl CorrectnessLinter {
                 },
                 CorrectnessPattern {
                     name: "Loose Equality",
-                    pattern: &JS_LOOSE_EQUALITY_REGEX,
+                    pattern: match Regex::new(r"(?<![=!])==(?!=)") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Loose Equality': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Loose equality detected, use === instead",
                     language: "javascript",
@@ -87,7 +92,13 @@ impl CorrectnessLinter {
                 },
                 CorrectnessPattern {
                     name: "Bare Except",
-                    pattern: &PY_BARE_EXCEPT_REGEX,
+                    pattern: match Regex::new(r"except\s*:") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Bare Except': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Bare except detected",
                     language: "python",
@@ -125,23 +136,25 @@ impl CodeLinter for CorrectnessLinter {
                 continue;
             }
 
-            for mat in pattern.pattern.find_iter(code) {
-                let line_number = code[..mat.start()].lines().count().max(1);
+            if let Some(ref pat) = pattern.pattern {
+                for mat in pat.find_iter(code) {
+                    let line_number = code[..mat.start()].lines().count().max(1);
 
-                Self::add_issue(
-                    &mut issues,
-                    &mut seen,
-                    CodeIssue {
-                        severity: pattern.severity.clone(),
-                        category: "Correctness".to_string(),
-                        message: format!("{}: {}", pattern.name, pattern.description),
-                        line_number: Some(line_number),
-                        column_number: None,
-                        rule_id: pattern.rule_id.to_string(),
-                    },
-                );
+                    Self::add_issue(
+                        &mut issues,
+                        &mut seen,
+                        CodeIssue {
+                            severity: pattern.severity.clone(),
+                            category: "Correctness".to_string(),
+                            message: format!("{}: {}", pattern.name, pattern.description),
+                            line_number: Some(line_number),
+                            column_number: None,
+                            rule_id: pattern.rule_id.to_string(),
+                        },
+                    );
 
-                score -= pattern.score_penalty;
+                    score -= pattern.score_penalty;
+                }
             }
         }
 

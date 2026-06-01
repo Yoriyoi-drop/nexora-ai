@@ -4,7 +4,6 @@
 //! BUKAN profiling — menggunakan heuristic pattern matching.
 
 use anyhow::Result;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -54,32 +53,13 @@ impl PerformanceThresholds {
 #[derive(Debug, Clone)]
 struct PerformancePattern {
     name: &'static str,
-    pattern: &'static Lazy<Regex>,
+    pattern: Option<Regex>,
     severity: IssueSeverity,
     description: &'static str,
     language: &'static str,
     performance_impact: f32,
     rule_id: &'static str,
 }
-
-/// Regex patterns — all patterns are static and verified at first use
-static NESTED_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(").expect("valid nested-loop regex")
-});
-
-static PYTHON_STRING_CONCAT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\w+\s*\+=\s*["']"#).expect("valid Python string concat regex"));
-
-static C_MALLOC_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\bmalloc\s*\(").expect("valid malloc regex"));
-
-static BLOCKING_IO_LOOP_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(").expect("valid blocking I/O regex")
-});
-
-static INEFFICIENT_SORT_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(bubble_sort|selection_sort)\b").expect("valid inefficient sort regex")
-});
 
 /// Performance verifier
 pub struct PerformanceLinter {
@@ -92,7 +72,13 @@ impl PerformanceLinter {
             performance_patterns: vec![
                 PerformancePattern {
                     name: "Nested Loops",
-                    pattern: &NESTED_LOOP_REGEX,
+                    pattern: match Regex::new(r"(?s)for\s*\(.*?\)\s*\{.*?for\s*\(") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Nested Loops': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Nested loops detected, potential O(n²) complexity",
                     language: "all",
@@ -101,7 +87,13 @@ impl PerformanceLinter {
                 },
                 PerformancePattern {
                     name: "Inefficient String Concatenation",
-                    pattern: &PYTHON_STRING_CONCAT_REGEX,
+                    pattern: match Regex::new(r#"\w+\s*\+=\s*["']"#) {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Inefficient String Concatenation': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Repeated string concatenation detected",
                     language: "python",
@@ -110,7 +102,13 @@ impl PerformanceLinter {
                 },
                 PerformancePattern {
                     name: "Potential Memory Leak",
-                    pattern: &C_MALLOC_REGEX,
+                    pattern: match Regex::new(r"\bmalloc\s*\(") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Potential Memory Leak': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "malloc detected, ensure free() is called",
                     language: "c",
@@ -119,7 +117,13 @@ impl PerformanceLinter {
                 },
                 PerformancePattern {
                     name: "Blocking I/O In Loop",
-                    pattern: &BLOCKING_IO_LOOP_REGEX,
+                    pattern: match Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Blocking I/O In Loop': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Warning,
                     description: "Blocking I/O inside loop detected",
                     language: "all",
@@ -128,7 +132,13 @@ impl PerformanceLinter {
                 },
                 PerformancePattern {
                     name: "Inefficient Sorting",
-                    pattern: &INEFFICIENT_SORT_REGEX,
+                    pattern: match Regex::new(r"\b(bubble_sort|selection_sort)\b") {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            tracing::warn!("Failed to compile pattern 'Inefficient Sorting': {}", e);
+                            None
+                        }
+                    },
                     severity: IssueSeverity::Info,
                     description: "Inefficient sorting algorithm detected",
                     language: "all",
@@ -185,23 +195,25 @@ impl CodeLinter for PerformanceLinter {
                 continue;
             }
 
-            for mat in pattern.pattern.find_iter(code) {
-                let line_number = code[..mat.start()].lines().count().max(1);
+            if let Some(ref pat) = pattern.pattern {
+                for mat in pat.find_iter(code) {
+                    let line_number = code[..mat.start()].lines().count().max(1);
 
-                Self::add_issue(
-                    &mut issues,
-                    &mut seen,
-                    CodeIssue {
-                        severity: pattern.severity.clone(),
-                        category: "Performance".to_string(),
-                        message: format!("{}: {}", pattern.name, pattern.description),
-                        line_number: Some(line_number),
-                        column_number: None,
-                        rule_id: pattern.rule_id.to_string(),
-                    },
-                );
+                    Self::add_issue(
+                        &mut issues,
+                        &mut seen,
+                        CodeIssue {
+                            severity: pattern.severity.clone(),
+                            category: "Performance".to_string(),
+                            message: format!("{}: {}", pattern.name, pattern.description),
+                            line_number: Some(line_number),
+                            column_number: None,
+                            rule_id: pattern.rule_id.to_string(),
+                        },
+                    );
 
-                score -= pattern.performance_impact;
+                    score -= pattern.performance_impact;
+                }
             }
         }
 

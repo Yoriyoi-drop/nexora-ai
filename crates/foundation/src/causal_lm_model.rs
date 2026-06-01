@@ -46,10 +46,13 @@ impl MiniTokenizer {
             return self.bpe_tokenize(text);
         }
         if self.vocab_size > 256 {
-            tracing::warn!(
-                "MiniTokenizer: vocab_size={} but BPE not trained — falling back to byte-level encoding (only 0-255 usable)",
-                self.vocab_size
-            );
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    "MiniTokenizer: vocab_size={} but BPE not trained — falling back to byte-level encoding (only 0-255 usable)",
+                    self.vocab_size
+                );
+            }
         }
         let mut ids = vec![1u32];
         for &b in text.as_bytes() {
@@ -494,7 +497,7 @@ impl CausalLmModel {
             .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?;
         let causal_lm = Arc::try_unwrap(causal_lm)
             .unwrap_or_else(|arc| {
-                warn!("Multiple Arc references to model existed during train_on_data — cloning (weights may not transfer)");
+                info!("Multiple Arc references to model existed during train_on_data — cloning (weights may not transfer)");
                 (*arc).clone()
             });
         drop(model);

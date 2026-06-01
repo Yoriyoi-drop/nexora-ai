@@ -399,8 +399,6 @@ impl ExecutionGraph {
     }
 
     pub async fn execute_parallel(&self, samples: Vec<DataSample>) -> Vec<ExecutionResult> {
-        use futures::future::join_all;
-
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
         let tasks: Vec<_> = samples

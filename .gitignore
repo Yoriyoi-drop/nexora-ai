@@ -35,3 +35,6 @@ crates/data/raw/*.arrow
 *.safetensors
 training_data/
 session-*.md
+*.parquet
+*.pdf
+*.wasm

@@ -59,9 +59,7 @@ impl RetryConfig {
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| {
-            unreachable!("retry loop always executes at least once because max_retries >= 0")
-        }))
+        Err(last_err.expect("retry loop always executes at least once because max_retries >= 0"))
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {

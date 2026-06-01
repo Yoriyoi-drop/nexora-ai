@@ -481,7 +481,7 @@ impl BenchmarkRunner {
         let mut handles = Vec::with_capacity(n);
         for prompt in &prompts {
             let nexora = self.nexora.clone();
-            let p = (*prompt).clone();
+            let p = (*prompt);
             handles.push(tokio::spawn(async move {
                 nexora.generate_text(&p, 30, 0.7).await
             }));

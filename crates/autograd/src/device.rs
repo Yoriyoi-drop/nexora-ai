@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuError;
+use tracing::error;
 
 /// Physical device where tensor data resides
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -211,7 +212,10 @@ impl Storage {
                 Ok(Arc::new(arr))
             }
             #[cfg(not(any(feature = "gpu", feature = "cuda")))]
-            _ => unreachable!(),
+            _ => {
+                tracing::error!("try_data_arc called with non-CPU storage but no gpu/cuda feature enabled");
+                Err("gpu/cuda feature required for non-CPU storage".into())
+            }
         }
     }
 }

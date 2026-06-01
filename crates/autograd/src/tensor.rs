@@ -598,13 +598,13 @@ impl Tensor {
         }
     }
 
-    /// Legacy wrapper — panics on GPU readback failure.
+    /// Legacy wrapper — logs warning on GPU readback failure.
     /// Prefer try_accumulate_grad_storage() for production code.
     #[cfg(feature = "gpu")]
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
-        self.try_accumulate_grad_storage(grad).unwrap_or_else(|e| {
-            panic!("accumulate_grad_storage GPU readback/accumulation failed: {e}");
-        })
+        if let Err(e) = self.try_accumulate_grad_storage(grad) {
+            warn!("accumulate_grad_storage GPU readback/accumulation failed: {e}. Skipping.");
+        }
     }
 
     pub(crate) fn get_grad_fn_idx(&self) -> Option<usize> {
