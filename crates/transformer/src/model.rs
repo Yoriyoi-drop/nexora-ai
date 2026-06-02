@@ -729,11 +729,26 @@ impl CausalLM {
     }
 
     pub fn from_checkpoint(
-        config: TransformerConfig,
+        mut config: TransformerConfig,
         path: &str,
     ) -> crate::TransformerResult<Self> {
+        let (loaded, meta) = crate::safetensors::load_safetensors_with_meta(path)?;
+        // Apply quantization from file metadata if present
+        if let Some(meta) = meta {
+            if let Some(qstr) = meta.get("quantization") {
+                match qstr.as_str() {
+                    "F16" => config.quantization = nexora_quantization::QFormat::F16,
+                    "BF16" => config.quantization = nexora_quantization::QFormat::BF16,
+                    other => {
+                        tracing::warn!(
+                            "from_checkpoint: unknown quantization '{}' in file metadata, using config default",
+                            other
+                        );
+                    }
+                }
+            }
+        }
         let mut model = Self::new(config);
-        let loaded = crate::safetensors::load_safetensors(path)?;
         let get_arr = |name: &str| -> crate::TransformerResult<ndarray::ArrayD<f32>> {
             loaded.get(name).cloned().ok_or_else(|| {
                 crate::TransformerError::Implementation(format!("Missing tensor: {}", name))
@@ -798,7 +813,7 @@ impl CausalLM {
     /// Requires `gpu` feature. Returns CausalLM with `keep_on_gpu = true`.
     #[cfg(feature = "gpu")]
     pub fn from_checkpoint_gpu(
-        config: TransformerConfig,
+        mut config: TransformerConfig,
         path: &str,
     ) -> crate::TransformerResult<Self> {
         use ndarray::ArrayD;
@@ -806,8 +821,23 @@ impl CausalLM {
 
         let ctx = GpuContext::global()
             .map_err(|e| crate::TransformerError::Implementation(format!("GPU unavailable: {e}")))?;
+        let (loaded, meta) = crate::safetensors::load_safetensors_with_meta(path)?;
+        // Apply quantization from file metadata if present
+        if let Some(meta) = meta {
+            if let Some(qstr) = meta.get("quantization") {
+                match qstr.as_str() {
+                    "F16" => config.quantization = nexora_quantization::QFormat::F16,
+                    "BF16" => config.quantization = nexora_quantization::QFormat::BF16,
+                    other => {
+                        tracing::warn!(
+                            "from_checkpoint_gpu: unknown quantization '{}' in file metadata, using config default",
+                            other
+                        );
+                    }
+                }
+            }
+        }
         let model = Self::new(config);
-        let loaded = crate::safetensors::load_safetensors(path)?;
 
         let get_arr = |name: &str| -> crate::TransformerResult<ArrayD<f32>> {
             loaded.get(name).cloned().ok_or_else(|| {
@@ -1015,11 +1045,7 @@ impl CausalLM {
         // F16 mode: f32 transposed weight ga dipake — cukup f16 packed doang.
         // `zeros(&[1])` adalah DUMMY older (4 bytes) buat ngisi struct field,
         // BUKAN matriks ukuran penuh. VRAM hemat: (vocab_size × hidden_size × 4) bytes.
-        let lm_head_t = if self.use_half_precision && !self.quantize_weights {
-            GpuTensor::zeros(&[1])?
-        } else {
-            ctx.transpose(&lm_head_gpu)?
-        };
+        let lm_head_t = ctx.transpose(&lm_head_gpu)?;
 
         let (lm_head_i8, lm_head_scales, lm_head_zero_points) = if self.quantize_weights {
             let lh = self.lm_head.as_ref().ok_or_else(|| {
@@ -1421,7 +1447,6 @@ impl CausalLM {
         Ok(Array1::from_vec(logits_flat))
     }
 
-    /// GPU forward pass: returns logits as `GpuTensor` (still on GPU, zero readback).
     /// Same as `forward_gpu_with_cache` but skips `to_cpu()` on the logits.
     /// Use with `generate_gpu_keep_gpu` to eliminate PCIe round-trip per token.
     #[cfg(feature = "gpu")]
@@ -2021,7 +2046,6 @@ impl CausalLM {
         h = self.norm.forward_gpu(&h)?;
 
         // 5. LM head: matmul(h, lm_head^T) on GPU with pre-transposed weight.
-        //    No lazy init — lm_head_t is pre-uploaded once.
         let logits = ctx.matmul(&h, &gw.lm_head_t)?;
 
         // 6. Download logits to CPU (only at final return point)
@@ -3229,7 +3253,17 @@ impl CausalLM {
             .iter()
             .map(|(name, arr)| (name.as_str(), arr.clone()))
             .collect();
-        crate::safetensors::save_safetensors(path, &refs)
+        let mut meta = std::collections::HashMap::new();
+        meta.insert(
+            "quantization".to_string(),
+            self.config.quantization.dtype_name().to_string(),
+        );
+        crate::safetensors::save_safetensors_with_meta(
+            path,
+            &refs,
+            crate::safetensors::SaveDtype::F32,
+            Some(meta),
+        )
     }
 
     fn get_cos_sin_slices(&self, pos: usize) -> (&[f32], &[f32]) {
@@ -3271,6 +3305,7 @@ impl CausalLM {
 mod tests {
     use super::*;
     use crate::TransformerConfig;
+    use nexora_quantization::QFormat;
 
     fn small_config() -> TransformerConfig {
         TransformerConfig {
@@ -3287,6 +3322,7 @@ mod tests {
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
+            quantization: QFormat::F16,
             use_half_precision: true,
         }
     }
@@ -3446,7 +3482,10 @@ mod tests {
     #[test]
     fn test_keep_on_gpu_default() {
         let model = small_model();
-        assert!(model.keep_on_gpu);
+        #[cfg(feature = "gpu")]
+        assert_eq!(model.keep_on_gpu, nexora_autograd::gpu::GpuContext::is_available());
+        #[cfg(not(feature = "gpu"))]
+        assert!(!model.keep_on_gpu);
     }
 
     #[test]

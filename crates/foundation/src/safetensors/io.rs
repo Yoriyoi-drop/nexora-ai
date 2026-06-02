@@ -14,6 +14,10 @@ pub struct TensorEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SafetensorsHeader {
+    /// Top-level metadata (safetensors convention: `__metadata__` key).
+    /// Stores quantization format, training step, model config, etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub __metadata__: Option<HashMap<String, String>>,
     #[serde(flatten)]
     pub tensors: HashMap<String, TensorEntry>,
 }
@@ -88,11 +92,21 @@ pub fn save_safetensors_with_dtype(
     tensors: &[(&str, ArrayD<f32>)],
     dtype: SaveDtype,
 ) -> FoundationResult<()> {
+    save_safetensors_with_meta(path, tensors, dtype, None)
+}
+
+/// Save tensors with extra metadata in the header.
+pub fn save_safetensors_with_meta(
+    path: impl AsRef<Path>,
+    tensors: &[(&str, ArrayD<f32>)],
+    dtype: SaveDtype,
+    metadata: Option<HashMap<String, String>>,
+) -> FoundationResult<()> {
     let mut header_map = HashMap::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut offset: usize = 0;
 
-    let (dtype_str, elem_size) = match dtype {
+    let (dtype_str, _elem_size) = match dtype {
         SaveDtype::F32 => ("F32", 4),
         SaveDtype::F16 => ("F16", 2),
     };
@@ -118,6 +132,7 @@ pub fn save_safetensors_with_dtype(
     }
 
     let header_obj = SafetensorsHeader {
+        __metadata__: metadata,
         tensors: header_map,
     };
     let header_json = serde_json::to_string(&header_obj).map_err(|e| {
@@ -154,10 +169,14 @@ pub fn save_safetensors_f16(
     save_safetensors_with_dtype(path, tensors, SaveDtype::F16)
 }
 
-/// Load safetensors into f32 tensors. Supports both F32 and F16 dtypes.
-pub fn load_safetensors(
+/// Load safetensors into f32 tensors plus metadata.
+/// Supports both F32 and F16 dtypes. Metadata is optional (None for legacy files).
+pub fn load_safetensors_with_meta(
     path: impl AsRef<Path>,
-) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
+) -> FoundationResult<(
+    HashMap<String, ArrayD<f32>>,
+    Option<HashMap<String, String>>,
+)> {
     let raw = std::fs::read(path.as_ref()).map_err(|e| {
         crate::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e))
     })?;
@@ -231,7 +250,14 @@ pub fn load_safetensors(
         result.insert(name.clone(), arr);
     }
 
-    Ok(result)
+    Ok((result, header.__metadata__))
+}
+
+/// Load safetensors into f32 tensors (metadata is discarded).
+pub fn load_safetensors(
+    path: impl AsRef<Path>,
+) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
+    load_safetensors_with_meta(path).map(|(tensors, _meta)| tensors)
 }
 
 #[cfg(test)]

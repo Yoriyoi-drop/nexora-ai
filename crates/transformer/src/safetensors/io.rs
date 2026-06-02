@@ -14,6 +14,10 @@ pub struct TensorEntry {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SafetensorsHeader {
+    /// Top-level metadata (safetensors convention: `__metadata__` key).
+    /// Stores quantization format, training step, model config, etc.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub __metadata__: Option<HashMap<String, String>>,
     #[serde(flatten)]
     pub tensors: HashMap<String, TensorEntry>,
 }
@@ -103,6 +107,15 @@ fn save_safetensors_with_dtype<S: AsRef<str>>(
     tensors: &[(S, ArrayD<f32>)],
     dtype: SaveDtype,
 ) -> TransformerResult<()> {
+    save_safetensors_with_meta(path, tensors, dtype, None)
+}
+
+pub fn save_safetensors_with_meta<S: AsRef<str>>(
+    path: impl AsRef<Path>,
+    tensors: &[(S, ArrayD<f32>)],
+    dtype: SaveDtype,
+    metadata: Option<HashMap<String, String>>,
+) -> TransformerResult<()> {
     let mut header_map = HashMap::new();
     let mut data_bytes: Vec<u8> = Vec::new();
     let mut offset: usize = 0;
@@ -134,6 +147,7 @@ fn save_safetensors_with_dtype<S: AsRef<str>>(
     }
 
     let header_obj = SafetensorsHeader {
+        __metadata__: metadata,
         tensors: header_map,
     };
     let header_json = serde_json::to_string(&header_obj)
@@ -151,10 +165,14 @@ fn save_safetensors_with_dtype<S: AsRef<str>>(
     Ok(())
 }
 
-/// Load safetensors into f32 tensors. Supports both F32 and F16 dtypes.
-pub fn load_safetensors(
+/// Load safetensors into f32 tensors plus metadata.
+/// Supports both F32 and F16 dtypes. Metadata is optional (None for legacy files).
+pub fn load_safetensors_with_meta(
     path: impl AsRef<Path>,
-) -> TransformerResult<HashMap<String, ArrayD<f32>>> {
+) -> TransformerResult<(
+    HashMap<String, ArrayD<f32>>,
+    Option<HashMap<String, String>>,
+)> {
     let raw = std::fs::read(path.as_ref())?;
 
     if raw.len() < 8 {
@@ -215,7 +233,14 @@ pub fn load_safetensors(
         result.insert(name.clone(), arr);
     }
 
-    Ok(result)
+    Ok((result, header.__metadata__))
+}
+
+/// Load safetensors into f32 tensors (metadata is discarded).
+pub fn load_safetensors(
+    path: impl AsRef<Path>,
+) -> TransformerResult<HashMap<String, ArrayD<f32>>> {
+    load_safetensors_with_meta(path).map(|(tensors, _meta)| tensors)
 }
 
 #[cfg(test)]
@@ -364,6 +389,60 @@ mod tests {
 
         let loaded = load_safetensors(path).unwrap();
         assert_eq!(loaded.len(), 5);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_metadata_roundtrip() {
+        let path = "/tmp/test_safetensors_meta.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let t1: ArrayD<f32> = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("quantization".to_string(), "F16".to_string());
+        meta.insert("step".to_string(), "42".to_string());
+
+        save_safetensors_with_meta(
+            path,
+            &[("weight", t1.clone())],
+            SaveDtype::F32,
+            Some(meta.clone()),
+        )
+        .unwrap();
+
+        let (loaded, loaded_meta) = load_safetensors_with_meta(path).unwrap();
+
+        // Tensors intact
+        assert_eq!(loaded.len(), 1);
+        let w = loaded.get("weight").unwrap();
+        assert_eq!(w.shape(), &[2, 2]);
+        assert!((w[[0, 0]] - 1.0).abs() < 1e-6);
+
+        // Metadata preserved
+        let loaded_meta = loaded_meta.expect("metadata should be present");
+        assert_eq!(loaded_meta.get("quantization").unwrap(), "F16");
+        assert_eq!(loaded_meta.get("step").unwrap(), "42");
+
+        // Backward compat: load_safetensors ignores metadata
+        let tensors_only = load_safetensors(path).unwrap();
+        assert_eq!(tensors_only.len(), 1);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_metadata_old_file_no_meta() {
+        // Files saved without metadata should still load fine
+        let path = "/tmp/test_safetensors_no_meta.safetensors";
+        let _ = std::fs::remove_file(path);
+
+        let t1: ArrayD<f32> = array![[1.0, 2.0], [3.0, 4.0]].into_dyn();
+        save_safetensors(path, &[("weight", t1.clone())]).unwrap();
+
+        let (loaded, loaded_meta) = load_safetensors_with_meta(path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert!(loaded_meta.is_none(), "old file should have no metadata");
 
         let _ = std::fs::remove_file(path);
     }

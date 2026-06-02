@@ -16,6 +16,7 @@ anyhow.workspace = true
 bytemuck = "1"
 nexora-monitoring = { path = "../monitoring" }
 nexora-utils = { path = "../infrastructure/utils" }
+nexora-quantization = { path = "../quantization" }
 
 [features]
 default = ["gpu"]

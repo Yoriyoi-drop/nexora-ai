@@ -1,4 +1,5 @@
 use nexora_autograd::{Adam, TensorOps};
+use nexora_quantization::QFormat;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::trainable::TrainableCausalLM;
 use nexora_transformer::{CausalLM, TransformerConfig};
@@ -19,6 +20,7 @@ fn tiny_model() -> CausalLM {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     })
 }

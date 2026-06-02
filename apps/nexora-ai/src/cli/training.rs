@@ -25,6 +25,7 @@ use nexora_deeplearning::autograd::TensorOps;
 use nexora_foundation::training::{Trainer, TrainerConfig};
 use nexora_foundation::NxrModelId;
 use nexora_tokenizer::BpeTokenizer;
+use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 
 // ── ANSI terminal color helpers ──
@@ -931,6 +932,7 @@ impl crate::cli::commands::Cli {
                     num_experts: 0,
                     top_k_experts: 0,
                     expert_intermediate_size: 0,
+                    quantization: QFormat::F16,
                     use_half_precision: true,
                 };
 
@@ -2643,6 +2645,7 @@ async fn run_parallel_training(
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
+            quantization: QFormat::F16,
             use_half_precision: true,
         };
 

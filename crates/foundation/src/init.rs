@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use nexora_models::wire_model;
+use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
 
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
@@ -30,6 +31,7 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     };
     let mid = || TransformerConfig {
@@ -46,6 +48,7 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     };
     let high = || TransformerConfig {
@@ -62,6 +65,7 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     };
     let flagship = || TransformerConfig {
@@ -78,6 +82,7 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     };
 

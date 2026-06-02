@@ -12,6 +12,7 @@ use nexora_inference::engine::{InferenceConfig, InferenceEngine};
 use nexora_inference::sampler::{Sampler, SamplingConfig, SamplingMethod};
 use nexora_inference::{GeneratedToken, InferenceRequest};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
+use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
 use std::sync::Mutex;
 
@@ -33,6 +34,7 @@ fn test_model() -> CausalLM {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     });
     model.set_keep_on_gpu(false);

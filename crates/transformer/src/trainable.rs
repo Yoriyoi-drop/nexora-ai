@@ -345,7 +345,17 @@ impl TrainableCausalLM {
             .iter()
             .map(|(name, arr)| (name.as_str(), arr.clone()))
             .collect();
-        crate::safetensors::save_safetensors(path, &refs)
+        let mut meta = std::collections::HashMap::new();
+        meta.insert(
+            "quantization".to_string(),
+            self.config.quantization.dtype_name().to_string(),
+        );
+        crate::safetensors::save_safetensors_with_meta(
+            path,
+            &refs,
+            crate::safetensors::SaveDtype::F32,
+            Some(meta),
+        )
     }
 
     pub fn load_checkpoint(model: &mut CausalLM, path: &str) -> crate::TransformerResult<()> {
@@ -412,6 +422,7 @@ impl TrainableCausalLM {
 mod tests {
     use super::*;
     use crate::TransformerConfig;
+    use nexora_quantization::QFormat;
 
     fn small_model() -> CausalLM {
         CausalLM::new(TransformerConfig {
@@ -428,6 +439,7 @@ mod tests {
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
+            quantization: QFormat::F16,
             use_half_precision: true,
         })
     }
@@ -480,6 +492,7 @@ mod tests {
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
+            quantization: QFormat::F16,
             use_half_precision: true,
         });
         trainable.sync_to_inference(&mut inf2).unwrap();
@@ -533,6 +546,7 @@ mod tests {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
@@ -570,6 +584,7 @@ mod tests {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();

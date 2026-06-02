@@ -14,6 +14,7 @@ tracing.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
 nexora-autograd = { path = "../autograd" }
+nexora-quantization = { path = "../quantization" }
 wgpu = { version = "29", optional = true }
 half = { version = "2", optional = true }
 

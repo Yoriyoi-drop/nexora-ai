@@ -1,3 +1,4 @@
+use nexora_quantization::QFormat;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,7 +48,13 @@ pub struct TransformerConfig {
     pub num_experts: usize,
     pub top_k_experts: usize,
     pub expert_intermediate_size: usize,
-    // Precision
+    // Precision — unified quantization format (F16, BF16, Q8, Q6, Q5, Q4).
+    // Controls weight storage format for safetensors I/O and GPU weight upload.
+    // Internal GPU paths still use `use_half_precision` / `quantize_weights` flags
+    // derived from this setting.
+    pub quantization: QFormat,
+    /// Legacy flag — derived from `quantization` in new code.
+    /// True when quantization is F16 or BF16.
     pub use_half_precision: bool,
 }
 
@@ -67,6 +74,7 @@ impl Default for TransformerConfig {
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
+            quantization: QFormat::F16,
             use_half_precision: true,
         }
     }
@@ -159,6 +167,7 @@ impl TransformerConfig {
                 num_experts: 8,
                 top_k_experts: 2,
                 expert_intermediate_size: 8192,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             },
             ModelTier::Apex => Self {
@@ -175,6 +184,7 @@ impl TransformerConfig {
                 num_experts: 6,
                 top_k_experts: 2,
                 expert_intermediate_size: 5504,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             },
             ModelTier::Pro => Self {
@@ -191,6 +201,7 @@ impl TransformerConfig {
                 num_experts: 4,
                 top_k_experts: 2,
                 expert_intermediate_size: 4320,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             },
             ModelTier::Core => Self {
@@ -207,6 +218,7 @@ impl TransformerConfig {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             },
             ModelTier::Edge => Self {
@@ -223,6 +235,7 @@ impl TransformerConfig {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
+                quantization: QFormat::F16,
                 use_half_precision: true,
             },
         }

@@ -1,3 +1,4 @@
+use nexora_quantization::QFormat;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
 use std::path::PathBuf;
@@ -17,6 +18,7 @@ fn tiny_model() -> CausalLM {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        quantization: QFormat::F16,
         use_half_precision: true,
     })
 }
