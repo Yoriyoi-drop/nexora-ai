@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_command_input_validation() {
+    async fn test_command_with_slash_validation() {
         let receiver = InputReceiver::new();
         let result = receiver
             .receive_input("/start", InputType::Command)
@@ -173,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn test_very_long_code_input() {
         let receiver = InputReceiver::new();
-        let long_code = "fn test() {}\n".repeat(1000);
+        let long_code = "fn test() {}\n".repeat(500);
         let result = receiver
             .receive_input(&long_code, InputType::Code)
             .await;

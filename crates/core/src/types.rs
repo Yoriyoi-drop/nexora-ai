@@ -185,18 +185,8 @@ impl InputData {
     }
 
     fn validate_text(&self) -> bool {
-        // Text should contain printable characters (including Unicode)
-        // Allow letters, numbers, punctuation, whitespace, and common Unicode characters
-        self.raw_input.chars().all(|c| {
-            c.is_alphanumeric() || 
-            c.is_whitespace() || 
-            c.is_ascii_punctuation() || 
-            // Common symbols and Unicode characters
-            "@#$%^&*()_+-=[]{}|;':\",./<>?~`".contains(c) ||
-            // Allow common Unicode ranges
-            (c as u32 >= 0x00A0 && c as u32 <= 0x00FF) || // Latin-1 supplement
-            (c as u32 >= 0x0400 && c as u32 <= 0x04FF) // Cyrillic
-        })
+        // Allow any non-control character (including Unicode, emoji)
+        !self.raw_input.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
     }
 
     fn validate_command(&self) -> bool {
@@ -223,6 +213,7 @@ impl InputData {
             "reset ",
             "clear ",
             "kosongkan ",
+            "/", // slash-prefixed commands (e.g. /help, /start)
         ];
 
         command_prefixes

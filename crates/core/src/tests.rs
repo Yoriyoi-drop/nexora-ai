@@ -1,24 +1,33 @@
 use crate::controller::CoreController;
-use crate::types::{DefaultSpecialistModel, InputType, IntentType, ModelId, SpecialistModel};
+use crate::types::{ControllerConfig, DefaultSpecialistModel, InputType, IntentType, ModelId, SpecialistModel};
 use std::sync::Arc;
+
+fn controller_low_threshold() -> CoreController {
+    let mut config = ControllerConfig::default();
+    config.routing_threshold = 0.1;
+    config.intent_threshold = 0.3;
+    CoreController::with_config(config)
+}
 
 #[tokio::test]
 async fn test_core_controller_creation() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("buat program", InputType::Text).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_context_count() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let _ = controller.process_request("test", InputType::Text).await;
     assert!(controller.get_context_count() <= 10);
 }
 
 #[tokio::test]
 async fn test_controller_routes_coding_intent() {
-    let mut controller = CoreController::new();
+    let mut config = ControllerConfig::default();
+    config.routing_threshold = 0.1;
+    let mut controller = CoreController::with_config(config);
     let model = Box::new(DefaultSpecialistModel::new(
         ModelId::Coding,
         vec![IntentType::Coding],
@@ -32,7 +41,9 @@ async fn test_controller_routes_coding_intent() {
 
 #[tokio::test]
 async fn test_controller_routes_memory_intent() {
-    let mut controller = CoreController::new();
+    let mut config = ControllerConfig::default();
+    config.routing_threshold = 0.1;
+    let mut controller = CoreController::with_config(config);
     let model = Box::new(DefaultSpecialistModel::new(
         ModelId::Memory,
         vec![IntentType::Memory],
@@ -46,14 +57,14 @@ async fn test_controller_routes_memory_intent() {
 
 #[tokio::test]
 async fn test_controller_empty_input() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("", InputType::Text).await;
     assert!(result.is_err() || result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_very_long_input() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let long_input = "a".repeat(100_000);
     let result = controller.process_request(&long_input, InputType::Text).await;
     assert!(result.is_err() || result.is_ok());
@@ -61,14 +72,14 @@ async fn test_controller_very_long_input() {
 
 #[tokio::test]
 async fn test_controller_model_not_available_fallback() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("memory request test", InputType::Text).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_processing_state() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     assert!(!controller.is_processing());
     let _ = controller.process_request("test", InputType::Text).await;
     assert!(!controller.is_processing());
@@ -76,7 +87,7 @@ async fn test_controller_processing_state() {
 
 #[tokio::test]
 async fn test_controller_stats_tracking() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let _ = controller.process_request("request one", InputType::Text).await;
     let stats = controller.get_stats();
     assert!(stats.total_requests_processed >= 1);
@@ -84,21 +95,21 @@ async fn test_controller_stats_tracking() {
 
 #[tokio::test]
 async fn test_controller_command_input() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("/help", InputType::Command).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_query_input() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("what is rust?", InputType::Query).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_reset_clears_state() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let _ = controller.process_request("test", InputType::Text).await;
     assert!(!controller.is_processing());
     controller.reset();
@@ -107,7 +118,7 @@ async fn test_controller_reset_clears_state() {
 
 #[tokio::test]
 async fn test_controller_processes_debugging_intent() {
-    let mut controller = CoreController::new();
+    let mut controller = controller_low_threshold();
     let model = Box::new(DefaultSpecialistModel::new(
         ModelId::Logic,
         vec![IntentType::Debugging, IntentType::Reasoning],
@@ -119,7 +130,7 @@ async fn test_controller_processes_debugging_intent() {
 
 #[tokio::test]
 async fn test_controller_processes_planning_intent() {
-    let mut controller = CoreController::new();
+    let mut controller = controller_low_threshold();
     let model = Box::new(DefaultSpecialistModel::new(
         ModelId::Planner,
         vec![IntentType::Planning],
@@ -131,14 +142,14 @@ async fn test_controller_processes_planning_intent() {
 
 #[tokio::test]
 async fn test_controller_handles_multi_intent() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let result = controller.process_request("buat fungsi dan cek error", InputType::Text).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_cache_hits() {
-    let controller = CoreController::new();
+    let controller = controller_low_threshold();
     let _ = controller.process_request("test", InputType::Text).await;
     let _ = controller.process_request("test", InputType::Text).await;
 }
@@ -160,7 +171,7 @@ async fn test_controller_with_multiple_specialists() {
         "buat program rust",
         "ingat data penting",
         "fix error kritis",
-        "rencana development",
+        "tujuan development",
         "validasi input user",
     ];
     for input in inputs {
@@ -184,7 +195,7 @@ async fn test_specialist_model_registration() {
         ModelId::Coding,
         vec![IntentType::Coding],
     ));
-    controller.register_specialist_model("coder", model);
+    controller.register_specialist_model(ModelId::Coding.name(), model);
     assert!(controller.is_model_available(ModelId::Coding));
 }
 

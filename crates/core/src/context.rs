@@ -40,7 +40,7 @@ impl ContextAnalyzer {
         }
 
         // Calculate context relevance (simplified version)
-        context.context_relevance = 0.5; // Default relevance since we don't store context in controller
+        context.context_relevance = 1.0; // Neutral default — no penalty for missing stored context
 
         info!(
             "Context analyzed: has_memory={}, relevance={:.2}",
