@@ -3989,6 +3989,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "memmap2",
  "ndarray 0.15.6",
  "ndarray-rand",
  "nexora-autograd",

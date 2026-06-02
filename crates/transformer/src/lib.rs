@@ -3,6 +3,7 @@ pub mod config;
 pub mod gqa;
 pub mod model;
 pub mod mtp;
+pub mod observer;
 pub mod quantized;
 pub mod rms_norm;
 pub mod rope;
@@ -15,6 +16,7 @@ pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};
 #[cfg(feature = "gpu")]
 pub use gqa::{GpuKVCache, GpuKVCacheEntry};
 pub use model::{CausalLM, LayerInjector};
+pub use observer::{WeightNotifier, WeightObserver};
 pub use mtp::{MTPConfig, MTPHeads, MTPInference};
 pub use rms_norm::RMSNorm;
 pub use rope::RoPE;

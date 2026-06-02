@@ -646,12 +646,12 @@ impl LinearLayer {
 
 /// ORACLE Backbone Model
 pub struct OracleBackbone {
-    config: OracleBackboneConfig,
-    embedding: EmbeddingLayer,
-    moe_layers: Vec<SparseMoELayer>,
-    attention_layers: Vec<MultiHeadLatentAttention>,
-    norm_layers: Vec<LayerNorm>,
-    output_projection: LinearLayer,
+    pub config: OracleBackboneConfig,
+    pub embedding: EmbeddingLayer,
+    pub moe_layers: Vec<SparseMoELayer>,
+    pub attention_layers: Vec<MultiHeadLatentAttention>,
+    pub norm_layers: Vec<LayerNorm>,
+    pub output_projection: LinearLayer,
 }
 
 impl OracleBackbone {

@@ -11,6 +11,7 @@ pub struct TransformerBlock {
     pub ffn_norm: RMSNorm,
     pub attention: GQA,
     pub ffn: SwiGLU,
+    pub experts: Option<Vec<SwiGLU>>,
 }
 
 impl TransformerBlock {
@@ -21,18 +22,35 @@ impl TransformerBlock {
         head_dim: usize,
         intermediate_size: usize,
         norm_eps: f32,
+        num_experts: usize,
+        expert_intermediate_size: usize,
     ) -> Self {
+        let experts = if num_experts > 0 {
+            Some(
+                (0..num_experts)
+                    .map(|_| SwiGLU::new(hidden_size, expert_intermediate_size))
+                    .collect(),
+            )
+        } else {
+            None
+        };
         Self {
             attention_norm: RMSNorm::new(hidden_size, norm_eps),
             ffn_norm: RMSNorm::new(hidden_size, norm_eps),
             attention: GQA::new(hidden_size, num_heads, num_kv_heads, head_dim),
             ffn: SwiGLU::new(hidden_size, intermediate_size),
+            experts,
         }
     }
 
-    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize, intermediate_size: usize) {
+    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize, intermediate_size: usize, expert_intermediate_size: usize) {
         self.attention.init_random(hidden_size, num_heads, num_kv_heads, head_dim);
         self.ffn.init_random(hidden_size, intermediate_size);
+        if let Some(experts) = &mut self.experts {
+            for e in experts.iter_mut() {
+                e.init_random(hidden_size, expert_intermediate_size);
+            }
+        }
     }
 
     /// Propagate half-precision flag to attention and FFN sub-layers
@@ -42,6 +60,12 @@ impl TransformerBlock {
         self.ffn.use_half_precision = true;
         self.attention.pack_f16_weights();
         self.ffn.pack_f16_weights();
+        if let Some(experts) = &mut self.experts {
+            for e in experts.iter_mut() {
+                e.use_half_precision = true;
+                e.pack_f16_weights();
+            }
+        }
     }
 
     pub fn forward(
@@ -59,7 +83,15 @@ impl TransformerBlock {
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
-        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = Array2::zeros(normed_ffn.dim());
+            for expert in experts {
+                sum = sum + expert.forward(&normed_ffn)?;
+            }
+            sum / experts.len() as f32
+        } else {
+            self.ffn.forward(&normed_ffn)?
+        };
         Ok(after_attn + ffn_out)
     }
 
@@ -80,7 +112,15 @@ impl TransformerBlock {
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
-        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = Array2::zeros(normed_ffn.dim());
+            for expert in experts {
+                sum = sum + expert.forward(&normed_ffn)?;
+            }
+            sum / experts.len() as f32
+        } else {
+            self.ffn.forward(&normed_ffn)?
+        };
         Ok(after_attn + ffn_out)
     }
 
@@ -101,7 +141,15 @@ impl TransformerBlock {
         let after_attn = x + attn_out;
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
-        let ffn_out = self.ffn.forward(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = Array2::zeros(normed_ffn.dim());
+            for expert in experts {
+                sum = sum + expert.forward(&normed_ffn)?;
+            }
+            sum / experts.len() as f32
+        } else {
+            self.ffn.forward(&normed_ffn)?
+        };
         Ok(after_attn + ffn_out)
     }
 
@@ -127,7 +175,17 @@ impl TransformerBlock {
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
-        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = experts[0].forward_gpu(&normed_ffn)?;
+            for expert in &experts[1..] {
+                let out = expert.forward_gpu(&normed_ffn)?;
+                sum = ctx.add(&sum, &out)?;
+            }
+            ctx.scale_inplace(&sum, 1.0 / experts.len() as f32)?;
+            sum
+        } else {
+            self.ffn.forward_gpu(&normed_ffn)?
+        };
         ctx.add(&after_attn, &ffn_out)
     }
 
@@ -154,7 +212,17 @@ impl TransformerBlock {
 
         // 2. FFN sub-block: RMSNorm -> SwiGLU -> residual add
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
-        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = experts[0].forward_gpu(&normed_ffn)?;
+            for expert in &experts[1..] {
+                let out = expert.forward_gpu(&normed_ffn)?;
+                sum = ctx.add(&sum, &out)?;
+            }
+            ctx.scale_inplace(&sum, 1.0 / experts.len() as f32)?;
+            sum
+        } else {
+            self.ffn.forward_gpu(&normed_ffn)?
+        };
         // Residual: after_attn + ffn_out
         ctx.add(&after_attn, &ffn_out)
     }
@@ -185,7 +253,17 @@ impl TransformerBlock {
         let after_attn = ctx.add(x_gpu, &attn_out)?;
 
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
-        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = experts[0].forward_gpu(&normed_ffn)?;
+            for expert in &experts[1..] {
+                let out = expert.forward_gpu(&normed_ffn)?;
+                sum = ctx.add(&sum, &out)?;
+            }
+            ctx.scale_inplace(&sum, 1.0 / experts.len() as f32)?;
+            sum
+        } else {
+            self.ffn.forward_gpu(&normed_ffn)?
+        };
         ctx.add(&after_attn, &ffn_out)
     }
 
@@ -214,7 +292,17 @@ impl TransformerBlock {
 
         // 2. FFN sub-block: RMSNorm -> SwiGLU -> residual add
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
-        let ffn_out = self.ffn.forward_gpu(&normed_ffn)?;
+        let ffn_out = if let Some(experts) = &self.experts {
+            let mut sum = experts[0].forward_gpu(&normed_ffn)?;
+            for expert in &experts[1..] {
+                let out = expert.forward_gpu(&normed_ffn)?;
+                sum = ctx.add(&sum, &out)?;
+            }
+            ctx.scale_inplace(&sum, 1.0 / experts.len() as f32)?;
+            sum
+        } else {
+            self.ffn.forward_gpu(&normed_ffn)?
+        };
         // Residual: after_attn + ffn_out
         ctx.add(&after_attn, &ffn_out)
     }
@@ -225,6 +313,11 @@ impl TransformerBlock {
         self.ffn_norm.preupload_gpu()?;
         self.attention.preupload_gpu()?;
         self.ffn.preupload_gpu()?;
+        if let Some(experts) = &self.experts {
+            for e in experts {
+                e.preupload_gpu()?;
+            }
+        }
         Ok(())
     }
 }
@@ -235,8 +328,8 @@ mod tests {
     use ndarray::array;
 
 fn small_block() -> TransformerBlock {
-    let mut block = TransformerBlock::new(8, 4, 2, 4, 16, 1e-6);
-    block.init_random(8, 4, 2, 4, 16);
+    let mut block = TransformerBlock::new(8, 4, 2, 4, 16, 1e-6, 0, 0);
+    block.init_random(8, 4, 2, 4, 16, 0);
     block
 }
 

@@ -29,6 +29,7 @@ pub struct TrainableBlock {
     pub ffn_norm: TrainableRMSNorm,
     pub attention: TrainableGQA,
     pub ffn: TrainableSwiGLU,
+    pub experts: Option<Vec<TrainableSwiGLU>>,
 }
 
 pub struct TrainableRMSNorm {
@@ -89,30 +90,42 @@ impl TrainableCausalLM {
         let blocks = model
             .blocks
             .iter()
-            .map(|b| TrainableBlock {
-                attention_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(b.attention_norm.weight.as_ref(), "attention_norm.weight"),
-                    eps: b.attention_norm.eps,
-                },
-                ffn_norm: TrainableRMSNorm {
-                    weight: to_tensor_1d(b.ffn_norm.weight.as_ref(), "ffn_norm.weight"),
-                    eps: b.ffn_norm.eps,
-                },
-                attention: TrainableGQA {
-                    num_heads: b.attention.num_heads,
-                    num_kv_heads: b.attention.num_kv_heads,
-                    head_dim: b.attention.head_dim,
-                    num_groups: b.attention.num_groups,
-                    wq: to_tensor(b.attention.wq.as_ref(), "attention.wq"),
-                    wk: to_tensor(b.attention.wk.as_ref(), "attention.wk"),
-                    wv: to_tensor(b.attention.wv.as_ref(), "attention.wv"),
-                    wo: to_tensor(b.attention.wo.as_ref(), "attention.wo"),
-                },
-                ffn: TrainableSwiGLU {
-                    w1: to_tensor(b.ffn.w1.as_ref(), "ffn.w1"),
-                    w2: to_tensor(b.ffn.w2.as_ref(), "ffn.w2"),
-                    w3: to_tensor(b.ffn.w3.as_ref(), "ffn.w3"),
-                },
+            .map(|b| {
+                let experts = b.experts.as_ref().map(|exps| {
+                    exps.iter().enumerate().map(|(e_idx, e)| {
+                        TrainableSwiGLU {
+                            w1: to_tensor(e.w1.as_ref(), &format!("experts.{}.w1", e_idx)),
+                            w2: to_tensor(e.w2.as_ref(), &format!("experts.{}.w2", e_idx)),
+                            w3: to_tensor(e.w3.as_ref(), &format!("experts.{}.w3", e_idx)),
+                        }
+                    }).collect::<Vec<_>>()
+                });
+                TrainableBlock {
+                    attention_norm: TrainableRMSNorm {
+                        weight: to_tensor_1d(b.attention_norm.weight.as_ref(), "attention_norm.weight"),
+                        eps: b.attention_norm.eps,
+                    },
+                    ffn_norm: TrainableRMSNorm {
+                        weight: to_tensor_1d(b.ffn_norm.weight.as_ref(), "ffn_norm.weight"),
+                        eps: b.ffn_norm.eps,
+                    },
+                    attention: TrainableGQA {
+                        num_heads: b.attention.num_heads,
+                        num_kv_heads: b.attention.num_kv_heads,
+                        head_dim: b.attention.head_dim,
+                        num_groups: b.attention.num_groups,
+                        wq: to_tensor(b.attention.wq.as_ref(), "attention.wq"),
+                        wk: to_tensor(b.attention.wk.as_ref(), "attention.wk"),
+                        wv: to_tensor(b.attention.wv.as_ref(), "attention.wv"),
+                        wo: to_tensor(b.attention.wo.as_ref(), "attention.wo"),
+                    },
+                    ffn: TrainableSwiGLU {
+                        w1: to_tensor(b.ffn.w1.as_ref(), "ffn.w1"),
+                        w2: to_tensor(b.ffn.w2.as_ref(), "ffn.w2"),
+                        w3: to_tensor(b.ffn.w3.as_ref(), "ffn.w3"),
+                    },
+                    experts,
+                }
             })
             .collect();
 
@@ -203,10 +216,46 @@ impl TrainableCausalLM {
                     .into_dimensionality::<ndarray::Ix2>()
                     .map_err(|_| "Internal invariant: ffn w3 must be 2D")?
                     .to_owned());
+            // Sync expert weights
+            if let Some(train_experts) = &block.experts {
+                let inf_experts = model.blocks[i].experts.get_or_insert_with(|| {
+                    (0..train_experts.len()).map(|_| {
+                        let mut e = super::swiglu::SwiGLU::new(
+                            model.config.hidden_size,
+                            model.config.expert_intermediate_size,
+                        );
+                        e.init_random(
+                            model.config.hidden_size,
+                            model.config.expert_intermediate_size,
+                        );
+                        e
+                    }).collect()
+                });
+                for (e_idx, train_e) in train_experts.iter().enumerate() {
+                    if e_idx < inf_experts.len() {
+                        inf_experts[e_idx].w1 = Some(
+                            train_e.w1.data()
+                                .into_dimensionality::<ndarray::Ix2>()
+                                .map_err(|_| "Internal invariant: expert w1 must be 2D")?
+                                .to_owned());
+                        inf_experts[e_idx].w2 = Some(
+                            train_e.w2.data()
+                                .into_dimensionality::<ndarray::Ix2>()
+                                .map_err(|_| "Internal invariant: expert w2 must be 2D")?
+                                .to_owned());
+                        inf_experts[e_idx].w3 = Some(
+                            train_e.w3.data()
+                                .into_dimensionality::<ndarray::Ix2>()
+                                .map_err(|_| "Internal invariant: expert w3 must be 2D")?
+                                .to_owned());
+                    }
+                }
+            }
         }
         if model.keep_on_gpu {
             model.reset_gpu_weights();
         }
+        model.notify_weight_changed();
         Ok(())
     }
 
@@ -262,10 +311,27 @@ impl TrainableCausalLM {
             let residual = h.clone();
             let normed = rms_norm_2d(&h, &block.ffn_norm.weight, block.ffn_norm.eps);
 
-            let gate = normed.matmul(&block.ffn.w1.transpose());
-            let hidden_states = normed.matmul(&block.ffn.w3.transpose());
-            let gated = gate.silu().mul(&hidden_states);
-            let ffn_out = gated.matmul(&block.ffn.w2.transpose());
+            let ffn_out = if let Some(experts) = &block.experts {
+                let mut sum: Option<Tensor> = None;
+                for expert in experts {
+                    let gate = normed.matmul(&expert.w1.transpose());
+                    let hidden_states = normed.matmul(&expert.w3.transpose());
+                    let gated = gate.silu().mul(&hidden_states);
+                    let out = gated.matmul(&expert.w2.transpose());
+                    sum = Some(match sum {
+                        Some(s) => s.add(&out),
+                        None => out,
+                    });
+                }
+                let sum = sum.expect("experts must be non-empty");
+                let n = sum.clone().div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
+                n
+            } else {
+                let gate = normed.matmul(&block.ffn.w1.transpose());
+                let hidden_states = normed.matmul(&block.ffn.w3.transpose());
+                let gated = gate.silu().mul(&hidden_states);
+                gated.matmul(&block.ffn.w2.transpose())
+            };
 
             h = residual.add(&ffn_out);
         }
@@ -292,6 +358,13 @@ impl TrainableCausalLM {
             params.push(block.ffn.w1.clone());
             params.push(block.ffn.w2.clone());
             params.push(block.ffn.w3.clone());
+            if let Some(experts) = &block.experts {
+                for e in experts {
+                    params.push(e.w1.clone());
+                    params.push(e.w2.clone());
+                    params.push(e.w3.clone());
+                }
+            }
         }
         params
     }
@@ -314,8 +387,9 @@ impl TrainableCausalLM {
             "ffn.w2",
             "ffn.w3",
         ];
+        let expert_tensors_per = self.config.num_experts * 3;
         let mut tensors: Vec<(String, ndarray::ArrayD<f32>)> =
-            Vec::with_capacity(3 + 9 * self.blocks.len());
+            Vec::with_capacity(3 + 9 * self.blocks.len() + expert_tensors_per * self.blocks.len());
         tensors.push(("token_embedding".into(), self.token_embedding.data()));
         tensors.push(("lm_head".into(), self.lm_head.data()));
         tensors.push(("norm.weight".into(), self.norm.weight.data()));
@@ -334,6 +408,15 @@ impl TrainableCausalLM {
             for (j, suffix) in suffix_names.iter().enumerate() {
                 let key = format!("blocks.{}.{}", i, suffix);
                 tensors.push((key, data_refs[j].clone()));
+            }
+            // Expert tensors
+            if let Some(experts) = &block.experts {
+                for (e_idx, expert) in experts.iter().enumerate() {
+                    let e_prefix = format!("blocks.{}.experts.{}.", i, e_idx);
+                    tensors.push((format!("{}w1", e_prefix), expert.w1.data()));
+                    tensors.push((format!("{}w2", e_prefix), expert.w2.data()));
+                    tensors.push((format!("{}w3", e_prefix), expert.w3.data()));
+                }
             }
         }
         tensors
@@ -412,7 +495,27 @@ impl TrainableCausalLM {
             load_opt!(block.ffn.w1, "ffn.w1", ndarray::Ix2);
             load_opt!(block.ffn.w2, "ffn.w2", ndarray::Ix2);
             load_opt!(block.ffn.w3, "ffn.w3", ndarray::Ix2);
+            // Load expert weights if present in checkpoint
+            if let Some(experts) = &mut block.experts {
+                for (e_idx, expert) in experts.iter_mut().enumerate() {
+                    let e_prefix = format!("blocks.{}.experts.{}.", i, e_idx);
+                    let w1_name = format!("{}w1", e_prefix);
+                    if loaded.contains_key(&w1_name) {
+                        expert.w1 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w1_name)?, &w1_name)?);
+                        let w2_name = format!("{}w2", e_prefix);
+                        expert.w2 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w2_name)?, &w2_name)?);
+                        let w3_name = format!("{}w3", e_prefix);
+                        expert.w3 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w3_name)?, &w3_name)?);
+                    }
+                }
+            }
         }
+
+        // Invalidate GPU cache so next forward re-uploads
+        #[cfg(feature = "gpu")]
+        model.reset_gpu_weights();
+
+        model.notify_weight_changed();
 
         Ok(())
     }

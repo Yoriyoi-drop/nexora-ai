@@ -21,6 +21,7 @@ tracing.workspace = true
 syn = { version = "2.0", features = ["full", "visit", "parsing", "extra-traits"] }
 quote = "1.0"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
+memmap2.workspace = true
 
 [features]
 default = []

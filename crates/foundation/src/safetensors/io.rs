@@ -290,7 +290,10 @@ mod tests {
                 data_offsets: [0, 36],
             },
         );
-        let header = SafetensorsHeader { tensors };
+        let header = SafetensorsHeader {
+            __metadata__: None,
+            tensors,
+        };
         let json = serde_json::to_string(&header).unwrap();
         let back: SafetensorsHeader = serde_json::from_str(&json).unwrap();
         assert_eq!(back.tensors.len(), 1);
@@ -380,6 +383,7 @@ mod tests {
     #[test]
     fn test_safetensors_header_debug() {
         let header = SafetensorsHeader {
+            __metadata__: None,
             tensors: HashMap::new(),
         };
         let _debug = format!("{:?}", header);

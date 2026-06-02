@@ -272,6 +272,9 @@ pub struct CausalLM {
     /// F32 temp buffers for matmul computation. Ignored when `quantize_weights`
     /// is true (int8 takes priority).
     pub use_half_precision: bool,
+    /// Weight change notifier — external components register here to be
+    /// notified when weights are updated (sync_to_inference, load_checkpoint).
+    pub weight_notifier: super::observer::WeightNotifier,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
@@ -295,6 +298,7 @@ impl Clone for CausalLM {
             keep_on_gpu: self.keep_on_gpu,
             quantize_weights: self.quantize_weights,
             use_half_precision: self.use_half_precision,
+            weight_notifier: super::observer::WeightNotifier::new(),
         }
     }
 }
@@ -315,6 +319,7 @@ impl Clone for CausalLM {
             keep_on_gpu: self.keep_on_gpu,
             quantize_weights: self.quantize_weights,
             use_half_precision: self.use_half_precision,
+            weight_notifier: super::observer::WeightNotifier::new(),
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
         }
@@ -340,8 +345,10 @@ impl CausalLM {
                     config.head_dim(),
                     config.intermediate_size,
                     config.norm_eps,
+                    config.num_experts,
+                    config.expert_intermediate_size,
                 );
-                block.init_random(config.hidden_size, config.num_heads, config.num_kv_heads, config.head_dim(), config.intermediate_size);
+                block.init_random(config.hidden_size, config.num_heads, config.num_kv_heads, config.head_dim(), config.intermediate_size, config.expert_intermediate_size);
                 block
             })
             .collect();
@@ -384,11 +391,23 @@ impl CausalLM {
             },
             quantize_weights: false,
             use_half_precision: false,
+            weight_notifier: super::observer::WeightNotifier::new(),
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
         }
+    }
+
+    /// Register a weight-change observer.
+    /// Fires on every `sync_to_inference()` and `load_checkpoint()`.
+    pub fn register_weight_observer(&self, observer: Box<dyn super::observer::WeightObserver>) {
+        self.weight_notifier.add(observer);
+    }
+
+    /// Notify all registered observers (called by weight-mutating code).
+    pub fn notify_weight_changed(&self) {
+        self.weight_notifier.notify();
     }
 
     /// Enable half-precision (f16) weight storage on GPU.
@@ -793,6 +812,20 @@ impl CausalLM {
             block.ffn.w2 = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
             let name = prefix.clone() + "ffn.w3";
             block.ffn.w3 = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
+            // Load expert weights if present in checkpoint
+            if let Some(experts) = &mut block.experts {
+                for (e_idx, expert) in experts.iter_mut().enumerate() {
+                    let e_prefix = format!("{}experts.{}.", prefix, e_idx);
+                    let w1_name = format!("{}w1", e_prefix);
+                    if loaded.contains_key(&w1_name) {
+                        expert.w1 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w1_name)?, &w1_name)?.to_owned());
+                        let w2_name = format!("{}w2", e_prefix);
+                        expert.w2 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w2_name)?, &w2_name)?.to_owned());
+                        let w3_name = format!("{}w3", e_prefix);
+                        expert.w3 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w3_name)?, &w3_name)?.to_owned());
+                    }
+                }
+            }
         }
         model.injectors = Vec::new();
         model.keep_on_gpu = {
@@ -3134,7 +3167,7 @@ impl CausalLM {
     pub fn readback_weights(&self) -> crate::TransformerResult<Vec<(String, ndarray::ArrayD<f32>)>> {
         use ndarray::{Array1, Array2, ArrayD};
         let mut tensors: Vec<(String, ArrayD<f32>)> =
-            Vec::with_capacity(3 + 9 * self.blocks.len());
+            Vec::with_capacity(3 + 9 * self.blocks.len() + 3 * self.config.num_experts * self.blocks.len());
 
         // token_embedding
         if let Some(te) = &self.token_embedding {
@@ -3240,6 +3273,22 @@ impl CausalLM {
                 tensors.push((format!("{}ffn.w1", p), g.0.into_dyn()));
                 tensors.push((format!("{}ffn.w2", p), g.1.into_dyn()));
                 tensors.push((format!("{}ffn.w3", p), g.2.into_dyn()));
+            }
+
+            // Expert weights
+            if let Some(experts) = &block.experts {
+                for (e_idx, expert) in experts.iter().enumerate() {
+                    let e_prefix = format!("{}experts.{}.", p, e_idx);
+                    if let Some(w) = &expert.w1 {
+                        tensors.push((format!("{}w1", e_prefix), w.clone().into_dyn()));
+                    }
+                    if let Some(w2) = &expert.w2 {
+                        tensors.push((format!("{}w2", e_prefix), w2.clone().into_dyn()));
+                    }
+                    if let Some(w3) = &expert.w3 {
+                        tensors.push((format!("{}w3", e_prefix), w3.clone().into_dyn()));
+                    }
+                }
             }
         }
 
