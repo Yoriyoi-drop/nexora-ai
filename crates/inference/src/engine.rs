@@ -11,7 +11,7 @@ use crate::continuous_batching::ContinuousBatchingConfig;
 use crate::distributed::DistributedRouter;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
-use crate::paged_cache::{PagedCacheConfig, PagedKVCache};
+use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
 use crate::paged_provider::PagedKVCacheProvider;
 use std::sync::Mutex as StdMutex;
 use crate::prefix_cache::PrefixCache;
@@ -269,6 +269,11 @@ impl InferenceEngine {
             let pc_config = PagedCacheConfig {
                 block_size,
                 max_blocks,
+                max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
+                eviction_policy: EvictionPolicy::LRU,
+                eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
+                eviction_min_age_secs: 1.0,
+                eviction_batch_size: 4,
                 num_layers: c.num_layers,
                 num_kv_heads: c.num_kv_heads,
                 head_dim: c.head_dim(),
@@ -283,9 +288,14 @@ impl InferenceEngine {
         } else {
             warn!("Paged cache requested but model not loaded yet — deferred to first cache creation");
             Some(Arc::new(StdMutex::new(PagedKVCache::new(PagedCacheConfig {
-                num_layers: 1,
                 block_size: 16,
                 max_blocks: 64,
+                max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
+                eviction_policy: EvictionPolicy::LRU,
+                eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
+                eviction_min_age_secs: 1.0,
+                eviction_batch_size: 4,
+                num_layers: 1,
                 num_kv_heads: 1,
                 head_dim: 64,
                 max_seq_len: 2048,
@@ -1236,15 +1246,33 @@ impl InferenceEngine {
 
     /// Create a new inference session for tracking generation state.
     /// Called from generate_internal when a session_id is provided.
+    /// Enforces a hard cap at `max_concurrent_requests * 4` to prevent
+    /// unbounded HashMap growth from orphaned sessions.
     pub async fn get_session(&self, session_id: Uuid) -> Result<Arc<InferenceSession>> {
+        let max_sessions = self.config.max_concurrent_requests.max(16) * 4;
         let mut sessions = self.session_manager.write().await;
-        if sessions.len() >= self.config.max_concurrent_requests * 2 {
+
+        // Evict stale entries when approaching capacity or opportunistically
+        if sessions.len() >= max_sessions / 2 {
             let now = chrono::Utc::now();
-            sessions.retain(|_, s| {
-                let age = (now - s.created_at()).num_seconds() as u64;
-                age < s.config().timeout_seconds
-            });
+            let timeout = chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
+            sessions.retain(|_, s| (now - s.created_at()) < timeout);
         }
+
+        // Hard cap: if still above limit after eviction, drop the oldest 25%
+        if sessions.len() >= max_sessions {
+            let mut session_list: Vec<(Uuid, chrono::DateTime<chrono::Utc>)> = sessions
+                .iter()
+                .map(|(id, s)| (*id, s.created_at()))
+                .collect();
+            session_list.sort_by_key(|(_, t)| *t);
+            let to_remove: usize = session_list.len().saturating_sub(max_sessions / 2);
+            for (id, _) in session_list.iter().take(to_remove) {
+                sessions.remove(id);
+            }
+            warn!("Evicted {} oldest sessions to stay under hard cap", to_remove);
+        }
+
         if let Some(session) = sessions.get(&session_id) {
             Ok(Arc::new(session.clone()))
         } else {
@@ -1264,6 +1292,16 @@ impl InferenceEngine {
         if evicted > 0 {
             info!("Evicted {} stale sessions", evicted);
         }
+
+        // Also clean up finished active request handles to prevent unbounded growth
+        let mut active = self.active_requests.write().await;
+        let before_active = active.len();
+        active.retain(|_, h| !h.is_finished());
+        let cleaned = before_active - active.len();
+        if cleaned > 0 {
+            debug!("Cleaned {} finished active request handles", cleaned);
+        }
+
         evicted
     }
 

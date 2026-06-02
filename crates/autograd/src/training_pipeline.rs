@@ -388,7 +388,12 @@ impl Checkpoint {
 
 // ─── Metrics Tracker ─────────────────────────────────────────────────────────
 
-/// Training metrics collected over time
+/// Training metrics collected over time.
+/// Uses a ring buffer (max `MAX_WINDOW` entries) to prevent unbounded memory growth
+/// during long training runs. Default window is 100,000 steps — sufficient for
+/// loss curves, smoothed metrics, and reporting without consuming gigabytes of RAM.
+const TRAINING_METRICS_MAX_WINDOW: usize = 100_000;
+
 #[derive(Clone, Debug)]
 pub struct TrainingMetrics {
     pub steps: Vec<usize>,
@@ -401,15 +406,24 @@ pub struct TrainingMetrics {
 impl TrainingMetrics {
     pub fn new() -> Self {
         Self {
-            steps: Vec::new(),
-            losses: Vec::new(),
-            learning_rates: Vec::new(),
-            grad_norms: Vec::new(),
-            throughputs: Vec::new(),
+            steps: Vec::with_capacity(TRAINING_METRICS_MAX_WINDOW.min(1024)),
+            losses: Vec::with_capacity(TRAINING_METRICS_MAX_WINDOW.min(1024)),
+            learning_rates: Vec::with_capacity(TRAINING_METRICS_MAX_WINDOW.min(1024)),
+            grad_norms: Vec::with_capacity(TRAINING_METRICS_MAX_WINDOW.min(1024)),
+            throughputs: Vec::with_capacity(TRAINING_METRICS_MAX_WINDOW.min(1024)),
         }
     }
 
     pub fn record(&mut self, step: usize, loss: f64, lr: f32, grad_norm: f32, throughput: f32) {
+        if self.steps.len() >= TRAINING_METRICS_MAX_WINDOW {
+            // Ring buffer: drop oldest 25% to make room
+            let prune = TRAINING_METRICS_MAX_WINDOW / 4;
+            self.steps.drain(..prune);
+            self.losses.drain(..prune);
+            self.learning_rates.drain(..prune);
+            self.grad_norms.drain(..prune);
+            self.throughputs.drain(..prune);
+        }
         self.steps.push(step);
         self.losses.push(loss);
         self.learning_rates.push(lr);

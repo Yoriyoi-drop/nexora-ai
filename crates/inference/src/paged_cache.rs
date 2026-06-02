@@ -12,9 +12,10 @@
 use ndarray::{s, Array1, Array2};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use nexora_transformer::KVCacheEntry;
-use tracing::warn;
+use tracing::{warn, info};
 
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::GpuContext;
@@ -37,8 +38,14 @@ use nexora_autograd::gpu_kv_cache::GpuPageTable;
 ///   block_size ≈ head_dim × num_kv_heads / gcd(head_dim, 16)   clamped to [8, 64]
 pub const DEFAULT_BLOCK_SIZE: usize = 16;
 
-/// Default max number of blocks to allocate
-pub const DEFAULT_MAX_BLOCKS: usize = 65536;
+/// Default max number of blocks to allocate (reduced from 65536 — grow as needed).
+pub const DEFAULT_MAX_BLOCKS: usize = 8192;
+
+/// Default soft memory limit for KV cache in bytes (4 GB).
+pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 4_294_967_296;
+
+/// Default watermark ratio — evict when blocks exceed this fraction of max_blocks.
+pub const DEFAULT_EVICTION_WATERMARK: f64 = 0.85;
 
 // ─── Global Singleton ─────────────────────────────────────────────────────────
 
@@ -48,13 +55,41 @@ pub static GLOBAL_PAGED_CACHE: OnceLock<Mutex<PagedKVCache>> = OnceLock::new();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
+/// Eviction policy untuk paged KV cache.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EvictionPolicy {
+    /// Least Recently Used — hapus sequence yang paling lama tidak diakses
+    LRU,
+    /// Least Frequently Used — hapus sequence dengan akses paling sedikit
+    LFU,
+    /// Time-To-Live — hapus sequence yang melebihi umur tertentu
+    TTL { max_age_secs: f64 },
+}
+
+impl Default for EvictionPolicy {
+    fn default() -> Self {
+        Self::LRU
+    }
+}
+
 /// Configuration for the paged KV cache
 #[derive(Clone, Debug)]
 pub struct PagedCacheConfig {
     /// Number of KV tokens per physical block
     pub block_size: usize,
-    /// Maximum number of physical blocks
+    /// Maximum number of physical blocks (hard cap)
     pub max_blocks: usize,
+    /// Soft memory limit in bytes (0 = gunakan max_blocks sebagai limit)
+    pub max_memory_bytes: usize,
+    /// Eviction policy saat cache penuh
+    pub eviction_policy: EvictionPolicy,
+    /// Watermark ratio [0..1] — mulai evict saat used_blocks > max_blocks * ratio
+    /// Default 0.85: evict ketika 85% kapasitas terpakai
+    pub eviction_watermark_ratio: f64,
+    /// Minimum sequence age sebelum bisa di-evict (detik)
+    pub eviction_min_age_secs: f64,
+    /// Jumlah sequence maksimal yang di-evict per siklus
+    pub eviction_batch_size: usize,
     /// Number of transformer layers
     pub num_layers: usize,
     /// Number of KV heads (after GQA reduction)
@@ -72,6 +107,11 @@ impl Default for PagedCacheConfig {
         Self {
             block_size: DEFAULT_BLOCK_SIZE,
             max_blocks: DEFAULT_MAX_BLOCKS,
+            max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
+            eviction_policy: EvictionPolicy::default(),
+            eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
+            eviction_min_age_secs: 1.0,
+            eviction_batch_size: 4,
             num_layers: 32,
             num_kv_heads: 8,
             head_dim: 128,
@@ -86,7 +126,7 @@ fn elem_size_bytes(config: &PagedCacheConfig) -> usize {
 }
 
 impl PagedCacheConfig {
-    /// Total memory in bytes for all blocks
+    /// Total memory in bytes for all blocks at max_blocks
     pub fn total_memory_bytes(&self) -> usize {
         let elem = if self.f16_storage { 2 } else { 4 };
         let per_block = self.block_size * self.num_kv_heads * self.head_dim * elem * 2;
@@ -97,6 +137,26 @@ impl PagedCacheConfig {
     pub fn block_memory_bytes(&self) -> usize {
         let elem = if self.f16_storage { 2 } else { 4 };
         self.block_size * self.num_kv_heads * self.head_dim * elem * 2
+    }
+
+    /// Effective max blocks after applying both block cap and memory cap.
+    pub fn effective_max_blocks(&self) -> usize {
+        let by_block = self.max_blocks;
+        if self.max_memory_bytes == 0 {
+            return by_block;
+        }
+        let per_block = self.block_memory_bytes();
+        if per_block == 0 {
+            return by_block;
+        }
+        let by_memory = self.max_memory_bytes / per_block.max(1);
+        by_block.min(by_memory)
+    }
+
+    /// Watermark threshold in blocks — beyond this, eviction kicks in.
+    pub fn eviction_threshold(&self) -> usize {
+        let effective = self.effective_max_blocks();
+        (effective as f64 * self.eviction_watermark_ratio) as usize
     }
 
     /// Max blocks needed for one sequence of max_seq_len
@@ -228,6 +288,32 @@ impl BlockData {
 
 // ─── Physical Block ──────────────────────────────────────────────────────────
 
+/// Per-sequence metadata untuk eviction tracking.
+struct SeqAccess {
+    /// Waktu terakhir sequence ini diakses (read atau append)
+    last_access: Instant,
+    /// Hitungan total akses (untuk LFU)
+    access_count: u64,
+    /// Waktu sequence dibuat
+    created_at: Instant,
+}
+
+impl SeqAccess {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            last_access: now,
+            access_count: 0,
+            created_at: now,
+        }
+    }
+
+    fn touch(&mut self) {
+        self.last_access = Instant::now();
+        self.access_count += 1;
+    }
+}
+
 /// A physical block holds KV data for one layer.
 /// Shape: `(block_size, num_kv_heads * head_dim)` per K dan V.
 struct PhysicalBlock {
@@ -317,10 +403,11 @@ impl BlockTable {
 
 // ─── Paged KV Cache ──────────────────────────────────────────────────────────
 
-/// Block-based KV cache manager.
+/// Block-based KV cache manager dengan LRU eviction + dynamic allocation.
 ///
 /// Alokasi memori dalam fixed-size blocks, bukan growable Vec per sequence.
 /// Setiap sequence punya BlockTable yang memetakan logical → physical blocks.
+/// Saat mendekati batas memori, sequence yang tidak aktif akan di-evict.
 pub struct PagedKVCache {
     config: PagedCacheConfig,
     /// Per-layer physical blocks
@@ -329,6 +416,10 @@ pub struct PagedKVCache {
     free_lists: Vec<Vec<usize>>,
     /// Block table per sequence ID
     sequences: HashMap<u64, BlockTable>,
+    /// Per-sequence access tracking untuk eviction
+    seq_access: HashMap<u64, SeqAccess>,
+    /// Total blocks evict (lifetime)
+    pub num_evicted: usize,
     /// Stats
     pub num_allocated: usize,
     pub num_freed: usize,
@@ -347,20 +438,32 @@ impl PagedKVCache {
     /// Create a new paged KV cache with the given config
     pub fn new(config: PagedCacheConfig) -> Self {
         let num_layers = config.num_layers;
-        let max_blocks = config.max_blocks;
+        let effective_max = config.effective_max_blocks();
 
         let blocks: Vec<Vec<PhysicalBlock>> = (0..num_layers)
-            .map(|_| Vec::with_capacity(max_blocks))
+            .map(|_| Vec::with_capacity(effective_max.min(4096)))
             .collect();
         let free_lists: Vec<Vec<usize>> = (0..num_layers)
-            .map(|_| Vec::with_capacity(max_blocks / 4))
+            .map(|_| Vec::with_capacity(effective_max.min(1024)))
             .collect();
+
+        info!(
+            "PagedKVCache: {} layers, block_size={}, max_blocks={} (effective={}), f16={}, max_mem={}",
+            num_layers,
+            config.block_size,
+            config.max_blocks,
+            effective_max,
+            config.f16_storage,
+            config.max_memory_bytes,
+        );
 
         Self {
             config,
             blocks,
             free_lists,
             sequences: HashMap::new(),
+            seq_access: HashMap::new(),
+            num_evicted: 0,
             num_allocated: 0,
             num_freed: 0,
             max_used: 0,
@@ -419,14 +522,16 @@ impl PagedKVCache {
         self.gpu_page_table.as_mut()
     }
 
-    /// Register a new sequence and return its block table
+    /// Register a new sequence with access tracking
     pub fn register_sequence(&mut self, seq_id: u64) {
         let table = BlockTable::new(self.config.num_layers, self.config.block_size);
         self.sequences.insert(seq_id, table);
+        self.seq_access.insert(seq_id, SeqAccess::new());
     }
 
     /// Remove a sequence and free all its blocks
     pub fn remove_sequence(&mut self, seq_id: u64) {
+        self.seq_access.remove(&seq_id);
         if let Some(table) = self.sequences.remove(&seq_id) {
             for layer in 0..self.config.num_layers {
                 for block_idx in 0..table.num_blocks(layer) {
@@ -438,34 +543,102 @@ impl PagedKVCache {
         }
     }
 
+    /// Mark a sequence as recently accessed (update LRU timestamp).
+    pub fn touch_sequence(&mut self, seq_id: u64) {
+        if let Some(access) = self.seq_access.get_mut(&seq_id) {
+            access.touch();
+        }
+    }
+
+    /// Number of allocated blocks across all layers (used, not free).
+    pub fn used_block_count(&self) -> usize {
+        let total: usize = self.blocks.iter().map(|b| b.len()).sum();
+        let free: usize = self.free_lists.iter().map(|f| f.len()).sum();
+        total.saturating_sub(free)
+    }
+
     /// Check if a sequence is registered
     pub fn has_sequence(&self, seq_id: u64) -> bool {
         self.sequences.contains_key(&seq_id)
     }
 
-    /// Allocate a new physical block from the free list or create one
-    fn alloc_block(&mut self, layer: usize) -> Option<usize> {
-        // Check max_blocks BEFORE push
-        if self.blocks[layer].len() >= self.config.max_blocks {
-            if let Some(free_idx) = self.free_lists[layer].pop() {
-                if free_idx < self.blocks[layer].len() {
-                    self.blocks[layer][free_idx].filled = 0;
-                    self.blocks[layer][free_idx].ref_count = 1;
-                    self.num_allocated += 1;
-                    return Some(free_idx);
-                }
-                warn!(
-                    "free_idx {} out of bounds for layer {} in alloc_block (max_blocks branch)",
-                    free_idx, layer
-                );
-            }
-            warn!(
-                "PagedKVCache: max_blocks ({}) reached, cannot allocate",
-                self.config.max_blocks
-            );
-            return None;
+    /// Cek apakah eviction perlu dilakukan berdasarkan used vs threshold.
+    fn should_evict(&self) -> bool {
+        let used = self.used_block_count();
+        let threshold = self.config.eviction_threshold();
+        used >= threshold
+    }
+
+    /// Evict sequence yang paling jarang diakses.
+    ///
+    /// Strategi:
+    /// - LRU (default): cari sequence dengan `last_access` paling lama
+    /// - LFU: cari sequence dengan `access_count` paling rendah
+    ///
+    /// Returns jumlah sequence yang di-evict.
+    pub fn evict_lru(&mut self, count: usize) -> usize {
+        if self.seq_access.len() <= 1 || count == 0 {
+            return 0;
         }
 
+        let min_age = self.config.eviction_min_age_secs;
+        let now = Instant::now();
+
+        // Kumpulkan kandidat eviction: urutkan berdasarkan policy
+        let mut candidates: Vec<(u64, &SeqAccess)> = self
+            .seq_access
+            .iter()
+            .filter(|(_, acc)| {
+                now.duration_since(acc.created_at).as_secs_f64() >= min_age
+            })
+            .map(|(k, v)| (*k, v))
+            .collect();
+
+        if candidates.is_empty() {
+            return 0;
+        }
+
+        match self.config.eviction_policy {
+            EvictionPolicy::LRU => {
+                candidates.sort_by(|a, b| a.1.last_access.cmp(&b.1.last_access));
+            }
+            EvictionPolicy::LFU => {
+                candidates.sort_by(|a, b| a.1.access_count.cmp(&b.1.access_count));
+            }
+            EvictionPolicy::TTL { max_age_secs } => {
+                candidates.retain(|(_, acc)| {
+                    now.duration_since(acc.last_access).as_secs_f64() >= max_age_secs
+                });
+                candidates.sort_by(|a, b| a.1.last_access.cmp(&b.1.last_access));
+            }
+        }
+
+        let to_evict = count.min(candidates.len());
+        let evicted_ids: Vec<u64> = candidates
+            .into_iter()
+            .take(to_evict)
+            .map(|(id, _)| id)
+            .collect();
+
+        for &seq_id in &evicted_ids {
+            info!(
+                "PagedKVCache: evicting seq {} (LRU, {} blocks)",
+                seq_id,
+                self.sequences.get(&seq_id).map(|t| t.num_tokens).unwrap_or(0)
+            );
+            self.remove_sequence(seq_id);
+            self.num_evicted += 1;
+        }
+
+        to_evict
+    }
+
+    /// Allocate a new physical block from the free list or create one.
+    /// Jika mendekati batas, akan melakukan defrag + eviction otomatis.
+    fn alloc_block(&mut self, layer: usize) -> Option<usize> {
+        let effective_max = self.config.effective_max_blocks();
+
+        // Coba free list dulu
         if let Some(free_idx) = self.free_lists[layer].pop() {
             if free_idx < self.blocks[layer].len() {
                 self.blocks[layer][free_idx].filled = 0;
@@ -473,16 +646,54 @@ impl PagedKVCache {
                 self.num_allocated += 1;
                 return Some(free_idx);
             }
-            warn!(
-                "free_idx {} out of bounds for layer {} in alloc_block",
-                free_idx, layer
-            );
         }
 
-        let idx = self.blocks[layer].len();
-        self.blocks[layer].push(PhysicalBlock::new(&self.config));
-        self.num_allocated += 1;
-        Some(idx)
+        // Cek apakah perlu eviction
+        if self.should_evict() {
+            // Defrag dulu — mungkin ada blok yang bisa direklamasi
+            let reclaimed = self.defragment();
+            if reclaimed > 0 {
+                // Coba free list lagi setelah defrag
+                if let Some(free_idx) = self.free_lists[layer].pop() {
+                    self.blocks[layer][free_idx].filled = 0;
+                    self.blocks[layer][free_idx].ref_count = 1;
+                    self.num_allocated += 1;
+                    return Some(free_idx);
+                }
+            }
+            // Evict LRU sequence
+            let evicted = self.evict_lru(self.config.eviction_batch_size);
+            if evicted > 0 {
+                if let Some(free_idx) = self.free_lists[layer].pop() {
+                    self.blocks[layer][free_idx].filled = 0;
+                    self.blocks[layer][free_idx].ref_count = 1;
+                    self.num_allocated += 1;
+                    return Some(free_idx);
+                }
+            }
+        }
+
+        // Grow jika masih di bawah kapasitas
+        if self.blocks[layer].len() < effective_max {
+            let idx = self.blocks[layer].len();
+            self.blocks[layer].push(PhysicalBlock::new(&self.config));
+            self.num_allocated += 1;
+            return Some(idx);
+        }
+
+        // Fallback: coba free list satu kali lagi
+        if let Some(free_idx) = self.free_lists[layer].pop() {
+            self.blocks[layer][free_idx].filled = 0;
+            self.blocks[layer][free_idx].ref_count = 1;
+            self.num_allocated += 1;
+            return Some(free_idx);
+        }
+
+        warn!(
+            "PagedKVCache: max capacity reached ({} blocks), cannot allocate",
+            effective_max
+        );
+        None
     }
 
     /// Free a physical block (decrease refcount, reclaim if zero)
@@ -578,6 +789,9 @@ impl PagedKVCache {
             Some(p) => p,
             None => return,
         };
+
+        // Touch sequence untuk LRU tracking
+        self.touch_sequence(seq_id);
 
         let offset = token_pos % self.config.block_size;
         let cols = self.config.num_kv_heads * self.config.head_dim;
@@ -685,6 +899,12 @@ impl PagedKVCache {
             }
         }
 
+        // Touch dst untuk LRU tracking
+        self.touch_sequence(dst_seq);
+        if src_seq != dst_seq {
+            self.touch_sequence(src_seq);
+        }
+
         // Apply to dst
         let Some(dst_table) = self.sequences.get_mut(&dst_seq) else {
             return 0;
@@ -787,6 +1007,7 @@ impl PagedKVCache {
     /// Clear all sequences and blocks
     pub fn clear(&mut self) {
         self.sequences.clear();
+        self.seq_access.clear();
         self.blocks.iter_mut().for_each(|b| b.clear());
         self.free_lists.iter_mut().for_each(|f| f.clear());
     }
@@ -854,6 +1075,12 @@ pub struct PagedCacheStats {
     pub external_fragmentation_ratio: f64,
     /// Total wasted token slots across all partially-filled blocks
     pub wasted_slots: usize,
+    /// Jumlah sequence yang pernah di-evict (lifetime)
+    pub sequences_evicted: usize,
+    /// Kapasitas efektif (setelah mempertimbangkan max_memory_bytes)
+    pub effective_max_blocks: usize,
+    /// Watermark threshold untuk eviction
+    pub eviction_threshold: usize,
 }
 
 impl PagedKVCache {
@@ -1015,6 +1242,9 @@ impl PagedKVCache {
             internal_fragmentation_ratio: int_frag,
             external_fragmentation_ratio: ext_frag,
             wasted_slots,
+            sequences_evicted: self.num_evicted,
+            effective_max_blocks: self.config.effective_max_blocks(),
+            eviction_threshold: self.config.eviction_threshold(),
         }
     }
 }
@@ -1061,6 +1291,7 @@ mod tests {
             head_dim: 4,
             max_seq_len: 64,
             f16_storage: false,
+            ..Default::default()
         }
     }
 
@@ -1322,6 +1553,7 @@ mod tests {
             max_blocks: 1024,
             max_seq_len: 512,
             f16_storage: false,
+            ..Default::default()
         };
 
         let mc = TransformerConfig {
@@ -1373,6 +1605,7 @@ mod tests {
             max_blocks: 1024,
             max_seq_len: 512,
             f16_storage: false,
+            ..Default::default()
         };
 
         let mc = TransformerConfig {

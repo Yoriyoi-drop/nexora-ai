@@ -56,6 +56,16 @@ pub struct ContinuousBatchingConfig {
     pub paged_cache_f16: bool,
     /// Max physical blocks for paged cache. 0 = auto.
     pub paged_max_blocks: usize,
+    /// Soft memory limit for paged KV cache in bytes (0 = auto from max_blocks).
+    pub paged_max_memory_bytes: usize,
+    /// Eviction policy (LRU, LFU, TTL).
+    pub paged_eviction_policy: crate::paged_cache::EvictionPolicy,
+    /// Watermark ratio for eviction (0.0–1.0).
+    pub paged_eviction_watermark: f64,
+    /// Min age in seconds before a sequence can be evicted.
+    pub paged_eviction_min_age_secs: f64,
+    /// Number of sequences to evict per cycle.
+    pub paged_eviction_batch_size: usize,
     /// Scheduling policy for fairness and starvation avoidance.
     pub scheduling_policy: SchedulingPolicy,
     /// Aging boost per millisecond queued (added to priority).
@@ -103,6 +113,11 @@ impl Default for ContinuousBatchingConfig {
             paged_block_size: 0,
             paged_cache_f16: true,
             paged_max_blocks: 0,
+            paged_max_memory_bytes: 0,
+            paged_eviction_policy: crate::paged_cache::EvictionPolicy::LRU,
+            paged_eviction_watermark: 0.85,
+            paged_eviction_min_age_secs: 1.0,
+            paged_eviction_batch_size: 4,
             scheduling_policy: SchedulingPolicy::PriorityAging,
             aging_boost_per_ms: 0.005,
             enable_dynamic_padding: true,
@@ -300,9 +315,19 @@ where
             } else {
                 (self.max_seq_len / block_size).max(64) * self.config.max_total_sequences
             };
+            let max_memory = if self.config.paged_max_memory_bytes > 0 {
+                self.config.paged_max_memory_bytes
+            } else {
+                crate::paged_cache::DEFAULT_MAX_CACHE_MEMORY_BYTES
+            };
             let paged_config = crate::paged_cache::PagedCacheConfig {
                 block_size,
                 max_blocks,
+                max_memory_bytes: max_memory,
+                eviction_policy: self.config.paged_eviction_policy.clone(),
+                eviction_watermark_ratio: self.config.paged_eviction_watermark,
+                eviction_min_age_secs: self.config.paged_eviction_min_age_secs,
+                eviction_batch_size: self.config.paged_eviction_batch_size,
                 num_layers,
                 num_kv_heads,
                 head_dim,
@@ -1985,6 +2010,7 @@ mod tests {
             head_dim: 4,
             max_seq_len: 64,
             f16_storage: false,
+            ..Default::default()
         };
         let mut cache = crate::paged_cache::PagedKVCache::new(config);
 
@@ -2030,6 +2056,7 @@ mod tests {
             head_dim: 4,
             max_seq_len: 64,
             f16_storage: false,
+            ..Default::default()
         };
         let mut cache = crate::paged_cache::PagedKVCache::new(config);
         cache.register_sequence(1);

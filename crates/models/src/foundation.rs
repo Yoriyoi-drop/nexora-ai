@@ -227,7 +227,10 @@ macro_rules! define_foundation_model {
             }
 
             fn get_or_init_model(&self) -> MutexGuard<'_, Option<CausalLM>> {
-                let mut guard = self.model.lock().unwrap();
+                let mut guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!(target: stringify!($name), "Mutex poisoned in get_or_init_model, recovering");
+                    e.into_inner()
+                });
                 if guard.is_none() {
                     *guard = Some(CausalLM::new(self.model_config.clone()));
                 }
@@ -237,7 +240,10 @@ macro_rules! define_foundation_model {
             /// Inject an externally-loaded CausalLM (e.g. from the registry)
             /// so the delegation agent shares the same model instance as the inference engine.
             pub fn set_model_arc(&self, model: Arc<CausalLM>) {
-                let mut guard = self.model.lock().unwrap();
+                let mut guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!(target: stringify!($name), "Mutex poisoned in set_model_arc, recovering");
+                    e.into_inner()
+                });
                 *guard = Some((*model).clone());
             }
 
@@ -267,7 +273,10 @@ macro_rules! define_foundation_model {
             pub fn reload(&mut self, path: &str) -> Result<(), FoundationError> {
                 let config = transformer_config_for(NxrModelId::$id);
                 let loaded = CausalLM::from_checkpoint(config, path)?;
-                *self.model.lock().unwrap() = Some(loaded);
+                *self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!(target: stringify!($name), "Mutex poisoned in reload, recovering");
+                    e.into_inner()
+                }) = Some(loaded);
                 Ok(())
             }
 
@@ -297,9 +306,13 @@ macro_rules! define_foundation_model {
 
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let model_initialized = self.model.lock()
+                    .ok()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
                 f.debug_struct(stringify!($name))
                     .field("tokenizer", &self.tokenizer.is_some())
-                    .field("model_initialized", &self.model.lock().unwrap().is_some())
+                    .field("model_initialized", &model_initialized)
                     .finish()
             }
         }
@@ -356,9 +369,12 @@ macro_rules! define_foundation_model {
             }
 
             async fn state(&self) -> Result<Self::State, NxrModelError> {
-                let guard = self.model.lock().unwrap();
+                let status = self.model.lock()
+                    .ok()
+                    .map(|g| if g.is_some() { "ready" } else { "uninitialized" })
+                    .unwrap_or("poisoned");
                 Ok(serde_json::json!({
-                    "status": if guard.is_some() { "ready" } else { "uninitialized" },
+                    "status": status,
                     "model": stringify!($id),
                     "inferences": self.inference_count.load(Ordering::Relaxed),
                 }))
@@ -370,7 +386,10 @@ macro_rules! define_foundation_model {
             }
 
             async fn reset(&self) -> Result<(), NxrModelError> {
-                let mut guard = self.model.lock().unwrap();
+                let mut guard = self.model.lock().unwrap_or_else(|e| {
+                    tracing::warn!(target: stringify!($name), "Mutex poisoned in reset, recovering");
+                    e.into_inner()
+                });
                 *guard = None;
                 self.inference_count.store(0, Ordering::Relaxed);
                 self.total_generated.store(0, Ordering::Relaxed);
@@ -416,7 +435,10 @@ macro_rules! define_foundation_model {
                 // so the async runtime is not blocked for potentially seconds.
                 let model_arc = self.model.clone();
                 let (elapsed_ms, output_ids, memory_gb) = tokio::task::spawn_blocking(move || {
-                    let guard = model_arc.lock().unwrap();
+                    let guard = model_arc.lock().unwrap_or_else(|e| {
+                        tracing::warn!("Mutex poisoned during infer, recovering — model state may be inconsistent");
+                        e.into_inner()
+                    });
                     let model = guard.as_ref().ok_or_else(|| {
                         NxrModelError::NotInitialized("Model failed to initialize".to_string())
                     })?;
@@ -493,7 +515,10 @@ macro_rules! define_foundation_model {
                 let cb = callback.clone();
 
                 let count = tokio::task::spawn_blocking(move || {
-                    let guard = model_arc.lock().unwrap();
+                    let guard = model_arc.lock().unwrap_or_else(|e| {
+                        tracing::warn!("Mutex poisoned during infer_stream, recovering");
+                        e.into_inner()
+                    });
                     let model = match guard.as_ref() {
                         Some(m) => m,
                         None => return Err(NxrModelError::NotInitialized("Model not initialized".to_string())),
@@ -612,7 +637,10 @@ macro_rules! define_foundation_model {
             }
 
             async fn is_ready(&self) -> bool {
-                self.model.lock().unwrap().is_some()
+                self.model.lock()
+                    .ok()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false)
             }
 
             async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

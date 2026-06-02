@@ -28,12 +28,8 @@ use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct EvalMetrics {
-    pub avg_loss: f64,
-    pub perplexity: f64,
-    pub total_tokens: usize,
-}
+// Re-export EvalMetrics from the standalone evaluation crate
+pub use nexora_evaluation::EvalMetrics;
 
 #[derive(Clone)]
 pub struct TrainerConfig {

@@ -95,6 +95,13 @@ impl CausalLmModel {
         self
     }
 
+    /// Unload model dari memory (set ke None) — digunakan oleh ActiveStandbyScheduler.
+    pub async fn unload_model(&self) {
+        *self.model.write().await = None;
+        *self.initialized.write().await = false;
+        tracing::info!("CausalLM model unloaded from memory");
+    }
+
     pub async fn load_model(&self) -> NxrModelResult<()> {
         let tc = self.transformer_config.read().await;
         let mut model = CausalLM::new((*tc).clone());

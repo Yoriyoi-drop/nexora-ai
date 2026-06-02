@@ -3409,6 +3409,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-benchmark"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "nexora-blaa"
 version = "0.2.0"
 dependencies = [
@@ -3607,6 +3616,18 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "nexora-evaluation"
+version = "0.1.0"
+dependencies = [
+ "ndarray 0.15.6",
+ "nexora-autograd",
+ "nexora-transformer",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -4116,6 +4137,7 @@ dependencies = [
  "bytemuck",
  "ndarray 0.15.6",
  "nexora-autograd",
+ "nexora-evaluation",
  "nexora-monitoring",
  "nexora-transformer",
  "nexora-utils",
@@ -4128,6 +4150,7 @@ dependencies = [
 name = "nexora-transformer"
 version = "0.2.0"
 dependencies = [
+ "criterion",
  "half",
  "ndarray 0.15.6",
  "nexora-autograd",

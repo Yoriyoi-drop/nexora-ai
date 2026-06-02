@@ -7,7 +7,7 @@
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN)
 
 use nexora_model::unified_api::{
-    CodeSolution, CodingTask, IntegrationMode, TaskContext, UnifiedModelFactory,
+    CodingTask, TaskContext, UnifiedModelFactory,
 };
 use std::collections::HashMap;
 
@@ -177,7 +177,7 @@ async fn saca_caffeine_example() -> std::result::Result<(), Box<dyn std::error::
     println!("  Execution Time: {:?}", solution.execution_time);
     println!(
         "  CAFFEINE Multimodal Applied: {}",
-        solution.caffeine_multimodal_applied
+        solution.caffeine_multimodal_enhanced
     );
     println!("  Integration Mode: {:?}", solution.integration_mode);
 
@@ -254,7 +254,7 @@ async fn full_integration_example() -> std::result::Result<(), Box<dyn std::erro
         .await
         .unwrap();
 
-    let stats = model.get_statistics();
+    let stats = model.get_statistics().await;
     println!("📈 Model Statistics:");
     println!("  Integration Mode: {:?}", stats.integration_mode);
     println!("  Models Enabled: {}", stats.models_enabled);
@@ -313,7 +313,7 @@ async fn full_integration_example() -> std::result::Result<(), Box<dyn std::erro
     println!("  Compression Ratio: {:.2}:1", solution.compression_ratio);
     println!(
         "  CAFFEINE Multimodal Applied: {}",
-        solution.caffeine_multimodal_applied
+        solution.caffeine_multimodal_enhanced
     );
     println!(
         "  HAS-MoE Routing Applied: {}",
@@ -391,7 +391,7 @@ async fn performance_comparison() -> std::result::Result<(), Box<dyn std::error:
         let solution = model.generate_code(&task.clone()).await.unwrap();
         let execution_time = start_time.elapsed();
 
-        let stats = model.get_statistics();
+        let stats = model.get_statistics().await;
 
         println!(
             "✅ {:.3}s (Quality: {:.3}, Models: {})",

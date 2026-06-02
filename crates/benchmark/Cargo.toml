@@ -1,0 +1,10 @@
+[package]
+name = "nexora-benchmark"
+version = "0.1.0"
+edition = "2021"
+description = "Benchmark types and harness for Nexora — MetricSample, BenchmarkReport, BaselineReport"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tracing.workspace = true

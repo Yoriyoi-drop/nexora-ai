@@ -1,0 +1,14 @@
+[package]
+name = "nexora-evaluation"
+version = "0.1.0"
+edition = "2021"
+description = "Evaluation metrics and harness for Nexora models — perplexity, accuracy, loss"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tracing.workspace = true
+ndarray.workspace = true
+
+nexora-transformer = { path = "../transformer" }
+nexora-autograd = { path = "../autograd" }

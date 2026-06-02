@@ -17,7 +17,7 @@ use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACA
 use parking_lot::Mutex as ParkingMutex;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 pub type ApiResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

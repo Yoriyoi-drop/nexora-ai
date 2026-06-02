@@ -11,12 +11,8 @@ pub use crate::serving::unified_api::{
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
-use nexora_foundation::reasoning::{
-    CodingTask as SacaCodingTask, SACAConfig, SACAIntegration,
-    TaskContext as SacaTaskContext,
-};
+pub use nexora_foundation::reasoning::{CodingTask, TaskContext};
 
 /// Trait-based unified model interface (wraps UnifiedModel for polymorphism).
 #[async_trait]
@@ -80,20 +76,9 @@ impl UnifiedModelTrait for TraitWrapper {
         &self,
         task: &CodingTask,
     ) -> Result<CodeSolution, ModelError> {
-        let saca_task = SacaCodingTask {
-            description: task.description.clone(),
-            requirements: task.requirements.clone(),
-            constraints: task.constraints.clone(),
-            context: task.context.as_ref().map(|c| SacaTaskContext {
-                repository_path: c.repository_path.clone(),
-                existing_files: c.existing_files.clone(),
-                dependencies: c.dependencies.clone(),
-                coding_standards: c.coding_standards.clone(),
-            }),
-        };
         let inner_solution = self
             .inner
-            .generate_code(&saca_task)
+            .generate_code(task)
             .await
             .map_err(|e| ModelError::GenerationFailed(e.to_string()))?;
 
@@ -126,24 +111,6 @@ impl UnifiedModelTrait for TraitWrapper {
             has_moe_enabled: false,
         }
     }
-}
-
-// ─── Backward-compatible data types ──────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CodingTask {
-    pub description: String,
-    pub requirements: Vec<String>,
-    pub constraints: Vec<String>,
-    pub context: Option<TaskContext>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskContext {
-    pub repository_path: Option<String>,
-    pub existing_files: Vec<String>,
-    pub dependencies: Vec<String>,
-    pub coding_standards: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

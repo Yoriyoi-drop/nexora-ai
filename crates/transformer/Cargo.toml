@@ -17,6 +17,13 @@ nexora-autograd = { path = "../autograd" }
 wgpu = { version = "29", optional = true }
 half = { version = "2", optional = true }
 
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "forward_pass"
+harness = false
+
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]
