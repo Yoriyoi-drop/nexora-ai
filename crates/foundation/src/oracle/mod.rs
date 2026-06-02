@@ -7,7 +7,6 @@ pub use nexora_oracle::*;
 
 use nexora_models::vortex::NxrVortexModel;
 use nexora_shared::base_model::NxrModel;
-use tracing::error;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {
@@ -100,14 +99,30 @@ impl EnhancedCodeAnalysis {
     }
 }
 
-impl Default for OracleVortexIntegration {
-    fn default() -> Self {
-        match Self::try_new() {
-            Ok(v) => v,
-            Err(e) => {
-                error!("OracleVortexIntegration::default() failed: {e}");
-                panic!("OracleVortexIntegration::default() failed: {e}")
-            }
+impl OracleVortexIntegration {
+    /// Create a degraded fallback instance when OracleTrainer is unavailable.
+    /// Uses a placeholder vortex model with default config — no analysis capabilities.
+    pub fn default_fallback() -> Self {
+        let integration_config = OracleVortexConfig {
+            enable_vortex_analysis: true,
+            analysis_depth: 4,
+            integration_frequency_ms: 5000,
+        };
+        Self {
+            oracle_trainer: nexora_oracle::trainer::OracleTrainer::new(
+                nexora_oracle::trainer::OracleConfig::default(),
+                8_000,
+            )
+            .unwrap_or_else(|_| {
+                tracing::warn!("OracleTrainer fallback: using degraded mode");
+                nexora_oracle::trainer::OracleTrainer::new(
+                    nexora_oracle::trainer::OracleConfig::default(),
+                    256,
+                )
+                .expect("OracleTrainer degraded mode should always succeed — using minimal config")
+            }),
+            vortex_model: NxrVortexModel::new(),
+            integration_config,
         }
     }
 }
@@ -170,5 +185,12 @@ mod tests {
         };
         assert!(!config.enable_vortex_analysis);
         assert_eq!(config.analysis_depth, 4);
+    }
+
+    #[test]
+    fn test_oracle_vortex_default_fallback_never_panics() {
+        let instance = OracleVortexIntegration::default_fallback();
+        assert!(instance.integration_config.enable_vortex_analysis);
+        assert_eq!(instance.integration_config.analysis_depth, 4);
     }
 }

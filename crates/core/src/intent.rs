@@ -420,4 +420,115 @@ mod tests {
         let result = detector.detect_intent(&input_data).await.unwrap();
         assert_eq!(result.primary_intent, IntentType::Memory);
     }
+
+    #[tokio::test]
+    async fn test_planning_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "rencana arsitektur sistem".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Planning);
+    }
+
+    #[tokio::test]
+    async fn test_reasoning_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "analisa logika matematika".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Reasoning);
+    }
+
+    #[tokio::test]
+    async fn test_validation_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "validasi input keamanan".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Validation);
+    }
+
+    #[tokio::test]
+    async fn test_optimization_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "optimasi performa kode".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Optimization);
+    }
+
+    #[tokio::test]
+    async fn test_retrieval_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "cari referensi API".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Retrieval);
+    }
+
+    #[tokio::test]
+    async fn test_personality_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "ubah gaya karakter".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Personality);
+    }
+
+    #[tokio::test]
+    async fn test_ranking_intent_detection() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "urutkan prioritas tugas".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Ranking);
+    }
+
+    #[tokio::test]
+    async fn test_unknown_intent_for_gibberish() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "xylophone zebra quantum".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Unknown);
+    }
+
+    #[tokio::test]
+    async fn test_mixed_language_intent() {
+        let detector = IntentDetector::new();
+        let input_data = InputData::new(
+            "buat function to calculate sum".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert_eq!(result.primary_intent, IntentType::Coding);
+    }
+
+    #[test]
+    fn test_intent_detector_default_threshold() {
+        let detector = IntentDetector::default();
+        // Just verify it creates without panicking
+    }
+
+    #[test]
+    fn test_with_threshold_clamps() {
+        let detector = IntentDetector::new().with_threshold(1.5);
+        // threshold should be clamped to 1.0
+    }
 }

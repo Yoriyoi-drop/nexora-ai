@@ -350,6 +350,16 @@ impl Cli {
                             .await
                     }
                     Commands::Memory { action } => self.run_memory(&nexora, action).await,
+                    Commands::Baseline {
+                        output,
+                        model: _model,
+                        warmup,
+                        samples,
+                        train_steps,
+                        no_gpu,
+                    } => self
+                        .run_baseline(&nexora, output, *warmup, *samples, *train_steps, *no_gpu)
+                        .await,
                     Commands::Benchmark {
                         model: _model,
                         warmup,
@@ -1427,6 +1437,50 @@ impl Cli {
     }
 
     /// Run benchmark command — mengukur 9 metrik production
+    /// Run Fase 0 baseline — comprehensive benchmark suite
+    async fn run_baseline(
+        &self,
+        nexora: &NexoraAI,
+        output: &PathBuf,
+        warmup: usize,
+        samples: usize,
+        train_steps: usize,
+        no_gpu: bool,
+    ) -> NexoraResult<()> {
+        info!("=== FASE 0: BASELINE STABIL ===");
+        info!("Warmup: {}, Samples: {}, Train steps: {}", warmup, samples, train_steps);
+
+        let runner = super::benchmark::BaselineRunner::new(std::sync::Arc::new(nexora.clone()))
+            .with_warmup(warmup)
+            .with_samples(samples)
+            .with_train_steps(train_steps);
+
+        let report = runner.run_baseline(no_gpu).await?;
+
+        let json_str = report.to_json_string()?;
+        std::fs::write(output, &json_str)
+            .map_err(|e| NexoraError::Io { source: e })?;
+
+        info!("Fase 0 baseline written to: {:?}", output);
+
+        // Also print summary
+        println!("{}", report.to_formatted_string());
+
+        // Print training summary
+        if let Some(ref tr) = report.training {
+            println!("\n  Training benchmark:");
+            println!("    Tokens/sec:    {:.1}", tr.tokens_per_sec);
+            println!("    Final loss:    {:.6}", tr.final_loss);
+            println!("    Best loss:     {:.6}", tr.best_loss);
+            println!("    Perplexity:    {:.2}", tr.final_perplexity);
+            println!("    Steps:         {}", tr.steps_completed);
+            println!("    Total tokens:  {}", tr.total_tokens_processed);
+            println!("    Duration:      {:.1}s", tr.duration_secs);
+        }
+
+        Ok(())
+    }
+
     async fn run_benchmark(
         &self,
         nexora: &NexoraAI,

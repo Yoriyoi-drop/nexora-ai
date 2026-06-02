@@ -17,6 +17,9 @@ unicode-normalization = "0.1"
 rand.workspace = true
 smallvec.workspace = true
 rayon.workspace = true
+rustc-hash = "2.0"
+memchr = "2"
+memmap2.workspace = true
 
 [dev-dependencies]
 mockall.workspace = true

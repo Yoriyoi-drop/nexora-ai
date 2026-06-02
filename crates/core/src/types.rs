@@ -514,6 +514,40 @@ pub trait SpecialistModel: Send + Sync {
     fn can_handle(&self, intent: IntentType) -> bool;
 }
 
+/// Default specialist model for testing — delegates to ModelProcessor.
+pub struct DefaultSpecialistModel {
+    model_id: ModelId,
+    handled_intents: Vec<IntentType>,
+}
+
+impl DefaultSpecialistModel {
+    pub fn new(model_id: ModelId, handled_intents: Vec<IntentType>) -> Self {
+        Self { model_id, handled_intents }
+    }
+}
+
+#[async_trait::async_trait]
+impl SpecialistModel for DefaultSpecialistModel {
+    async fn process(
+        &self,
+        input: &str,
+        _context: &ContextInfo,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::execution::controller_models::ModelProcessor;
+        ModelProcessor::process_with_model(self.model_id, input)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn model_id(&self) -> ModelId {
+        self.model_id
+    }
+
+    fn can_handle(&self, intent: IntentType) -> bool {
+        self.handled_intents.contains(&intent)
+    }
+}
+
 // ==================== LRU Context Cache ====================
 
 #[derive(Debug, Clone)]

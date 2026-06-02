@@ -11,9 +11,9 @@ use tracing::{error, info};
 async fn main() {
     std::panic::set_hook(Box::new(|panic_info| {
         use std::io::Write;
-        tracing::error!(target: "panic", "Panic: {}", panic_info);
+        let _ = writeln!(std::io::stderr(), "PANIC: {}", panic_info);
         let bt = std::backtrace::Backtrace::force_capture();
-        tracing::error!(target: "panic", "Backtrace:\n{:?}", bt);
+        let _ = writeln!(std::io::stderr(), "BACKTRACE:\n{:?}", bt);
         let _ = std::io::stderr().flush();
     }));
 

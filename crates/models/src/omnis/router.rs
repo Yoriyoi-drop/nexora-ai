@@ -32,8 +32,10 @@ impl OmnisMoERouter {
 
     pub fn init(embed_table: Array2<f32>) {
         let hidden_size = embed_table.shape()[1];
+        let mut moe_router = Router::new(hidden_size, DOMAINS.len(), 2);
+        moe_router.init_random();
         ROUTER.set(Self {
-            moe_router: Router::new(hidden_size, DOMAINS.len(), 2),
+            moe_router,
             embed_table,
         }).ok();
     }

@@ -62,32 +62,23 @@ impl ModelRegistry {
         }
     }
 
-    /// Register a new model
+    /// Register a new model — atomic dual-index update eliminates TOCTOU race.
     pub async fn register_model(&self, metadata: ModelMetadata) -> Result<()> {
-        // Acquire write lock directly to avoid TOCTOU race condition
-        {
-            let mut models = self.models.write().await;
-            if models.contains_key(&metadata.id) {
-                warn!("Model {} already registered, updating", metadata.id);
-            }
-            models.insert(metadata.id.clone(), metadata.clone());
+        let mut models = self.models.write().await;
+        if models.contains_key(&metadata.id) {
+            warn!("Model {} already registered, updating", metadata.id);
         }
+        models.insert(metadata.id.clone(), metadata.clone());
 
-        // NOTE: models and framework_index are updated in separate critical sections.
-        // A concurrent reader may see the model in one index but not the other
-        // (inconsistent state). Consider wrapping both writes in a single critical
-        // section if atomic visibility is required.
-
-        // Update framework index
-        {
-            let mut framework_index = self.framework_index.write().await;
-            let model_ids = framework_index
-                .entry(metadata.framework.clone())
-                .or_insert_with(Vec::new);
-            if !model_ids.contains(&metadata.id) {
-                model_ids.push(metadata.id.clone());
-            }
+        let mut framework_index = self.framework_index.write().await;
+        let model_ids = framework_index
+            .entry(metadata.framework.clone())
+            .or_insert_with(Vec::new);
+        if !model_ids.contains(&metadata.id) {
+            model_ids.push(metadata.id.clone());
         }
+        drop(framework_index);
+        drop(models);
 
         info!("Registered model: {} ({})", metadata.name, metadata.id);
         debug!("Model metadata: {:?}", metadata);
@@ -95,28 +86,26 @@ impl ModelRegistry {
         Ok(())
     }
 
-    /// Unregister a model
+    /// Unregister a model — atomic dual-index update eliminates TOCTOU race.
     pub async fn unregister_model(&self, model_id: &str) -> Result<bool> {
-        let metadata = {
-            let mut models = self.models.write().await;
-            models.remove(model_id)
-        };
+        let mut models = self.models.write().await;
+        let metadata = models.remove(model_id);
 
         if let Some(metadata) = metadata {
-            // Update framework index
-            {
-                let mut framework_index = self.framework_index.write().await;
-                if let Some(model_ids) = framework_index.get_mut(&metadata.framework) {
-                    model_ids.retain(|id| id != model_id);
-                    if model_ids.is_empty() {
-                        framework_index.remove(&metadata.framework);
-                    }
+            let mut framework_index = self.framework_index.write().await;
+            if let Some(model_ids) = framework_index.get_mut(&metadata.framework) {
+                model_ids.retain(|id| id != model_id);
+                if model_ids.is_empty() {
+                    framework_index.remove(&metadata.framework);
                 }
             }
+            drop(framework_index);
+            drop(models);
 
             info!("Unregistered model: {}", model_id);
             Ok(true)
         } else {
+            drop(models);
             warn!("Model {} not found for unregistration", model_id);
             Ok(false)
         }

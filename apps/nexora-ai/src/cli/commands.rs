@@ -362,6 +362,34 @@ pub enum Commands {
         action: MemoryAction,
     },
 
+    /// Baseline stabil — comprehensive benchmark untuk Fase 0
+    #[command(aliases = &["bl"])]
+    Baseline {
+        /// Output path untuk baseline JSON (default: nexora_benchmark_baseline.json)
+        #[arg(short, long, default_value = "nexora_benchmark_baseline.json")]
+        output: PathBuf,
+
+        /// Model ID to benchmark (default: omnis)
+        #[arg(short, long, default_value = "omnis")]
+        model: String,
+
+        /// Number of warmup rounds
+        #[arg(long, default_value = "2")]
+        warmup: usize,
+
+        /// Number of sample rounds
+        #[arg(long, default_value = "5")]
+        samples: usize,
+
+        /// Training steps for training benchmark
+        #[arg(long, default_value = "50")]
+        train_steps: usize,
+
+        /// Skip GPU benchmarks
+        #[arg(long)]
+        no_gpu: bool,
+    },
+
     /// Benchmark & profiling nyata — mengukur 9 metrik production
     #[command(aliases = &["bench", "perf"])]
     Benchmark {

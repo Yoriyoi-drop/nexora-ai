@@ -1,3 +1,9 @@
+pub mod tokenizer;
+pub mod types;
+
+pub use tokenizer::MiniTokenizer;
+pub use types::{EchoNetInjectionConfig, TrainingReport};
+
 use async_trait::async_trait;
 use ndarray::Array1;
 use rand::seq::SliceRandom;
@@ -8,7 +14,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-use unicode_segmentation::UnicodeSegmentation;
 
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
@@ -21,205 +26,6 @@ use crate::shared::{
     ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
     NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
 };
-
-/// Byte + BPE tokenizer: bytes 0-255 as base (BOS=1, EOS=2), plus optional learned merge rules for IDs ≥ 256.
-#[derive(Clone)]
-pub struct MiniTokenizer {
-    vocab_size: usize,
-    bpe_token_to_id: HashMap<String, u32>,
-    bpe_id_to_token: HashMap<u32, String>,
-    merges: Vec<(String, String)>,
-}
-
-impl MiniTokenizer {
-    pub fn new(vocab_size: usize) -> Self {
-        Self {
-            vocab_size,
-            bpe_token_to_id: HashMap::new(),
-            bpe_id_to_token: HashMap::new(),
-            merges: Vec::new(),
-        }
-    }
-
-    pub fn encode(&self, text: &str) -> Vec<u32> {
-        if !self.merges.is_empty() {
-            return self.bpe_tokenize(text);
-        }
-        if self.vocab_size > 256 {
-            static WARNED: AtomicBool = AtomicBool::new(false);
-            if !WARNED.swap(true, Ordering::Relaxed) {
-                tracing::warn!(
-                    "MiniTokenizer: vocab_size={} but BPE not trained — falling back to byte-level encoding (only 0-255 usable)",
-                    self.vocab_size
-                );
-            }
-        }
-        let mut ids = vec![1u32];
-        for &b in text.as_bytes() {
-            let id = b as u32;
-            if (id as usize) < self.vocab_size {
-                ids.push(id);
-            }
-        }
-        ids.push(2);
-        ids
-    }
-
-    /// Decode: reconstruct string from token IDs.
-    /// Byte IDs (0-255) are converted directly.
-    /// BPE token IDs (≥256) are looked up in the BPE vocab.
-    /// BOS(1) and EOS(2) are skipped in output.
-    pub fn decode(&self, token_ids: &[u32]) -> String {
-        let mut result = String::new();
-        for &id in token_ids {
-            if id == 1 || id == 2 {
-                continue;
-            }
-            if id < 256 {
-                result.push(char::from(id as u8));
-            } else if let Some(s) = self.bpe_id_to_token.get(&id) {
-                result.push_str(s);
-            }
-        }
-        result
-    }
-
-    /// Train BPE merges on provided texts. This extends the vocab with merged tokens
-    /// that get IDs ≥ 256.
-    pub fn train_bpe(&mut self, texts: &[String], num_merges: usize) {
-        use rayon::prelude::*;
-
-        let mut pair_counts: HashMap<(String, String), usize> = HashMap::new();
-        let chunks: Vec<HashMap<(String, String), usize>> = texts
-            .par_iter()
-            .map(|text| {
-                let mut local: HashMap<(String, String), usize> = HashMap::new();
-                let graphemes: Vec<String> =
-                    text.graphemes(true).map(|g| g.to_string()).collect();
-                for pair in graphemes.windows(2) {
-                    *local
-                        .entry((pair[0].clone(), pair[1].clone()))
-                        .or_default() += 1;
-                }
-                local
-            })
-            .collect();
-
-        for chunk in chunks {
-            for (k, v) in chunk {
-                *pair_counts.entry(k).or_default() += v;
-            }
-        }
-        let max_merges = num_merges.min(self.vocab_size.saturating_sub(256));
-        for _ in 0..max_merges {
-            let best = pair_counts
-                .iter()
-                .max_by_key(|&(_, &c)| c)
-                .map(|(k, _)| k.clone());
-            let Some((left, right)) = best else { break };
-            let merged = format!("{}{}", left, right);
-            let id = 256u32 + self.merges.len() as u32;
-            if id >= self.vocab_size as u32 {
-                break;
-            }
-            self.bpe_token_to_id.insert(merged.clone(), id);
-            self.bpe_id_to_token.insert(id, merged.clone());
-            self.merges.push((left.clone(), right.clone()));
-            pair_counts.remove(&(left, right));
-        }
-    }
-
-    /// BPE-aware tokenization: applies learned merge rules then encodes.
-    /// Falls back to byte-level for unknown character sequences.
-    pub fn bpe_tokenize(&self, text: &str) -> Vec<u32> {
-        let mut ids = vec![1u32];
-        let graphemes: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
-        let n = graphemes.len();
-        if n == 0 {
-            ids.push(2);
-            return ids;
-        }
-        let mut token_texts = graphemes;
-        let mut next: Vec<usize> = (1..n).chain(std::iter::once(usize::MAX)).collect();
-        let mut head = 0usize;
-        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain((0..n - 1)).collect();
-        let mut active = n;
-        if !self.merges.is_empty() {
-            loop {
-                let mut best_pos = None;
-                let mut i = head;
-                while i != usize::MAX {
-                    let j = next[i];
-                    if j != usize::MAX {
-                        let merged = format!("{}{}", token_texts[i], token_texts[j]);
-                        if self.bpe_token_to_id.contains_key(&merged) {
-                            best_pos = Some((i, j, merged));
-                            break;
-                        }
-                    }
-                    i = next[i];
-                    if i == usize::MAX {
-                        break;
-                    }
-                }
-                match best_pos {
-                    Some((i, j, merged)) => {
-                        token_texts[i] = merged;
-                        let j_next = next[j];
-                        if j_next != usize::MAX {
-                            prev[j_next] = i;
-                        }
-                        next[i] = j_next;
-                        if j == head {
-                            head = i;
-                        }
-                        active -= 1;
-                    }
-                    None => break,
-                }
-            }
-        }
-        let mut i = head;
-        while i != usize::MAX {
-            if let Some(&id) = self.bpe_token_to_id.get(token_texts[i].as_str()) {
-                ids.push(id);
-            } else {
-                for &b in token_texts[i].as_bytes() {
-                    if (b as usize) < self.vocab_size {
-                        ids.push(b as u32);
-                    }
-                }
-            }
-            i = next[i];
-        }
-        ids.push(2);
-        ids
-    }
-}
-
-/// Configuration for EchoNet injection into the transformer pipeline.
-#[derive(Debug, Clone)]
-pub struct EchoNetInjectionConfig {
-    /// Which layer index to inject after (e.g. 2 = after layer 2).
-    pub inject_after_layer: usize,
-    /// APSS phase separation strength.
-    pub phase_separation_strength: f32,
-    /// Number of recent tokens to keep in the sliding window for APSS.
-    pub max_window: usize,
-    /// Amplitude modulation factor: h' = h * (1 + alpha * tanh(phase_delta)).
-    pub alpha: f32,
-}
-
-impl Default for EchoNetInjectionConfig {
-    fn default() -> Self {
-        Self {
-            inject_after_layer: 2,
-            phase_separation_strength: 0.1,
-            max_window: 64,
-            alpha: 0.01,
-        }
-    }
-}
 
 pub struct CausalLmModel {
     meta: ModelMeta,
@@ -296,7 +102,6 @@ impl CausalLmModel {
             model = model.with_half_precision();
         }
 
-        // Attach EchoNet injector if configured
         if let Some(echo_cfg) = &self.echo_net_config {
             let injector = EchoNetInjector::new(
                 tc.hidden_size,
@@ -308,7 +113,6 @@ impl CausalLmModel {
 
             model.injectors.push((
                 echo_cfg.inject_after_layer,
-                // Lock held only inside sync `forward()` — minimal scope, no .await while locked.
                 std::sync::Mutex::new(Box::new(injector)),
             ));
 
@@ -318,7 +122,6 @@ impl CausalLmModel {
             );
         }
 
-        // Run SEDC compression if enabled
         if self.sedc_enabled {
             match model.compress_sedc_default() {
                 Ok(Some(report)) => {
@@ -375,8 +178,6 @@ impl CausalLmModel {
         Ok(())
     }
 
-    /// Load checkpoint directly to GPU — no CPU weights kept.
-    /// Model must already be initialized via `load_model()`.
     #[cfg(feature = "gpu")]
     pub async fn load_checkpoint_gpu(&self, path: &str) -> NxrModelResult<()> {
         use nexora_transformer::TransformerConfig;
@@ -454,7 +255,6 @@ impl CausalLmModel {
         let seq_length = cfg.seq_length;
         let max_steps = cfg.max_steps;
 
-        // TRN-C3: validation data is tokenized upfront (usually small)
         let val_tokens: Vec<Vec<u32>> = {
             let tokenizer = self.tokenizer.read().await;
             let tok = tokenizer
@@ -472,7 +272,6 @@ impl CausalLmModel {
             }
         };
 
-        // TRN-C3: count tokens without storing them
         let estimated_tokens: usize = {
             let tokenizer = self.tokenizer.read().await;
             let tok = tokenizer
@@ -520,7 +319,6 @@ impl CausalLmModel {
         let mut early_stop_counter = 0;
 
         while trainer.step < max_steps {
-            // TRN-C3: tokenize one epoch on-the-fly → O(epoch) memory instead of O(dataset)
             let mut epoch: Vec<Vec<u32>> = {
                 let tokenizer = self.tokenizer.read().await;
                 let tok = tokenizer
@@ -541,7 +339,6 @@ impl CausalLmModel {
                 if trainer.step >= max_steps {
                     break;
                 }
-                // TRN-C2: collect all chunks into one batch call
                 let mut chunks: Vec<(&[u32], &[u32])> = Vec::new();
                 chunks.extend(sample.chunks(seq_length + 1).filter_map(|c| {
                     if c.len() < 2 { return None; }
@@ -571,8 +368,6 @@ impl CausalLmModel {
                     }
                 }
             }
-
-            // TRN-C3: epoch dropped here → memory freed
 
             if !val_tokens.is_empty()
                 && trainer.step % trainer.config.val_every_steps == 0
@@ -735,16 +530,6 @@ impl CausalLmModel {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TrainingReport {
-    pub steps: usize,
-    pub final_loss: f64,
-    pub total_tokens: usize,
-    pub duration_secs: f64,
-    pub val_loss: Option<f64>,
-    pub val_perplexity: Option<f64>,
-}
-
 #[async_trait]
 impl NxrModel for CausalLmModel {
     type Config = Value;
@@ -850,8 +635,6 @@ impl NxrModel for CausalLmModel {
             return self.infer_stream_legacy(input, callback).await;
         }
     }
-
-    /* infer_stream_legacy moved to separate impl block below */
 
     async fn update_config(&mut self, config: Self::Config) -> NxrModelResult<()> {
         self.config = config;
@@ -961,8 +744,6 @@ impl NxrModel for CausalLmModel {
         };
 
         let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        // Iterate over multiple GPU status files (multi-GPU support).
-        // Returns the average utilization across all available GPUs.
         let gpu_percent = if use_gpu {
             let total: f32 = (0..8)
                 .filter_map(|i| {
@@ -1021,9 +802,6 @@ impl NxrModel for CausalLmModel {
     }
 }
 
-// ── Legacy fast path: original CausalLM::generate_with_gpu inference ──
-// These are the OLD inference methods used before the inference engine was wired.
-// Disable `legacy-fastpath` feature to force all inference through the engine.
 #[cfg(feature = "legacy-fastpath")]
 impl CausalLmModel {
     async fn infer_legacy(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
@@ -1268,82 +1046,6 @@ mod tests {
     use super::*;
     use crate::shared::NxrModelId;
 
-    // ── MiniTokenizer tests ──
-
-    #[test]
-    fn test_mini_tokenizer_encode_has_bos_eos() {
-        let tok = MiniTokenizer::new(512);
-        let ids = tok.encode("hello");
-        assert_eq!(ids.first(), Some(&1), "BOS token must be 1");
-        assert_eq!(ids.last(), Some(&2), "EOS token must be 2");
-        assert!(ids.len() >= 3, "Should have BOS + content + EOS");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_encode_decode_roundtrip() {
-        let tok = MiniTokenizer::new(512);
-        let text = "Hello, World!";
-        let ids = tok.encode(text);
-        let decoded = tok.decode(&ids);
-        assert_eq!(
-            text.as_bytes(),
-            decoded.as_bytes(),
-            "Roundtrip should preserve text (decode already strips BOS/EOS)"
-        );
-    }
-
-    #[test]
-    fn test_mini_tokenizer_empty_input() {
-        let tok = MiniTokenizer::new(512);
-        let ids = tok.encode("");
-        assert_eq!(ids, vec![1, 2], "Empty input should give [BOS, EOS]");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_all_bytes_map_correctly() {
-        let tok = MiniTokenizer::new(512);
-        let text = "abcdefghijklmnopqrstuvwxyz";
-        let ids = tok.encode(text);
-        let content: Vec<u32> = ids[1..ids.len() - 1].to_vec();
-        for (i, &c) in text.as_bytes().iter().enumerate() {
-            assert_eq!(
-                content[i], c as u32,
-                "Char '{:?}' should map to {}",
-                c as char, c
-            );
-        }
-    }
-
-    #[test]
-    fn test_mini_tokenizer_decode_skips_special_tokens() {
-        let tok = MiniTokenizer::new(512);
-        let ids = vec![104, 101, 108, 108, 111];
-        let decoded = tok.decode(&ids);
-        assert_eq!(decoded, "hello", "Should decode simple byte tokens");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_decode_filters_above_255() {
-        let tok = MiniTokenizer::new(512);
-        let ids = vec![104, 101, 108, 108, 111, 256, 300];
-        let decoded = tok.decode(&ids);
-        assert_eq!(decoded, "hello", "Should skip tokens >255");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_vocab_size_respected() {
-        let tok = MiniTokenizer::new(100);
-        let ids = tok.encode("abc\u{ff}");
-        let content: Vec<u32> = ids[1..ids.len() - 1].to_vec();
-        assert_eq!(
-            content,
-            vec![97, 98, 99],
-            "Byte 255 should be skipped (>= vocab_size)"
-        );
-    }
-
-    // ── CausalLmModel tests ──
-
     #[tokio::test]
     async fn test_causal_lm_default_state() {
         let model = CausalLmModel::new(NxrModelId::Omnis, TransformerConfig::default());
@@ -1448,87 +1150,5 @@ mod tests {
             config["transformer_config"]["hidden_size"].as_u64(),
             Some(64)
         );
-    }
-
-    #[test]
-    fn test_mini_tokenizer_new() {
-        let tok = MiniTokenizer::new(50257);
-        assert_eq!(tok.vocab_size, 50257);
-        assert!(tok.bpe_token_to_id.is_empty());
-    }
-
-    #[test]
-    fn test_mini_tokenizer_encode_decode_byte_level() {
-        let tok = MiniTokenizer::new(256);
-        let ids = tok.encode("abc");
-        assert_eq!(ids.first(), Some(&1)); // BOS
-        assert_eq!(ids.last(), Some(&2)); // EOS
-        assert_eq!(ids.len(), 5); // BOS + a + b + c + EOS
-
-        let decoded = tok.decode(&ids);
-        assert_eq!(decoded, "abc");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_encode_empty_string() {
-        let tok = MiniTokenizer::new(256);
-        let ids = tok.encode("");
-        assert_eq!(ids, vec![1, 2]); // just BOS + EOS
-    }
-
-    #[test]
-    fn test_mini_tokenizer_decode_skips_bos_eos() {
-        let tok = MiniTokenizer::new(256);
-        let decoded = tok.decode(&[1, 65, 66, 67, 2]);
-        assert_eq!(decoded, "ABC");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_encode_vocab_too_small() {
-        let tok = MiniTokenizer::new(10);
-        let ids = tok.encode("hello"); // 'h'=104 > 9, gets skipped except 1
-        assert_eq!(ids, vec![1, 2]);
-    }
-
-    #[test]
-    fn test_mini_tokenizer_train_bpe() {
-        let mut tok = MiniTokenizer::new(260);
-        let texts = vec![
-            "hello".to_string(),
-            "help".to_string(),
-            "helicopter".to_string(),
-        ];
-        tok.train_bpe(&texts, 2);
-        assert!(tok.merges.len() <= 2);
-        assert!(!tok.bpe_token_to_id.is_empty() || tok.merges.len() == 2);
-    }
-
-    #[test]
-    fn test_mini_tokenizer_bpe_roundtrip() {
-        let mut tok = MiniTokenizer::new(260);
-        let texts = vec!["test".to_string(), "testing".to_string()];
-        tok.train_bpe(&texts, 1);
-
-        if !tok.merges.is_empty() {
-            let ids = tok.encode("test");
-            let decoded = tok.decode(&ids);
-            assert_eq!(decoded, "test");
-        }
-    }
-
-    #[test]
-    fn test_mini_tokenizer_decode_unknown_bpe_id() {
-        let tok = MiniTokenizer::new(260);
-        // unknown BPE id (>= 256) should be silently skipped
-        let decoded = tok.decode(&[65, 66, 300, 67]);
-        assert_eq!(decoded, "ABC");
-    }
-
-    #[test]
-    fn test_mini_tokenizer_vocab_size_limits_merges() {
-        let mut tok = MiniTokenizer::new(257); // only room for 1 merge token
-        let texts = vec!["ab".to_string(); 100];
-        tok.train_bpe(&texts, 10);
-        assert!(tok.merges.len() <= 1);
     }
 }

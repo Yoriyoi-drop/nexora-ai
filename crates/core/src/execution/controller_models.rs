@@ -462,3 +462,76 @@ impl ModelProcessor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_process_coding_detects_rust() {
+        let result = ModelProcessor::process_coding("fn main() { let x = 1; }").await.unwrap();
+        assert!(result.contains("Rust"));
+    }
+
+    #[tokio::test]
+    async fn test_process_coding_detects_python() {
+        let result = ModelProcessor::process_coding("def hello(): pass").await.unwrap();
+        assert!(result.contains("Python"));
+    }
+
+    #[tokio::test]
+    async fn test_process_coding_security_scan() {
+        let result = ModelProcessor::process_coding("eval(password)").await.unwrap();
+        assert!(result.contains("SECURITY"));
+    }
+
+    #[tokio::test]
+    async fn test_process_memory_categorization() {
+        let result = ModelProcessor::process_memory("remember this important data").await.unwrap();
+        assert!(result.contains("MEMORY"));
+    }
+
+    #[tokio::test]
+    async fn test_process_logic_detects_reasoning() {
+        let result = ModelProcessor::process_logic("if x then y because z").await.unwrap();
+        assert!(result.contains("REASONING"));
+    }
+
+    #[tokio::test]
+    async fn test_process_planner_creates_steps() {
+        let result = ModelProcessor::process_planner("build project").await.unwrap();
+        assert!(result.contains("PLANNING"));
+        assert!(result.contains("Step"));
+    }
+
+    #[tokio::test]
+    async fn test_process_ranking_word_frequency() {
+        let result = ModelProcessor::process_ranking("apple banana apple cherry").await.unwrap();
+        assert!(result.contains("RANKING"));
+    }
+
+    #[tokio::test]
+    async fn test_process_retrieval_keyword_extraction() {
+        let result = ModelProcessor::process_retrieval("find information about rust programming").await.unwrap();
+        assert!(result.contains("RETRIEVAL"));
+    }
+
+    #[tokio::test]
+    async fn test_process_validator_detects_sql_injection() {
+        let result = ModelProcessor::process_validator("SELECT * FROM users").await.unwrap();
+        assert!(result.contains("SQL injection"));
+    }
+
+    #[tokio::test]
+    async fn test_process_validator_passes_clean_input() {
+        let result = ModelProcessor::process_validator("hello world").await.unwrap();
+        assert!(result.contains("PASSED"));
+    }
+
+    #[tokio::test]
+    async fn test_process_controller_analysis() {
+        let result = ModelProcessor::process_controller("test input").await.unwrap();
+        assert!(result.contains("CONTROLLER"));
+        assert!(result.contains("Letters"));
+    }
+}

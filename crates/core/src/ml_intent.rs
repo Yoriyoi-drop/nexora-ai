@@ -417,4 +417,96 @@ mod tests {
 
         assert!(confidence > 0.0);
     }
+
+    #[test]
+    fn test_naive_bayes_empty_training() {
+        let mut classifier = NaiveBayesClassifier::new();
+        let result = classifier.train(&[]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_naive_bayes_predict_unknown_feature() {
+        let mut classifier = NaiveBayesClassifier::new();
+        let training_data = vec![
+            ("coding rust".to_string(), IntentType::Coding),
+        ];
+        classifier.train(&training_data).unwrap();
+
+        let features = HashMap::from([("unknown_word".to_string(), 1.0)]);
+        let scores = classifier.predict(&features);
+        assert!(!scores.is_empty());
+    }
+
+    #[test]
+    fn test_naive_bayes_smoothing_handles_sparse_data() {
+        let mut classifier = NaiveBayesClassifier::new();
+        let training_data = vec![
+            ("a".to_string(), IntentType::Coding),
+            ("b".to_string(), IntentType::Debugging),
+        ];
+        classifier.train(&training_data).unwrap();
+
+        let features = HashMap::from([("z".to_string(), 1.0)]);
+        let confidence = classifier.get_confidence(&features, IntentType::Coding);
+        assert!(confidence > 0.0);
+        assert!(confidence < 1.0);
+    }
+
+    #[test]
+    fn test_feature_extractor_empty_text() {
+        let extractor = FeatureExtractor::new();
+        let features = extractor.extract_features("");
+        assert!(features.contains_key("text_length"));
+        assert_eq!(features["text_length"], 0.0);
+    }
+
+    #[test]
+    fn test_feature_extractor_stop_words_filtered() {
+        let extractor = FeatureExtractor::new();
+        let features = extractor.extract_features("yang dan di the");
+        // Stop words should be filtered out almost entirely
+        assert!(features.get("yang").is_none() || *features.get("yang").unwrap() < 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_advanced_detector_not_trained_error() {
+        let detector = AdvancedIntentDetector::new();
+        let input_data = crate::types::InputData::new(
+            "test".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_advanced_detector_train_empty_error() {
+        let mut detector = AdvancedIntentDetector::new();
+        let result = detector.train(&[]);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_advanced_detector_multiple_intents() {
+        let mut detector = AdvancedIntentDetector::new().with_threshold(0.1);
+        let training_data = vec![
+            ("buat fungsi".to_string(), IntentType::Coding),
+            ("create function".to_string(), IntentType::Coding),
+            ("debug error".to_string(), IntentType::Debugging),
+            ("fix bug".to_string(), IntentType::Debugging),
+            ("rencana proyek".to_string(), IntentType::Planning),
+            ("plan project".to_string(), IntentType::Planning),
+        ];
+        detector.train(&training_data).unwrap();
+
+        let input_data = crate::types::InputData::new(
+            "rencana proyek baru".to_string(),
+            crate::types::InputType::Text,
+        );
+        let result = detector.detect_intent(&input_data).await.unwrap();
+        assert!(detector.is_trained());
+        // Should detect at least one intent
+        assert!(!result.intents.is_empty());
+    }
 }

@@ -4090,12 +4090,15 @@ name = "nexora-tokenizer"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "memchr",
+ "memmap2",
  "mockall",
  "nexora-core",
  "proptest",
  "rand 0.8.6",
  "rayon",
  "regex",
+ "rustc-hash 2.1.2",
  "serde",
  "serde_json",
  "smallvec",
