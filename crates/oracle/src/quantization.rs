@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +60,9 @@ impl Q8Weight {
 
     pub fn to_f32(&self) -> Array2<f32> {
         let (rows, cols) = self.shape;
+        if self.scales.is_empty() || self.data.is_empty() {
+            return Array2::zeros((rows, cols));
+        }
         let mut result = Array2::zeros((rows, cols));
         for i in 0..rows {
             let scale = self.scales[i];
@@ -74,7 +75,8 @@ impl Q8Weight {
     }
 
     pub fn memory_bytes(&self) -> usize {
-        self.data.len() + self.scales.len() * 4
+        let (rows, cols) = self.shape;
+        rows * cols + rows * 4
     }
 
     pub fn compression_ratio(&self) -> f32 {
@@ -147,6 +149,47 @@ pub struct QuantizedOracleBackbone {
 }
 
 impl QuantizedOracleBackbone {
+    /// Create quantized backbone langsung dari config — zero weight init.
+    /// Cuma nyimpen shape, cocok untuk memory estimation cepat.
+    pub fn from_config(config: OracleBackboneConfig, vocab_size: usize, scheme: QuantizationScheme) -> Self {
+        let n_layers = 12;
+        let d_model = config.d_model;
+        let mlp_hidden = config.mlp_hidden;
+        let n_experts = config.n_experts;
+        Self {
+            config,
+            vocab_size,
+            quantized_embedding: Q8Weight {
+                scales: vec![],
+                data: vec![],
+                shape: (vocab_size, d_model),
+            },
+            quantized_moe_layers: (0..n_layers)
+                .map(|_| {
+                    (0..n_experts)
+                        .map(|_| QuantizedMLPExpert {
+                            w1: Q8Weight { scales: vec![], data: vec![], shape: (d_model, mlp_hidden) },
+                            w2: Q8Weight { scales: vec![], data: vec![], shape: (mlp_hidden, d_model) },
+                            b1: vec![0.0; mlp_hidden],
+                            b2: vec![0.0; d_model],
+                        })
+                        .collect()
+                })
+                .collect(),
+            quantized_gate_layers: (0..n_layers)
+                .map(|_| QuantizedLinearLayer {
+                    weight: Q8Weight { scales: vec![], data: vec![], shape: (d_model, n_experts) },
+                    bias: Some(vec![0.0; n_experts]),
+                })
+                .collect(),
+            quantized_output: QuantizedLinearLayer {
+                weight: Q8Weight { scales: vec![], data: vec![], shape: (d_model, vocab_size) },
+                bias: Some(vec![0.0; vocab_size]),
+            },
+            quantization: scheme,
+        }
+    }
+
     pub fn from_backbone(backbone: &OracleBackbone, scheme: QuantizationScheme) -> Self {
         let vocab_size = backbone.embedding.embeddings.dim().0;
         let quantized_embedding = Q8Weight::from_f32(&backbone.embedding.embeddings);
@@ -268,8 +311,7 @@ mod tests {
     #[test]
     fn test_memory_report() {
         let config = OracleBackboneConfig::default();
-        let backbone = OracleBackbone::new(config, 50000);
-        let qbb = QuantizedOracleBackbone::from_backbone(&backbone, QuantizationScheme::Q8);
+        let qbb = QuantizedOracleBackbone::from_config(config, 50000, QuantizationScheme::Q8);
         let report = qbb.memory_savings_report();
         assert!(report.savings_percent > 50.0, "savings too low: {}%", report.savings_percent);
     }

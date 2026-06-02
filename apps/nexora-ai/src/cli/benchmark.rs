@@ -506,7 +506,7 @@ impl BenchmarkRunner {
             .load(std::sync::atomic::Ordering::Relaxed);
         let waste_sum = nexora_inference::inference_trait::BATCHING_PADDING_WASTE_SUM
             .load(std::sync::atomic::Ordering::Relaxed);
-        let waste_pct = if count > 0 { waste_sum as f64 / count as f64 / 100.0 } else { 0.0 };
+        let waste_pct = if count > 0 { waste_sum as f64 / count as f64 } else { 0.0 };
 
         info!("  CB throughput: {} seq, {} tok/s, waste={:.1}%, time={:.1}s",
             n, tok_s as u64, waste_pct * 100.0, total_time.as_secs_f64());

@@ -16,6 +16,9 @@ pub struct ServerConfig {
     pub cors_origins: Vec<String>,
     pub api_keys: Vec<String>,
     pub enable_auth: bool,
+    /// Optional rate limit in requests per minute (0 or None = disabled).
+    /// Applies per client IP using a sliding window counter.
+    pub rate_limit_rpm: Option<u64>,
 }
 
 impl Default for ServerConfig {
@@ -32,6 +35,7 @@ impl Default for ServerConfig {
             cors_origins: vec![],
             api_keys: vec![],
             enable_auth: true,
+            rate_limit_rpm: Some(60),
         }
     }
 }

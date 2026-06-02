@@ -73,7 +73,7 @@ impl VideoEncoder {
     }
 
     /// Encode individual frame using actual pixel data
-    fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
+    pub fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
         let patch_size = 16;
         let cols = (frame.width / patch_size).max(1);
         let rows = (frame.height / patch_size).max(1);

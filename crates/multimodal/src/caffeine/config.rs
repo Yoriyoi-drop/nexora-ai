@@ -35,6 +35,28 @@ pub struct CaffeineConfig {
     pub hidden_dim: usize,
     /// Dropout rate
     pub dropout_rate: f32,
+    /// Enable multimodal cache (#4 Multimodal Cache)
+    pub enable_cache: bool,
+    /// Use global shared multimodal store (#4 FIX 6)
+    pub use_global_cache: bool,
+    /// Max RAM for cache in bytes (#4 FIX 9)
+    pub cache_max_ram_bytes: u64,
+    /// Max SSD for cache in bytes (#4 FIX 9)
+    pub cache_max_ssd_bytes: u64,
+    /// TTL in seconds (#4 FIX 3)
+    pub cache_ttl_secs: u64,
+    /// Compression format: "FP16", "INT8", or "FP32" (#4 FIX 4)
+    pub cache_compression: String,
+    /// Enable embedding deduplication (#4 FIX 2)
+    pub cache_enable_dedup: bool,
+    /// Adaptive resolution max pixels (#4 FIX 8)
+    pub cache_adaptive_max_pixels: usize,
+    /// Enable hierarchical storage (#4 FIX 7)
+    pub cache_enable_hierarchical: bool,
+    /// Video streaming window size (#4 FIX 5)
+    pub cache_video_window_size: usize,
+    /// Video streaming stride (#4 FIX 5)
+    pub cache_video_stride: usize,
 }
 
 impl Default for CaffeineConfig {
@@ -54,6 +76,17 @@ impl Default for CaffeineConfig {
             num_hidden_layers: 12,
             hidden_dim: 3072,
             dropout_rate: 0.1,
+            enable_cache: true,
+            use_global_cache: true,
+            cache_max_ram_bytes: 4 * 1024 * 1024 * 1024,
+            cache_max_ssd_bytes: 20 * 1024 * 1024 * 1024,
+            cache_ttl_secs: 3600,
+            cache_compression: "FP16".to_string(),
+            cache_enable_dedup: true,
+            cache_adaptive_max_pixels: 1_048_576,
+            cache_enable_hierarchical: true,
+            cache_video_window_size: 4,
+            cache_video_stride: 2,
         }
     }
 }

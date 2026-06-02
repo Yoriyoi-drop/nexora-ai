@@ -371,6 +371,12 @@ pub struct PerformanceStats {
     pub average_latency_ms: f32,
     /// Memory usage
     pub memory_usage_mb: usize,
+    /// Cache hit rate (#4 Multimodal Cache)
+    #[serde(default)]
+    pub cache_hit_rate: Option<f64>,
+    /// Cache enabled (#4 Multimodal Cache)
+    #[serde(default)]
+    pub cache_enabled: bool,
 }
 
 /// Encoded features from multi-modal encoders

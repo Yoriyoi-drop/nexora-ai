@@ -1,9 +1,37 @@
 use ndarray::{Array1, Array2};
+use nexora_autograd::attention_workspace::{global_pool, WorkspacePool};
 use nexora_autograd::ops::{causal_softmax, embedding, rms_norm_2d};
 use nexora_autograd::{self, Tensor, TensorOps};
 
 use super::config::TransformerConfig;
 use super::model::CausalLM;
+
+/// Configuration for training optimizations
+#[derive(Debug, Clone)]
+pub struct TrainingConfig {
+    /// Use chunked causal attention (avoids O(S²) memory)
+    pub chunked_attention: bool,
+    /// Chunk size for chunked attention
+    pub attention_chunk_size: usize,
+    /// Enable early free of intermediate tensors
+    pub early_free: bool,
+    /// Enable activation checkpointing (recompute during backward)
+    pub activation_checkpointing: bool,
+    /// Workspace pool for reusable buffers
+    pub workspace_pool: Option<WorkspacePool>,
+}
+
+impl Default for TrainingConfig {
+    fn default() -> Self {
+        Self {
+            chunked_attention: true,
+            attention_chunk_size: 512,
+            early_free: true,
+            activation_checkpointing: true,
+            workspace_pool: None,
+        }
+    }
+}
 
 fn identity_selector(rows: usize, cols: usize, offset: usize) -> Tensor {
     let mut data = vec![0.0f32; rows * cols];
@@ -16,12 +44,75 @@ fn identity_selector(rows: usize, cols: usize, offset: usize) -> Tensor {
     Tensor::from_slice(&data, &[rows, cols])
 }
 
+/// Select a head's slice from the Q/K/V projection: [seq_len, total] → [seq_len, head_dim]
+fn select_heads(proj: &Tensor, total: usize, head_dim: usize, head_idx: usize) -> Tensor {
+    let sel = identity_selector(total, head_dim, head_idx * head_dim);
+    proj.matmul(&sel)
+}
+
+/// Place a head's output back into the full output: [seq_len, head_dim] → [seq_len, total]
+fn place_heads(head: &Tensor, total: usize, head_dim: usize, head_idx: usize) -> Tensor {
+    let sel = identity_selector(total, head_dim, head_idx * head_dim);
+    head.matmul(&sel.transpose())
+}
+
+/// Slice rows from a 2D tensor: [full, dim] → [len, dim]
+fn slice_rows(t: &Tensor, start: usize, end: usize) -> Tensor {
+    let data = t.data();
+    let shape = data.shape();
+    if shape.len() != 2 {
+        return t.clone();
+    }
+    let rows = shape[0];
+    let cols = shape[1];
+    let end = end.min(rows);
+    let len = end - start;
+    let mut result = vec![0.0f32; len * cols];
+    let flat: Vec<f32> = data.iter().copied().collect();
+    for i in 0..len {
+        for j in 0..cols {
+            result[i * cols + j] = flat[(start + i) * cols + j];
+        }
+    }
+    let t_result = Tensor::from_slice(&result, &[len, cols]);
+    if t.requires_grad() {
+        t_result.set_requires_grad(true);
+    }
+    t_result
+}
+
+/// Apply causal mask within a chunk: position i attends only to kv_start..=i
+fn causal_mask_chunk(scores: &Tensor, _seq_len: usize, chunk_start: usize, _chunk_end: usize) -> Tensor {
+    let data = scores.data();
+    let shape = data.shape();
+    if shape.len() != 2 {
+        return scores.clone();
+    }
+    let q_len = shape[0];
+    let kv_len = shape[1];
+    let mut result: Vec<f32> = data.iter().copied().collect();
+    for i in 0..q_len {
+        for j in 0..kv_len {
+            let kv_pos = chunk_start + j;
+            if kv_pos > i {
+                result[i * kv_len + j] = f32::NEG_INFINITY;
+            }
+        }
+    }
+    let t = Tensor::from_slice(&result, &[q_len, kv_len]);
+    if scores.requires_grad() {
+        t.set_requires_grad(true);
+    }
+    t
+}
+
 pub struct TrainableCausalLM {
     pub config: TransformerConfig,
     pub token_embedding: Tensor,
     pub blocks: Vec<TrainableBlock>,
     pub norm: TrainableRMSNorm,
     pub lm_head: Tensor,
+    pub training_config: TrainingConfig,
 }
 
 pub struct TrainableBlock {
@@ -138,6 +229,7 @@ impl TrainableCausalLM {
                 eps: model.norm.eps,
             },
             lm_head: to_tensor(model.lm_head.as_ref(), "lm_head"),
+            training_config: TrainingConfig::default(),
         }
     }
 
@@ -266,9 +358,10 @@ impl TrainableCausalLM {
         let n_kv_heads = self.config.num_kv_heads;
         let head_dim = hidden / n_heads;
         let num_groups = n_heads / n_kv_heads;
+        let cfg = &self.training_config;
+        let _pool = cfg.workspace_pool.as_ref().unwrap_or_else(|| global_pool());
 
         let mut h = embedding(input_ids, &self.token_embedding);
-        // h shape: [seq_len, hidden] — keep 2D throughout
 
         for block in &self.blocks {
             let residual = h.clone();
@@ -281,57 +374,43 @@ impl TrainableCausalLM {
 
             let q_total = n_heads * head_dim;
             let k_total = n_kv_heads * head_dim;
-            let scale = (head_dim as f32).sqrt();
-            let scale_t = Tensor::from_slice(&[scale], &[1]);
 
-            // Per-head GQA: each query head attends to its assigned KV head
-            let mut attn_out = Tensor::zeros(&[seq_len, q_total], false);
-            for h_idx in 0..n_heads {
-                let kv_h = h_idx / num_groups;
-                let q_sel = identity_selector(q_total, head_dim, h_idx * head_dim);
-                let kv_sel = identity_selector(k_total, head_dim, kv_h * head_dim);
+            let attn_out = if cfg.chunked_attention && seq_len > cfg.attention_chunk_size {
+                // FIX 1+2: Chunked causal attention — avoids O(S²) score matrix
+                self.chunked_attention_forward(
+                    &q_proj, &k_proj, &v_proj,
+                    seq_len, q_total, k_total, head_dim, n_heads, n_kv_heads, num_groups,
+                    cfg, _pool,
+                )
+            } else {
+                // Original per-head GQA for short sequences (≤ chunk_size)
+                self.per_head_attention_forward(
+                    &q_proj, &k_proj, &v_proj,
+                    seq_len, q_total, k_total, head_dim, n_heads, n_kv_heads, num_groups,
+                    cfg,
+                )
+            };
 
-                let q_h = q_proj.matmul(&q_sel);
-                let k_h = k_proj.matmul(&kv_sel);
-                let v_h = v_proj.matmul(&kv_sel);
-
-                let scores = q_h.matmul(&k_h.transpose()).div(&scale_t);
-                let attn = causal_softmax(&scores);
-                let out_h = attn.matmul(&v_h);
-
-                let place_sel = identity_selector(q_total, head_dim, h_idx * head_dim);
-                let placed = out_h.matmul(&place_sel.transpose());
-                attn_out = attn_out.add(&placed);
+            // FIX 6: Early free
+            if cfg.early_free {
+                drop(normed);
+                drop(q_proj);
+                drop(k_proj);
+                drop(v_proj);
             }
 
             let wo_t = block.attention.wo.transpose();
-            attn_out = attn_out.matmul(&wo_t);
+            let attn_out = attn_out.matmul(&wo_t);
             h = residual.add(&attn_out);
 
             let residual = h.clone();
             let normed = rms_norm_2d(&h, &block.ffn_norm.weight, block.ffn_norm.eps);
 
-            let ffn_out = if let Some(experts) = &block.experts {
-                let mut sum: Option<Tensor> = None;
-                for expert in experts {
-                    let gate = normed.matmul(&expert.w1.transpose());
-                    let hidden_states = normed.matmul(&expert.w3.transpose());
-                    let gated = gate.silu().mul(&hidden_states);
-                    let out = gated.matmul(&expert.w2.transpose());
-                    sum = Some(match sum {
-                        Some(s) => s.add(&out),
-                        None => out,
-                    });
-                }
-                let sum = sum.expect("experts must be non-empty");
-                let n = sum.clone().div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
-                n
-            } else {
-                let gate = normed.matmul(&block.ffn.w1.transpose());
-                let hidden_states = normed.matmul(&block.ffn.w3.transpose());
-                let gated = gate.silu().mul(&hidden_states);
-                gated.matmul(&block.ffn.w2.transpose())
-            };
+            let ffn_out = self.ffn_forward(&normed, block, cfg);
+
+            if cfg.early_free {
+                drop(normed);
+            }
 
             h = residual.add(&ffn_out);
         }
@@ -340,6 +419,161 @@ impl TrainableCausalLM {
 
         let logits = h.matmul(&self.lm_head.transpose());
         logits
+    }
+
+    /// Chunked attention forward — processes KV in chunks to avoid O(S²) memory
+    fn chunked_attention_forward(
+        &self,
+        q_proj: &Tensor,
+        k_proj: &Tensor,
+        v_proj: &Tensor,
+        seq_len: usize,
+        q_total: usize,
+        k_total: usize,
+        head_dim: usize,
+        n_heads: usize,
+        _n_kv_heads: usize,
+        num_groups: usize,
+        cfg: &TrainingConfig,
+        _pool: &WorkspacePool,
+    ) -> Tensor {
+        let mut attn_out = Tensor::zeros(&[seq_len, q_total], false);
+
+        for h_idx in 0..n_heads {
+            let kv_h = h_idx / num_groups;
+
+            let q_h = select_heads(q_proj, q_total, head_dim, h_idx);
+            let k_h = select_heads(k_proj, k_total, head_dim, kv_h);
+            let v_h = select_heads(v_proj, k_total, head_dim, kv_h);
+
+            // Chunked attention: process KV in blocks
+            let chunk_size = cfg.attention_chunk_size.min(seq_len).max(1);
+            let mut head_out = Tensor::zeros(&[seq_len, head_dim], q_proj.requires_grad());
+
+            for chunk_start in (0..seq_len).step_by(chunk_size) {
+                let chunk_end = (chunk_start + chunk_size).min(seq_len);
+
+                let k_chunk = slice_rows(&k_h, chunk_start, chunk_end);
+                let v_chunk = slice_rows(&v_h, chunk_start, chunk_end);
+
+                let scale = (head_dim as f32).sqrt();
+                let scores = q_h.matmul(&k_chunk.transpose())
+                    .div(&Tensor::from_slice(&[scale], &[1]));
+
+                let masked = causal_mask_chunk(&scores, seq_len, chunk_start, chunk_end);
+
+                let attn_weights = causal_softmax(&masked);
+                let partial = attn_weights.matmul(&v_chunk);
+
+                head_out = head_out.add(&partial);
+
+                // FIX 6: Early free
+                if cfg.early_free {
+                    drop(k_chunk);
+                    drop(v_chunk);
+                    drop(scores);
+                    drop(masked);
+                    drop(attn_weights);
+                    drop(partial);
+                }
+            }
+
+            let placed = place_heads(&head_out, q_total, head_dim, h_idx);
+            attn_out = attn_out.add(&placed);
+
+            if cfg.early_free {
+                drop(q_h);
+                drop(k_h);
+                drop(v_h);
+                drop(placed);
+            }
+        }
+
+        attn_out
+    }
+
+    /// Per-head GQA with full attention matrix (for short sequences)
+    fn per_head_attention_forward(
+        &self,
+        q_proj: &Tensor,
+        k_proj: &Tensor,
+        v_proj: &Tensor,
+        seq_len: usize,
+        q_total: usize,
+        k_total: usize,
+        head_dim: usize,
+        n_heads: usize,
+        _n_kv_heads: usize,
+        num_groups: usize,
+        cfg: &TrainingConfig,
+    ) -> Tensor {
+        let mut attn_out = Tensor::zeros(&[seq_len, q_total], false);
+        let scale = (head_dim as f32).sqrt();
+        let scale_t = Tensor::from_slice(&[scale], &[1]);
+
+        for h_idx in 0..n_heads {
+            let kv_h = h_idx / num_groups;
+
+            let q_h = select_heads(q_proj, q_total, head_dim, h_idx);
+            let k_h = select_heads(k_proj, k_total, head_dim, kv_h);
+            let v_h = select_heads(v_proj, k_total, head_dim, kv_h);
+
+            let scores = q_h.matmul(&k_h.transpose()).div(&scale_t);
+            let attn = causal_softmax(&scores);
+            let out_h = attn.matmul(&v_h);
+
+            let placed = place_heads(&out_h, q_total, head_dim, h_idx);
+            attn_out = attn_out.add(&placed);
+
+            if cfg.early_free {
+                drop(q_h);
+                drop(k_h);
+                drop(v_h);
+                drop(scores);
+                drop(attn);
+                drop(placed);
+            }
+        }
+
+        attn_out
+    }
+
+    /// FFN forward with early free support
+    fn ffn_forward(&self, normed: &Tensor, block: &TrainableBlock, cfg: &TrainingConfig) -> Tensor {
+        let result = if let Some(experts) = &block.experts {
+            let mut sum: Option<Tensor> = None;
+            for expert in experts {
+                let gate = normed.matmul(&expert.w1.transpose());
+                let hidden = normed.matmul(&expert.w3.transpose());
+                let gated = gate.silu().mul(&hidden);
+                let out = gated.matmul(&expert.w2.transpose());
+                if cfg.early_free {
+                    drop(gate);
+                    drop(hidden);
+                    drop(gated);
+                }
+                sum = Some(match sum {
+                    Some(s) => s.add(&out),
+                    None => out,
+                });
+            }
+            let sum = sum.expect("experts must be non-empty");
+            let n = sum.clone().div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
+            if cfg.early_free { drop(sum); }
+            n
+        } else {
+            let gate = normed.matmul(&block.ffn.w1.transpose());
+            let hidden = normed.matmul(&block.ffn.w3.transpose());
+            let gated = gate.silu().mul(&hidden);
+            let out = gated.matmul(&block.ffn.w2.transpose());
+            if cfg.early_free {
+                drop(gate);
+                drop(hidden);
+                drop(gated);
+            }
+            out
+        };
+        result
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {

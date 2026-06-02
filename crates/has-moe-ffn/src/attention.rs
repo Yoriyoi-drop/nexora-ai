@@ -119,7 +119,8 @@ impl Attention {
         result
     }
 
-    /// Compute scaled dot-product attention: [seq_len × seq_len] score matrix
+    /// Compute scaled dot-product attention — streaming per-query to avoid O(S²) memory
+    /// FIX 1+2+5: No full score matrix, compute-use-discard per query position
     fn compute_scaled_dot_product_attention(
         &self,
         query: &[f32],
@@ -129,36 +130,49 @@ impl Attention {
         let seq_len = query.len() / self.head_dim;
         let scale = (self.head_dim as f32).sqrt().recip();
 
-        // Compute attention scores: [seq_len × seq_len]
-        let mut scores = Vec::with_capacity(seq_len * seq_len);
+        let mut output = vec![0.0; seq_len * self.head_dim];
+
+        // Process each query position independently — O(S) memory
         for qi in 0..seq_len {
+            let q_start = qi * self.head_dim;
+
+            // Compute scores and softmax in one pass
+            let mut max_val = f32::NEG_INFINITY;
+            let mut scores = vec![0.0f32; seq_len];
             for kj in 0..seq_len {
-                let q_start = qi * self.head_dim;
                 let k_start = kj * self.head_dim;
                 let dot: f32 = (0..self.head_dim)
                     .map(|d| query[q_start + d] * key[k_start + d])
                     .sum();
-                scores.push(dot * scale);
+                scores[kj] = dot * scale;
+                if scores[kj] > max_val {
+                    max_val = scores[kj];
+                }
             }
-        }
 
-        // Softmax each row
-        let mut attn_probs = Vec::with_capacity(seq_len * seq_len);
-        for qi in 0..seq_len {
-            let row: Vec<f32> = (0..seq_len).map(|j| scores[qi * seq_len + j]).collect();
-            attn_probs.extend(self.softmax(&row));
-        }
+            // Softmax
+            let mut sum_exp = 0.0f32;
+            for kj in 0..seq_len {
+                scores[kj] = (scores[kj] - max_val).exp();
+                sum_exp += scores[kj];
+            }
+            if sum_exp > 0.0 {
+                let inv = 1.0 / sum_exp;
+                for kj in 0..seq_len {
+                    scores[kj] *= inv;
+                }
+            }
 
-        // Weighted sum of values: output[qi, d] = sum_kj attn_probs[qi, kj] * value[kj, d]
-        let mut output = vec![0.0; seq_len * self.head_dim];
-        for qi in 0..seq_len {
+            // Weighted sum of values
             for d in 0..self.head_dim {
                 let mut sum = 0.0;
                 for kj in 0..seq_len {
-                    sum += attn_probs[qi * seq_len + kj] * value[kj * self.head_dim + d];
+                    sum += scores[kj] * value[kj * self.head_dim + d];
                 }
                 output[qi * self.head_dim + d] = sum;
             }
+
+            // FIX 6: Early free — scores dropped at end of scope
         }
 
         output

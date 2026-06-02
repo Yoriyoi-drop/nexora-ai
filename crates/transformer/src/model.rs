@@ -284,17 +284,20 @@ pub struct CausalLM {
 #[cfg(not(feature = "gpu"))]
 impl Clone for CausalLM {
     fn clone(&self) -> Self {
-        tracing::warn!("Cloning CausalLM — weight memory is NOT duplicated. Use Arc<CausalLM> for shared ownership.");
+        tracing::warn!("Cloning CausalLM — creates independent weight copies (~{}GB). Use Arc<CausalLM> for shared ownership.",
+            (self.config.vocab_size * self.config.hidden_size * 2 // embedding + lm_head
+                + self.config.num_layers * self.config.hidden_size * self.config.hidden_size * 8 // ~8 weight matrices per block
+            ) * 4 / 1_000_000_000);
         Self {
             config: self.config.clone(),
-            token_embedding: None,
-            blocks: Vec::new(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
             norm: self.norm.clone(),
-            lm_head: None,
+            lm_head: self.lm_head.clone(),
             rope: self.rope.clone(),
             precomputed_cos: self.precomputed_cos.clone(),
             precomputed_sin: self.precomputed_sin.clone(),
-            injectors: Vec::new(),
+            injectors: self.injectors.clone(),
             keep_on_gpu: self.keep_on_gpu,
             quantize_weights: self.quantize_weights,
             use_half_precision: self.use_half_precision,

@@ -1,5 +1,6 @@
 //! Prelude module for CAFFEINE
 
+pub use crate::caffeine::cache::*;
 pub use crate::caffeine::config::*;
 pub use crate::caffeine::error::*;
 pub use crate::caffeine::types::*;

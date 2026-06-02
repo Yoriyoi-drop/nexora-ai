@@ -692,15 +692,16 @@ where
 
     /// Extract a CpuKVCache from a Box<dyn KVCacheProvider>.
     /// For CpuKVCache, takes entries directly. For GpuKVCache, reads back K/V from GPU.
-    /// Used to provide CPU caches to `forward_batched`.
+    /// Extract CPU entries for CPU fallback forwarding.
+    /// For GPU-backed caches, creates an empty cache — entries are populated
+    /// on demand by `forward_with_kv` (safe, but loses GPU KV context).
     fn boxed_cache_to_cpu(cache: &mut Box<dyn KVCacheProvider>) -> CpuKVCache {
         if let Some(cpu_entries) = cache.as_cpu_entries() {
-            CpuKVCache {
+            return CpuKVCache {
                 entries: std::mem::take(cpu_entries),
-            }
-        } else {
-            CpuKVCache::new(0)
+            };
         }
+        CpuKVCache::new(0)
     }
 
     pub fn add_request(&mut self, request: InferenceRequest) -> u64 {

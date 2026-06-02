@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+use crate::backbone::OracleBackboneConfig;
 use crate::OracleBackbone;
 
 /// Status instance Oracle di pool
@@ -57,6 +57,7 @@ pub struct OraclePool {
     instances: Vec<Mutex<OraclePoolInstance>>,
     max_size: usize,
     vocab_size: usize,
+    backbone_config: OracleBackboneConfig,
     total_acquires: AtomicU64,
     total_releases: AtomicU64,
     total_timeouts: AtomicU64,
@@ -66,6 +67,10 @@ pub struct OraclePool {
 
 impl OraclePool {
     pub fn new(max_size: usize, vocab_size: usize) -> Self {
+        Self::new_with_config(max_size, vocab_size, OracleBackboneConfig::default())
+    }
+
+    pub fn new_with_config(max_size: usize, vocab_size: usize, backbone_config: OracleBackboneConfig) -> Self {
         let instances = (0..max_size)
             .map(|id| Mutex::new(OraclePoolInstance::new(id)))
             .collect();
@@ -74,6 +79,7 @@ impl OraclePool {
             instances,
             max_size,
             vocab_size,
+            backbone_config,
             total_acquires: AtomicU64::new(0),
             total_releases: AtomicU64::new(0),
             total_timeouts: AtomicU64::new(0),
@@ -83,9 +89,10 @@ impl OraclePool {
     }
 
     /// Acquire instance Oracle dari pool. Blocking sampai ada yang available.
+    /// Pool harus dibungkus `Arc` — gunakan `acquire_arc()`.
+    #[deprecated(since = "0.2.0", note = "use acquire_arc() with Arc<OraclePool>")]
     pub fn acquire(&self) -> Result<PooledOracle, PoolError> {
         let start = Instant::now();
-        let deadline = start + std::time::Duration::from_secs(30);
         self.total_acquires.fetch_add(1, Ordering::SeqCst);
 
         loop {
@@ -96,10 +103,8 @@ impl OraclePool {
                     guard.last_used = Instant::now();
                     guard.total_uses += 1;
 
-                    // Lazy init: create backbone on first use
                     if guard.backbone.is_none() {
-                        let config = crate::backbone::OracleBackboneConfig::default();
-                        guard.backbone = Some(OracleBackbone::new(config, self.vocab_size));
+                        guard.backbone = Some(OracleBackbone::new(self.backbone_config.clone(), self.vocab_size));
                     }
 
                     let elapsed = start.elapsed();
@@ -108,7 +113,8 @@ impl OraclePool {
 
                     return Ok(PooledOracle {
                         id: guard.id,
-                        pool: self as *const Self as usize,
+                        pool: None,
+                        released: false,
                         _private: (),
                     });
                 }
@@ -116,6 +122,45 @@ impl OraclePool {
 
             if start.elapsed() > std::time::Duration::from_secs(30) {
                 self.total_timeouts.fetch_add(1, Ordering::SeqCst);
+                return Err(PoolError::Timeout);
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// Acquire dari pool yang dibungkus `Arc<OraclePool>` — aman terhadap use-after-free.
+    pub fn acquire_arc(pool: &Arc<Self>) -> Result<PooledOracle, PoolError> {
+        let start = Instant::now();
+        pool.total_acquires.fetch_add(1, Ordering::SeqCst);
+
+        loop {
+            for instance in &pool.instances {
+                let mut guard = instance.lock().map_err(|e| PoolError::LockError(e.to_string()))?;
+                if guard.status == OracleInstanceStatus::Idle {
+                    guard.status = OracleInstanceStatus::Busy;
+                    guard.last_used = Instant::now();
+                    guard.total_uses += 1;
+
+                    if guard.backbone.is_none() {
+                        guard.backbone = Some(OracleBackbone::new(pool.backbone_config.clone(), pool.vocab_size));
+                    }
+
+                    let elapsed = start.elapsed();
+                    pool.acquire_times_ns.fetch_add(elapsed.as_nanos() as u64, Ordering::SeqCst);
+                    pool.acquire_count.fetch_add(1, Ordering::SeqCst);
+
+                    return Ok(PooledOracle {
+                        id: guard.id,
+                        pool: Some(Arc::downgrade(pool)),
+                        released: false,
+                        _private: (),
+                    });
+                }
+            }
+
+            if start.elapsed() > std::time::Duration::from_secs(30) {
+                pool.total_timeouts.fetch_add(1, Ordering::SeqCst);
                 return Err(PoolError::Timeout);
             }
 
@@ -188,14 +233,18 @@ impl OraclePool {
 
 impl Default for OraclePool {
     fn default() -> Self {
-        Self::new(2, 50000)
+        Self::new_with_config(2, 50000, OracleBackboneConfig::default())
     }
 }
 
-/// Handle PooledOracle — auto-release saat Drop
+/// Handle PooledOracle — auto-release saat Drop.
+/// Holds a `Weak<OraclePool>` to prevent use-after-free if the pool is dropped
+/// before all handles are released.
 pub struct PooledOracle {
     id: usize,
-    pool: usize,
+    pool: Option<Weak<OraclePool>>,
+    /// Cleared after release to detect double-drop
+    released: bool,
     _private: (),
 }
 
@@ -207,9 +256,14 @@ impl PooledOracle {
 
 impl Drop for PooledOracle {
     fn drop(&mut self) {
-        let pool_ptr = self.pool as *const OraclePool;
-        if let Some(pool) = unsafe { pool_ptr.as_ref() } {
-            pool.release(self.id);
+        if self.released {
+            return;
+        }
+        self.released = true;
+        if let Some(weak) = self.pool.take() {
+            if let Some(pool) = weak.upgrade() {
+                pool.release(self.id);
+            }
         }
     }
 }
@@ -247,11 +301,24 @@ mod tests {
         assert_eq!(metrics.pool_size, 2);
     }
 
+    fn tiny_config() -> OracleBackboneConfig {
+        OracleBackboneConfig {
+            d_model: 16,
+            n_heads: 2,
+            n_experts: 1,
+            top_k: 1,
+            latent_dim: 8,
+            context_size: 64,
+            mlp_hidden: 32,
+            dropout: 0.0,
+        }
+    }
+
     #[test]
     fn test_acquire_release() {
-        let pool = OraclePool::new(2, 1000);
+        let pool = Arc::new(OraclePool::new_with_config(2, 1000, tiny_config()));
         {
-            let _oracle = pool.acquire().expect("acquire should succeed");
+            let _oracle = OraclePool::acquire_arc(&pool).expect("acquire should succeed");
             let metrics = pool.metrics();
             assert_eq!(metrics.active, 1);
             assert_eq!(metrics.idle, 1);
@@ -263,24 +330,24 @@ mod tests {
 
     #[test]
     fn test_with_backbone() {
-        let pool = OraclePool::new(1, 1000);
-        let oracle = pool.acquire().expect("acquire");
+        let pool = Arc::new(OraclePool::new_with_config(1, 1000, tiny_config()));
+        let oracle = OraclePool::acquire_arc(&pool).expect("acquire");
         let id = oracle.id();
         let result = pool.with_backbone(id, |bb| {
             format!("d_model={}", bb.config.d_model)
         });
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "d_model=4096");
+        assert_eq!(result.unwrap(), "d_model=16");
     }
 
     #[test]
     fn test_pool_metrics_tracking() {
-        let pool = OraclePool::new(2, 1000);
+        let pool = Arc::new(OraclePool::new_with_config(2, 1000, tiny_config()));
         let m1 = pool.metrics();
         assert_eq!(m1.pool_size, 2);
         assert_eq!(m1.total_acquires, 0);
 
-        let handle = pool.acquire().expect("acquire");
+        let handle = OraclePool::acquire_arc(&pool).expect("acquire");
         drop(handle);
 
         let m2 = pool.metrics();

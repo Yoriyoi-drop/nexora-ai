@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -58,7 +57,13 @@ impl SharedOracleMemory {
     }
 
     pub fn get(&mut self, key: &str) -> Option<&MemoryEntry> {
-        let entry = self.data.get_mut(key)?;
+        let entry = match self.data.get_mut(key) {
+            Some(e) => e,
+            None => {
+                self.total_misses += 1;
+                return None;
+            }
+        };
         entry.hit_count += 1;
         entry.last_access = Utc::now().timestamp();
         self.total_hits += 1;
@@ -66,7 +71,13 @@ impl SharedOracleMemory {
     }
 
     pub fn get_value(&mut self, key: &str) -> Option<String> {
-        let entry = self.data.get_mut(key)?;
+        let entry = match self.data.get_mut(key) {
+            Some(e) => e,
+            None => {
+                self.total_misses += 1;
+                return None;
+            }
+        };
         entry.hit_count += 1;
         entry.last_access = Utc::now().timestamp();
         self.total_hits += 1;

@@ -6,6 +6,20 @@ use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
 use ndarray::ArrayD;
 
+/// FNV-1a 32-bit hash — deterministic across runs and processes.
+/// Used by `TextEncoder::token_to_id` instead of `DefaultHasher::new()`
+/// which uses a random seed per process.
+fn fnv1a_hash(input: &str) -> u32 {
+    const FNV_OFFSET_BASIS: u32 = 2166136261;
+    const FNV_PRIME: u32 = 16777619;
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in input.bytes() {
+        hash ^= byte as u32;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
 /// Text encoder based on BERT
 pub struct TextEncoder {
     config: crate::caffeine::config::TextEncoderConfig,
@@ -89,16 +103,12 @@ impl TextEncoder {
         Ok(ids)
     }
 
-    /// Convert single token to ID
+    /// Convert single token to ID using a deterministic hash.
+    /// `DefaultHasher::new()` uses a random seed per process → non-deterministic.
+    /// We use FNV-1a (32-bit) which is deterministic across runs.
     fn token_to_id(&self, token: &str) -> Result<usize> {
-        // Simple hash-based token ID generation
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        token.hash(&mut hasher);
-
-        let id = (hasher.finish() as usize) % self.vocab_size;
+        let hash = fnv1a_hash(token);
+        let id = (hash as usize) % self.vocab_size;
         Ok(id)
     }
 

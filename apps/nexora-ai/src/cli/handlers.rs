@@ -468,6 +468,7 @@ impl Cli {
             cors_origins: vec![],
             api_keys: vec![],
             enable_auth: false,
+            rate_limit_rpm: None,
         };
 
         let server = crate::NexoraServer::new(config);
@@ -534,8 +535,9 @@ impl Cli {
         temperature: f32,
         output: &Option<PathBuf>,
     ) -> NexoraResult<()> {
+        let truncated: String = prompt.chars().take(100).collect();
         let truncated = if prompt.len() > 100 {
-            format!("{} [truncated {} chars]", &prompt[..100], prompt.len())
+            format!("{} [truncated {} chars]", truncated, prompt.len())
         } else {
             prompt.to_string()
         };

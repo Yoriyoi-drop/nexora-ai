@@ -61,6 +61,10 @@ pub enum CaffeineError {
     #[error("NDArray error: {0}")]
     NdArray(#[from] ndarray::ShapeError),
 
+    /// Cache error (#4 Multimodal Cache)
+    #[error("Cache error: {0}")]
+    Cache(String),
+
     /// Generic error
     #[error("Generic error: {0}")]
     Generic(String),
@@ -113,6 +117,11 @@ impl CaffeineError {
     /// Create a new tensor operation error
     pub fn tensor_operation<S: Into<String>>(msg: S) -> Self {
         Self::TensorOperation(msg.into())
+    }
+
+    /// Create a new cache error
+    pub fn cache<S: Into<String>>(msg: S) -> Self {
+        Self::Cache(msg.into())
     }
 
     /// Create a new generic error

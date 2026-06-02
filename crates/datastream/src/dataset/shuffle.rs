@@ -27,7 +27,10 @@ impl ShuffleBuffer {
             if self.buffer.len() < self.capacity {
                 self.buffer.push(sample);
             } else {
-                let idx = self.rng.gen_range(0..self.seen + 1);
+                // Algorithm R reservoir sampling:
+                // For item at global index i (= seen before increment),
+                // pick j ∈ [0, i] uniformly; if j < capacity, replace.
+                let idx = self.rng.gen_range(0..=self.seen);
                 if idx < self.capacity {
                     self.buffer[idx] = sample;
                 }

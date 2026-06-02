@@ -491,28 +491,32 @@ impl EpisodicMemory {
         Ok(())
     }
 
-    /// Evict least important episodes
+    /// Evict least important episodes using `select_nth_unstable_by` (O(n))
+    /// instead of `sort_by` (O(n log n)).
     async fn evict_least_important(&mut self) -> Result<()> {
         if self.episodes.len() <= self.max_episodes {
             return Ok(());
         }
 
-        // Find episodes to evict
+        let to_evict_count = self.episodes.len() - self.max_episodes + 1;
+
+        // Collect candidates with importance + timestamp
         let mut episodes_to_evict: Vec<_> = self
             .episodes
             .iter()
             .map(|(id, episode)| (id.clone(), episode.importance, episode.timestamp))
             .collect();
 
-        // Sort by importance (ascending) then by timestamp (older first)
-        episodes_to_evict.sort_by(|a, b| {
+        // Partial sort: find the N least important elements
+        // O(n) vs O(n log n) for full sort
+        let cmp = |a: &(String, f32, u64), b: &(String, f32, u64)| {
             a.1.partial_cmp(&b.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(a.2.cmp(&b.2))
-        });
+        };
+        episodes_to_evict.select_nth_unstable_by(to_evict_count, cmp);
 
         // Evict the least important
-        let to_evict_count = self.episodes.len() - self.max_episodes + 1;
         for (episode_id, _, _) in episodes_to_evict.iter().take(to_evict_count) {
             self.delete_episode(episode_id).await?;
         }

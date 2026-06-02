@@ -135,7 +135,9 @@ impl CodeDpoTrainer {
         let sigmoid_input = self.config.beta * ratio;
         let sigmoid_input_clamped = sigmoid_input.clamp(-20.0, 20.0);
 
-        let loss = -sigmoid_input_clamped.ln_1p();
+        // DPO loss: -ln(σ(β * (π_chosen - π_rejected - ref_chosen + ref_rejected)))
+        // = ln(1 + exp(-β * ratio))
+        let loss = (1.0 + (-sigmoid_input_clamped).exp()).ln();
 
         // Add regularization
         let regularization = self.config.regularization_strength * (pi_lograt * pi_lograt);

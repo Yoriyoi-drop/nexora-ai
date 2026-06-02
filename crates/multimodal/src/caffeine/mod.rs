@@ -10,6 +10,7 @@
 //! CAFFEINE terintegrasi dengan ATQS untuk compression dan HAS-MoE-FFN untuk expert routing.
 
 pub mod action_head;
+pub mod cache;
 pub mod config;
 pub mod encoders;
 pub mod error;
@@ -35,6 +36,11 @@ pub struct Caffeine {
     // Integration with existing modules
     atqs_compression: Option<nexora_atqs::compression::adaptive_rank::CompressionEngine>,
     has_moe_router: Option<nexora_has_moe_ffn::routing::Router>,
+
+    // #4 Multimodal Cache
+    cache: Option<std::sync::Arc<std::sync::Mutex<crate::caffeine::cache::MultiModalCache>>>,
+    cache_config: crate::caffeine::cache::CacheConfig,
+    streaming_video: Option<crate::caffeine::cache::StreamingVideoProcessor>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -44,6 +50,7 @@ pub struct MultimodalResult {
 
 pub struct CaffeineProcessor {
     caffeine: Option<Caffeine>,
+    cache: Option<std::sync::Arc<std::sync::Mutex<crate::caffeine::cache::MultiModalCache>>>,
 }
 
 impl Default for CaffeineProcessor {
@@ -54,12 +61,51 @@ impl Default for CaffeineProcessor {
 
 impl CaffeineProcessor {
     pub fn new() -> Self {
-        Self { caffeine: None }
+        let cache = if true {
+            Some(crate::caffeine::cache::global_multimodal_store())
+        } else {
+            None
+        };
+        Self { caffeine: None, cache }
     }
 
     pub fn with_caffeine(config: CaffeineConfig) -> crate::caffeine::error::Result<Self> {
-        let caffeine = Caffeine::new(config)?;
-        Ok(Self { caffeine: Some(caffeine) })
+        let cache = if config.enable_cache {
+            if config.use_global_cache {
+                Some(crate::caffeine::cache::global_multimodal_store())
+            } else {
+                let cache_config = crate::caffeine::cache::CacheConfig {
+                    max_ram_bytes: config.cache_max_ram_bytes,
+                    max_ssd_bytes: config.cache_max_ssd_bytes,
+                    ttl_secs: config.cache_ttl_secs,
+                    compression: match config.cache_compression.as_str() {
+                        "INT8" => crate::caffeine::cache::CompressionFormat::INT8,
+                        "FP32" => crate::caffeine::cache::CompressionFormat::FP32,
+                        _ => crate::caffeine::cache::CompressionFormat::FP16,
+                    },
+                    enable_dedup: config.cache_enable_dedup,
+                    adaptive_max_pixels: config.cache_adaptive_max_pixels,
+                    enable_hierarchical: config.cache_enable_hierarchical,
+                    video_window_size: config.cache_video_window_size,
+                    video_stride: config.cache_video_stride,
+                    cleanup_interval_secs: 300,
+                };
+                Some(std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::caffeine::cache::MultiModalCache::new(cache_config),
+                )))
+            }
+        } else {
+            None
+        };
+
+        let mut caffeine = Caffeine::new(config)?;
+        caffeine.cache = cache.clone();
+        Ok(Self { caffeine: Some(caffeine), cache })
+    }
+
+    /// Get a reference to the cache for stats/external access.
+    pub fn cache(&self) -> Option<&std::sync::Arc<std::sync::Mutex<crate::caffeine::cache::MultiModalCache>>> {
+        self.cache.as_ref()
     }
 
     pub async fn process_multimodal(
@@ -67,6 +113,10 @@ impl CaffeineProcessor {
         inputs: &crate::MultiModalInputs,
     ) -> std::result::Result<MultimodalResult, CaffeineError> {
         if let Some(ref mut caffeine) = self.caffeine {
+            // Pass cache reference to forward pass (#4 FIX 6)
+            if self.cache.is_some() {
+                caffeine.cache = self.cache.clone();
+            }
             let outputs = caffeine.forward(inputs).await?;
             return Ok(MultimodalResult {
                 processing_summary: format!(
@@ -144,6 +194,29 @@ impl Caffeine {
             None
         };
 
+        let cache_config = crate::caffeine::cache::CacheConfig {
+            max_ram_bytes: config.cache_max_ram_bytes,
+            max_ssd_bytes: config.cache_max_ssd_bytes,
+            ttl_secs: config.cache_ttl_secs,
+            compression: match config.cache_compression.as_str() {
+                "INT8" => crate::caffeine::cache::CompressionFormat::INT8,
+                "FP32" => crate::caffeine::cache::CompressionFormat::FP32,
+                _ => crate::caffeine::cache::CompressionFormat::FP16,
+            },
+            enable_dedup: config.cache_enable_dedup,
+            adaptive_max_pixels: config.cache_adaptive_max_pixels,
+            enable_hierarchical: config.cache_enable_hierarchical,
+            video_window_size: config.cache_video_window_size,
+            video_stride: config.cache_video_stride,
+            cleanup_interval_secs: 300,
+        };
+
+        let streaming_video = if config.enable_cache {
+            Some(crate::caffeine::cache::StreamingVideoProcessor::new(cache_config.clone()))
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             encoders,
@@ -152,6 +225,9 @@ impl Caffeine {
             action_head,
             atqs_compression,
             has_moe_router,
+            cache: None,
+            cache_config,
+            streaming_video,
         })
     }
 
@@ -160,8 +236,8 @@ impl Caffeine {
         &mut self,
         inputs: &crate::caffeine::types::MultiModalInputs,
     ) -> crate::caffeine::error::Result<crate::caffeine::types::MultiModalOutputs> {
-        // Stage 1: Multi-modal encoding
-        let encoded_features = self.encoders.encode(inputs)?;
+        // Stage 1: Multi-modal encoding (with cache — #4 FIX 1,2,8)
+        let encoded_features = self.encoders.encode_with_cache(inputs, &self.cache, &self.cache_config)?;
 
         // Stage 2: Tri-query transformation
         let query_features = self.qformer.transform(&encoded_features)?;
@@ -611,8 +687,22 @@ impl Caffeine {
         &self.config
     }
 
-    /// Get performance statistics
+    /// Get performance statistics (includes cache stats — #4 Multimodal Cache)
     pub fn get_performance_stats(&self) -> crate::caffeine::types::PerformanceStats {
+        let cache_mb = self
+            .cache
+            .as_ref()
+            .and_then(|c| c.lock().ok())
+            .map(|g| (g.stats().ram_usage_bytes / (1024 * 1024)) as usize)
+            .unwrap_or(0);
+
+        let cache_hit_rate = self
+            .cache
+            .as_ref()
+            .and_then(|c| c.lock().ok())
+            .map(|g| g.stats().hit_rate)
+            .unwrap_or(0.0);
+
         crate::caffeine::types::PerformanceStats {
             total_tokens_processed: 0,
             compression_ratio: self
@@ -626,7 +716,9 @@ impl Caffeine {
                 .map(|r| r.get_routing_stats().load_balance_score)
                 .unwrap_or(1.0),
             average_latency_ms: 0.0,
-            memory_usage_mb: 0,
+            memory_usage_mb: cache_mb,
+            cache_hit_rate: Some(cache_hit_rate),
+            cache_enabled: self.cache.is_some(),
         }
     }
 }

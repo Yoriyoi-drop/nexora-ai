@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
+use nexora_autograd::attention_workspace::{global_pool, cpu_flash_attention, WorkspacePool};
 use nexora_autograd::{ops, Tensor, TensorOps};
 use serde::{Deserialize, Serialize};
 
@@ -79,7 +80,6 @@ impl SparseMoELayer {
 
         let top_k = self.router.top_k;
         let mut output = Array2::zeros((batch_size, d_model));
-        let mut weight_sum = vec![0.0f32; batch_size];
 
         for token_idx in 0..batch_size {
             for k in 0..top_k {
@@ -91,19 +91,13 @@ impl SparseMoELayer {
                 let expert_input = x.slice(s![token_idx, ..]);
                 let expert_output = self.experts[expert_idx].forward(&expert_input)?;
 
+                // Weighted sum by gate score (differentiable)
+                let gate_weight = gate_scores[[token_idx, expert_idx]];
                 let mut output_row = output.slice_mut(s![token_idx, ..]);
                 output_row
                     .iter_mut()
                     .zip(&expert_output)
-                    .for_each(|(o, e)| *o += e);
-                weight_sum[token_idx] += 1.0;
-            }
-        }
-
-        for token_idx in 0..batch_size {
-            if weight_sum[token_idx] > 0.0 {
-                let mut output_row = output.slice_mut(s![token_idx, ..]);
-                output_row.mapv_inplace(|v| v / weight_sum[token_idx]);
+                    .for_each(|(o, e)| *o += e * gate_weight);
             }
         }
 
@@ -436,6 +430,7 @@ pub struct LatentAttentionHead {
     pub k_proj: LinearLayer,
     pub v_proj: LinearLayer,
     pub out_proj: LinearLayer,
+    pool: WorkspacePool,
 }
 
 impl LatentAttentionHead {
@@ -447,6 +442,7 @@ impl LatentAttentionHead {
             k_proj: LinearLayer::new(latent_dim, head_dim),
             v_proj: LinearLayer::new(latent_dim, head_dim),
             out_proj: LinearLayer::new(head_dim, latent_dim),
+            pool: global_pool().clone(),
         }
     }
 
@@ -466,7 +462,7 @@ impl LatentAttentionHead {
         let k_3d = k.into_shape((batch_size, seq_len, self.head_dim))?;
         let v_3d = v.into_shape((batch_size, seq_len, self.head_dim))?;
 
-        // Scaled dot-product attention
+        // Scaled dot-product attention — uses cpu_flash_attention for O(n) memory
         let attention_output = self.scaled_dot_product_attention(&q_3d, &k_3d, &v_3d, mask)?;
 
         // Project output
@@ -484,46 +480,116 @@ impl LatentAttentionHead {
         mask: Option<&Array2<f32>>,
     ) -> Result<Array3<f32>> {
         let (batch_size, seq_len, head_dim) = q.dim();
-        let scale = (head_dim as f32).sqrt();
+        let has_mask = mask.is_some();
 
-        // Per-batch attention to avoid cross-batch contamination
+        // FIX 1+2: Use cpu_flash_attention for per-batch processing
+        // Memory: O(seq_len * head_dim) instead of O(seq_len²)
         let mut output = Array3::zeros((batch_size, seq_len, head_dim));
 
+        // Budget-based chunk size
+        let budget = self.pool.budget.lock();
+        let chunk_size = budget.auto_chunk_size(seq_len, head_dim);
+        drop(budget);
+
         for b in 0..batch_size {
-            // Q[b] · K[b]^T  — shape: (seq_len, seq_len)
+            // Extract Q[b], K[b], V[b] as flat slices
             let q_b = q.index_axis(ndarray::Axis(0), b);
             let k_b = k.index_axis(ndarray::Axis(0), b);
-            let mut scores = q_b.dot(&k_b.t()) / scale;
+            let v_b = v.index_axis(ndarray::Axis(0), b);
 
-            // Apply causal mask — vectorized
-            if let Some(mask) = mask {
-                ndarray::Zip::from(&mut scores)
-                    .and(mask)
-                    .for_each(|s, &m| *s += m);
-            } else {
-                // Default causal mask: prevent attending to future tokens
-                for i in 0..seq_len {
-                    for j in i + 1..seq_len {
-                        scores[[i, j]] = f32::NEG_INFINITY;
+            let q_slice: Vec<f32> = q_b.iter().copied().collect();
+            let k_slice: Vec<f32> = k_b.iter().copied().collect();
+            let v_slice: Vec<f32> = v_b.iter().copied().collect();
+
+            let attn_out = if has_mask {
+                // With custom mask, fall back to chunked softmax approach
+                let scale = (head_dim as f32).sqrt();
+                let mut output_b = vec![0.0f32; seq_len * head_dim];
+
+                // Process in query chunks
+                for q_start in (0..seq_len).step_by(chunk_size) {
+                    let q_end = (q_start + chunk_size).min(seq_len);
+                    let n_q = q_end - q_start;
+
+                    // Temporary score buffer: [n_q × seq_len]
+                    let mut scores = vec![0.0f32; n_q * seq_len];
+                    for qi in 0..n_q {
+                        let abs_qi = q_start + qi;
+                        let q_base = abs_qi * head_dim;
+                        for kj in 0..seq_len {
+                            let k_base = kj * head_dim;
+                            let mut dot = 0.0f32;
+                            for d in 0..head_dim {
+                                dot += q_slice[q_base + d] * k_slice[k_base + d];
+                            }
+                            scores[qi * seq_len + kj] = dot / scale;
+                        }
+                    }
+
+                    // Apply mask and softmax
+                    for i in 0..n_q {
+                        let abs_qi = q_start + i;
+                        for j in 0..seq_len {
+                            if let Some(m) = mask {
+                                if j < m.shape()[1] && abs_qi < m.shape()[0] {
+                                    scores[i * seq_len + j] += m[[abs_qi, j]];
+                                }
+                            }
+                            // Causal default handled by mask or via softmax neg_inf
+                        }
+                    }
+
+                    // Row-wise softmax
+                    for i in 0..n_q {
+                        let mut max_val = f32::NEG_INFINITY;
+                        for j in 0..seq_len {
+                            if scores[i * seq_len + j] > max_val {
+                                max_val = scores[i * seq_len + j];
+                            }
+                        }
+                        let mut sum_exp = 0.0f32;
+                        for j in 0..seq_len {
+                            let e = (scores[i * seq_len + j] - max_val).exp();
+                            scores[i * seq_len + j] = e;
+                            sum_exp += e;
+                        }
+                        if sum_exp > 0.0 {
+                            let inv = 1.0 / sum_exp;
+                            for j in 0..seq_len {
+                                scores[i * seq_len + j] *= inv;
+                            }
+                        }
+                    }
+
+                    // Weighted sum of V
+                    for i in 0..n_q {
+                        let abs_qi = q_start + i;
+                        for d in 0..head_dim {
+                            let mut acc = 0.0f32;
+                            for j in 0..seq_len {
+                                acc += scores[i * seq_len + j] * v_slice[j * head_dim + d];
+                            }
+                            output_b[abs_qi * head_dim + d] = acc;
+                        }
                     }
                 }
-            }
 
-            // Row-wise softmax in-place (vectorized)
+                output_b
+            } else {
+                // Default causal: use cpu_flash_attention
+                cpu_flash_attention(
+                    &q_slice, &k_slice, &v_slice,
+                    seq_len, head_dim, chunk_size, &self.pool,
+                )
+            };
+
+            // Copy back into output array
+            let mut out_slice = output.slice_mut(ndarray::s![b, .., ..]);
             for i in 0..seq_len {
-                let mut row = scores.slice_mut(ndarray::s![i, ..]);
-                let max_val = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-                row.mapv_inplace(|x| (x - max_val).exp());
-                let sum_exp: f32 = row.iter().sum();
-                if sum_exp > 0.0 {
-                    row.mapv_inplace(|x| x / sum_exp);
+                for d in 0..head_dim {
+                    out_slice[[i, d]] = attn_out[i * head_dim + d];
                 }
             }
-
-            // Attention: softmax(scores) @ V[b] — cache-optimized matmul
-            let v_b = v.index_axis(ndarray::Axis(0), b);
-            let attn_out = scores.dot(&v_b);
-            output.slice_mut(ndarray::s![b, .., ..]).assign(&attn_out);
         }
 
         Ok(output)
@@ -1074,22 +1140,18 @@ impl OracleBackbone {
         let mut h = ops::nn::embedding(&ids, &params[param.emb]);
         // h: [n, d_model]
 
-        // --- Precompute block-diagonal causal mask (reused across all layers) ---
-        // Each batch element is isolated; within each, future positions are masked.
-        // Created once per forward call to avoid O(n²) per-layer recomputation.
-        let causal_mask = {
-            let mut mask_data = vec![f32::NEG_INFINITY; n * n];
-            for bi in 0..batch_size {
-                let base = bi * seq_len;
-                for i in 0..seq_len {
-                    let row_start = (base + i) * n + base;
-                    // Fill lower triangle (i >= j) with 0.0
-                    for j in 0..=i {
-                        mask_data[row_start + j] = 0.0;
-                    }
+        // --- Precompute causal mask (reused across all layers) ---
+        // Per-batch causal mask: [seq_len, seq_len] lower triangular
+        // Avoids O((batch*seq)²) memory by using a single [seq, seq] mask
+        let causal_mask_base = {
+            let mut mask_data = vec![f32::NEG_INFINITY; seq_len * seq_len];
+            for i in 0..seq_len {
+                let row_start = i * seq_len;
+                for j in 0..=i {
+                    mask_data[row_start + j] = 0.0;
                 }
             }
-            Tensor::from_slice(&mask_data, &[n, n])
+            Tensor::from_slice(&mask_data, &[seq_len, seq_len])
         };
 
         // --- Transformer layers ---
@@ -1143,22 +1205,30 @@ impl OracleBackbone {
             let norm2_b = &params[lo.norm2_b];
             h = ops::nn::layer_norm_2d(&h, Some(norm2_w), Some(norm2_b), 1e-6);
 
-            // --- Multi-head latent attention (flattened 2D matmul with block+causal mask) ---
+            // --- Multi-head latent attention (batch-wise with per-batch causal mask) ---
             let head_dim = d_model / self.config.n_heads;
             let q = h.matmul(&params[lo.q_proj]);
             let k = h.matmul(&params[lo.k_proj]);
             let v = h.matmul(&params[lo.v_proj]);
 
-            let k_t = k.transpose();
-            let scale = (head_dim as f32).sqrt();
-            let scale_t = Tensor::from_slice(&[1.0 / scale], &[1]);
-            let mut scores = q.matmul(&k_t).mul(&scale_t);
-
-            scores = scores.add(&causal_mask);
-
-            let attn_weights = ops::nn::softmax(&scores, 1);
-            let attn_out = attn_weights.matmul(&v);
-            let attn_proj = attn_out.matmul(&params[lo.attn_out_proj]);
+            // Process per-batch to avoid O((batch*seq)²) memory for the causal mask
+            let scale = 1.0 / (head_dim as f32).sqrt();
+            let scale_t = Tensor::from_slice(&[scale], &[1, 1]);
+            let mut attn_proj = Tensor::zeros(&[n, d_model], false);
+            for bi in 0..batch_size {
+                let start = bi * seq_len;
+                let end = start + seq_len;
+                let q_b = nexora_autograd::attention_workspace::slice_tensor_rows(&q, start, end);
+                let k_b = nexora_autograd::attention_workspace::slice_tensor_rows(&k, start, end);
+                let v_b = nexora_autograd::attention_workspace::slice_tensor_rows(&v, start, end);
+                let k_t_b = k_b.transpose();
+                let scores_b = q_b.matmul(&k_t_b).mul(&scale_t);
+                let scores_masked = scores_b.add(&causal_mask_base);
+                let attn_w = ops::nn::softmax(&scores_masked, 1);
+                let out_b = attn_w.matmul(&v_b);
+                nexora_autograd::attention_workspace::write_tensor_rows(&attn_proj, &out_b, start);
+            }
+            let attn_proj = attn_proj.matmul(&params[lo.attn_out_proj]);
 
             h = h.add(&attn_proj);
         }

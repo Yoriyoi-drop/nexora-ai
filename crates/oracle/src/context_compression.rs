@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 /// Konfigurasi kompresi konteks
@@ -264,7 +262,7 @@ mod tests {
     fn test_stats_tracking() {
         let mut compressor = ContextCompressor::default();
         compressor.compress("pendek");
-        compressor.compress(&make_long_text(100));
+        compressor.compress(&make_long_text(400));
         let stats = compressor.stats();
         assert_eq!(stats.skipped, 1);
         assert_eq!(stats.compressed, 1);

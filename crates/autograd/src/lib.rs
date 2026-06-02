@@ -1,3 +1,4 @@
+pub mod attention_workspace;
 pub mod broadcast;
 pub mod data_parallel;
 pub mod device;

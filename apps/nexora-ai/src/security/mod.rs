@@ -43,9 +43,9 @@ static MALICIOUS_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
             match Regex::new(pattern) {
                 Ok(re) => Some(re),
                 Err(e) => {
-                    tracing::error!("Failed to compile regex '{}': {}", name, e);
-                    // Return a regex that never matches as fallback
-                    Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                    tracing::error!("Failed to compile security regex '{}': {}. This rule will be SILENTLY DISABLED!", name, e);
+                    // DO NOT silently pass a no-op regex — security rules should fail loud
+                    None
                 }
             }
         })
@@ -64,8 +64,8 @@ static PATH_TRAVERSAL_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         .filter_map(|(pattern, name)| match Regex::new(pattern) {
             Ok(re) => Some(re),
             Err(e) => {
-                tracing::error!("Failed to compile regex '{}': {}", name, e);
-                Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                tracing::error!("Failed to compile path traversal regex '{}': {}. This rule will be SILENTLY DISABLED!", name, e);
+                None
             }
         })
         .collect()
@@ -84,8 +84,8 @@ static COMMAND_INJECTION_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
         .filter_map(|(pattern, name)| match Regex::new(pattern) {
             Ok(re) => Some(re),
             Err(e) => {
-                tracing::error!("Failed to compile regex '{}': {}", name, e);
-                Some(Regex::new(r"a^").expect("Built-in fallback regex 'a^' is valid"))
+                tracing::error!("Failed to compile command injection regex '{}': {}. This rule will be SILENTLY DISABLED!", name, e);
+                None
             }
         })
         .collect()
@@ -178,12 +178,17 @@ impl SecurityValidator {
             ));
         }
 
-        // Check for malicious patterns
-        for pattern in &self.config.blocked_patterns {
-            if input.contains(pattern) {
+        // Check for malicious patterns (compile once, cache in config)
+    for pattern in &self.config.blocked_patterns {
+        // Try regex match first; fall back to substring match
+        if let Ok(re) = regex::Regex::new(pattern) {
+            if re.is_match(input) {
                 return Err(SecurityError::BlockedPattern(pattern.clone()));
             }
+        } else if input.contains(pattern) {
+            return Err(SecurityError::BlockedPattern(pattern.clone()));
         }
+    }
 
         // Check for regex patterns
         for regex in MALICIOUS_PATTERNS.iter() {

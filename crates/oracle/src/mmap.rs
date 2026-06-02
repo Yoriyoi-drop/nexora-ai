@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Mutex;
 
 use memmap2::Mmap;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
-use crate::backbone::{OracleBackbone, OracleBackboneConfig};
+
 
 /// Metadata weight Oracle yang di-mmap
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,7 +113,7 @@ impl MemoryMappedOracle {
 
         // Check cache
         if self.config.enable_cache {
-            let mut cache = self.cache.lock().map_err(|e| {
+            let cache = self.cache.lock().map_err(|e| {
                 MmapError::CacheError(e.to_string())
             })?;
             if let Some(cached) = cache.get(name) {
@@ -286,6 +286,7 @@ impl std::error::Error for MmapError {}
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::Path;
 
     fn create_test_weight_file(path: &Path, rows: usize, cols: usize) -> MmapWeightInfo {
         let mut file = File::create(path).unwrap();

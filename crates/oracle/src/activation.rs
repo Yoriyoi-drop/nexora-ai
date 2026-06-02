@@ -1,5 +1,3 @@
-use std::sync::OnceLock;
-
 /// Keputusan apakah Oracle perlu aktif atau skip
 #[derive(Debug, Clone)]
 pub struct ActivationDecision {
@@ -26,6 +24,7 @@ impl InputCategory {
         matches!(
             self,
             InputCategory::ComplexReasoning
+                | InputCategory::CodeReview
                 | InputCategory::Planning
                 | InputCategory::CodingComplex
                 | InputCategory::Multimodal

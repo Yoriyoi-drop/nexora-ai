@@ -78,7 +78,7 @@ impl MultiHeadAttention {
         Ok(output)
     }
 
-    /// Scaled dot-product attention
+    /// Scaled dot-product attention — streaming per-query to avoid O(S²) memory
     fn scaled_dot_product_attention(
         &self,
         query: &ArrayD<f32>,
@@ -89,51 +89,56 @@ impl MultiHeadAttention {
         let batch_size = shape[0];
         let seq_len = shape[1];
         let head_dim = shape[2];
+        let scale = (head_dim as f32).sqrt().recip();
 
-        // Compute attention scores
-        let mut attention_scores = vec![0.0f32; batch_size * seq_len * seq_len];
-
-        for b in 0..batch_size {
-            for i in 0..seq_len {
-                for j in 0..seq_len {
-                    let mut score = 0.0f32;
-
-                    for d in 0..head_dim {
-                        if let (Some(&q), Some(&k)) = (query.get([b, i, d]), key.get([b, j, d])) {
-                            score += q * k;
-                        }
-                    }
-
-                    // Scale by sqrt(head_dim)
-                    score = score / (head_dim as f32).sqrt();
-                    attention_scores[b * seq_len * seq_len + i * seq_len + j] = score;
-                }
-            }
-        }
-
-        // Apply softmax
-        let attention_weights = self.softmax_3d(&attention_scores, batch_size, seq_len)?;
-
-        // Apply attention to values
         let mut output = vec![0.0f32; batch_size * seq_len * head_dim];
 
+        // Process each query position independently — O(S) memory instead of O(S²)
+        // FIX 5: Score Matrix Streaming — compute, use, discard
         for b in 0..batch_size {
             for i in 0..seq_len {
-                for d in 0..head_dim {
-                    let mut weighted_sum = 0.0f32;
+                // Compute scores for Q[i] against all K[j]
+                let mut max_val = f32::NEG_INFINITY;
+                let mut scores = vec![0.0f32; seq_len];
 
-                    for j in 0..seq_len {
-                        let weight_idx = b * seq_len * seq_len + i * seq_len + j;
-                        if let (Some(&weight), Some(&v)) =
-                            (attention_weights.get(weight_idx), value.get([b, j, d]))
-                        {
-                            weighted_sum += weight * v;
+                for j in 0..seq_len {
+                    let mut dot = 0.0f32;
+                    for d in 0..head_dim {
+                        if let (Some(&q), Some(&k)) = (query.get([b, i, d]), key.get([b, j, d])) {
+                            dot += q * k;
                         }
                     }
-
-                    let output_idx = b * seq_len * head_dim + i * head_dim + d;
-                    output[output_idx] = weighted_sum;
+                    scores[j] = dot * scale;
+                    if scores[j] > max_val {
+                        max_val = scores[j];
+                    }
                 }
+
+                // Softmax
+                let mut sum_exp = 0.0f32;
+                for j in 0..seq_len {
+                    scores[j] = (scores[j] - max_val).exp();
+                    sum_exp += scores[j];
+                }
+                if sum_exp > 0.0 {
+                    let inv = 1.0 / sum_exp;
+                    for j in 0..seq_len {
+                        scores[j] *= inv;
+                    }
+                }
+
+                // Weighted sum of V
+                for d in 0..head_dim {
+                    let mut acc = 0.0f32;
+                    for j in 0..seq_len {
+                        if let Some(&v) = value.get([b, j, d]) {
+                            acc += scores[j] * v;
+                        }
+                    }
+                    output[b * seq_len * head_dim + i * head_dim + d] = acc;
+                }
+
+                // FIX 6: Early free — scores dropped at end of scope
             }
         }
 
@@ -269,7 +274,7 @@ impl QueryAttention {
         }
     }
 
-    /// Apply query attention
+    /// Apply query attention — streaming per-query to avoid O(Nq × Ctx) full storage
     pub fn forward(&mut self, queries: &ArrayD<f32>, context: &ArrayD<f32>) -> Result<ArrayD<f32>> {
         let query_shape = queries.shape();
         let context_shape = context.shape();
@@ -277,53 +282,68 @@ impl QueryAttention {
         let num_queries = query_shape[1];
         let context_len = context_shape[1];
 
-        // Compute attention scores between queries and context
-        let mut attention_scores = vec![0.0f32; num_queries * context_len];
+        // Allocate attention weights for visualization (small, Nq × Ctx)
+        let mut attention_weights = vec![0.0f32; num_queries * context_len];
+
+        // Streaming output: compute per-query, never store full score matrix
+        let mut output = vec![0.0f32; num_queries * self.hidden_dim];
 
         for i in 0..num_queries {
-            for j in 0..context_len {
-                let mut score = 0.0f32;
+            // Compute scores: Q[i] @ context[j] for all j
+            let mut max_val = f32::NEG_INFINITY;
+            let mut scores = vec![0.0f32; context_len];
 
+            for j in 0..context_len {
+                let mut dot = 0.0f32;
                 for d in 0..self.hidden_dim {
                     if let (Some(&q), Some(&c)) = (queries.get([0, i, d]), context.get([0, j, d])) {
-                        score += q * c;
+                        dot += q * c;
                     }
                 }
-
-                attention_scores[i * context_len + j] = score;
+                scores[j] = dot;
+                if scores[j] > max_val {
+                    max_val = scores[j];
+                }
             }
-        }
 
-        // Apply softmax
-        let attention_weights = self.softmax_2d(&attention_scores, num_queries, context_len)?;
+            // Softmax
+            let mut sum_exp = 0.0f32;
+            for j in 0..context_len {
+                scores[j] = (scores[j] - max_val).exp();
+                sum_exp += scores[j];
+            }
+            if sum_exp > 0.0 {
+                let inv = 1.0 / sum_exp;
+                for j in 0..context_len {
+                    scores[j] *= inv;
+                }
+            }
+
+            // Save for visualization
+            for j in 0..context_len {
+                attention_weights[i * context_len + j] = scores[j];
+            }
+
+            // Weighted sum of context
+            for d in 0..self.hidden_dim {
+                let mut acc = 0.0f32;
+                for j in 0..context_len {
+                    if let Some(&c) = context.get([0, j, d]) {
+                        acc += scores[j] * c;
+                    }
+                }
+                output[i * self.hidden_dim + d] = acc;
+            }
+
+            // FIX 6: Early free — scores dropped here
+        }
 
         // Store attention weights for visualization
         let weight_shape = vec![num_queries, context_len];
         self.attention_weights = Some(ArrayD::from_shape_vec(
             weight_shape,
-            attention_weights.clone(),
+            attention_weights,
         )?);
-
-        // Apply attention to context
-        let mut output = vec![0.0f32; num_queries * self.hidden_dim];
-
-        for i in 0..num_queries {
-            for d in 0..self.hidden_dim {
-                let mut weighted_sum = 0.0f32;
-
-                for j in 0..context_len {
-                    let weight_idx = i * context_len + j;
-                    if let (Some(&weight), Some(&c)) =
-                        (attention_weights.get(weight_idx), context.get([0, j, d]))
-                    {
-                        weighted_sum += weight * c;
-                    }
-                }
-
-                let output_idx = i * self.hidden_dim + d;
-                output[output_idx] = weighted_sum;
-            }
-        }
 
         let output_shape = vec![1, num_queries, self.hidden_dim];
         Ok(ArrayD::from_shape_vec(output_shape, output)?)

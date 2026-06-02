@@ -73,7 +73,7 @@ impl SemanticDedupFilter {
             return vec![0; self.min_hash_permutations.min(4)];
         }
 
-        let num_perms = self.min_hash_permutations.min(16);
+        let num_perms = self.min_hash_permutations.min(128);
         let mut sig = vec![u64::MAX; num_perms];
         for shingle in &shingles {
             let mut hasher = DefaultHasher::new();

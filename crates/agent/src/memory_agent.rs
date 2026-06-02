@@ -307,12 +307,11 @@ impl MemoryAgent {
     pub async fn delete_memory(&self, memory_id: Uuid) -> Result<bool> {
         debug!("Deleting memory: {}", memory_id);
 
-        let _memory_key = format!("*:*:{}", memory_id);
-        // Note: This is a simplified approach - in practice, we'd need to find the exact key
+        let memory_key = format!("*:*:{}", memory_id);
         self.memory_store
             .write()
             .await
-            .delete(nexora_memory::MemoryLayer::Short, &memory_id.to_string())
+            .delete(nexora_memory::MemoryLayer::Short, &memory_key)
             .await?;
 
         info!("Memory {} deleted successfully", memory_id);
@@ -483,8 +482,10 @@ impl MemoryAgent {
             .query(&query.query_text)
             .await?;
 
+        let cutoff_ts = cutoff_time.timestamp();
+        let cutoff_unsigned = u64::try_from(cutoff_ts.max(0)).unwrap_or(0);
         for memory in results {
-            if memory.timestamp < cutoff_time.timestamp().max(0) as u64 {
+            if memory.timestamp < cutoff_unsigned {
                 self.memory_store
                     .write()
                     .await

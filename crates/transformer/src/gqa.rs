@@ -327,7 +327,39 @@ impl GpuKVCacheEntry {
 }
 
 #[cfg(feature = "gpu")]
+impl GpuKVCacheEntry {
+    /// Deep clone: allocates new GPU buffers and copies data.
+    /// Required because `GpuTensor::clone()` is a shallow ref-counted handle —
+    /// two cloned entries sharing the same wgpu::Buffer would corrupt each
+    /// other on `clear()` or `Drop`.
+    pub fn deep_clone(&self, ctx: &GpuContext) -> Result<Self, nexora_autograd::gpu::GpuError> {
+        let k_size = self.k.buffer().size();
+        let v_size = self.v.buffer().size();
+        let k_new = ctx.alloc_or_create_buffer(k_size, self.k.buffer().usage());
+        let v_new = ctx.alloc_or_create_buffer(v_size, self.v.buffer().usage());
+        ctx.batch_dispatch(|enc| {
+            enc.copy_buffer_to_buffer(self.k.buffer(), 0, &k_new, 0, k_size);
+            enc.copy_buffer_to_buffer(self.v.buffer(), 0, &v_new, 0, v_size);
+            Ok(())
+        })?;
+        Ok(Self {
+            k: GpuTensor::from_raw(self.k.shape(), k_new, self.k.dtype()),
+            v: GpuTensor::from_raw(self.v.shape(), v_new, self.v.dtype()),
+            seq_len: self.seq_len,
+            capacity: self.capacity,
+            kv_heads: self.kv_heads,
+            head_dim: self.head_dim,
+            f16_storage: self.f16_storage,
+        })
+    }
+}
+
+#[cfg(feature = "gpu")]
 impl Clone for GpuKVCacheEntry {
+    /// Shallow clone — shares the same wgpu::Buffer handles.
+    /// ⚠️ This is intentionally NOT a deep copy. Use `deep_clone()` for that.
+    /// The shallow clone is only safe when the original entry is immediately
+    /// discarded (e.g., when building temporary mirrors for paged cache sync).
     fn clone(&self) -> Self {
         Self {
             k: self.k.clone(),
