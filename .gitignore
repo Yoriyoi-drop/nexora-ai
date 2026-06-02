@@ -20,6 +20,9 @@ Thumbs.db
 # Large data files
 /data/raw/
 /data/processed/
+/data/state_store.db/
+/data/state_store/
+/data/stream_store/
 *.gz
 *.zip
 *.tar.gz
