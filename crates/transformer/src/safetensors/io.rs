@@ -74,7 +74,7 @@ fn f32_slice_to_f16_bytes(data: &[f32]) -> Vec<u8> {
     out
 }
 
-fn f16_bytes_to_f32_slice(bytes: &[u8]) -> Vec<f32> {
+pub fn f16_bytes_to_f32_slice(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks_exact(2)
         .map(|c| f16_bits_to_f32(u16::from_le_bytes([c[0], c[1]])))

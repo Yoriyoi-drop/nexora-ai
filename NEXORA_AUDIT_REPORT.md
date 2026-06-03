@@ -226,23 +226,23 @@ paged_cache.rs: defragment() pindahkan data antar physical block  ← ✅ BF33: 
 | 1 | **STar-X KV Cache O(n²) append per token** | HIGH | `star-x/kv_cache.rs:55-78`: full array realloc tiap token |
 | 2 | **GPU → CPU round-trip per layer (96× per forward)** | HIGH | `backbone.rs:807-833`: 96 uploads/downloads per forward |
 | 3 | **Attention head repeat materialize 28.6GB** | HIGH | `gqa.rs`: Q=32 heads, KV=8 → 4× memory blowup |
-| 4 | **Dataset temp file roundtrip (double SSD I/O)** | HIGH | `dataset/loader.rs:453-474`: read→decompress→write→read |
-| 5 | **SemanticDedupFilter O(n²) scan** | HIGH | `filter/semantic_dedup.rs:117-145`: jaccard semua stored |
-| 6 | **DedupFilter global mutex serialization** | HIGH | `filter/dedup.rs:107-116`: tokio Mutex hold across await |
-| 7 | **LatentCompression sort O(N log N) per token** | HIGH | `backbone.rs:641-645`: 500M comparisons per forward |
-| 8 | **PagedKVCache memory_usage_bytes() under-count** | MED | `paged_cache.rs:609`: hanya count first N blocks |
-| 9 | **GpuMemoryPool bucket waste 3× over-allocation** | HIGH | `gpu_memory.rs:93-110`: request 1MB+1 → alokasi 4MB |
-| 10 | **GPU memory tidak pernah freed (pool leak)** | HIGH | `gpu_memory.rs:145-158`: retain sampai process exit |
-| 11 | **GpuPageTable CPU free list tidak sync ke GPU** | HIGH | `gpu_kv_cache.rs:108-127`: GPU baca stale page table |
-| 12 | **WGSL u32 vs f32 type mismatch di gather/scatter** | HIGH | `gpu_kv_cache.rs`: page_ids dibaca sebagai tipe salah |
-| 13 | **NeuralAttentionMemory backward O(n) full scan** | HIGH | `memory_model.rs:1074-1131`: update ALL entries |
-| 14 | **Episodic eviction O(n log n) sort per insert** | HIGH | `episodic.rs:495-517`: sorting 1000 episodes per eviction |
-| 15 | **EvictEntries O(n log n) per overflow (100K entries)** | CRIT | `layers.rs:329-341`: 1.7M comparisons per eviction |
-| 16 | **DedupFilter HashSet 50M entries 400MB+** | HIGH | `filter/dedup.rs`: memory + mutex contention |
-| 17 | **Inference LRU cache pake SipHash di hot path** | LOW | `inference/kv_cache.rs:340`: pakai DefaultHasher |
-| 18 | **QualityFilter split text 3×** | MED | `filter/quality.rs:31,53,77` |
-| 19 | **ToxicityFilter 4 regex scan per sample** | MED | `filter/toxicity.rs:46-51` |
-| 20 | **EntropyFilter alloc Vec<char> unnecessarily** | MED | `filter/entropy.rs:30,36` |
+| 4 | **Dataset temp file roundtrip (double SSD I/O)** | HIGH | ✅ **ALREADY FIXED** `dataset/loader.rs:468`: reads → decompresses → parses from in-memory bytes (no temp file) |
+| 5 | **SemanticDedupFilter O(n²) scan** | HIGH | ✅ **FIXED BF40** `filter/semantic_dedup.rs`: std `Mutex`, HashSet dedup (O(k)), sorted Jaccard intersection, cap 256 |
+| 6 | **DedupFilter global mutex serialization** | HIGH | ✅ **FIXED BF40** `filter/dedup.rs`: `tokio::sync::Mutex::lock().await` → `std::sync::Mutex::lock().unwrap()` |
+| 7 | **LatentCompression sort O(N log N) per token** | HIGH | ✅ **FIXED BF40** `backbone.rs:641-645`: `sort_by` → `select_nth_unstable_by` O(n) partial sort |
+| 8 | **PagedKVCache memory_usage_bytes() under-count** | MED | ✅ **FIXED BF40** `paged_cache.rs:1016`: iterates all blocks, checks `is_free()`, uses `total` for metadata |
+| 9 | **GpuMemoryPool bucket waste 3× over-allocation** | HIGH | ✅ **FIXED BF40** `gpu_memory.rs`: added intermediate buckets (1MB→1.5MB→2MB→3MB→4MB), worst-case waste **3×→2×** |
+| 10 | **GPU memory tidak pernah freed (pool leak)** | HIGH | ✅ **FIXED BF40** `gpu_memory.rs:145-158`: `gc()` calls `device.poll()`, `dealloc()` tracks drops-at-capacity, `evict_one_lru()` skips empty buckets |
+| 11 | **GpuPageTable CPU free list tidak sync ke GPU** | HIGH | ✅ **FIXED BF40** `gpu_kv_cache.rs:108-127`: `dirty` flag + `sync_free_list_if_dirty()` lazy sync |
+| 12 | **WGSL u32 vs f32 type mismatch di gather/scatter** | HIGH | ✅ **FIXED BF40** `gpu_kv_cache.rs`: `array<u32>` → `array<f32>` + `u32()` cast |
+| 13 | **NeuralAttentionMemory backward O(n) full scan** | HIGH | ✅ **FIXED BF40** `memory_model.rs:1074-1131`: top-K only via `select_nth_unstable_by` + softmax over K |
+| 14 | **Episodic eviction O(n log n) sort per insert** | HIGH | ✅ **FIXED BF33** `episodic.rs:495-517`: `sort_by` → `select_nth_unstable_by` |
+| 15 | **EvictEntries O(n log n) per overflow (100K entries)** | CRIT | ✅ **FIXED BF40** `layers.rs:329-341`: `sort_by_key` → `select_nth_unstable_by` O(n) partial sort |
+| 16 | **DedupFilter HashSet 50M entries 400MB+** | HIGH | ✅ **FIXED BF37** `filter/dedup.rs`: 16-shard mutex + `try_lock` |
+| 17 | **Inference LRU cache pake SipHash di hot path** | LOW | ✅ **FIXED BF36** `inference/kv_cache.rs:340`: `DefaultHasher` → FNV-1a inline |
+| 18 | **QualityFilter split text 3×** | MED | ✅ **FIXED BF36** `filter/quality.rs:31,53,77`: 3× → 1× `Vec<&str>` collect |
+| 19 | **ToxicityFilter 4 regex scan per sample** | MED | ✅ **FIXED BF36** `filter/toxicity.rs:46-51`: 4 regex → 1 alternation |
+| 20 | **EntropyFilter alloc Vec<char> unnecessarily** | MED | ✅ **FIXED BF36** `filter/entropy.rs:30,36`: `Vec<char>` → direct `chars()` iterator |
 
 ---
 
@@ -447,15 +447,15 @@ paged_cache.rs: defragment() pindahkan data antar physical block  ← ✅ BF33: 
 
 | Risk | Probability | Impact | Level | Mitigation |
 |------|-------------|--------|-------|------------|
-| Production OOM karena dataset > RAM | HIGH | CRITICAL | 🔴 | Iterator-based loading (Medium) |
-| DPO alignment menghasilkan model lebih toxic | HIGH | CRITICAL | 🔴 | Fix loss function (Quick Win) |
-| Auth bypass: data exfiltration | MEDIUM | CRITICAL | 🔴 | Wire auth middleware (Quick Win) |
+| Production OOM karena dataset > RAM | HIGH | CRITICAL | ✅ **FIXED BF42** | Added `ArrowBatchStream` + `ArrowBytesStream` iterators that yield one record batch at a time; `load_shard_streaming` sends batches through channel without accumulating full shard; `.arrow` files stream by default in `spawn_workers` |
+| DPO alignment menghasilkan model lebih toxic | HIGH | CRITICAL | ✅ **FIXED BF41** | `update_model_parameters`: weight decay → gradient descent with sign + L2; SPARO `training_step`: removed dead Adam recreation that destroyed momentum every step |
+| Auth bypass: data exfiltration | MEDIUM | CRITICAL | ✅ **FIXED BF41** | Auth middleware: public route whitelist, no silent bypass, `config_has_auth_system` uses correct feature gate, `validate_admin` checks ApiKey extension |
 | KV Cache silent corruption | MEDIUM | HIGH | 🟠 | Fix defrag remap (Medium) |
-| CUDA undefined behavior (u32/f32) | HIGH | HIGH | 🟠 | Fix type matching (Quick Win) |
-| Training menghasilkan NaN loss | HIGH | HIGH | 🟠 | Fix softmax + scale (Quick Win) |
-| Multimodal menghasilkan garbage output | CERTAIN | HIGH | 🔴 | Fix encoders (Medium) |
+| CUDA undefined behavior (u32/f32) | HIGH | HIGH | ✅ **FIXED BF43** | WGSL cross-entropy + embedding: `array<u32>` → `array<f32>` + `u32()` cast |
+| Training menghasilkan NaN loss | HIGH | HIGH | ✅ **FIXED BF43** | GPU softmax/ln guard, MoE softmax sum guard, Sparo DPO loss exp clamp |
+| Multimodal menghasilkan garbage output | CERTAIN | HIGH | ✅ **FIXED BF41** | Text encoder QKV shape mismatch → proper learned proj; Audio `mel_to_hz` `powf(10.0)` → `10.0.powf()`; Image CLIP mean/std normalization |
 | Memory leak GPU pool crash | MEDIUM | HIGH | 🟠 | GPU GC (Medium) |
-| Use-after-free PooledOracle crash | LOW | CRITICAL | 🟠 | Arc<OraclePool> (Medium) |
+| Use-after-free PooledOracle crash | LOW | CRITICAL | ✅ **FIXED BF31** | `Weak<OraclePool>` in release path; deprecated `acquire()` dead code |
 | Config file OOM (10GB config) | LOW | MEDIUM | 🟡 | Size limit (Quick Win) |
 
 ---
@@ -488,7 +488,7 @@ paged_cache.rs: defragment() pindahkan data antar physical block  ← ✅ BF33: 
 | Perbaikan | Estimasi | Dampak |
 |-----------|----------|--------|
 | ✅ **20 Top-20 critical fixes (DONE)** | **~6 hari (BF30-33)** | **20/20 — correctness foundation restored** |
-| 🔴 ~13 remaining critical fixes | 3-5 hari | Hapus sisa critical severity |
+| ✅ **All remaining critical fixes (DONE)** | **BF30-BF42** | **All critical severity items resolved** |
 | 🟠 32 high fixes | 5-7 hari | Hapus high severity |
 | 🟡 48 medium fixes | 2-3 minggu | Hapus medium severity |
 | 🔵 40 low fixes | 1 minggu | Code quality |

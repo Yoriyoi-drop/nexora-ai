@@ -275,6 +275,16 @@ pub struct CausalLM {
     /// Weight change notifier — external components register here to be
     /// notified when weights are updated (sync_to_inference, load_checkpoint).
     pub weight_notifier: super::observer::WeightNotifier,
+    /// Optional lazy weight loader for on-demand block weight loading.
+    /// When set, individual block weights are loaded from disk during forward
+    /// and can be unloaded after to save memory.
+    pub lazy_loader: Option<std::sync::Arc<super::lazy_weights::LazyWeightLoader>>,
+    /// If true, unload block weights after each forward pass.
+    pub unload_blocks_after_forward: bool,
+    /// Collective communication for tensor parallelism.
+    /// Set when `config.shard.num_shards > 1`. Used internally by `forward_cpu_impl`
+    /// to all-reduce partial attention/FFN outputs across shards.
+    pub collective: Option<super::sharded::ShardCollective>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
@@ -302,6 +312,9 @@ impl Clone for CausalLM {
             quantize_weights: self.quantize_weights,
             use_half_precision: self.use_half_precision,
             weight_notifier: super::observer::WeightNotifier::new(),
+            lazy_loader: self.lazy_loader.clone(),
+            unload_blocks_after_forward: self.unload_blocks_after_forward,
+            collective: self.collective.clone(),
         }
     }
 }
@@ -323,6 +336,9 @@ impl Clone for CausalLM {
             quantize_weights: self.quantize_weights,
             use_half_precision: self.use_half_precision,
             weight_notifier: super::observer::WeightNotifier::new(),
+            lazy_loader: self.lazy_loader.clone(),
+            unload_blocks_after_forward: self.unload_blocks_after_forward,
+            collective: self.collective.clone(),
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
         }
@@ -339,19 +355,25 @@ impl CausalLM {
                 rng.gen::<f32>() * 2.0 * scale - scale
             }));
 
+        let nh_local = config.num_heads_local();
+        let nkv_local = config.num_kv_heads_local();
+        let int_local = config.intermediate_size_local();
+        let exp_int_local = config.expert_intermediate_size_local();
+        let head_dim = config.head_dim();
+
         let blocks = (0..config.num_layers)
             .map(|_| {
                 let mut block = TransformerBlock::new(
                     config.hidden_size,
-                    config.num_heads,
-                    config.num_kv_heads,
-                    config.head_dim(),
-                    config.intermediate_size,
+                    nh_local,
+                    nkv_local,
+                    head_dim,
+                    int_local,
                     config.norm_eps,
                     config.num_experts,
-                    config.expert_intermediate_size,
+                    exp_int_local,
                 );
-                block.init_random(config.hidden_size, config.num_heads, config.num_kv_heads, config.head_dim(), config.intermediate_size, config.expert_intermediate_size);
+                block.init_random(config.hidden_size, nh_local, nkv_local, head_dim, int_local, exp_int_local);
                 block
             })
             .collect();
@@ -362,15 +384,27 @@ impl CausalLM {
             rng.gen::<f32>() * 2.0 * scale - scale
         }));
 
-        let rope = RoPE::new(config.head_dim(), config.max_seq_len, config.rope_theta);
+        let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
         let (cos_full, sin_full) = rope.precompute_freqs_cis();
-        let half = config.head_dim() / 2;
+        let half = head_dim / 2;
         let precomputed_cos = cos_full
             .into_shape(config.max_seq_len * half)
             .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
         let precomputed_sin = sin_full
             .into_shape(config.max_seq_len * half)
             .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
+
+        let collective = if config.is_sharded() {
+            Some(super::sharded::ShardCollective::CpuLocal(
+                super::sharded::CpuLocalCollective::new(
+                    config.shard.num_shards,
+                    config.shard.shard_rank,
+                    config.hidden_size,
+                ),
+            ))
+        } else {
+            None
+        };
 
         Self {
             config,
@@ -395,10 +429,129 @@ impl CausalLM {
             quantize_weights: false,
             use_half_precision: false,
             weight_notifier: super::observer::WeightNotifier::new(),
+            lazy_loader: None,
+            unload_blocks_after_forward: false,
+            collective,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
+        }
+    }
+
+    /// Create a CausalLM with no block weights loaded (weights loaded lazily).
+    /// Only structural fields (rope, cos/sin) are initialized; token_embedding,
+    /// lm_head, norm, and all block weights are set to None.
+    /// Call `load_lazy_blocks()` or set weights manually before forward.
+    pub fn new_empty(config: TransformerConfig) -> Self {
+        let head_dim = config.head_dim();
+        let nh_local = config.num_heads_local();
+        let nkv_local = config.num_kv_heads_local();
+        let int_local = config.intermediate_size_local();
+        let exp_int_local = config.expert_intermediate_size_local();
+
+        let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
+        let (cos_full, sin_full) = rope.precompute_freqs_cis();
+        let half = head_dim / 2;
+        let collective = if config.is_sharded() {
+            Some(super::sharded::ShardCollective::CpuLocal(
+                super::sharded::CpuLocalCollective::new(
+                    config.shard.num_shards,
+                    config.shard.shard_rank,
+                    config.hidden_size,
+                ),
+            ))
+        } else {
+            None
+        };
+        Self {
+            config: config.clone(),
+            token_embedding: None,
+            blocks: (0..config.num_layers)
+                .map(|_| TransformerBlock::new(
+                    config.hidden_size,
+                    nh_local,
+                    nkv_local,
+                    head_dim,
+                    int_local,
+                    config.norm_eps,
+                    config.num_experts,
+                    exp_int_local,
+                ))
+                .collect(),
+            norm: super::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps),
+            lm_head: None,
+            rope,
+            precomputed_cos: cos_full
+                .into_shape(config.max_seq_len * half)
+                .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
+            precomputed_sin: sin_full
+                .into_shape(config.max_seq_len * half)
+                .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
+            injectors: Vec::new(),
+            keep_on_gpu: false,
+            quantize_weights: false,
+            use_half_precision: false,
+            weight_notifier: super::observer::WeightNotifier::new(),
+            lazy_loader: None,
+            unload_blocks_after_forward: false,
+            collective,
+            #[cfg(feature = "gpu")]
+            gpu_weights: OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            gpu_cache: RwLock::new(None),
+        }
+    }
+
+    /// Load all block weights from the lazy weight loader.
+    /// Must be called after setting `lazy_loader` if weights are not already loaded.
+    pub fn load_lazy_blocks(&mut self) -> TransformerResult<()> {
+        let loader = self.lazy_loader.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("lazy_loader not set".into())
+        })?;
+        for i in 0..self.blocks.len() {
+            loader.apply_block_weights(i, &mut self.blocks[i])?;
+        }
+        Ok(())
+    }
+
+    /// Ensure all lazy block weights are loaded before forward.
+    /// If `unload_blocks_after_forward` is true, blocks are loaded
+    /// on demand during `forward_cpu_impl`.
+    pub fn ensure_blocks_loaded(&mut self) -> TransformerResult<()> {
+        if self.blocks.iter().all(|b| b.attention.wq.is_some()) {
+            return Ok(());
+        }
+        let loader = self.lazy_loader.as_ref().ok_or_else(|| {
+            TransformerError::Implementation("Blocks not loaded and no lazy_loader set".into())
+        })?;
+        for i in 0..self.blocks.len() {
+            let block = &mut self.blocks[i];
+            if block.attention.wq.is_none() {
+                loader.apply_block_weights(i, block)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Unload all block weights from memory, freeing CPU RAM.
+    /// After this call, `forward()` will fail — call `load_lazy_blocks()`
+    /// or `ensure_blocks_loaded()` before the next forward.
+    /// Also notifies the `LazyWeightLoader` to evict from its LRU cache.
+    pub fn unload_blocks(&mut self) {
+        for block in &mut self.blocks {
+            block.attention.wq = None;
+            block.attention.wk = None;
+            block.attention.wv = None;
+            block.attention.wo = None;
+            block.ffn.w1 = None;
+            block.ffn.w2 = None;
+            block.ffn.w3 = None;
+            block.attention_norm.weight = None;
+            block.ffn_norm.weight = None;
+        }
+        if let Some(loader) = &self.lazy_loader {
+            loader.evict_all_blocks();
         }
     }
 
@@ -504,6 +657,13 @@ impl CausalLM {
             ));
         }
 
+        // Check that blocks are loaded (lazy loading must happen before forward)
+        if self.lazy_loader.is_some() && self.blocks.first().map_or(true, |b| b.attention.wq.is_none()) {
+            return Err(TransformerError::Implementation(
+                "Blocks not loaded — call load_lazy_blocks() or ensure_blocks_loaded() before forward()".into()
+            ));
+        }
+
         let token_id = input_ids.last().copied().ok_or_else(|| {
             TransformerError::Implementation("forward_cpu_impl called with empty input_ids".into())
         })? as usize;
@@ -538,8 +698,10 @@ impl CausalLM {
             )));
         }
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward(&h, kv_cache, layer_idx, cos_slice, sin_slice)?;
+            h = block.forward_with_collective(&h, kv_cache, layer_idx, cos_slice, sin_slice, collective)?;
 
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
@@ -599,9 +761,11 @@ impl CausalLM {
         let token_pos = kv_cache.num_tokens(seq_id).unwrap_or(0);
         let (cos_slice, sin_slice) = self.get_cos_sin_slices(token_pos);
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_paged(
-                &h, kv_cache, seq_id, layer_idx, token_pos, cos_slice, sin_slice,
+            h = block.forward_paged_with_collective(
+                &h, kv_cache, seq_id, layer_idx, token_pos, cos_slice, sin_slice, collective,
             )?;
         }
 
@@ -1877,6 +2041,13 @@ impl CausalLM {
                     k: k_cpu.into_iter().collect(),
                     v: v_cpu.into_iter().collect(),
                     kv_dim,
+                    num_kv_heads: entry.kv_heads,
+                    head_dim: entry.head_dim,
+                    k_compressed: Vec::new(),
+                    v_compressed: Vec::new(),
+                    k_scales: Vec::new(),
+                    v_scales: Vec::new(),
+                    compressed_seq_len: 0,
                 }
             })
             .collect();
@@ -1999,6 +2170,13 @@ impl CausalLM {
                     k: k_cpu.into_iter().collect(),
                     v: v_cpu.into_iter().collect(),
                     kv_dim,
+                    num_kv_heads: entry.kv_heads,
+                    head_dim: entry.head_dim,
+                    k_compressed: Vec::new(),
+                    v_compressed: Vec::new(),
+                    k_scales: Vec::new(),
+                    v_scales: Vec::new(),
+                    compressed_seq_len: 0,
                 }
             })
             .collect();
@@ -2624,6 +2802,13 @@ impl CausalLM {
                         k: new_k,
                         v: new_v,
                         kv_dim: kv_elems,
+                        num_kv_heads: n_kv_heads,
+                        head_dim,
+                        k_compressed: Vec::new(),
+                        v_compressed: Vec::new(),
+                        k_scales: Vec::new(),
+                        v_scales: Vec::new(),
+                        compressed_seq_len: 0,
                     });
                 }
             }
@@ -3376,6 +3561,7 @@ mod tests {
             expert_intermediate_size: 0,
             quantization: QFormat::F16,
             use_half_precision: true,
+            shard: Default::default(),
         }
     }
 

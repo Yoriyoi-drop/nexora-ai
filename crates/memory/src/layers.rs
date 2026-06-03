@@ -325,14 +325,20 @@ impl MemoryLayers {
     }
 
     /// Evict entries based on policy (LRU: least recently accessed first).
-    /// Uses `accessed_at` to find the oldest entries instead of arbitrary HashMap order.
+    /// Uses `accessed_at` to find the oldest entries via O(n) partial sort.
     async fn evict_entries(&mut self, layer: MemoryLayer, count: usize) -> Result<()> {
         if let Some(layer_map) = self.layers.get_mut(&layer) {
+            if count == 0 || layer_map.len() <= count {
+                if count >= layer_map.len() {
+                    layer_map.clear();
+                }
+                return Ok(());
+            }
             let mut entries: Vec<(String, u64)> = layer_map
                 .iter()
                 .map(|(k, v)| (k.clone(), v.last_access))
                 .collect();
-            entries.sort_by_key(|(_, last_access)| *last_access);
+            entries.select_nth_unstable_by(count - 1, |a, b| a.1.cmp(&b.1));
             let keys_to_remove: Vec<String> = entries.into_iter().take(count).map(|(k, _)| k).collect();
             for key in keys_to_remove {
                 layer_map.remove(&key);

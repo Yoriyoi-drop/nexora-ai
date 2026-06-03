@@ -13,6 +13,8 @@ pub mod handlers;
 pub mod router;
 pub mod tls;
 
+pub mod shard_collective;
+
 // Feature-gated handler modules: build with the corresponding feature flag
 // to enable. These reference optional subsystems on NexoraAI.
 //   cargo run --features server-billing   → enables billing_handlers

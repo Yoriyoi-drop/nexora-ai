@@ -499,13 +499,15 @@ pub async fn get_config() -> Json<Value> {
 }
 
 pub async fn update_config(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
+    api_key: Option<Extension<crate::server::router::ApiKey>>,
     Json(payload): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     info!("Processing configuration update request");
 
     // Require authentication for config changes
-    validate_admin(&nexora).await?;
+    validate_admin(&headers, api_key.as_ref().map(|e| &e.0))?;
 
     let config_result = validate_and_process_config(&payload);
 
@@ -653,17 +655,50 @@ pub async fn post_train_metrics(
     Json(json!({ "success": true }))
 }
 
-/// Validate that the request has admin-level authentication
-async fn validate_admin(nexora: &NexoraAI) -> Result<(), (StatusCode, Json<Value>)> {
-    // Check if the request has a valid admin API key
-    // This is a simplified check - in production, use proper auth middleware
-    if std::env::var("NEXORA_ADMIN_KEY").is_ok() {
-        // Admin key is configured; rely on middleware for enforcement
-        Ok(())
-    } else {
-        // No admin key configured - warn but allow for development
-        tracing::warn!("No NEXORA_ADMIN_KEY set; config changes allowed without auth");
-        Ok(())
+/// Validate that the request has admin-level authentication.
+/// Checks NEXORA_ADMIN_KEY env var match, then falls back to
+/// the ApiKey extension from auth middleware (set after successful auth).
+fn validate_admin(
+    headers: &HeaderMap,
+    api_key_opt: Option<&crate::server::router::ApiKey>,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    // Check NEXORA_ADMIN_KEY env var
+    if let Ok(admin_key) = std::env::var("NEXORA_ADMIN_KEY") {
+        let provided = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .or_else(|| {
+                headers
+                    .get("x-api-key")
+                    .and_then(|v| v.to_str().ok())
+            });
+        if provided == Some(&admin_key) {
+            return Ok(());
+        }
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Forbidden: invalid or missing admin key"})),
+        ));
+    }
+
+    // No NEXORA_ADMIN_KEY: check if request came through auth middleware
+    if api_key_opt.is_some() {
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "server-auth"))]
+    {
+        tracing::warn!("No NEXORA_ADMIN_KEY and no server-auth feature; config changes allowed without auth");
+        return Ok(());
+    }
+
+    #[cfg(feature = "server-auth")]
+    {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Forbidden: admin authentication required"})),
+        ))
     }
 }
 

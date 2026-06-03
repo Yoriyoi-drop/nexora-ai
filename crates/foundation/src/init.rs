@@ -31,8 +31,9 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
-        quantization: QFormat::F16,
-        use_half_precision: true,
+        quantization: QFormat::Q8 { group_size: 128 },
+        use_half_precision: false,
+        shard: Default::default(),
     };
     let mid = || TransformerConfig {
         vocab_size,
@@ -48,8 +49,9 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
-        quantization: QFormat::F16,
-        use_half_precision: true,
+        quantization: QFormat::Q8 { group_size: 128 },
+        use_half_precision: false,
+        shard: Default::default(),
     };
     let high = || TransformerConfig {
         vocab_size,
@@ -65,8 +67,9 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
-        quantization: QFormat::F16,
-        use_half_precision: true,
+        quantization: QFormat::Q8 { group_size: 128 },
+        use_half_precision: false,
+        shard: Default::default(),
     };
     let flagship = || TransformerConfig {
         vocab_size,
@@ -82,8 +85,9 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
-        quantization: QFormat::F16,
-        use_half_precision: true,
+        quantization: QFormat::Q8 { group_size: 128 },
+        use_half_precision: false,
+        shard: Default::default(),
     };
 
     match model_id {
@@ -100,11 +104,18 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
     }
 }
 
+/// Model IDs that are initialized with full random weights (active at startup).
+const ACTIVE_MODEL_IDS: [NxrModelId; 2] = [NxrModelId::Omnis, NxrModelId::Axiom];
+
 /// Create and register a single causal LM model instance.
+/// When `active` is true, the model gets full random weights (ready for inference).
+/// When `active` is false, the model uses `new_empty()` — no block weights loaded,
+/// suitable for lazy on-demand loading from checkpoint.
 async fn register_causal_lm(
     model_id: NxrModelId,
     vocab_size: usize,
     transformer_config: TransformerConfig,
+    active: bool,
 ) -> Result<(), RegistryError> {
     let registry = global_registry();
     let cfg = NxrModelConfig::for_model(model_id);
@@ -146,10 +157,19 @@ async fn register_causal_lm(
             "intermediate_size": transformer_config.intermediate_size,
         }
     });
-    model
-        .initialize(params)
-        .await
-        .map_err(|e| RegistryError::Validation(e.to_string()))?;
+
+    if active {
+        model
+            .initialize(params)
+            .await
+            .map_err(|e| RegistryError::Validation(e.to_string()))?;
+    } else {
+        // Standby — register with empty model, load from checkpoint on demand
+        model
+            .initialize_empty()
+            .await
+            .map_err(|e| RegistryError::Validation(e.to_string()))?;
+    }
 
     let model_arc = Arc::new(model);
     let model_trait: Arc<
@@ -165,10 +185,11 @@ async fn register_causal_lm(
         .await?;
 
     info!(
-        "Registered {} | {} params ({:.1}M) ✓",
+        "Registered {} | {} params ({:.1}M) {} ✓",
         model_id,
         pcount,
-        pcount as f64 / 1_000_000.0
+        pcount as f64 / 1_000_000.0,
+        if active { "ACTIVE" } else { "STANDBY" }
     );
     Ok(())
 }
@@ -176,15 +197,17 @@ async fn register_causal_lm(
 pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
-    // All 10 NXR models are active by default — each gets a real CausalLM instance.
+    // Active-Standby: only 2 models (Omnis, Axiom) get full weights at startup.
+    // The other 8 use new_empty() — no block weights — and lazy-load from checkpoint on demand.
     let model_ids = NxrModelId::all();
 
     for model_id in &model_ids {
+        let active = ACTIVE_MODEL_IDS.contains(model_id);
         let tc = tier_config(*model_id, vocab_size);
-        register_causal_lm(*model_id, vocab_size, tc).await?;
+        register_causal_lm(*model_id, vocab_size, tc, active).await?;
     }
 
-    // Wire each delegation agent to share the registry model instance
+    // Wire delegation agents — only active models have weights at this point
     let registry = global_registry();
     for model_id in &model_ids {
         if let Ok(model_raw) = registry.get_model_raw(model_id).await {
@@ -192,12 +215,14 @@ pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
                 if let Some(model_arc) = causal_lm_model.get_model_arc().await {
                     wire_model(*model_id, model_arc);
                     info!("Delegation agent wired for {}", model_id);
+                } else {
+                    info!("Delegation agent for {} — weights not loaded (standby)", model_id);
                 }
             }
         }
     }
 
-    info!("All 10 NXR foundation models active with delegation agents ✓");
+    info!("All 10 NXR foundation models registered (2 active, 8 standby) ✓");
     Ok(())
 }
 

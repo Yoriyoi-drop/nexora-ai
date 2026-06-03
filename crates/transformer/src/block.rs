@@ -2,6 +2,7 @@ use ndarray::{Array1, Array2};
 
 use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;
+use super::sharded::ShardCollective;
 use super::swiglu::SwiGLU;
 use crate::TransformerResult;
 
@@ -76,11 +77,31 @@ impl TransformerBlock {
         cos: &[f32],
         sin: &[f32],
     ) -> TransformerResult<Array2<f32>> {
+        self.forward_with_collective(x, cache, layer_idx, cos, sin, None)
+    }
+
+    /// Forward pass with optional tensor parallelism all-reduce.
+    /// When `collective` is `Some`, attention and FFN partial outputs are
+    /// reduced across shards to produce the global result.
+    pub fn forward_with_collective(
+        &self,
+        x: &Array2<f32>,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos: &[f32],
+        sin: &[f32],
+        collective: Option<&ShardCollective>,
+    ) -> TransformerResult<Array2<f32>> {
         let normed = self.attention_norm.forward(x)?;
         let attn_out = self
             .attention
             .forward_with_kv(&normed, cache, layer_idx, cos, sin)?;
-        let after_attn = x + attn_out;
+
+        let after_attn = if let Some(col) = collective {
+            x + col.reduce_attn(&attn_out)?
+        } else {
+            x + attn_out
+        };
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
@@ -92,7 +113,12 @@ impl TransformerBlock {
         } else {
             self.ffn.forward(&normed_ffn)?
         };
-        Ok(after_attn + ffn_out)
+        let ffn_global = if let Some(col) = collective {
+            col.reduce_ffn(&ffn_out)?
+        } else {
+            ffn_out
+        };
+        Ok(after_attn + ffn_global)
     }
 
     pub fn forward_no_cache(
@@ -100,6 +126,16 @@ impl TransformerBlock {
         x: &Array2<f32>,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
+    ) -> TransformerResult<Array2<f32>> {
+        self.forward_no_cache_with_collective(x, cos, sin, None)
+    }
+
+    pub fn forward_no_cache_with_collective(
+        &self,
+        x: &Array2<f32>,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+        collective: Option<&ShardCollective>,
     ) -> TransformerResult<Array2<f32>> {
         let normed = self.attention_norm.forward(x)?;
         let attn_out = self.attention.forward(
@@ -109,7 +145,12 @@ impl TransformerBlock {
             cos.as_slice().unwrap_or(&[]),
             sin.as_slice().unwrap_or(&[]),
         )?;
-        let after_attn = x + attn_out;
+
+        let after_attn = if let Some(col) = collective {
+            x + col.reduce_attn(&attn_out)?
+        } else {
+            x + attn_out
+        };
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
@@ -121,7 +162,12 @@ impl TransformerBlock {
         } else {
             self.ffn.forward(&normed_ffn)?
         };
-        Ok(after_attn + ffn_out)
+        let ffn_global = if let Some(col) = collective {
+            col.reduce_ffn(&ffn_out)?
+        } else {
+            ffn_out
+        };
+        Ok(after_attn + ffn_global)
     }
 
     pub fn forward_paged(
@@ -134,11 +180,30 @@ impl TransformerBlock {
         cos: &[f32],
         sin: &[f32],
     ) -> TransformerResult<Array2<f32>> {
+        self.forward_paged_with_collective(x, cache, seq_id, layer_idx, token_pos, cos, sin, None)
+    }
+
+    pub fn forward_paged_with_collective(
+        &self,
+        x: &Array2<f32>,
+        cache: &mut dyn PagedCacheReader,
+        seq_id: u64,
+        layer_idx: usize,
+        token_pos: usize,
+        cos: &[f32],
+        sin: &[f32],
+        collective: Option<&ShardCollective>,
+    ) -> TransformerResult<Array2<f32>> {
         let normed = self.attention_norm.forward(x)?;
         let attn_out = self
             .attention
             .forward_with_paged(&normed, cache, seq_id, layer_idx, token_pos, cos, sin)?;
-        let after_attn = x + attn_out;
+
+        let after_attn = if let Some(col) = collective {
+            x + col.reduce_attn(&attn_out)?
+        } else {
+            x + attn_out
+        };
 
         let normed_ffn = self.ffn_norm.forward(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
@@ -150,7 +215,12 @@ impl TransformerBlock {
         } else {
             self.ffn.forward(&normed_ffn)?
         };
-        Ok(after_attn + ffn_out)
+        let ffn_global = if let Some(col) = collective {
+            col.reduce_ffn(&ffn_out)?
+        } else {
+            ffn_out
+        };
+        Ok(after_attn + ffn_global)
     }
 
     /// GPU forward with pre-uploaded cos/sin GPU tensors.
@@ -350,6 +420,13 @@ fn small_block() -> TransformerBlock {
             k: vec![],
             v: vec![],
             kv_dim: 8,
+            num_kv_heads: 1,
+            head_dim: 8,
+            k_compressed: Vec::new(),
+            v_compressed: Vec::new(),
+            k_scales: Vec::new(),
+            v_scales: Vec::new(),
+            compressed_seq_len: 0,
         }];
         let cos = vec![0.0, 1.0];
         let sin = vec![1.0, 0.0];
@@ -377,6 +454,13 @@ fn small_block() -> TransformerBlock {
             k: vec![],
             v: vec![],
             kv_dim: 8,
+            num_kv_heads: 1,
+            head_dim: 8,
+            k_compressed: Vec::new(),
+            v_compressed: Vec::new(),
+            k_scales: Vec::new(),
+            v_scales: Vec::new(),
+            compressed_seq_len: 0,
         }];
         let cos = vec![0.0, 1.0];
         let sin = vec![1.0, 0.0];

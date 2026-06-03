@@ -63,7 +63,8 @@ impl DpoLossCalculator {
         let sigmoid_input = self.config.beta * ratio;
 
         // DPO loss: L = -log(σ(β * ratio)) = softplus(-β * ratio)
-        let loss = (1.0 + (-sigmoid_input).exp()).ln();
+        let sigmoid_clamped = sigmoid_input.clamp(-20.0, 20.0);
+        let loss = (1.0 + (-sigmoid_clamped).exp()).ln();
 
         // Add regularization
         let regularization = self.config.regularization_strength * (pi_lograt * pi_lograt);
@@ -149,15 +150,23 @@ impl DpoTrainer {
     }
 
     /// Sync the trainable tensor from current model parameters.
+    /// Does NOT recreate the optimizer — preserves momentum across steps.
     pub fn sync_params_from_model(&mut self) {
         let t = self.model.as_trainable_tensor();
         self.trainable_params = Some(t.clone());
         let ref_t = self.model.as_reference_tensor();
         self.reference_params = Some(ref_t);
-        let lr = self.learning_rate;
-        let mut opt = Adam::new(vec![t], lr);
-        opt.set_max_grad_norm(Some(1.0));
-        self.optimizer = Some(opt);
+    }
+
+    /// Rebuild optimizer after model architecture changes (not called in hot path).
+    /// Use `sync_params_from_model` during training to preserve optimizer momentum.
+    fn rebuild_optimizer(&mut self) {
+        if let Some(ref t) = self.trainable_params.clone() {
+            let lr = self.learning_rate;
+            let mut opt = Adam::new(vec![t.clone()], lr);
+            opt.set_max_grad_norm(Some(1.0));
+            self.optimizer = Some(opt);
+        }
     }
 
     /// Sync model parameters back from the trainable tensor.
@@ -244,46 +253,35 @@ impl DpoTrainer {
     /// Training step untuk DPO using real autograd-based optimization.
     /// Computes analytical gradients, applies them to the trainable tensor,
     /// then steps the optimizer for momentum/weight-decay corrections.
+    /// Training step untuk DPO using analytical gradient computation.
+    /// Applies per-pair analytical gradients directly to model parameters.
+    /// Does NOT use Adam optimizer (analytical gradients incompatible with autograd).
     pub fn training_step(&mut self, pairs: &[PreferencePair]) -> Result<f32> {
         let loss = self.loss_calculator.calculate_batch_loss(pairs)?;
 
-        if let Some(ref opt) = self.optimizer {
-            // Zero previous gradients
-            opt.zero_grad();
-
-            // Compute analytical gradients and apply to model params
-            for pair in pairs {
-                let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
-                self.model.apply_gradient(
-                    &pair.prompt,
-                    &pair.chosen,
-                    grad_chosen,
-                    self.learning_rate,
-                )?;
-                self.model.apply_gradient(
-                    &pair.prompt,
-                    &pair.rejected,
-                    grad_rejected,
-                    self.learning_rate,
-                )?;
-            }
-
-            // Sync updated model back to trainable tensor, then run optimizer
-            // (Adam momentum/bias correction/weight-decay are applied on the tensor)
-            self.sync_params_from_model();
-            if let Some(ref mut opt) = self.optimizer {
-                opt.step();
-            }
-            self.sync_model_from_params();
-
-            let gn = self.compute_grad_norm();
-            self.grad_norms.push(gn);
-        } else {
-            for pair in pairs {
-                let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
-                self.update_model_parameters(grad_chosen, grad_rejected, pair)?;
-            }
+        // Apply analytical gradients directly to model parameters
+        for pair in pairs {
+            let (grad_chosen, grad_rejected) = self.loss_calculator.calculate_gradient(pair)?;
+            self.model.apply_gradient(
+                &pair.prompt,
+                &pair.chosen,
+                grad_chosen,
+                self.learning_rate,
+            )?;
+            self.model.apply_gradient(
+                &pair.prompt,
+                &pair.rejected,
+                grad_rejected,
+                self.learning_rate,
+            )?;
         }
+
+        // Sync model → tensor for reference (does NOT recreate optimizer)
+        self.sync_params_from_model();
+
+        // Compute gradient norm from the difference between old and new params
+        let gn = self.compute_grad_norm();
+        self.grad_norms.push(gn);
 
         Ok(loss)
     }

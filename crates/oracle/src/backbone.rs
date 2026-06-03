@@ -643,7 +643,7 @@ impl LatentCompression {
             for i in 0..seq_len {
                 let row = x.slice(s![b, i, ..]);
                 let mut indices: Vec<usize> = (0..latent_dim).collect();
-                indices.sort_by(|&a, &b| {
+                indices.select_nth_unstable_by(compressed_dim - 1, |&a, &b| {
                     row[a]
                         .partial_cmp(&row[b])
                         .unwrap_or(std::cmp::Ordering::Equal)
@@ -808,25 +808,23 @@ impl OracleBackbone {
 
         // Transformer layers
         for i in 0..self.moe_layers.len() {
-            // CPU round-trip for LayerNorm (elementwise, not worth GPU)
+            // LayerNorm on GPU (no CPU round-trip)
+            let norm_weight: Vec<f32> = self.norm_layers[i].weight.iter().copied().collect();
+            let norm_bias: Vec<f32> = self.norm_layers[i].bias.iter().copied().collect();
+            let gpu_weight = GpuTensor::from_slice(vec![d_model], &norm_weight)?;
+            let gpu_bias = GpuTensor::from_slice(vec![d_model], &norm_bias)?;
+            let gpu_normed = ctx.layer_norm(&hidden, &gpu_weight, &gpu_bias, 1e-5)?;
+
+            // MoE layer on GPU
+            let moe_out = self.moe_layers[i].forward_gpu(&gpu_normed)?;
+            hidden = ctx.add(&gpu_normed, &moe_out)?;
+
+            // Attention on CPU (no GPU attention impl for MLA yet)
             let hidden_arr = hidden.to_cpu()?;
             let hidden_3d = hidden_arr
                 .into_shape((batch_size, seq_len, d_model))
                 .map_err(|e| anyhow::anyhow!("Reshape: {}", e))?;
-            let normed = self.norm_layers[i].forward(&hidden_3d)?;
-            let normed_flat: Vec<f32> = normed.iter().copied().collect();
-            let gpu_in = GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &normed_flat)?;
-
-            // MoE layer on GPU
-            let moe_out = self.moe_layers[i].forward_gpu(&gpu_in)?;
-            hidden = ctx.add(&gpu_in, &moe_out)?;
-
-            // CPU round-trip for norm + attention
-            let hidden_arr2 = hidden.to_cpu()?;
-            let hidden_3d2 = hidden_arr2
-                .into_shape((batch_size, seq_len, d_model))
-                .map_err(|e| anyhow::anyhow!("Reshape: {}", e))?;
-            let normed2 = self.norm_layers[i + 1].forward(&hidden_3d2)?;
+            let normed2 = self.norm_layers[i + 1].forward(&hidden_3d)?;
             let attn_out = self.attention_layers[i].forward(&normed2, None)?;
 
             // Upload attention + residual add on GPU

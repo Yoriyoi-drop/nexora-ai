@@ -1,10 +1,12 @@
 use anyhow::{bail, Context, Result};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::Path;
 use uuid::Uuid;
 
 use crate::types::{DataSample, SampleStats, SourceInfo};
 use arrow::array::{Array, LargeStringArray, StringArray};
+use arrow::ipc::reader::FileReader;
+use arrow::record_batch::RecordBatch;
 
 /// Check magic bytes to help diagnose mislabeled files.
 /// Returns a description of the detected format, or None if unrecognized.
@@ -76,61 +78,75 @@ fn decompress_zstd(path: &Path) -> Result<std::fs::File> {
     }
 }
 
-pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>> {
-    use arrow::ipc::reader::FileReader;
+/// Streaming iterator over arrow record batches.
+/// Yields one `Vec<DataSample>` per record batch — callers control memory
+/// by not holding all batches simultaneously.
+pub struct ArrowBatchStream {
+    reader: FileReader<std::fs::File>,
+    source: SourceInfo,
+    text_idx: usize,
+    output_idx: Option<usize>,
+}
 
-    // Check if file is zstd-compressed and decompress if needed
-    let file = if is_zstd_compressed(path) {
-        decompress_zstd(path)?
-    } else {
-        std::fs::File::open(path)
-            .with_context(|| format!("Failed to open arrow file: {}", path.display()))?
-    };
+impl ArrowBatchStream {
+    pub fn try_new(path: &Path, source: SourceInfo) -> Result<Self> {
+        let file = if is_zstd_compressed(path) {
+            decompress_zstd(path)?
+        } else {
+            std::fs::File::open(path)
+                .with_context(|| format!("Failed to open arrow file: {}", path.display()))?
+        };
 
-    let reader = match FileReader::try_new(file, None) {
-        Ok(r) => r,
-        Err(err) => {
-            let hint = detect_actual_format(path)
-                .map(|fmt| format!(". Detected format: {fmt}. If this is a {fmt} file, rename to .parquet or use the correct --data format."))
-                .unwrap_or_default();
-            bail!(
-                "Failed to read arrow IPC file: {}\n  Reason: {}\n  Hint: File has .arrow extension but is not valid Arrow IPC format{}",
-                path.display(),
-                err,
-                hint,
-            );
-        }
-    };
+        let reader = match FileReader::try_new(file, None) {
+            Ok(r) => r,
+            Err(err) => {
+                let hint = detect_actual_format(path)
+                    .map(|fmt| format!(". Detected format: {fmt}. If this is a {fmt} file, rename to .parquet or use the correct --data format."))
+                    .unwrap_or_default();
+                bail!(
+                    "Failed to read arrow IPC file: {}\n  Reason: {}\n  Hint: File has .arrow extension but is not valid Arrow IPC format{}",
+                    path.display(), err, hint,
+                );
+            }
+        };
 
-    let schema = reader.schema();
+        let schema = reader.schema();
+        let text_idx = schema
+            .index_of("text")
+            .or_else(|_| schema.index_of("Text"))
+            .or_else(|_| schema.index_of("input"))
+            .or_else(|_| schema.index_of("Input"))
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "Arrow file must have a 'text', 'Text', or 'input' column. Found columns: {:?}",
+                    schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>()
+                )
+            })?;
 
-    let text_idx = schema
-        .index_of("text")
-        .or_else(|_| schema.index_of("Text"))
-        .or_else(|_| schema.index_of("input"))
-        .or_else(|_| schema.index_of("Input"));
+        let output_idx = schema
+            .index_of("output")
+            .or_else(|_| schema.index_of("Output"))
+            .ok();
 
-    let output_idx = schema
-        .index_of("output")
-        .or_else(|_| schema.index_of("Output"))
-        .ok();
+        Ok(Self { reader, source, text_idx, output_idx })
+    }
+}
 
-    let text_idx = text_idx.map_err(|_| {
-        anyhow::anyhow!(
-            "Arrow file must have a 'text', 'Text', or 'input' column. Found columns: {:?}",
-            schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>()
-        )
-    })?;
+impl Iterator for ArrowBatchStream {
+    type Item = Result<Vec<DataSample>>;
 
-    let mut samples = Vec::new();
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch = match self.reader.next() {
+            Some(Ok(b)) => b,
+            Some(Err(e)) => return Some(Err(e.into())),
+            None => return None,
+        };
 
-    for batch_result in reader {
-        let batch = batch_result?;
-        let col = batch.column(text_idx);
-
+        let col = batch.column(self.text_idx);
+        let mut samples = Vec::with_capacity(col.len());
         for i in 0..col.len() {
             let text = get_text_value(col, i).unwrap_or_default();
-            let text = if let Some(out_idx) = &output_idx {
+            let text = if let Some(out_idx) = &self.output_idx {
                 let output_col = batch.column(*out_idx);
                 let output = get_text_value(output_col, i).unwrap_or_default();
                 if output.is_empty() {
@@ -148,39 +164,51 @@ pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample
                 text,
                 token_ids: None,
                 metadata: std::collections::HashMap::new(),
-                source: source.clone(),
+                source: self.source.clone(),
                 stats: SampleStats::default(),
                 domains: vec![],
                 score: None,
                 curriculum_level: None,
             });
         }
+        Some(Ok(samples))
     }
-
-    Ok(samples)
 }
 
-/// Read arrow IPC data from in-memory bytes (avoids temp file roundtrip).
-pub fn read_arrow_bytes(data: &[u8], _source: SourceInfo) -> Result<Vec<DataSample>> {
-    use arrow::ipc::reader::FileReader;
+/// Streaming batch reader from in-memory arrow bytes.
+pub struct ArrowBytesStream {
+    reader: FileReader<Cursor<Vec<u8>>>,
+    source: SourceInfo,
+    text_idx: usize,
+}
 
-    let cursor = Cursor::new(data);
-    let reader = FileReader::try_new(cursor, None)
-        .with_context(|| "Failed to read arrow IPC from bytes".to_string())?;
+impl ArrowBytesStream {
+    pub fn try_new(data: Vec<u8>, source: SourceInfo) -> Result<Self> {
+        let cursor = Cursor::new(data);
+        let reader = FileReader::try_new(cursor, None)
+            .with_context(|| "Failed to read arrow IPC from bytes".to_string())?;
+        let schema = reader.schema();
+        let text_idx = schema
+            .index_of("text")
+            .or_else(|_| schema.index_of("Text"))
+            .or_else(|_| schema.index_of("input"))
+            .or_else(|_| schema.index_of("content"))
+            .map_err(|_| anyhow::anyhow!("No text column found in arrow schema"))?;
+        Ok(Self { reader, source, text_idx })
+    }
+}
 
-    let schema = reader.schema();
-    let text_idx = schema
-        .index_of("text")
-        .or_else(|_| schema.index_of("Text"))
-        .or_else(|_| schema.index_of("input"))
-        .or_else(|_| schema.index_of("content"))
-        .map_err(|_| anyhow::anyhow!("No text column found in arrow schema"))?;
+impl Iterator for ArrowBytesStream {
+    type Item = Result<Vec<DataSample>>;
 
-    let mut samples = Vec::new();
-    for batch_result in reader {
-        let batch = batch_result?;
-        let col = batch.column(text_idx);
-
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch = match self.reader.next() {
+            Some(Ok(b)) => b,
+            Some(Err(e)) => return Some(Err(e.into())),
+            None => return None,
+        };
+        let col = batch.column(self.text_idx);
+        let mut samples = Vec::with_capacity(col.len());
         for i in 0..col.len() {
             if let Some(text) = get_text_value(col, i) {
                 samples.push(DataSample {
@@ -188,7 +216,7 @@ pub fn read_arrow_bytes(data: &[u8], _source: SourceInfo) -> Result<Vec<DataSamp
                     text,
                     token_ids: None,
                     metadata: std::collections::HashMap::new(),
-                    source: _source.clone(),
+                    source: self.source.clone(),
                     stats: SampleStats::default(),
                     domains: vec![],
                     score: None,
@@ -196,9 +224,27 @@ pub fn read_arrow_bytes(data: &[u8], _source: SourceInfo) -> Result<Vec<DataSamp
                 });
             }
         }
+        Some(Ok(samples))
     }
+}
 
-    Ok(samples)
+pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>> {
+    let mut all_samples = Vec::new();
+    for batch_result in ArrowBatchStream::try_new(path, source)? {
+        let mut batch = batch_result?;
+        all_samples.append(&mut batch);
+    }
+    Ok(all_samples)
+}
+
+/// Read arrow IPC data from in-memory bytes.
+pub fn read_arrow_bytes(data: &[u8], source: SourceInfo) -> Result<Vec<DataSample>> {
+    let mut all_samples = Vec::new();
+    for batch_result in ArrowBytesStream::try_new(data.to_vec(), source)? {
+        let mut batch = batch_result?;
+        all_samples.append(&mut batch);
+    }
+    Ok(all_samples)
 }
 
 #[cfg(test)]

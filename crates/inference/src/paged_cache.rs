@@ -978,6 +978,13 @@ impl PagedKVCache {
                 k: k_flat,
                 v: v_flat,
                 kv_dim: cols,
+                num_kv_heads: self.config.num_kv_heads,
+                head_dim: self.config.head_dim,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
             });
         }
 
@@ -1020,20 +1027,18 @@ impl PagedKVCache {
         if used == 0 {
             return 0;
         }
-        // Use actual block memory (handles f16 vs f32)
+        // Sum ALL block memory — freed blocks still consume GPU memory until compaction.
+        // Iterate all layers and all blocks, not just first `used` blocks (F-8 fix).
         let mut data_bytes = 0usize;
-        let mut counted = 0usize;
-        'outer: for layer_blocks in &self.blocks {
+        for layer_blocks in &self.blocks {
             for block in layer_blocks {
-                if counted >= used {
-                    break 'outer;
+                if !block.is_free() {
+                    data_bytes += block.memory_bytes();
                 }
-                data_bytes += block.memory_bytes();
-                counted += 1;
             }
         }
         // Estimated metadata overhead per block (~56 bytes: ref_count, filled, last_access, padding)
-        let block_metadata = used * 56;
+        let block_metadata = total * 56;
         // Sequence block tables: each sequence stores (seq_len / block_size) block IDs per layer
         let block_table_overhead: usize = self.sequences.len()
             * self.blocks.len()
@@ -1125,23 +1130,6 @@ impl PagedKVCache {
         }
         let free = self.free_blocks();
         free as f64 / total as f64
-    }
-
-    /// Build a reverse index: physical block → list of (seq_id, layer, logical_block).
-    /// Used by defragment to update block tables after moving data between blocks.
-    fn build_reverse_block_map(&self, layer: usize) -> Vec<Vec<(u64, usize)>> {
-        let num_blocks = self.blocks[layer].len();
-        let mut map = vec![Vec::new(); num_blocks];
-        for (&seq_id, table) in &self.sequences {
-            for (logical, &phys_opt) in table.layers[layer].iter().enumerate() {
-                if let Some(phys) = phys_opt {
-                    if phys < num_blocks {
-                        map[phys].push((seq_id, logical));
-                    }
-                }
-            }
-        }
-        map
     }
 
     /// Defragment by compacting sparse blocks within each layer.
@@ -1242,111 +1230,23 @@ impl PagedKVCache {
     }
 
     /// Phase 2: Compact active blocks (ref_count > 0).
-    /// Merges consecutive partially-filled blocks belonging to the same sequence.
-    /// Block tables are updated so sequences read from the correct physical block.
-    fn defrag_active_blocks(&mut self, layer: usize, bs: usize) -> usize {
-        if self.sequences.is_empty() {
-            return 0;
-        }
-
-        let reverse_map = self.build_reverse_block_map(layer);
-        let mut reclaimed = 0usize;
-
-        // Collect active partial block indices
-        let partial_active: Vec<usize> = (0..self.blocks[layer].len())
-            .filter(|&i| {
-                let b = &self.blocks[layer][i];
-                b.ref_count > 0 && b.filled > 0 && b.filled < bs
-            })
-            .collect();
-
-        if partial_active.len() <= 1 {
-            return 0;
-        }
-
-        // Group by sequence: for each active sequence, find its partial blocks
-        let mut seq_blocks: Vec<(u64, Vec<(usize, usize)>)> = Vec::new();
-
-        for &phys in &partial_active {
-            for &(seq_id, logical) in &reverse_map[phys] {
-                // Find or create entry for this seq_id
-                let idx = seq_blocks.iter().position(|(id, _)| *id == seq_id);
-                if let Some(idx) = idx {
-                    seq_blocks[idx].1.push((phys, logical));
-                } else {
-                    seq_blocks.push((seq_id, vec![(phys, logical)]));
-                }
-            }
-        }
-
-        // For each sequence, try to merge consecutive partially-filled blocks
-        for (_seq_id, blocks) in &seq_blocks {
-            if blocks.len() <= 1 {
-                continue;
-            }
-
-            // Sort by logical position ascending
-            let mut sorted = blocks.clone();
-            sorted.sort_by(|a, b| a.1.cmp(&b.1));
-
-            // Try merging consecutive pairs where both are partially filled
-            let mut k = 0;
-            while k + 1 < sorted.len() {
-                let (src_phys, _src_logical) = sorted[k];
-                let (dst_phys, _dst_logical) = sorted[k + 1];
-
-                let src_filled = self.blocks[layer][src_phys].filled;
-                let dst_filled = self.blocks[layer][dst_phys].filled;
-                let dst_capacity = bs - dst_filled;
-                let move_count = src_filled.min(dst_capacity);
-
-                if move_count > 0 && src_phys != dst_phys {
-                    // Move data from src to dst
-                    for row in 0..move_count {
-                        let k_row = self.blocks[layer][src_phys].k.read_row(row);
-                        let v_row = self.blocks[layer][src_phys].v.read_row(row);
-                        let dst_row_idx = dst_filled + row;
-                        self.blocks[layer][dst_phys].k.write_row(dst_row_idx, &k_row);
-                        self.blocks[layer][dst_phys].v.write_row(dst_row_idx, &v_row);
-                    }
-                    self.blocks[layer][dst_phys].filled = dst_filled + move_count;
-                    self.blocks[layer][src_phys].filled = src_filled - move_count;
-
-                    // Update block tables: sequences that pointed to src for these rows
-                    // now read from dst at the correct offset
-                    for &(ref_seq_id, ref_logical) in &reverse_map[src_phys] {
-                        if let Some(table) = self.sequences.get_mut(&ref_seq_id) {
-                            if ref_logical < table.layers[layer].len() {
-                                table.layers[layer][ref_logical] = Some(dst_phys);
-                            }
-                        }
-                    }
-                }
-
-                if self.blocks[layer][src_phys].filled == 0 {
-                    // Source block fully drained — free it
-                    let old_ref_count = self.blocks[layer][src_phys].ref_count;
-                    self.blocks[layer][src_phys].filled = 0;
-                    self.blocks[layer][src_phys].ref_count = 0;
-                    self.free_lists[layer].push(src_phys);
-                    self.num_freed += 1;
-                    reclaimed += 1;
-
-                    // Drain ref_count from all sequences that referenced it
-                    for _ in 0..old_ref_count.saturating_sub(1) {
-                        // ref_count was already decremented by table updates above;
-                        // remaining references are dropped via sequence removal.
-                    }
-
-                    k += 2;
-                } else {
-                    // Partial drain — advance one
-                    k += 1;
-                }
-            }
-        }
-
-        reclaimed
+    ///
+    /// SAFETY NOTE (BF44): The original implementation tried to merge consecutive
+    /// partially-filled blocks by moving data from src_phys → dst_phys and
+    /// remapping block table entries. This was fundamentally broken:
+    ///   - Each logical block reads from row 0 of its mapped physical block.
+    ///     Appending src data at row `dst_filled` means the src logical block
+    ///     reads dst's original data at rows 0..dst_filled — SILENT CORRUPTION.
+    ///   - Shared blocks (ref_count > 1) were remapped for ALL referencing
+    ///     sequences, even though only the current sequence's data was moved.
+    ///   - ref_count was forcibly zeroed without proper accounting.
+    ///   - The test used identical K/V values for all positions, hiding corruption.
+    ///
+    /// Active block defrag is not safe to implement for partial blocks without
+    /// per-logical-block row offset tracking. Phase 1 (free block defrag) is
+    /// sufficient for reclaiming fragmented space.
+    fn defrag_active_blocks(&mut self, _layer: usize, _bs: usize) -> usize {
+        0
     }
 
     pub fn stats(&self) -> PagedCacheStats {

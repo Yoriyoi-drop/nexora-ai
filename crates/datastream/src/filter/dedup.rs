@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -103,9 +102,9 @@ impl DedupFilter {
         hashes
     }
 
-    pub async fn reset(&mut self) {
+    pub fn reset(&mut self) {
         for shard in self.seen_hashes.iter() {
-            shard.lock().await.clear();
+            shard.lock().unwrap().clear();
         }
     }
 
@@ -194,7 +193,7 @@ impl Filter for DedupFilter {
         // Short texts (single hash) — use exact match check
         if total_hashes == 1 {
             let sid = Self::shard_index(fingerprints[0]);
-            let mut guard = self.seen_hashes[sid].lock().await;
+            let mut guard = self.seen_hashes[sid].lock().unwrap();
             let seen = guard.contains(&fingerprints[0]);
             if seen && self.exact_reject_on_seen {
                 return FilterResult {
@@ -335,7 +334,7 @@ mod tests {
         let mut f = DedupFilter::default();
         assert!(f.evaluate(&sample("test text")).await.passed);
         assert!(!f.evaluate(&sample("test text")).await.passed);
-        f.reset().await;
+        f.reset();
         assert!(f.evaluate(&sample("test text")).await.passed);
     }
 

@@ -784,6 +784,7 @@ mod tests {
             expert_intermediate_size: 0,
             quantization: QFormat::F16,
             use_half_precision: true,
+            shard: Default::default(),
         })
     }
 
@@ -837,6 +838,7 @@ mod tests {
             expert_intermediate_size: 0,
             quantization: QFormat::F16,
             use_half_precision: true,
+            shard: Default::default(),
         });
         trainable.sync_to_inference(&mut inf2).unwrap();
         assert_eq!(inf2.token_embedding.as_ref().unwrap().dim(), (50, 16));
@@ -891,6 +893,7 @@ mod tests {
                 expert_intermediate_size: 0,
                 quantization: QFormat::F16,
                 use_half_precision: true,
+                shard: Default::default(),
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
             assert!(reloaded.blocks[0]
@@ -929,6 +932,7 @@ mod tests {
                 expert_intermediate_size: 0,
                 quantization: QFormat::F16,
                 use_half_precision: true,
+                shard: Default::default(),
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
             let wq_len = original_wq.shape()[0] * original_wq.shape()[1];

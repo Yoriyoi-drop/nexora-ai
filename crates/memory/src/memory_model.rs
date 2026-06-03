@@ -1070,35 +1070,58 @@ impl NeuralAttentionMemory {
     }
 
     /// Compute gradient untuk memory update (differentiable)
-    /// Mengupdate key-value store berdasarkan retrieval error
+    /// Mengupdate key-value store berdasarkan retrieval error.
+    /// Optimized: only updates top-K entries by attention weight (O(n + k log n) vs O(n log n)).
     pub fn backward(&mut self, query: &[f32], gradient: &[f32]) {
         if self.entries.is_empty() {
             return;
         }
 
         let n = self.entries.len();
-        let mut scores = Vec::with_capacity(n);
-        let max_score = self
-            .entries
-            .iter()
-            .map(|e| self.dot_product(query, &e.key) / self.config.temperature)
-            .fold(f32::NEG_INFINITY, f32::max);
-
-        let mut sum_exp = 0.0;
-        for entry in &self.entries {
-            let s = self.dot_product(query, &entry.key) / self.config.temperature;
-            let e = (s - max_score).exp();
-            scores.push(e);
-            sum_exp += e;
+        let k = self.config.top_k_retrieval.min(n);
+        if k == 0 {
+            return;
         }
 
+        // Compute raw similarity scores (no softmax yet)
+        let mut indexed_scores: Vec<(usize, f32)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let s = self.dot_product(query, &e.key) / self.config.temperature;
+                (i, s)
+            })
+            .collect();
+
+        // Select top-k entries by raw score (O(n))
+        if k < n {
+            indexed_scores.select_nth_unstable_by(k - 1, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        let top_k = &indexed_scores[..k];
+
+        // Softmax over top-k scores only
+        let max_score = top_k
+            .iter()
+            .map(|(_, s)| *s)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut sum_exp = 0.0;
+        let mut alphas = Vec::with_capacity(k);
+        for (_, s) in top_k {
+            let e = (*s - max_score).exp();
+            alphas.push(e);
+            sum_exp += e;
+        }
         if sum_exp < 1e-10 {
             return;
         }
 
         let lr = self.config.learning_rate;
-        for (i, entry) in self.entries.iter_mut().enumerate() {
-            let alpha = scores[i] / sum_exp;
+        for (rank, &(i, _)) in top_k.iter().enumerate() {
+            let entry = &mut self.entries[i];
+            let alpha = alphas[rank] / sum_exp;
 
             // Update value: V_i += lr · α · grad
             for j in 0..self

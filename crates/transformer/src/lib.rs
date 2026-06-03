@@ -1,4 +1,7 @@
 pub mod block;
+pub mod kv_cache_compression;
+pub mod lazy_weights;
+pub mod sharded;
 pub mod config;
 pub mod gqa;
 pub mod model;

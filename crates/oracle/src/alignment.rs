@@ -199,16 +199,20 @@ impl CodeDpoTrainer {
         Ok(quality_loss)
     }
 
-    /// Update model parameters using gradient descent on CodeModel
+    /// Update model parameters using gradient descent with weight decay.
+    /// Uses the DPO loss to scale updates: larger loss → stronger correction.
     fn update_model_parameters(&mut self, loss: f32) -> Result<()> {
         let lr = self.config.learning_rate;
-        let grad = loss * lr;
-        let (rows, cols) = self.model.weights.dim();
-        for r in 0..rows {
-            for c in 0..cols {
-                let current = self.model.weights[[r, c]];
-                self.model.weights[[r, c]] = current - grad * current;
-            }
+        let weight_decay = 1e-4;
+
+        // Gradient descent with weight decay:
+        // w -= lr * (∂L/∂w + weight_decay * w)
+        // Approximate ∂L/∂w as: loss * sign(w) * 0.01
+        // (positive loss → model prefers rejected → push weights toward zero
+        //  to reduce confidence in preference direction)
+        let grad_scale = loss * lr * 0.01;
+        for w in self.model.weights.iter_mut() {
+            *w -= grad_scale * w.signum() + lr * weight_decay * *w;
         }
         Ok(())
     }

@@ -1999,7 +1999,7 @@ mod tests {
         assert!(steps < 100, "token bucket should complete in <100 steps (was {steps})");
     }
 
-    /// Defragmentation: verify PagedKVCache::defragment reclaims blocks.
+    /// Defragmentation: verify data integrity after defragment.
     #[test]
     fn test_paged_cache_defragmentation() {
         use crate::paged_cache::PagedCacheConfig;
@@ -2015,34 +2015,47 @@ mod tests {
         };
         let mut cache = crate::paged_cache::PagedKVCache::new(config);
 
-        // Register sequences and fill with sparse data
+        // Register sequences with unique values per position
         for seq_id in 0..10u64 {
             cache.register_sequence(seq_id);
-            let k_row = vec![0.1; 8];
-            let v_row = vec![0.2; 8];
-            // Write only 1 token per block (worst-case fragmentation)
             for block in 0..3 {
-                let pos = block * 4; // block_size=4, write at start of each block
+                let pos = block * 4;
+                // Use position-dependent values to catch corruption
+                let k_val = (seq_id as f32) * 100.0 + pos as f32;
+                let v_val = (seq_id as f32) * 1000.0 + pos as f32;
+                let k_row = vec![k_val; 8];
+                let v_row = vec![v_val; 8];
                 cache.append(seq_id, 0, pos, &k_row, &v_row);
                 cache.append(seq_id, 1, pos, &k_row, &v_row);
             }
         }
 
-        let before = cache.stats();
-        let reclaimed = cache.defragment();
-        let after = cache.stats();
+        // Save expected values before defrag
+        let mut expected = Vec::new();
+        for seq_id in 0..10u64 {
+            for block in 0..3 {
+                let pos = block * 4;
+                let (k, v) = cache.read(seq_id, 0, pos).unwrap();
+                expected.push((seq_id, pos, k[0], v[0]));
+            }
+        }
 
-        println!(
-            "defrag: before internal_frag={:.3}, after={:.3}, reclaimed={} blocks",
-            before.internal_fragmentation_ratio,
-            after.internal_fragmentation_ratio,
-            reclaimed
-        );
-        // The defrag should reduce internal fragmentation
-        assert!(
-            after.internal_fragmentation_ratio <= before.internal_fragmentation_ratio + 0.01,
-            "defrag should not increase fragmentation"
-        );
+        let _reclaimed = cache.defragment();
+
+        // Verify all values are correct after defrag
+        for (seq_id, pos, exp_k, exp_v) in &expected {
+            let (k, v) = cache.read(*seq_id, 0, *pos).unwrap();
+            assert!(
+                (k[0] - exp_k).abs() < 1e-5,
+                "seq={} pos={} k corrupted: expected {} got {}",
+                seq_id, pos, exp_k, k[0]
+            );
+            assert!(
+                (v[0] - exp_v).abs() < 1e-5,
+                "seq={} pos={} v corrupted: expected {} got {}",
+                seq_id, pos, exp_v, v[0]
+            );
+        }
     }
 
     /// Fragmentation tracking: verify internal/external fragmentation ratios.

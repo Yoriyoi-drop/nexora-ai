@@ -84,6 +84,9 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/static/*path", get(static_files))
         .layer(Extension(nexora));
 
+    // Shard collective: POST /shard/reduce for HTTP-based all-reduce
+    app = super::shard_collective::add_reduce_route(app);
+
     #[cfg(feature = "server-auth")]
     {
         use super::auth_handlers::*;
@@ -130,13 +133,25 @@ struct ErrorResponse {
 }
 
 /// Axum middleware for API key authentication
+/// Public routes (health, auth endpoints) always allowed.
+/// When `enable_auth` is true, all non-public routes require a valid API key.
 async fn auth_middleware_layer(
     Extension(valid_keys): Extension<Arc<HashSet<String>>>,
     Extension(enable_auth): Extension<bool>,
     req: Request,
     next: Next,
 ) -> Result<Response, axum::response::Response> {
-    if !enable_auth || (valid_keys.is_empty() && !config_has_auth_system()) {
+    // Public routes always allowed (health checks, auth registration/login)
+    let path = req.uri().path();
+    if path.starts_with("/health")
+        || path == "/auth/register"
+        || path == "/auth/login"
+    {
+        return Ok(next.run(req).await);
+    }
+
+    // Auth disabled → dev mode, allow all non-public routes too
+    if !enable_auth {
         return Ok(next.run(req).await);
     }
 
@@ -301,7 +316,7 @@ async fn request_logging_layer(
 
 /// Returns true if the server has an auth system configured with users or API keys
 fn config_has_auth_system() -> bool {
-    #[cfg(feature = "server")]
+    #[cfg(feature = "server-auth")]
     {
         if let Some(auth) = crate::api::client::get_global_auth() {
             return true;

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use tokio::sync::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
@@ -129,13 +129,25 @@ impl SemanticDedupFilter {
     }
 
     fn jaccard_similarity(a: &[u64], b: &[u64]) -> f64 {
-        use std::collections::HashSet;
-        let set_b: HashSet<&u64> = b.iter().collect();
-        let shared = a.iter().filter(|&x| set_b.contains(x)).count();
-        let total = a.len() + b.len() - shared;
-        if total == 0 {
+        if a.is_empty() && b.is_empty() {
             return 0.0;
         }
+        let mut sorted_a = a.to_vec();
+        let mut sorted_b = b.to_vec();
+        sorted_a.sort_unstable();
+        sorted_b.sort_unstable();
+
+        let mut i = 0;
+        let mut j = 0;
+        let mut shared = 0usize;
+        while i < sorted_a.len() && j < sorted_b.len() {
+            match sorted_a[i].cmp(&sorted_b[j]) {
+                std::cmp::Ordering::Equal => { shared += 1; i += 1; j += 1; }
+                std::cmp::Ordering::Less => i += 1,
+                std::cmp::Ordering::Greater => j += 1,
+            }
+        }
+        let total = a.len() + b.len() - shared;
         shared as f64 / total as f64
     }
 }
@@ -148,21 +160,22 @@ impl Filter for SemanticDedupFilter {
 
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
-        let mut signatures = self.signatures.lock().await;
-        let mut lsh = self.lsh_index.lock().await;
+        let mut signatures = self.signatures.lock().unwrap();
+        let mut lsh = self.lsh_index.lock().unwrap();
 
-        // Fast candidate selection via LSH bands
+        // Fast candidate selection via LSH bands with HashSet dedup
         let band_hashes = Self::lsh_bands(&sig);
-        let mut candidates = Vec::new();
+        let mut candidate_set = HashSet::new();
         for bh in &band_hashes {
             if let Some(indices) = lsh.get(bh) {
                 for &idx in indices {
-                    if !candidates.contains(&idx) {
-                        candidates.push(idx);
-                    }
+                    candidate_set.insert(idx);
                 }
             }
         }
+        // Cap candidates to prevent worst-case O(n²)
+        const MAX_CANDIDATES: usize = 256;
+        let candidates: Vec<usize> = candidate_set.into_iter().take(MAX_CANDIDATES).collect();
 
         // Only compare against candidates (not all stored signatures)
         for &candidate_idx in &candidates {

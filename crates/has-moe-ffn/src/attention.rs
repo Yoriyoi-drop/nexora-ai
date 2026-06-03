@@ -187,8 +187,9 @@ impl Attention {
         let exp_vals: Vec<f32> = input.iter().map(|x| (x - max_val).exp()).collect();
         let sum: f32 = exp_vals.iter().sum();
 
-        // Normalize
-        exp_vals.iter().map(|x| x / sum).collect()
+        // Normalize (guard NaN when sum == 0)
+        let safe_sum = if sum == 0.0 { 1.0 } else { sum };
+        exp_vals.iter().map(|x| x / safe_sum).collect()
     }
 
     /// Get configuration

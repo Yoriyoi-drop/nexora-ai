@@ -144,11 +144,14 @@ macro_rules! define_foundation_model {
     ($name:ident, $id:ident, $tier:ident) => {
         pub struct $name {
             pub tokenizer: Option<NxrTokenizerRef>,
-            /// `Arc<tokio::sync::Mutex>` wraps `CausalLM`. `infer()` moves CPU-bound
-            /// generation to `tokio::task::spawn_blocking` so the async runtime is not
-            /// blocked. `infer_stream()` still holds the lock inline — callers should
-            /// ensure streams are not interleaved with other model operations.
-            pub model: Arc<Mutex<Option<CausalLM>>>,
+            /// `Arc<Mutex>` wraps `Option<Arc<CausalLM>>`. The inner `Arc` enables
+            /// shared ownership so `set_model_arc()` stores a reference-counted
+            /// pointer instead of deep-cloning the entire model. `infer()` moves
+            /// CPU-bound generation to `tokio::task::spawn_blocking` so the async
+            /// runtime is not blocked. `infer_stream()` still holds the lock inline
+            /// — callers should ensure streams are not interleaved with other
+            /// model operations.
+            pub model: Arc<Mutex<Option<Arc<CausalLM>>>>,
             model_config: TransformerConfig,
             inference_count: AtomicU64,
             total_generated: AtomicU64,
@@ -226,25 +229,27 @@ macro_rules! define_foundation_model {
                 None
             }
 
-            fn get_or_init_model(&self) -> MutexGuard<'_, Option<CausalLM>> {
+            fn get_or_init_model(&self) -> MutexGuard<'_, Option<Arc<CausalLM>>> {
                 let mut guard = self.model.lock().unwrap_or_else(|e| {
                     tracing::warn!(target: stringify!($name), "Mutex poisoned in get_or_init_model, recovering");
                     e.into_inner()
                 });
                 if guard.is_none() {
-                    *guard = Some(CausalLM::new(self.model_config.clone()));
+                    *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
                 }
                 guard
             }
 
             /// Inject an externally-loaded CausalLM (e.g. from the registry)
             /// so the delegation agent shares the same model instance as the inference engine.
+            /// The inner `Arc` is stored directly — no deep clone — so all delegation
+            /// agents and the inference engine share the same weights.
             pub fn set_model_arc(&self, model: Arc<CausalLM>) {
                 let mut guard = self.model.lock().unwrap_or_else(|e| {
                     tracing::warn!(target: stringify!($name), "Mutex poisoned in set_model_arc, recovering");
                     e.into_inner()
                 });
-                *guard = Some((*model).clone());
+                *guard = Some(model);
             }
 
             fn encode_text(&self, text: &str) -> Vec<u32> {
@@ -276,7 +281,7 @@ macro_rules! define_foundation_model {
                 *self.model.lock().unwrap_or_else(|e| {
                     tracing::warn!(target: stringify!($name), "Mutex poisoned in reload, recovering");
                     e.into_inner()
-                }) = Some(loaded);
+                }) = Some(Arc::new(loaded));
                 Ok(())
             }
 
@@ -287,7 +292,7 @@ macro_rules! define_foundation_model {
                 match CausalLM::from_checkpoint(config.clone(), path) {
                     Ok(loaded) => Self {
                         tokenizer: None,
-                        model: Arc::new(Mutex::new(Some(loaded))),
+                        model: Arc::new(Mutex::new(Some(Arc::new(loaded)))),
                         model_config: config,
                         inference_count: AtomicU64::new(0),
                         total_generated: AtomicU64::new(0),
@@ -439,7 +444,7 @@ macro_rules! define_foundation_model {
                         tracing::warn!("Mutex poisoned during infer, recovering — model state may be inconsistent");
                         e.into_inner()
                     });
-                    let model = guard.as_ref().ok_or_else(|| {
+                    let model = guard.as_deref().ok_or_else(|| {
                         NxrModelError::NotInitialized("Model failed to initialize".to_string())
                     })?;
                     let start = Instant::now();
@@ -519,7 +524,7 @@ macro_rules! define_foundation_model {
                         tracing::warn!("Mutex poisoned during infer_stream, recovering");
                         e.into_inner()
                     });
-                    let model = match guard.as_ref() {
+                    let model = match guard.as_deref() {
                         Some(m) => m,
                         None => return Err(NxrModelError::NotInitialized("Model not initialized".to_string())),
                     };

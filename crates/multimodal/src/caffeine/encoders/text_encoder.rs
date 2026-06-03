@@ -84,6 +84,8 @@ pub struct TextEncoder {
     max_position_embeddings: usize,
     token_embedding: TokenEmbedding,
     ffn_layers: Vec<TextFFN>,
+    /// Q/K/V projection weight: [embed_dim, embed_dim]
+    qkv_proj: Array2<f32>,
 }
 
 impl TextEncoder {
@@ -98,6 +100,7 @@ impl TextEncoder {
             model_loaded: false,
             token_embedding: TokenEmbedding::new(config.vocab_size, embed_dim),
             ffn_layers,
+            qkv_proj: xavier_init(embed_dim, embed_dim),
             config,
         })
     }
@@ -208,8 +211,8 @@ impl TextEncoder {
     ) -> Result<Array2<f32>> {
         let scale = (embed_dim as f32 / num_heads as f32).sqrt().recip();
 
-        // Use a learned projection (simplified: reuse token embedding as Q/K/V projection)
-        let proj_weight = self.token_embedding.weight.view();
+        // Learned Q/K/V projection: [embed_dim, embed_dim]
+        let proj_weight = self.qkv_proj.view();
         let q = hidden.dot(&proj_weight);
         let k = hidden.dot(&proj_weight);
         let v = hidden.dot(&proj_weight);

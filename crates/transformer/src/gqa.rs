@@ -447,6 +447,13 @@ impl KVCacheProvider for CpuKVCache {
                 k: k.to_vec(),
                 v: v.to_vec(),
                 kv_dim,
+                num_kv_heads: 0,
+                head_dim: 0,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
             });
         }
     }
@@ -680,6 +687,32 @@ pub struct KVCacheEntry {
     pub k: Vec<f32>, // flat [seq_len, kv_dim]
     pub v: Vec<f32>, // flat [seq_len, kv_dim]
     pub kv_dim: usize,
+    pub num_kv_heads: usize,
+    pub head_dim: usize,
+
+    // Compressed 4-bit backing (populated by compress())
+    pub k_compressed: Vec<u8>,
+    pub v_compressed: Vec<u8>,
+    pub k_scales: Vec<f32>,
+    pub v_scales: Vec<f32>,
+    pub compressed_seq_len: usize,
+}
+
+impl Default for KVCacheEntry {
+    fn default() -> Self {
+        Self {
+            k: Vec::new(),
+            v: Vec::new(),
+            kv_dim: 0,
+            num_kv_heads: 0,
+            head_dim: 0,
+            k_compressed: Vec::new(),
+            v_compressed: Vec::new(),
+            k_scales: Vec::new(),
+            v_scales: Vec::new(),
+            compressed_seq_len: 0,
+        }
+    }
 }
 
 impl KVCacheEntry {
@@ -689,6 +722,59 @@ impl KVCacheEntry {
         } else {
             self.k.len() / self.kv_dim
         }
+    }
+
+    /// Compress the current K/V data to 4-bit packed format.
+    /// Does NOT clear the f32 data — call `free_f32_memory()` for that.
+    pub fn compress(&mut self) {
+        if self.k.is_empty() || self.num_kv_heads == 0 || self.head_dim == 0 {
+            return;
+        }
+        let seq_len = self.seq_len();
+        let (kp, ks) = crate::kv_cache_compression::quantize_4bit(
+            &self.k, self.num_kv_heads, self.head_dim, seq_len,
+        );
+        let (vp, vs) = crate::kv_cache_compression::quantize_4bit(
+            &self.v, self.num_kv_heads, self.head_dim, seq_len,
+        );
+        self.k_compressed = kp;
+        self.v_compressed = vp;
+        self.k_scales = ks;
+        self.v_scales = vs;
+        self.compressed_seq_len = seq_len;
+    }
+
+    /// Free f32 data after compression to reclaim memory.
+    /// Call `ensure_dequantized()` before reading K/V.
+    pub fn free_f32_memory(&mut self) {
+        if self.compressed_seq_len > 0 {
+            self.k.clear();
+            self.v.clear();
+            self.k.shrink_to_fit();
+            self.v.shrink_to_fit();
+        }
+    }
+
+    /// Decompress if compressed data exists and f32 data is empty.
+    pub fn ensure_dequantized(&mut self) {
+        if !self.k.is_empty() {
+            return;
+        }
+        if self.compressed_seq_len == 0 || self.k_scales.is_empty() {
+            return;
+        }
+        let kv_dim = self.kv_dim;
+        let seq_len = self.compressed_seq_len;
+        self.k = crate::kv_cache_compression::dequantize_4bit(
+            &self.k_compressed, &self.k_scales,
+            self.num_kv_heads, self.head_dim, seq_len,
+        );
+        self.v = crate::kv_cache_compression::dequantize_4bit(
+            &self.v_compressed, &self.v_scales,
+            self.num_kv_heads, self.head_dim, seq_len,
+        );
+        debug_assert_eq!(self.k.len(), seq_len * kv_dim);
+        debug_assert_eq!(self.v.len(), seq_len * kv_dim);
     }
 }
 
@@ -1147,10 +1233,18 @@ impl GQA {
                 k: k.iter().copied().collect(),
                 v: v.iter().copied().collect(),
                 kv_dim,
+                num_kv_heads: self.num_kv_heads,
+                head_dim: self.head_dim,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
             });
         }
 
-        let entry = &cache[layer_idx];
+        let entry = &mut cache[layer_idx];
+        entry.ensure_dequantized();
         let k_slice = &entry.k;
         let v_slice = &entry.v;
         let total_seq = entry.seq_len();
@@ -2020,6 +2114,13 @@ impl GQA {
                 k: new_k,
                 v: new_v,
                 kv_dim: kv_elems,
+                num_kv_heads: self.num_kv_heads,
+                head_dim: self.head_dim,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
             });
         }
 
@@ -2077,6 +2178,13 @@ mod tests {
             k: vec![],
             v: vec![],
             kv_dim: 8,
+            num_kv_heads: 1,
+            head_dim: 8,
+            k_compressed: Vec::new(),
+            v_compressed: Vec::new(),
+            k_scales: Vec::new(),
+            v_scales: Vec::new(),
+            compressed_seq_len: 0,
         }];
         let out = gqa.forward_with_kv(&x, &mut cache, 0, &cos, &sin).unwrap();
         assert_eq!(out.dim(), (1, 8));
@@ -2101,13 +2209,27 @@ mod tests {
             k: vec![1.0; 16],
             v: vec![2.0; 16],
             kv_dim: 8,
+            num_kv_heads: 1,
+            head_dim: 8,
+            k_compressed: Vec::new(),
+            v_compressed: Vec::new(),
+            k_scales: Vec::new(),
+            v_scales: Vec::new(),
+            compressed_seq_len: 0,
         };
         assert_eq!(entry.seq_len(), 2);
         assert_eq!(
             KVCacheEntry {
                 k: vec![],
                 v: vec![],
-                kv_dim: 0
+                kv_dim: 0,
+                num_kv_heads: 0,
+                head_dim: 0,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
             }
             .seq_len(),
             0

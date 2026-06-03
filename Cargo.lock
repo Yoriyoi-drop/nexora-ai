@@ -3275,6 +3275,7 @@ dependencies = [
  "hyper 1.9.0",
  "jsonwebtoken",
  "mimalloc",
+ "ndarray 0.15.6",
  "nexora-agent",
  "nexora-api",
  "nexora-blaa",
@@ -4157,6 +4158,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "half",
+ "lru",
  "ndarray 0.15.6",
  "nexora-autograd",
  "nexora-quantization",

@@ -194,8 +194,8 @@ impl AudioEncoder {
 
         // Convert Hz to mel scale
         let hz_to_mel = |hz: f32| -> f32 { 2595.0 * (1.0 + hz / 700.0).log10() };
-        let mel_to_hz = |mel: f32| -> f32 { 700.0 * (mel / 2595.0).powf(10.0) - 700.0 };
 
+        let mel_to_hz = |mel: f32| -> f32 { 700.0 * (10.0_f32.powf(mel / 2595.0) - 1.0) };
         let mel_min = hz_to_mel(0.0);
         let mel_max = hz_to_mel(self.sample_rate as f32 / 2.0);
 

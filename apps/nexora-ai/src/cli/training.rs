@@ -934,6 +934,7 @@ impl crate::cli::commands::Cli {
                     expert_intermediate_size: 0,
                     quantization: QFormat::F16,
                     use_half_precision: true,
+                    shard: Default::default(),
                 };
 
                 info!(
@@ -2647,6 +2648,7 @@ async fn run_parallel_training(
             expert_intermediate_size: 0,
             quantization: QFormat::F16,
             use_half_precision: true,
+            shard: Default::default(),
         };
 
         let train_seq = train_sequences.to_vec();

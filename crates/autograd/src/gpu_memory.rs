@@ -8,6 +8,9 @@ const SIZE_BUCKETS: &[u64] = &[
     1 << 16,                // 64KB
     1 << 18,                // 256KB
     1 << 20,                // 1MB
+    (1 << 20) + (1 << 19), // 1.5MB
+    1 << 21,                // 2MB
+    (1 << 21) + (1 << 20), // 3MB
     1 << 22,                // 4MB
     1 << 24,                // 16MB
     1 << 26,                // 64MB
@@ -168,7 +171,7 @@ impl GpuMemoryPool {
             evict_expired_in_bucket(list);
         }
         // Force wgpu to process buffer destruction: GPU memory reclaimed
-        self.device.poll(wgpu::Maintain::Poll);
+        self.device.poll(wgpu::PollType::Poll);
     }
 
     pub fn return_buffer_raw(&mut self, buffer: wgpu::Buffer, key: (usize, wgpu::BufferUsages)) {

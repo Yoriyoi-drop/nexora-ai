@@ -516,11 +516,17 @@ mod tests {
                 k: vec![0.1; 512],
                 v: vec![0.2; 512],
                 kv_dim: 512,
+                num_kv_heads: 4,
+                head_dim: 128,
+                ..Default::default()
             },
             KVCacheEntry {
                 k: vec![0.3; 512],
                 v: vec![0.4; 512],
                 kv_dim: 512,
+                num_kv_heads: 4,
+                head_dim: 128,
+                ..Default::default()
             },
         ];
         cache
@@ -624,8 +630,8 @@ mod tests {
         full.extend(&gen);
         let logits = vec![0.5; 128];
         let kvcache = vec![
-            KVCacheEntry { k: vec![1.0; 64], v: vec![2.0; 64], kv_dim: 64 },
-            KVCacheEntry { k: vec![3.0; 64], v: vec![4.0; 64], kv_dim: 64 },
+            KVCacheEntry { k: vec![1.0; 64], v: vec![2.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
+            KVCacheEntry { k: vec![3.0; 64], v: vec![4.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
         ];
         cache
             .insert_with_kvcache(&full, logits.clone(), Some(kvcache))
@@ -646,8 +652,8 @@ mod tests {
         };
         let logits2 = vec![0.7; 128];
         let kvcache2 = vec![
-            KVCacheEntry { k: vec![5.0; 64], v: vec![6.0; 64], kv_dim: 64 },
-            KVCacheEntry { k: vec![7.0; 64], v: vec![8.0; 64], kv_dim: 64 },
+            KVCacheEntry { k: vec![5.0; 64], v: vec![6.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
+            KVCacheEntry { k: vec![7.0; 64], v: vec![8.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
         ];
         cache
             .insert_with_kvcache(&full2, logits2.clone(), Some(kvcache2))

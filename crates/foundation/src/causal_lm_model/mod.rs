@@ -811,6 +811,34 @@ impl NxrModel for CausalLmModel {
 
 #[cfg(feature = "legacy-fastpath")]
 impl CausalLmModel {
+    /// Initialize with empty model (no random block weights).
+    /// Used for ActiveStandby: model is registered but weights are loaded
+    /// on demand from checkpoint via `load_lazy_blocks()`.
+    pub async fn initialize_empty(&self) -> NxrModelResult<()> {
+        let tc = self.transformer_config.read().await.clone();
+        let mut model = CausalLM::new_empty(tc);
+
+        if let Some(echo_cfg) = &self.echo_net_config {
+            let injector = EchoNetInjector::new(
+                model.config.hidden_size,
+                echo_cfg.phase_separation_strength,
+                echo_cfg.max_window,
+                echo_cfg.alpha,
+            )
+            .map_err(|e| NxrModelError::Internal(format!("EchoNet injector: {}", e)))?;
+
+            model.injectors.push((
+                echo_cfg.inject_after_layer,
+                std::sync::Mutex::new(Box::new(injector)),
+            ));
+        }
+
+        *self.model.write().await = Some(Arc::new(model));
+        *self.initialized.write().await = true;
+        info!("CausalLM empty model registered (standby — weights loaded on demand)");
+        Ok(())
+    }
+
     async fn infer_legacy(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
         let tok = {
             let tokenizer = self.tokenizer.read().await;

@@ -259,38 +259,48 @@ impl StreamingLoader {
 
                 // Wrap with corrupted shard recovery
                 let mut recovery = CorruptedShardRecovery::new(recovery_config);
-                match load_shard_integrated(&shard, bs, cache_path.as_deref()).await {
-                    Ok(samples) => {
-                        info!(
-                            "Worker {}: {} samples from {}",
-                            idx,
-                            samples.len(),
-                            shard.path.display()
-                        );
-                        for chunk in samples.chunks(bs) {
-                            if tx.send(chunk.to_vec()).await.is_err() {
-                                break;
+
+                // Try streaming first (OOM-safe for large arrow shards), fall back to integrated
+                if shard.path.extension().map_or(false, |e| e == "arrow") {
+                    if load_shard_streaming(&shard, bs, cache_path.as_deref(), &tx).await.is_ok() {
+                        info!("Worker {}: streamed shard {}", idx, shard.path.display());
+                    } else {
+                        error!("Worker {}: shard {} streaming failed", idx, shard.path.display());
+                    }
+                } else {
+                    match load_shard_integrated(&shard, bs, cache_path.as_deref()).await {
+                        Ok(samples) => {
+                            info!(
+                                "Worker {}: {} samples from {}",
+                                idx,
+                                samples.len(),
+                                shard.path.display()
+                            );
+                            for chunk in samples.chunks(bs) {
+                                if tx.send(chunk.to_vec()).await.is_err() {
+                                    break;
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        if recovery
-                            .handle_failure(&shard.path, &e.to_string())
-                            .is_err()
-                        {
-                            error!(
-                                "Worker {}: shard {} failed fatally: {}",
-                                idx,
-                                shard.path.display(),
-                                e
-                            );
-                        } else {
-                            warn!(
-                                "Worker {}: shard {} skipped: {}",
-                                idx,
-                                shard.path.display(),
-                                e
-                            );
+                        Err(e) => {
+                            if recovery
+                                .handle_failure(&shard.path, &e.to_string())
+                                .is_err()
+                            {
+                                error!(
+                                    "Worker {}: shard {} failed fatally: {}",
+                                    idx,
+                                    shard.path.display(),
+                                    e
+                                );
+                            } else {
+                                warn!(
+                                    "Worker {}: shard {} skipped: {}",
+                                    idx,
+                                    shard.path.display(),
+                                    e
+                                );
+                            }
                         }
                     }
                 }
@@ -465,11 +475,11 @@ async fn load_shard_integrated(
         .decompress(&raw)
         .map_err(|e| LoaderError::Compression(e.to_string()))?;
 
-    // Parse arrow from in-memory bytes (avoids temp file roundtrip)
+    // Parse arrow from in-memory bytes
     let mut samples = arrow_reader::read_arrow_bytes(&decompressed, source)
         .map_err(|e| LoaderError::Arrow(e.to_string()))?;
 
-    // Tokenizer cache: if cache_dir is set, cache token IDs
+    // Tokenizer cache
     if let Some(cache_dir) = cache_dir {
         let token_cache_dir = cache_dir.join("tokens");
         if let Err(e) = std::fs::create_dir_all(&token_cache_dir) {
@@ -492,6 +502,67 @@ async fn load_shard_integrated(
     }
 
     Ok(samples)
+}
+
+/// Streaming variant of shard loading: yields batches through a channel
+/// without accumulating the entire shard in memory.
+async fn load_shard_streaming(
+    shard: &ShardPath,
+    batch_size: usize,
+    cache_dir: Option<&Path>,
+    tx: &mpsc::Sender<Vec<DataSample>>,
+) -> Result<(), LoaderError> {
+    let source = SourceInfo {
+        name: shard.path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".into()),
+        url: None,
+        trust_score: 0.8,
+        category: SourceCategory::Other,
+        fetch_timestamp: chrono::Utc::now().timestamp(),
+    };
+
+    // Read + decompress
+    let raw = tokio::task::spawn_blocking({
+        let path = shard.path.clone();
+        move || -> Result<Vec<u8>, LoaderError> {
+            std::fs::read(&path).map_err(|e| LoaderError::Io(e.to_string()))
+        }
+    })
+    .await
+    .map_err(|e| LoaderError::Join(e.to_string()))??;
+
+    let decompressed = shard.compression.decompress(&raw)
+        .map_err(|e| LoaderError::Compression(e.to_string()))?;
+
+    // Stream arrow batches one at a time — never accumulate full shard
+    let stream = arrow_reader::ArrowBytesStream::try_new(decompressed, source)
+        .map_err(|e| LoaderError::Arrow(e.to_string()))?;
+
+    let mut token_cache = cache_dir.map(|d| TokenizerCache::new(d.join("tokens")));
+
+    for batch_result in stream {
+        let mut batch = batch_result.map_err(|e| LoaderError::Arrow(e.to_string()))?;
+
+        // Apply tokenizer cache (optional)
+        if let Some(ref mut cache) = token_cache {
+            for sample in &mut batch {
+                if sample.text.len() < 10000 {
+                    if let Some(cached) = cache.get(&sample.text) {
+                        sample.token_ids = Some(cached.clone());
+                    } else if let Some(ref ids) = sample.token_ids {
+                        cache.insert(sample.text.clone(), ids.clone());
+                    }
+                }
+            }
+        }
+
+        if tx.send(batch).await.is_err() {
+            return Ok(()); // receiver dropped
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_shard_schema(

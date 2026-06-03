@@ -32,6 +32,29 @@ impl ModelTier {
     }
 }
 
+/// Tensor parallelism sharding configuration.
+/// When `num_shards > 1`, weight matrices are split across `num_shards` ranks.
+/// Each rank holds a contiguous slice of the output dimension for attention/ffn weights.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ShardConfig {
+    /// Total number of shards (1 = no sharding).
+    pub num_shards: usize,
+    /// This rank's index (0..num_shards).
+    pub shard_rank: usize,
+}
+
+impl Default for ShardConfig {
+    fn default() -> Self {
+        Self { num_shards: 1, shard_rank: 0 }
+    }
+}
+
+impl ShardConfig {
+    pub fn is_sharded(&self) -> bool {
+        self.num_shards > 1
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransformerConfig {
     pub vocab_size: usize,
@@ -56,6 +79,9 @@ pub struct TransformerConfig {
     /// Legacy flag — derived from `quantization` in new code.
     /// True when quantization is F16 or BF16.
     pub use_half_precision: bool,
+    /// Tensor parallelism sharding config.
+    /// Default: no sharding (num_shards=1).
+    pub shard: ShardConfig,
 }
 
 impl Default for TransformerConfig {
@@ -74,8 +100,9 @@ impl Default for TransformerConfig {
             num_experts: 0,
             top_k_experts: 0,
             expert_intermediate_size: 0,
-            quantization: QFormat::F16,
-            use_half_precision: true,
+            quantization: QFormat::Q8 { group_size: 128 },
+            use_half_precision: false,
+            shard: ShardConfig::default(),
         }
     }
 }
@@ -95,6 +122,46 @@ impl TransformerConfig {
         } else {
             self.num_heads / self.num_kv_heads
         }
+    }
+
+    /// Number of attention heads for this shard.
+    pub fn num_heads_local(&self) -> usize {
+        if self.shard.num_shards <= 1 {
+            self.num_heads
+        } else {
+            self.num_heads / self.shard.num_shards
+        }
+    }
+
+    /// Number of KV heads for this shard.
+    pub fn num_kv_heads_local(&self) -> usize {
+        if self.shard.num_shards <= 1 {
+            self.num_kv_heads
+        } else {
+            self.num_kv_heads / self.shard.num_shards
+        }
+    }
+
+    /// Intermediate size for this shard's FFN layers.
+    pub fn intermediate_size_local(&self) -> usize {
+        if self.shard.num_shards <= 1 {
+            self.intermediate_size
+        } else {
+            self.intermediate_size / self.shard.num_shards
+        }
+    }
+
+    /// Expert intermediate size for this shard's MoE layers.
+    pub fn expert_intermediate_size_local(&self) -> usize {
+        if self.shard.num_shards <= 1 {
+            self.expert_intermediate_size
+        } else {
+            self.expert_intermediate_size / self.shard.num_shards
+        }
+    }
+
+    pub fn is_sharded(&self) -> bool {
+        self.shard.num_shards > 1
     }
 
     pub fn is_moe(&self) -> bool {
@@ -167,8 +234,9 @@ impl TransformerConfig {
                 num_experts: 8,
                 top_k_experts: 2,
                 expert_intermediate_size: 8192,
-                quantization: QFormat::F16,
-                use_half_precision: true,
+                quantization: QFormat::Q8 { group_size: 128 },
+                use_half_precision: false,
+                shard: ShardConfig::default(),
             },
             ModelTier::Apex => Self {
                 vocab_size: 100000,
@@ -184,8 +252,9 @@ impl TransformerConfig {
                 num_experts: 6,
                 top_k_experts: 2,
                 expert_intermediate_size: 5504,
-                quantization: QFormat::F16,
-                use_half_precision: true,
+                quantization: QFormat::Q8 { group_size: 128 },
+                use_half_precision: false,
+                shard: ShardConfig::default(),
             },
             ModelTier::Pro => Self {
                 vocab_size: 100000,
@@ -201,8 +270,9 @@ impl TransformerConfig {
                 num_experts: 4,
                 top_k_experts: 2,
                 expert_intermediate_size: 4320,
-                quantization: QFormat::F16,
-                use_half_precision: true,
+                quantization: QFormat::Q8 { group_size: 128 },
+                use_half_precision: false,
+                shard: ShardConfig::default(),
             },
             ModelTier::Core => Self {
                 vocab_size: 100000,
@@ -218,8 +288,9 @@ impl TransformerConfig {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
-                quantization: QFormat::F16,
-                use_half_precision: true,
+                quantization: QFormat::Q8 { group_size: 128 },
+                use_half_precision: false,
+                shard: ShardConfig::default(),
             },
             ModelTier::Edge => Self {
                 vocab_size: 100000,
@@ -235,8 +306,9 @@ impl TransformerConfig {
                 num_experts: 0,
                 top_k_experts: 0,
                 expert_intermediate_size: 0,
-                quantization: QFormat::F16,
-                use_half_precision: true,
+                quantization: QFormat::Q8 { group_size: 128 },
+                use_half_precision: false,
+                shard: ShardConfig::default(),
             },
         }
     }

@@ -5373,7 +5373,7 @@ fn elementwise_main(@builtin(global_invocation_id) id: vec3<u32>) {
             out[i] = exp(a_val);
         }
         case 6: { // Ln
-            out[i] = log(a_val);
+            out[i] = log(max(a_val, 1.0e-38));
         }
         case 7: { // Powf
             out[i] = pow(a_val, b_val);
@@ -5643,9 +5643,11 @@ fn softmax_main(
     workgroupBarrier();
 
     // === Pass 3: normalize ===
+    var norm_sum = row_sum;
+    if (norm_sum == 0.0) { norm_sum = 1.0; }
     i = lid.x;
     while (i < dim) {
-        output[base + i] = output[base + i] / row_sum;
+        output[base + i] = output[base + i] / norm_sum;
         i += BLOCK_SIZE;
     }
 }
@@ -5797,7 +5799,7 @@ fn rms_norm_bwd_main(
 
 const CROSS_ENTROPY_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> logits: array<f32>;
-@group(0) @binding(1) var<storage, read> targets: array<u32>;
+@group(0) @binding(1) var<storage, read> targets: array<f32>;
 @group(0) @binding(2) var<storage, read_write> losses: array<f32>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
 
@@ -5817,7 +5819,7 @@ fn cross_entropy_main(
     if (row >= batch) { return; }
 
     let base = row * num_classes;
-    let label = targets[row];
+    let label = u32(targets[row]);
 
     // === Pass 1: find row max (stable) ===
     var mx: f32 = -3.402823e+38;
@@ -5875,7 +5877,7 @@ fn cross_entropy_main(
 const CROSS_ENTROPY_BACKWARD_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> softmax: array<f32>;
 @group(0) @binding(1) var<storage, read> grad: array<f32>;
-@group(0) @binding(2) var<storage, read> targets: array<u32>;
+@group(0) @binding(2) var<storage, read> targets: array<f32>;
 @group(0) @binding(3) var<storage, read_write> d_logits: array<f32>;
 @group(0) @binding(4) var<uniform> cfg: vec4<u32>;
 
@@ -5890,7 +5892,7 @@ fn cross_entropy_bwd_main(
     if (idx >= total) { return; }
     let b = idx / classes;
     let c = idx % classes;
-    let t = targets[b];
+    let t = u32(targets[b]);
     let p = softmax[idx];
     let g = grad[b];
     d_logits[idx] = g * (p - select(0.0, 1.0, c == t));
@@ -5900,7 +5902,7 @@ fn cross_entropy_bwd_main(
 // ── Phase 2.4: Embedding (gather) ────────────────────────────────────────────
 
 const EMBEDDING_WGSL: &str = r#"
-@group(0) @binding(0) var<storage, read> ids: array<u32>;
+@group(0) @binding(0) var<storage, read> ids: array<f32>;
 @group(0) @binding(1) var<storage, read> weight: array<f32>;
 @group(0) @binding(2) var<storage, read_write> output: array<f32>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
@@ -5920,13 +5922,13 @@ fn embedding_main(
 
     let d = idx % dim;
     let s = idx / dim;
-    let token_id = ids[s];
+    let token_id = u32(ids[s]);
     output[idx] = weight[token_id * dim + d];
 }
 "#;
 
 const EMBEDDING_BACKWARD_WGSL: &str = r#"
-@group(0) @binding(0) var<storage, read> ids: array<u32>;
+@group(0) @binding(0) var<storage, read> ids: array<f32>;
 @group(0) @binding(1) var<storage, read> grad: array<f32>;
 @group(0) @binding(2) var<storage, read_write> d_weight: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
@@ -5945,7 +5947,7 @@ fn embedding_backward_main(
 
     let d = idx % dim;
     let s = idx / dim;
-    let token_id = ids[s];
+    let token_id = u32(ids[s]);
     if (token_id < vocab_size) {
         let g = grad[idx];
         // inline atomic_add_f32 (wgpu 29.x forbids ptr<storage> as function arg)
@@ -6695,9 +6697,11 @@ fn causal_softmax_main(
     workgroupBarrier();
 
     // Pass 3: normalize (only for positions <= col)
+    var norm_sum = row_sum;
+    if (norm_sum == 0.0) { norm_sum = 1.0; }
     i = lid.x;
     while (i < causal_end) {
-        output[base + i] = output[base + i] / row_sum;
+        output[base + i] = output[base + i] / norm_sum;
         i += BLOCK_SIZE;
     }
     // Zero out positions beyond causal_end

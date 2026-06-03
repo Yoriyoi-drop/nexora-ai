@@ -87,8 +87,22 @@ impl ImageEncoder {
         let num_patches_x = input.width / patch_size;
         let channels = input.channels.max(3);
 
-        // Normalize image bytes to float values
-        let pixels: Vec<f32> = input.data.iter().map(|&b| b as f32 / 255.0).collect();
+        // Normalize image bytes to float values with CLIP mean/std
+        let raw: Vec<f32> = input.data.iter().map(|&b| b as f32 / 255.0).collect();
+        let mean = [0.48145466, 0.4578275, 0.40821073];
+        let std = [0.26862954, 0.26130258, 0.27577711];
+        let pixels: Vec<f32> = raw
+            .chunks(channels)
+            .flat_map(|pixel| {
+                pixel.iter().enumerate().map(|(c, &v)| {
+                    if c < 3 {
+                        (v - mean[c]) / std[c]
+                    } else {
+                        v
+                    }
+                })
+            })
+            .collect();
 
         let mut data = vec![0.0f32; batch_size * seq_len * embed_dim];
 
