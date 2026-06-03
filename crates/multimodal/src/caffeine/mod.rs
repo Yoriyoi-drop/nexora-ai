@@ -275,6 +275,7 @@ impl Caffeine {
                             nexora_has_moe_ffn::types::RoutingDecision {
                                 expert_id,
                                 confidence,
+                                domain: None,
                             }
                         })
                         .collect();

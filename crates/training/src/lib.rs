@@ -567,11 +567,9 @@ impl Trainer {
 
     pub fn sync_weights(&mut self) -> anyhow::Result<()> {
         if let Some(ref trainable) = self.trainable {
-            let mut model_clone = self.model.clone();
             trainable
-                .sync_to_inference(&mut model_clone)
+                .sync_to_inference(&mut self.model)
                 .map_err(|e| anyhow::anyhow!("sync_to_inference failed: {}", e))?;
-            self.model = model_clone;
         }
         Ok(())
     }
@@ -688,6 +686,13 @@ impl Trainer {
                 }
             }
         }
+    }
+
+    /// Take ownership of the trained model, replacing it with a fresh empty one.
+    /// Eliminates the need for an expensive deep clone when extracting the model.
+    pub fn take_model(&mut self) -> CausalLM {
+        let config = self.model.config.clone();
+        std::mem::replace(&mut self.model, CausalLM::new(config))
     }
 }
 

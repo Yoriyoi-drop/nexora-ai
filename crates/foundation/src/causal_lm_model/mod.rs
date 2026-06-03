@@ -451,7 +451,7 @@ impl CausalLmModel {
         }
 
         trainer.sync_weights();
-        let trained_model = trainer.model.clone();
+        let trained_model = trainer.take_model();
         let final_loss = if trainer.step > 0 {
             trainer.avg_loss()
         } else {

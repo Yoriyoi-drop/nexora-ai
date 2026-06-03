@@ -7,8 +7,8 @@ use crate::Tokenizer;
 use anyhow::Result;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 /// Token pair for vocabulary
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,19 +58,19 @@ impl Default for TokenizerConfig {
 #[derive(Debug, Clone)]
 pub struct TokenizerCore {
     config: TokenizerConfig,
-    vocab: HashMap<String, u32>,
-    reverse_vocab: HashMap<u32, String>,
+    vocab: FxHashMap<String, u32>,
+    reverse_vocab: FxHashMap<u32, String>,
     merges: Vec<MergeRule>,
     special_tokens: SpecialTokens,
     next_id: u32,
-    frequencies: HashMap<u32, u64>,
+    frequencies: FxHashMap<u32, u64>,
 }
 
 impl TokenizerCore {
     /// Create a new tokenizer core
     pub fn new(config: TokenizerConfig) -> Self {
-        let mut vocab = HashMap::new();
-        let mut reverse_vocab = HashMap::new();
+        let mut vocab = FxHashMap::default();
+        let mut reverse_vocab = FxHashMap::default();
         let special_tokens = SpecialTokens::new();
 
         // Initialize with special tokens if enabled
@@ -92,7 +92,7 @@ impl TokenizerCore {
             merges: Vec::new(),
             special_tokens,
             next_id,
-            frequencies: HashMap::new(),
+            frequencies: FxHashMap::default(),
         }
     }
 
@@ -224,7 +224,7 @@ impl TokenizerCore {
             return Ok(tokens.to_vec());
         }
 
-        let merge_map: HashMap<(u32, u32), u32> = self
+        let merge_map: FxHashMap<(u32, u32), u32> = self
             .merges
             .iter()
             .map(|m| ((m.left, m.right), m.new_id))
@@ -426,11 +426,11 @@ pub struct VocabStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TokenizerData {
     config: TokenizerConfig,
-    vocab: HashMap<String, u32>,
+    vocab: FxHashMap<String, u32>,
     merges: Vec<MergeRule>,
     next_id: u32,
     #[serde(default)]
-    frequencies: HashMap<u32, u64>,
+    frequencies: FxHashMap<u32, u64>,
 }
 
 impl Default for TokenizerCore {

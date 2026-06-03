@@ -80,6 +80,7 @@ pub mod kv_cache;
 pub mod monitoring;
 pub mod resource;
 pub mod scheduler;
+pub mod vram_budget;
 pub mod scheduler_trait;
 pub mod streaming;
 
@@ -95,6 +96,7 @@ pub use kv_cache::*;
 pub use monitoring::*;
 pub use resource::*;
 pub use scheduler::*;
+pub use vram_budget::*;
 pub use scheduler_trait::Scheduler;
 pub use streaming::*;
 pub use cluster::*;
@@ -109,11 +111,6 @@ fn _runtime_core() {
 // Nyata: monitoring untuk scheduler observability
 fn _runtime_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
-}
-
-// Nyata: isolation untuk runtime process isolation
-fn _runtime_isolation_check() -> nexora_isolation::IsolationOrchestrator {
-    nexora_isolation::IsolationOrchestrator::new(nexora_isolation::config::IsolationConfig::default())
 }
 
 // Nyata: utils untuk time formatting dan performance

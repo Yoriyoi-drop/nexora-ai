@@ -27,6 +27,10 @@ pub struct Expert {
     fc1_bias: Option<Vec<f32>>,
     fc2_weights: Option<Vec<Vec<f32>>>,
     fc2_bias: Option<Vec<f32>>,
+    /// Expert specialization domain (set by ExpertPoolConfig).
+    pub domain: Option<String>,
+    /// Model tier this expert belongs to ("shared", "ultra", "apex", etc.).
+    pub tier: Option<String>,
     #[cfg(feature = "gpu")]
     fc1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
@@ -66,6 +70,8 @@ impl Expert {
             fc1_bias: None,
             fc2_weights: None,
             fc2_bias: None,
+            domain: None,
+            tier: None,
             #[cfg(feature = "gpu")]
             fc1_gpu: std::sync::OnceLock::new(),
             #[cfg(feature = "gpu")]

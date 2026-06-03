@@ -22,6 +22,7 @@ pub mod omnis;
 pub mod spectra;
 pub mod swift;
 pub mod vortex;
+pub mod specialist;
 
 use std::sync::Arc;
 use nexora_shared::model_identity::NxrModelId;
@@ -53,13 +54,6 @@ fn _models_quantize(weights: &ndarray::Array2<f32>, dtype: nexora_quantization::
 // Nyata: database untuk model registry persistence
 fn _models_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
-}
-
-// Nyata: isolation untuk model-level security check
-fn _models_isolation_check(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
-    let config = nexora_isolation::config::IsolationConfig::default();
-    let orch = nexora_isolation::IsolationOrchestrator::new(config);
-    orch.pre_inference_check(agent_id)
 }
 
 // Nyata: monitoring untuk model serving metrics

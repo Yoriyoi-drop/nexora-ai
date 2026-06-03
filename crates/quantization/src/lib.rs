@@ -5,17 +5,19 @@
 //! - `QuantizedTensor` — packed weight storage with scales
 //! - Quantize/dequantize for all formats (CPU, storage-only)
 //! - `quantize_linear` / `dequantize_linear` high-level pipeline
+//! - `gemm` — native INT4/INT8 matmul (no dequant-to-fp32)
 //!
-//! WARNING: CPU quantization is storage-only — all computation dequantizes to f32.
-//! For GPU inference, `nexora-autograd` provides actual INT8/F16 matmul kernels.
+//! WARNING: CPU quantization was storage-only — now `gemm::matmul_int4` gives
+//! real quantized compute. GPU can also consume Q4 directly.
+
+pub mod gemm;
 
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
-/// Set to `true` to make it impossible to ignore: this crate stores weights in
-/// quantized format but converts back to FP32 for every CPU operation. No speed gain.
-/// For GPU inference, `nexora-autograd` provides actual quantized matmul kernels.
-pub const QUANTIZATION_IS_STORAGE_ONLY: bool = true;
+/// Set to `false` — INT4/INT8 weights now compute directly via `gemm` module
+/// without full dequantization to FP32. GPU kernels also consume Q4 directly.
+pub const QUANTIZATION_IS_STORAGE_ONLY: bool = false;
 
 static QUANT_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

@@ -1,4 +1,5 @@
 use ndarray::{Array1, Array2};
+use serde::{Deserialize, Serialize};
 
 pub fn xavier_init(rows: usize, cols: usize) -> Array2<f32> {
     let scale = (1.0 / rows as f32).sqrt();
@@ -28,6 +29,18 @@ pub fn softmax(x: &Array1<f32>) -> Array1<f32> {
     Array1::from_iter(exps.into_iter().map(|e| e / sum))
 }
 
+/// Validate embedding table dimension matches expected hidden_size at runtime.
+/// Logs a warning if mismatch detected (helps catch config drift).
+pub fn validate_embedding_dim(embed_table: &Array2<f32>, expected_hidden: usize, model_name: &str) {
+    let actual_hidden = embed_table.shape()[1];
+    if actual_hidden != expected_hidden {
+        tracing::warn!(
+            "{}: embedding dim mismatch — config says {}, CausalLM has {}. Using runtime dim {}.",
+            model_name, expected_hidden, actual_hidden, actual_hidden
+        );
+    }
+}
+
 pub fn embed_average(embed_table: &Array2<f32>, token_ids: &[u32]) -> Array1<f32> {
     let embed_dim = embed_table.shape()[1];
     let vocab = embed_table.shape()[0];
@@ -48,6 +61,172 @@ pub fn embed_average(embed_table: &Array2<f32>, token_ids: &[u32]) -> Array1<f32
         avg.mapv_inplace(|v| v / count as f32);
     }
     avg
+}
+
+// ─── Classifier Training Infrastructure ───────────────────────────────
+
+/// Serializable weights for a 2-layer MLP classifier (w1, b1, w2, b2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassifierWeights {
+    pub w1_rows: usize,
+    pub w1_cols: usize,
+    pub w1_data: Vec<f32>,
+    pub b1_data: Vec<f32>,
+    pub w2_rows: usize,
+    pub w2_cols: usize,
+    pub w2_data: Vec<f32>,
+    pub b2_data: Vec<f32>,
+}
+
+impl ClassifierWeights {
+    pub fn from_arrays(w1: &Array2<f32>, b1: &Array1<f32>, w2: &Array2<f32>, b2: &Array1<f32>) -> Self {
+        Self {
+            w1_rows: w1.shape()[0],
+            w1_cols: w1.shape()[1],
+            w1_data: w1.iter().copied().collect(),
+            b1_data: b1.iter().copied().collect(),
+            w2_rows: w2.shape()[0],
+            w2_cols: w2.shape()[1],
+            w2_data: w2.iter().copied().collect(),
+            b2_data: b2.iter().copied().collect(),
+        }
+    }
+
+    pub fn to_w1(&self) -> Array2<f32> {
+        Array2::from_shape_vec((self.w1_rows, self.w1_cols), self.w1_data.clone()).unwrap()
+    }
+    pub fn to_b1(&self) -> Array1<f32> {
+        Array1::from_vec(self.b1_data.clone())
+    }
+    pub fn to_w2(&self) -> Array2<f32> {
+        Array2::from_shape_vec((self.w2_rows, self.w2_cols), self.w2_data.clone()).unwrap()
+    }
+    pub fn to_b2(&self) -> Array1<f32> {
+        Array1::from_vec(self.b2_data.clone())
+    }
+}
+
+/// Save classifier weights to a JSON file.
+pub fn save_classifier_weights(path: &str, w1: &Array2<f32>, b1: &Array1<f32>, w2: &Array2<f32>, b2: &Array1<f32>) -> std::io::Result<()> {
+    let cw = ClassifierWeights::from_arrays(w1, b1, w2, b2);
+    let json = serde_json::to_string(&cw)?;
+    std::fs::write(path, json)
+}
+
+/// Load classifier weights from a JSON file.
+pub fn load_classifier_weights(path: &str) -> std::io::Result<ClassifierWeights> {
+    let json = std::fs::read_to_string(path)?;
+    serde_json::from_str(&json).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// Simple SGD training for a 2-layer MLP classifier (cross-entropy loss).
+/// Returns the final average loss over all training steps.
+pub fn train_classifier_sgd(
+    w1: &mut Array2<f32>,
+    b1: &mut Array1<f32>,
+    w2: &mut Array2<f32>,
+    b2: &mut Array1<f32>,
+    inputs: &Array2<f32>,
+    labels: &Array2<f32>,
+    lr: f32,
+    epochs: usize,
+) -> f32 {
+    let n = inputs.shape()[0];
+    if n == 0 {
+        return 0.0;
+    }
+
+    let embed_dim = w1.shape()[0];
+    let hidden = w1.shape()[1];
+    let num_classes = w2.shape()[1];
+
+    let mut total_loss = 0.0;
+
+    for epoch in 0..epochs {
+        let mut epoch_loss = 0.0;
+
+        for i in 0..n {
+            // Owned copies for this example
+            let mut x_vec = vec![0.0f32; embed_dim];
+            for j in 0..embed_dim {
+                x_vec[j] = inputs[[i, j]];
+            }
+            let x = Array1::from_vec(x_vec);
+
+            let mut t_vec = vec![0.0f32; num_classes];
+            for j in 0..num_classes {
+                t_vec[j] = labels[[i, j]];
+            }
+            let target = Array1::from_vec(t_vec);
+
+            // Forward: pre_h = x @ w1 + b1, h = gelu(pre_h), logits = h @ w2 + b2
+            let pre_h = x.dot(w1) + &*b1;
+            let h = gelu(&pre_h);
+            let logits = h.dot(w2) + &*b2;
+
+            // Softmax + cross-entropy loss
+            let probs = softmax(&logits);
+            let loss: f32 = target.iter().zip(probs.iter())
+                .map(|(t, p)| if *t > 0.5 { -p.ln().max(-20.0) } else { 0.0 })
+                .sum();
+            epoch_loss += loss;
+
+            // Backward: dL/dlogits = probs - target
+            let d_logits: Array1<f32> = probs - target;
+
+            // w2 update: w2 -= lr * outer(h, d_logits)
+            for row in 0..hidden {
+                for col in 0..num_classes {
+                    w2[[row, col]] -= lr * h[row] * d_logits[col];
+                }
+            }
+            // b2 update
+            for j in 0..num_classes {
+                b2[j] -= lr * d_logits[j];
+            }
+
+            // dL/dh = d_logits @ w2^T
+            let mut d_h = Array1::zeros(hidden);
+            for k in 0..hidden {
+                let mut s = 0.0;
+                for j in 0..num_classes {
+                    s += d_logits[j] * w2[[k, j]];
+                }
+                d_h[k] = s;
+            }
+
+            // dL/d pre_h = d_h * gelu'(pre_h)
+            for k in 0..hidden {
+                d_h[k] *= gelu_derivative(pre_h[k]);
+            }
+
+            // w1 update: w1 -= lr * outer(x, d_h)
+            for row in 0..embed_dim {
+                for col in 0..hidden {
+                    w1[[row, col]] -= lr * x[row] * d_h[col];
+                }
+            }
+            // b1 update
+            for j in 0..hidden {
+                b1[j] -= lr * d_h[j];
+            }
+        }
+
+        let avg_loss = epoch_loss / n as f32;
+        total_loss = avg_loss;
+
+        if epoch % 10 == 0 && epoch > 0 {
+            tracing::info!("Classifier train epoch {}: avg loss = {:.6}", epoch, avg_loss);
+        }
+    }
+
+    total_loss
+}
+
+fn gelu_derivative(x: f32) -> f32 {
+    let c = 0.7978845608028654;
+    let tanh_val = (x * c * (1.0 + 0.044715 * x * x)).tanh();
+    0.5 * (1.0 + tanh_val + x * (1.0 - tanh_val * tanh_val) * c * (1.0 + 3.0 * 0.044715 * x * x))
 }
 
 #[cfg(test)]

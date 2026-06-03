@@ -98,14 +98,8 @@ impl From<std::io::Error> for AgentError {
 pub type Result<T> = std::result::Result<T, AgentError>;
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
-// Nyata: isolation check sebelum agent berkomunikasi
-fn _agent_isolation_check(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
-    let config = nexora_isolation::config::IsolationConfig::default();
-    let orch = nexora_isolation::IsolationOrchestrator::new(config);
-    orch.pre_inference_check(agent_id)
-}
-
-// Nyata: database untuk persist agent state
+// Isolation check sudah di-wire via QuarantineManager di AgentManager (CF-3)
+// Database untuk persist agent state
 fn _agent_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }

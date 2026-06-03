@@ -84,6 +84,21 @@ pub enum ModelType {
     Custom { name: String },
 }
 
+/// Expert domain allocation for tier-specific expert pools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpertDomainConfig {
+    /// Number of shared (general-purpose) experts
+    pub shared_count: usize,
+    /// Number of tier-specific experts
+    pub tier_specific_count: usize,
+    /// Domain names and their expert counts
+    pub domain_counts: Vec<(String, usize)>,
+    /// Bias toward shared experts during routing (0.0–1.0)
+    pub shared_bias: f64,
+    /// Minimum shared experts in top-k selection
+    pub min_shared_in_topk: usize,
+}
+
 /// MoE (Mixture of Experts) configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoeConfig {
@@ -97,6 +112,8 @@ pub struct MoeConfig {
     pub load_balancing_loss_coef: f32,
     /// Expert routing method
     pub routing_method: RoutingMethod,
+    /// Expert domain configuration (shared + tier-specific pools)
+    pub expert_domains: Option<ExpertDomainConfig>,
 }
 
 /// Expert routing method
@@ -634,18 +651,33 @@ impl NxrModelConfig {
                 config.architecture.max_sequence_length = 10_000_000;
                 config.architecture.model_type = ModelType::MixtureOfExperts;
                 config.architecture.moe_config = Some(MoeConfig {
-                    num_experts: 8,
-                    num_experts_per_token: 2,
-                    capacity_factor: 1.25,
+                    num_experts: 324,
+                    num_experts_per_token: 32,
+                    capacity_factor: 1.1,
                     load_balancing_loss_coef: 0.01,
                     routing_method: RoutingMethod::TopK,
+                    expert_domains: Some(ExpertDomainConfig {
+                        shared_count: 128,
+                        tier_specific_count: 64,
+                        shared_bias: 0.7,
+                        min_shared_in_topk: 16,
+                        domain_counts: vec![
+                            ("math".into(), 20), ("language".into(), 24),
+                            ("logic".into(), 12), ("science".into(), 16),
+                            ("code".into(), 20), ("factual".into(), 16),
+                            ("reasoning".into(), 12), ("general".into(), 8),
+                            ("adv_reasoning".into(), 16), ("multimodal".into(), 16),
+                            ("metalearning".into(), 8), ("deep_code".into(), 12),
+                            ("sci_discovery".into(), 12),
+                        ],
+                    }),
                 });
-                config.resources.memory.min_memory_gb = 64.0;
+                config.resources.memory.min_memory_gb = 32.0;
                 config.resources.compute.gpu_config = Some(GpuConfig {
-                    device_ids: vec![0, 1, 2, 3],
-                    memory_gb: 48.0,
+                    device_ids: vec![0, 1, 2, 3, 4, 5, 6, 7],
+                    memory_gb: 24.0,
                     mixed_precision: true,
-                    tensor_parallel_size: Some(4),
+                    tensor_parallel_size: Some(8),
                 });
             }
             crate::model_identity::NxrModelId::Swift => {
@@ -705,18 +737,32 @@ impl NxrModelConfig {
                 config.architecture.max_sequence_length = 2_000_000;
                 config.architecture.model_type = ModelType::MixtureOfExperts;
                 config.architecture.moe_config = Some(MoeConfig {
-                    num_experts: 6,
-                    num_experts_per_token: 2,
-                    capacity_factor: 1.2,
+                    num_experts: 324,
+                    num_experts_per_token: 32,
+                    capacity_factor: 1.1,
                     load_balancing_loss_coef: 0.01,
                     routing_method: RoutingMethod::TopK,
+                    expert_domains: Some(ExpertDomainConfig {
+                        shared_count: 128,
+                        tier_specific_count: 48,
+                        shared_bias: 0.7,
+                        min_shared_in_topk: 16,
+                        domain_counts: vec![
+                            ("math".into(), 20), ("language".into(), 24),
+                            ("logic".into(), 12), ("science".into(), 16),
+                            ("code".into(), 20), ("factual".into(), 16),
+                            ("reasoning".into(), 12), ("general".into(), 8),
+                            ("code_review".into(), 16), ("emotional".into(), 12),
+                            ("task_planning".into(), 12), ("system_design".into(), 8),
+                        ],
+                    }),
                 });
-                config.resources.memory.min_memory_gb = 48.0;
+                config.resources.memory.min_memory_gb = 24.0;
                 config.resources.compute.gpu_config = Some(GpuConfig {
-                    device_ids: vec![0, 1, 2],
-                    memory_gb: 40.0,
+                    device_ids: vec![0, 1, 2, 3],
+                    memory_gb: 24.0,
                     mixed_precision: true,
-                    tensor_parallel_size: Some(3),
+                    tensor_parallel_size: Some(4),
                 });
                 config.sandbox = SandboxConfig {
                     enabled: true,
@@ -775,6 +821,7 @@ impl NxrModelConfig {
                     capacity_factor: 1.1,
                     load_balancing_loss_coef: 0.005,
                     routing_method: RoutingMethod::TopK,
+                    expert_domains: None,
                 });
                 config.resources.memory.min_memory_gb = 16.0;
                 config.resources.compute.gpu_config = Some(GpuConfig {

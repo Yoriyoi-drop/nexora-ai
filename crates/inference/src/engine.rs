@@ -282,6 +282,9 @@ impl InferenceEngine {
                 max_seq_len: c.max_seq_len,
                 f16_storage: config.paged_cache_f16,
                 q4_storage: config.paged_cache_q4,
+                enable_memory_tiering: true,
+                enable_cold_disk_offload: true,
+                ..Default::default()
             };
             info!(
                 "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}, q4={}",
@@ -304,6 +307,9 @@ impl InferenceEngine {
                 max_seq_len: 2048,
                 f16_storage: config.paged_cache_f16,
                 q4_storage: config.paged_cache_q4,
+                enable_memory_tiering: true,
+                enable_cold_disk_offload: true,
+                ..Default::default()
             }))))
         }
     }

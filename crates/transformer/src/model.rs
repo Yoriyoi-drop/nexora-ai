@@ -1551,8 +1551,10 @@ impl CausalLM {
             None => GpuTensor::zeros(&[batch_size, hidden_size])?,
         };
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_rope_gpu(&h, kv_cache, layer_idx, cos_gpu, sin_gpu)?;
+            h = block.forward_gpu_with_rope_gpu_collective(&h, kv_cache, layer_idx, cos_gpu, sin_gpu, collective)?;
         }
 
         h = self.norm.forward_gpu(&h)?;
@@ -1624,9 +1626,11 @@ impl CausalLM {
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_cache_precomputed_rope(
-                &h, cache, layer_idx, &cos_gpu, &sin_gpu,
+            h = block.forward_gpu_with_cache_precomputed_rope_collective(
+                &h, cache, layer_idx, &cos_gpu, &sin_gpu, collective,
             )?;
 
             // Run injectors (Echo-Net APSS, etc.) after each layer
@@ -1708,9 +1712,11 @@ impl CausalLM {
                 .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu_with_cache_precomputed_rope(
-                &h, cache, layer_idx, &cos_gpu, &sin_gpu,
+            h = block.forward_gpu_with_cache_precomputed_rope_collective(
+                &h, cache, layer_idx, &cos_gpu, &sin_gpu, collective,
             )?;
 
             for (target_layer, injector) in &self.injectors {
@@ -2242,9 +2248,11 @@ impl CausalLM {
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
+        let collective = self.collective.as_ref();
+
         // 3. Forward through all transformer blocks on GPU
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+            h = block.forward_gpu_collective(&h, kv_cache, layer_idx, &cos_slice, &sin_slice, collective)?;
 
             // Run injectors (Echo-Net APSS) after each layer
             for (target_layer, injector) in &self.injectors {
@@ -2320,8 +2328,10 @@ impl CausalLM {
         let pos = kv_cache.first().map(|e| e.seq_len()).unwrap_or(0);
         let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
-            h = block.forward_gpu(&h, kv_cache, layer_idx, &cos_slice, &sin_slice)?;
+            h = block.forward_gpu_collective(&h, kv_cache, layer_idx, &cos_slice, &sin_slice, collective)?;
 
             // Run injectors (Echo-Net APSS) after each layer
             for (target_layer, injector) in &self.injectors {
@@ -2414,6 +2424,8 @@ impl CausalLM {
         // ── 2. Forward through all blocks (batched QKV/FFN, per-sequence attention) ──
         let q_dim = n_heads * head_dim;
         let kv_dim_total = n_kv_heads * head_dim;
+
+        let collective = self.collective.as_ref();
 
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             let block_gw = &gw.block_weights[layer_idx];
@@ -2546,6 +2558,7 @@ impl CausalLM {
                 ctx.matmul(&attn_concat, &block_gw.wo_t)?
             };
             h = ctx.add(&h, &attn_proj)?;
+            h = super::block::collective_gpu_all_reduce(&h, collective)?;
 
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
@@ -2572,6 +2585,7 @@ impl CausalLM {
                 ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
             };
             h = ctx.add(&h, &ffn_out)?;
+            h = super::block::collective_gpu_all_reduce(&h, collective)?;
         }
 
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
@@ -3117,6 +3131,8 @@ impl CausalLM {
         let q_dim = n_heads * head_dim;
         let kv_dim_total = n_kv_heads * head_dim;
 
+        let collective = self.collective.as_ref();
+
         for (layer_idx, block) in self.blocks.iter().enumerate() {
             let block_gw = &gw.block_weights[layer_idx];
 
@@ -3200,6 +3216,7 @@ impl CausalLM {
                 ctx.matmul(&attn_concat, &block_gw.wo_t)?
             };
             h = ctx.add(&h, &attn_proj)?;
+            h = super::block::collective_gpu_all_reduce(&h, collective)?;
 
             // ── 2f. Batched FFN ──
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
@@ -3226,6 +3243,7 @@ impl CausalLM {
                 ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
             };
             h = ctx.add(&h, &ffn_out)?;
+            h = super::block::collective_gpu_all_reduce(&h, collective)?;
         }
 
         // ── 3. Final norm + batched LM head ──
@@ -3563,6 +3581,7 @@ mod tests {
             quantization: QFormat::F16,
             use_half_precision: true,
             shard: Default::default(),
+            use_domain_experts: false,
         }
     }
 

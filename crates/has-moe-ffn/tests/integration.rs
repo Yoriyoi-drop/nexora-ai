@@ -9,8 +9,9 @@ fn test_moe_end_to_end_small() {
         hidden_size: 8,
         intermediate_size: 16,
         use_dropout: false,
-        dropout_rate: 0.0,
-    };
+            dropout_rate: 0.0,
+            expert_pool: None,
+        };
     let mut moe = HasMoeFFN::new(config);
     moe.init_random();
     let input = Array2::from_shape_fn((2, 8), |(i, j)| (i * 8 + j) as f32 / 16.0);
@@ -30,7 +31,8 @@ fn test_moe_different_batch_sizes() {
         intermediate_size: 8,
         use_dropout: false,
         dropout_rate: 0.0,
-    };
+            expert_pool: None,
+        };
     let mut moe = HasMoeFFN::new(config);
     moe.init_random();
 
@@ -50,7 +52,8 @@ fn test_moe_with_single_expert_top1() {
         intermediate_size: 8,
         use_dropout: false,
         dropout_rate: 0.0,
-    };
+            expert_pool: None,
+        };
     let mut moe = HasMoeFFN::new(config);
     moe.init_random();
     let input = Array2::ones((3, 4));
@@ -67,7 +70,8 @@ fn test_moe_output_finite_all_values() {
         intermediate_size: 32,
         use_dropout: false,
         dropout_rate: 0.0,
-    };
+            expert_pool: None,
+        };
     let mut moe = HasMoeFFN::new(config);
     moe.init_random();
     let input = Array2::from_shape_fn((4, 16), |(i, j)| (i * 16 + j) as f32 / 64.0);
@@ -86,6 +90,7 @@ fn test_router_softmax_consistency() {
         intermediate_size: 16,
         use_dropout: false,
         dropout_rate: 0.0,
+            expert_pool: None,
     };
     let mut moe = HasMoeFFN::new(config);
     moe.init_random();
@@ -129,7 +134,8 @@ fn test_moe_config_access() {
     let config = HasMoeFFNConfig::default();
     let moe = HasMoeFFN::new(config);
     let cfg = moe.config();
-    assert_eq!(cfg.num_experts, 8);
+    assert_eq!(cfg.num_experts, 324);
+    assert_eq!(cfg.top_k, 32);
     assert_eq!(cfg.hidden_size, 768);
     // router/expert weights start uninitialized
 }

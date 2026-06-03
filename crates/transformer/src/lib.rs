@@ -2,6 +2,7 @@ pub mod backbone_registry;
 pub mod block;
 pub mod kv_cache_compression;
 pub mod lazy_weights;
+pub mod nccl_collective;
 pub mod sharded;
 pub mod config;
 pub mod gqa;

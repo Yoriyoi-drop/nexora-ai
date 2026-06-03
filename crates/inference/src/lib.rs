@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub mod batching;
 pub mod beam_search;
 pub mod blaa_integration;
+pub mod cold_storage;
 pub mod continuous_batching;
 pub mod decoding;
 pub mod degradation;
@@ -316,13 +317,6 @@ fn _check_quantized(dtype: nexora_quantization::QuantizedDtype) -> usize {
 // Nyata: monitoring system for inference observability
 fn _init_inference_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
-}
-
-// Nyata: isolation check sebelum inference
-fn _pre_inference_isolation(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
-    let config = nexora_isolation::config::IsolationConfig::default();
-    let orch = nexora_isolation::IsolationOrchestrator::new(config);
-    orch.pre_inference_check(agent_id)
 }
 
 // Nyata: validasi tensor shape untuk input inference

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -6,8 +6,8 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Clone)]
 pub struct MiniTokenizer {
     pub vocab_size: usize,
-    pub bpe_token_to_id: HashMap<String, u32>,
-    pub bpe_id_to_token: HashMap<u32, String>,
+    pub bpe_token_to_id: FxHashMap<String, u32>,
+    pub bpe_id_to_token: FxHashMap<u32, String>,
     pub merges: Vec<(String, String)>,
 }
 
@@ -15,8 +15,8 @@ impl MiniTokenizer {
     pub fn new(vocab_size: usize) -> Self {
         Self {
             vocab_size,
-            bpe_token_to_id: HashMap::new(),
-            bpe_id_to_token: HashMap::new(),
+            bpe_token_to_id: FxHashMap::default(),
+            bpe_id_to_token: FxHashMap::default(),
             merges: Vec::new(),
         }
     }
@@ -63,11 +63,11 @@ impl MiniTokenizer {
     pub fn train_bpe(&mut self, texts: &[String], num_merges: usize) {
         use rayon::prelude::*;
 
-        let mut pair_counts: HashMap<(String, String), usize> = HashMap::new();
-        let chunks: Vec<HashMap<(String, String), usize>> = texts
+        let mut pair_counts: FxHashMap<(String, String), usize> = FxHashMap::default();
+        let chunks: Vec<FxHashMap<(String, String), usize>> = texts
             .par_iter()
             .map(|text| {
-                let mut local: HashMap<(String, String), usize> = HashMap::new();
+                let mut local: FxHashMap<(String, String), usize> = FxHashMap::default();
                 let graphemes: Vec<String> =
                     text.graphemes(true).map(|g| g.to_string()).collect();
                 for pair in graphemes.windows(2) {

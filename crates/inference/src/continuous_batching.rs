@@ -114,8 +114,8 @@ impl Default for ContinuousBatchingConfig {
             enable_prefix_sharing: true,
             use_paged_cache: true,
             paged_block_size: 0,
-            paged_cache_f16: true,
-            paged_cache_q4: false,
+            paged_cache_f16: false,
+            paged_cache_q4: true,
             paged_max_blocks: 0,
             paged_max_memory_bytes: 0,
             paged_eviction_policy: crate::paged_cache::EvictionPolicy::LRU,
@@ -338,6 +338,9 @@ where
                 max_seq_len,
                 f16_storage: self.config.paged_cache_f16,
                 q4_storage: self.config.paged_cache_q4,
+                enable_memory_tiering: true,
+                enable_cold_disk_offload: true,
+                ..Default::default()
             };
             self.shared_paged = Some(Arc::new(std::sync::Mutex::new(
                 crate::paged_cache::PagedKVCache::new(paged_config),

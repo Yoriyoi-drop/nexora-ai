@@ -294,11 +294,23 @@ impl NexoraAI {
         let gpu_ok = false;
 
         // Step 1: Initialize foundation models — all 10 NXR models get real CausalLM instances
-        nexora_foundation::init::initialize_foundation_models()
-            .await
-            .map_err(|e| {
-                NexoraError::system(format!("Failed to initialize foundation models: {}", e))
-            })?;
+        // Standby models may load from checkpoints if configured.
+        {
+            let ckpt_map = config.models.resolved_checkpoints();
+            if ckpt_map.is_empty() {
+                nexora_foundation::init::initialize_foundation_models()
+                    .await
+                    .map_err(|e| {
+                        NexoraError::system(format!("Failed to initialize foundation models: {}", e))
+                    })?;
+            } else {
+                nexora_foundation::init::initialize_foundation_models_with_checkpoints(ckpt_map)
+                    .await
+                    .map_err(|e| {
+                        NexoraError::system(format!("Failed to initialize foundation models: {}", e))
+                    })?;
+            }
+        }
 
         // Step 1b: Initialize model-internal agents — all 10 NXR model agent systems go live
         nexora_foundation::model_agent_manager::init_model_agents().await;

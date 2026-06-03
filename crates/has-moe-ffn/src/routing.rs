@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::warn;
 
+use crate::domains::ExpertPoolConfig;
+use crate::types::DomainRoutingConfig;
+
 /// Router configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterConfig {
@@ -17,20 +20,26 @@ pub struct RouterConfig {
     pub use_capped_routing: bool,
     pub use_load_balancing_loss: bool,
     pub use_expert_choice: bool,
+    /// Domain-aware routing config (None = flat routing).
+    pub domain_routing: Option<DomainRoutingConfig>,
+    /// Expert pool config for domain lookups (None = no domains).
+    pub pool_config: Option<ExpertPoolConfig>,
 }
 
 impl Default for RouterConfig {
     fn default() -> Self {
         Self {
             hidden_size: 768,
-            num_experts: 8,
-            top_k: 2,
-            capacity_factor: 1.25,
+            num_experts: 324,
+            top_k: 32,
+            capacity_factor: 1.1,
             z_loss_coefficient: 1e-4,
             importance_loss_coefficient: 0.01,
             use_capped_routing: true,
             use_load_balancing_loss: true,
             use_expert_choice: false,
+            domain_routing: Some(DomainRoutingConfig::default()),
+            pool_config: Some(ExpertPoolConfig::default()),
         }
     }
 }
@@ -61,7 +70,7 @@ impl RoutingStats {
     }
 }
 
-/// Router for expert selection
+/// Router for expert selection — supports domain-aware routing.
 pub struct Router {
     config: RouterConfig,
     routing_stats: HashMap<usize, usize>,
@@ -84,23 +93,14 @@ impl Router {
             ..Default::default()
         };
 
-        Self {
-            expert_capacities: vec![0; num_experts],
-            config,
-            routing_stats: HashMap::new(),
-            router_weights: None,
-            last_aux_loss: 0.0,
-            #[cfg(feature = "gpu")]
-            router_weights_gpu: std::sync::OnceLock::new(),
-            #[cfg(feature = "cuda")]
-            router_weights_cuda: std::sync::OnceLock::new(),
-        }
+        Self::with_config(config)
     }
 
     /// Create router with custom config
     pub fn with_config(config: RouterConfig) -> Self {
+        let num_experts = config.num_experts;
         Self {
-            expert_capacities: vec![0; config.num_experts],
+            expert_capacities: vec![0; num_experts],
             config,
             routing_stats: HashMap::new(),
             router_weights: None,
@@ -502,6 +502,90 @@ impl Router {
             .collect();
 
         Ok((top_experts, softmax_weights))
+    }
+
+    /// Domain-aware single token routing.
+    /// Applies domain bias to gating weights before top-k selection,
+    /// ensuring a mix of shared and tier-specific experts.
+    pub fn route_single_domain_aware(
+        &self,
+        input: &ndarray::Array1<f32>,
+        tier: &str,
+    ) -> Result<(Vec<usize>, Vec<f32>), String> {
+        let input_slice = input.as_slice().unwrap_or(&[]);
+        let num_experts = self.config.num_experts;
+
+        let mut gating_weights = Vec::with_capacity(num_experts);
+        for j in 0..num_experts {
+            let weight = self.compute_gating_weight(input_slice, j);
+            gating_weights.push(weight);
+        }
+
+        let mut softmax_weights = self.softmax(&gating_weights);
+
+        // Apply domain bias if configured
+        if let Some(ref pool) = self.config.pool_config {
+            if let Some(ref dr) = self.config.domain_routing {
+                if dr.use_domain_bias {
+                    for (i, w) in softmax_weights.iter_mut().enumerate() {
+                        if let Some(domain) = pool.domain_for_expert(i) {
+                            let bias = pool.domain_bias(domain) as f32;
+                            *w *= bias;
+                        }
+                    }
+                    // Re-normalize
+                    let sum: f32 = softmax_weights.iter().sum();
+                    if sum > 0.0 {
+                        for w in &mut softmax_weights {
+                            *w /= sum;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Top-k selection with tier quota
+        let mut expert_scores: Vec<(usize, f32)> = softmax_weights
+            .iter()
+            .enumerate()
+            .map(|(i, &score)| (i, score))
+            .collect();
+
+        let k = self.config.top_k.min(expert_scores.len());
+        if k > 1 {
+            expert_scores.select_nth_unstable_by(k - 1, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+
+        let mut selected: Vec<usize> = expert_scores.iter().take(k).map(|(idx, _)| *idx).collect();
+
+        // Enforce tier quota: ensure enough tier-specific experts are selected
+        if let Some(ref pool) = self.config.pool_config {
+            if let Some(ref dr) = self.config.domain_routing {
+                let tier_specific = pool.experts_in_tier(tier);
+                let selected_tier_count = selected.iter().filter(|e| tier_specific.contains(e)).count();
+                if selected_tier_count < dr.tier_quota {
+                    // Replace lowest-scoring shared experts with top tier-specific ones not yet selected
+                    let shared = pool.shared_experts();
+                    let mut candidates: Vec<(usize, f32)> = tier_specific.iter()
+                        .filter(|e| !selected.contains(e))
+                        .map(|&e| (e, softmax_weights[e]))
+                        .collect();
+                    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+                    let needed = dr.tier_quota - selected_tier_count;
+                    for &(candidate, _) in candidates.iter().take(needed) {
+                        // Find worst shared expert to replace
+                        if let Some(pos) = selected.iter().position(|e| shared.contains(e)) {
+                            selected[pos] = candidate;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((selected, softmax_weights))
     }
 
     /// Compute load balancing loss

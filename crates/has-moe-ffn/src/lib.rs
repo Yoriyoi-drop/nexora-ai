@@ -1,11 +1,13 @@
 pub mod attention;
 pub mod config;
+pub mod domains;
 pub mod error;
 pub mod experts;
 /// Heterogeneous Attention-based Sparse MoE Feed-Forward Network (HAS-MoE-FFN)
 ///
 /// Advanced sparse mixture of experts implementation for transformer models
 pub mod layers;
+pub mod offload;
 pub mod routing;
 pub mod types;
 
@@ -15,9 +17,11 @@ pub use config::*;
 pub use error::*;
 pub use experts::*;
 pub use layers::*;
+pub use offload::*;
 pub use routing::*;
 pub use types::*;
 
+use crate::domains::{ExpertAssignment, ExpertPoolConfig};
 use serde::{Deserialize, Serialize};
 
 /// Main HAS-MoE-FFN configuration
@@ -29,17 +33,21 @@ pub struct HasMoeFFNConfig {
     pub intermediate_size: usize,
     pub use_dropout: bool,
     pub dropout_rate: f32,
+    /// Expert domain pool configuration (shared + tier-specific).
+    /// When set, experts are initialized with domain awareness.
+    pub expert_pool: Option<ExpertPoolConfig>,
 }
 
 impl Default for HasMoeFFNConfig {
     fn default() -> Self {
         Self {
-            num_experts: 8,
-            top_k: 2,
+            num_experts: 324,
+            top_k: 32,
             hidden_size: 768,
             intermediate_size: 3072,
             use_dropout: true,
             dropout_rate: 0.1,
+            expert_pool: Some(ExpertPoolConfig::default()),
         }
     }
 }
@@ -49,28 +57,65 @@ pub struct HasMoeFFN {
     config: HasMoeFFNConfig,
     experts: Vec<crate::experts::Expert>,
     router: crate::routing::Router,
+    /// Expert domain assignments (index → domain).
+    domain_assignments: Option<Vec<ExpertAssignment>>,
+    /// Expert pool configuration for domain-aware routing.
+    pool_config: Option<ExpertPoolConfig>,
 }
 
 impl HasMoeFFN {
     /// Create new HAS-MoE-FFN
     pub fn new(config: HasMoeFFNConfig) -> Self {
-        let mut experts = Vec::with_capacity(config.num_experts);
-        for _ in 0..config.num_experts {
-            experts.push(crate::experts::Expert::new(
-                config.hidden_size,
-                config.intermediate_size,
-                config.use_dropout,
-                config.dropout_rate,
-            ));
-        }
+        let num_experts = config.num_experts;
+        let mut experts = Vec::with_capacity(num_experts);
 
-        let router =
-            crate::routing::Router::new(config.hidden_size, config.num_experts, config.top_k);
+        // Domain-aware initialization
+        let (assignments, pool) = if let Some(ref pool_cfg) = config.expert_pool {
+            let assignments = pool_cfg.build_assignments();
+            for (i, _) in assignments.iter().enumerate().take(num_experts) {
+                let mut expert = crate::experts::Expert::new(
+                    config.hidden_size,
+                    config.intermediate_size,
+                    config.use_dropout,
+                    config.dropout_rate,
+                );
+                expert.domain = Some(assignments[i].domain.label().to_string());
+                expert.tier = Some(assignments[i].tier.clone());
+                experts.push(expert);
+            }
+            (Some(assignments), Some(pool_cfg.clone()))
+        } else {
+            for _ in 0..num_experts {
+                experts.push(crate::experts::Expert::new(
+                    config.hidden_size,
+                    config.intermediate_size,
+                    config.use_dropout,
+                    config.dropout_rate,
+                ));
+            }
+            (None, None)
+        };
+
+        let router = if let Some(ref pool_cfg) = config.expert_pool {
+            let router_config = crate::routing::RouterConfig {
+                hidden_size: config.hidden_size,
+                num_experts: config.num_experts,
+                top_k: config.top_k,
+                pool_config: Some(pool_cfg.clone()),
+                domain_routing: Some(crate::types::DomainRoutingConfig::default()),
+                ..Default::default()
+            };
+            crate::routing::Router::with_config(router_config)
+        } else {
+            crate::routing::Router::new(config.hidden_size, config.num_experts, config.top_k)
+        };
 
         Self {
             config,
             experts,
             router,
+            domain_assignments: assignments,
+            pool_config: pool,
         }
     }
 
@@ -352,6 +397,7 @@ mod tests {
             intermediate_size: 8,
             use_dropout: false,
             dropout_rate: 0.0,
+            expert_pool: None,
         });
         moe.init_random();
         moe
@@ -415,10 +461,11 @@ mod tests {
     }
 
     #[test]
-    fn test_default_uses_8_experts() {
+    fn test_default_uses_324_experts() {
         let moe = HasMoeFFN::default();
         let cfg = moe.config();
-        assert_eq!(cfg.num_experts, 8);
+        assert_eq!(cfg.num_experts, 324);
+        assert_eq!(cfg.top_k, 32);
         assert_eq!(cfg.hidden_size, 768);
     }
 

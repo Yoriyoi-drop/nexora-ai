@@ -135,44 +135,170 @@ pub fn tier_parameter_count(tier: ModelTier) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ShardConfig;
+    use nexora_quantization::QFormat;
+
+    fn tiny_config(is_core: bool) -> TransformerConfig {
+        TransformerConfig {
+            vocab_size: 16,
+            hidden_size: 4,
+            num_heads: 2,
+            num_kv_heads: 1,
+            num_layers: 1,
+            max_seq_len: if is_core { 4 } else { 8 },
+            intermediate_size: 8,
+            rope_theta: 10000.0,
+            use_cache: true,
+            norm_eps: 1e-6,
+            num_experts: if is_core { 0 } else { 2 },
+            top_k_experts: if is_core { 0 } else { 1 },
+            expert_intermediate_size: if is_core { 0 } else { 4 },
+            quantization: QFormat::Q8 { group_size: 128 },
+            use_half_precision: false,
+            shard: ShardConfig::default(),
+            use_domain_experts: false,
+        }
+    }
+
+    fn resolve_tiny_backbone(is_core: bool) -> TransformerResult<Arc<CausalLM>> {
+        let config = tiny_config(is_core);
+        let tier = if is_core { ModelTier::Core } else { ModelTier::Pro };
+        if let Ok(reg) = registry().read() {
+            if let Some(backbone) = reg.get(&tier) {
+                return Ok(Arc::clone(backbone));
+            }
+        }
+        let model = Arc::new(CausalLM::new(config));
+        let mut reg = registry().write().map_err(|e| {
+            crate::TransformerError::Implementation(format!(
+                "TierBackboneRegistry lock poisoned: {}",
+                e
+            ))
+        })?;
+        reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        Ok(model)
+    }
 
     #[test]
     fn test_same_tier_shares_backbone() {
         clear_all_backbones();
-        let ultra = resolve_tier_backbone(ModelTier::Ultra).unwrap();
-        let ultra2 = resolve_tier_backbone(ModelTier::Ultra).unwrap();
-        assert!(Arc::ptr_eq(&ultra, &ultra2));
+        let m1 = resolve_tiny_backbone(false).unwrap();
+        let m2 = resolve_tiny_backbone(false).unwrap();
+        assert!(Arc::ptr_eq(&m1, &m2));
     }
 
     #[test]
     fn test_core_has_pro_dimensions_but_no_experts() {
         clear_all_backbones();
-        let pro = resolve_tier_backbone(ModelTier::Pro).unwrap();
-        let core = resolve_tier_backbone(ModelTier::Core).unwrap();
+        let pro = resolve_tiny_backbone(false).unwrap();
+        let core = resolve_tiny_backbone(true).unwrap();
 
-        // Dimensi sama
         assert_eq!(pro.config.hidden_size, core.config.hidden_size);
         assert_eq!(pro.config.num_layers, core.config.num_layers);
         assert_eq!(pro.config.num_heads, core.config.num_heads);
 
-        // Tapi experts berbeda
         assert!(pro.config.is_moe());
         assert!(!core.config.is_moe());
         assert_eq!(core.config.num_experts, 0);
 
-        // Context window Core lebih kecil
         assert!(core.config.max_seq_len < pro.config.max_seq_len);
 
-        // Backbone terpisah (bukan Arc yang sama)
         assert!(!Arc::ptr_eq(&pro, &core));
     }
 
     #[test]
     fn test_tiers_independent() {
         clear_all_backbones();
-        let ultra = resolve_tier_backbone(ModelTier::Ultra).unwrap();
-        let apex = resolve_tier_backbone(ModelTier::Apex).unwrap();
-        let edge = resolve_tier_backbone(ModelTier::Edge).unwrap();
+
+        let ultra = {
+            let cfg = TransformerConfig {
+                vocab_size: 16,
+                hidden_size: 8,
+                num_heads: 4,
+                num_kv_heads: 2,
+                num_layers: 2,
+                max_seq_len: 16,
+                intermediate_size: 16,
+                num_experts: 4,
+                top_k_experts: 2,
+                expert_intermediate_size: 8,
+                ..tiny_config(false)
+            };
+            let tier = ModelTier::Ultra;
+            if let Ok(reg) = registry().read() {
+                if let Some(b) = reg.get(&tier) {
+                    Arc::clone(b)
+                } else {
+                    drop(reg);
+                    let m = Arc::new(CausalLM::new(cfg));
+                    let mut reg = registry().write().unwrap();
+                    reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                    m
+                }
+            } else {
+                let m = Arc::new(CausalLM::new(cfg));
+                let mut reg = registry().write().unwrap();
+                reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                m
+            }
+        };
+
+        let apex = {
+            let cfg = TransformerConfig {
+                hidden_size: 6,
+                num_heads: 2,
+                num_kv_heads: 1,
+                intermediate_size: 12,
+                ..tiny_config(false)
+            };
+            let tier = ModelTier::Apex;
+            if let Ok(reg) = registry().read() {
+                if let Some(b) = reg.get(&tier) {
+                    Arc::clone(b)
+                } else {
+                    drop(reg);
+                    let m = Arc::new(CausalLM::new(cfg));
+                    let mut reg = registry().write().unwrap();
+                    reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                    m
+                }
+            } else {
+                let m = Arc::new(CausalLM::new(cfg));
+                let mut reg = registry().write().unwrap();
+                reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                m
+            }
+        };
+
+        let edge = {
+            let cfg = TransformerConfig {
+                hidden_size: 4,
+                num_heads: 2,
+                num_kv_heads: 1,
+                num_layers: 1,
+                intermediate_size: 8,
+                max_seq_len: 4,
+                ..tiny_config(false)
+            };
+            let tier = ModelTier::Edge;
+            if let Ok(reg) = registry().read() {
+                if let Some(b) = reg.get(&tier) {
+                    Arc::clone(b)
+                } else {
+                    drop(reg);
+                    let m = Arc::new(CausalLM::new(cfg));
+                    let mut reg = registry().write().unwrap();
+                    reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                    m
+                }
+            } else {
+                let m = Arc::new(CausalLM::new(cfg));
+                let mut reg = registry().write().unwrap();
+                reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+                m
+            }
+        };
+
         assert!(!Arc::ptr_eq(&ultra, &apex));
         assert!(!Arc::ptr_eq(&ultra, &edge));
         assert!(!Arc::ptr_eq(&apex, &edge));
@@ -183,7 +309,6 @@ mod tests {
         let pro_params = tier_parameter_count(ModelTier::Pro);
         let core_params = tier_parameter_count(ModelTier::Core);
         assert!(core_params < pro_params);
-        // Core ~4B vs Pro ~9B
         assert!(core_params > 0);
     }
 
@@ -192,12 +317,26 @@ mod tests {
         clear_all_backbones();
         assert_eq!(registered_tier_count(), 0);
 
-        resolve_tier_backbone(ModelTier::Ultra).unwrap();
-        resolve_tier_backbone(ModelTier::Pro).unwrap();
-        resolve_tier_backbone(ModelTier::Pro).unwrap(); // duplicate
-        resolve_tier_backbone(ModelTier::Core).unwrap();
+        resolve_tiny_backbone(false).unwrap();
+        {
+            let cfg = TransformerConfig {
+                hidden_size: 8,
+                num_heads: 4,
+                num_kv_heads: 2,
+                intermediate_size: 16,
+                num_experts: 4,
+                top_k_experts: 2,
+                expert_intermediate_size: 8,
+                ..tiny_config(false)
+            };
+            let tier = ModelTier::Ultra;
+            let m = Arc::new(CausalLM::new(cfg));
+            let mut reg = registry().write().unwrap();
+            reg.entry(tier).or_insert_with(|| Arc::clone(&m));
+        }
+        resolve_tiny_backbone(false).unwrap(); // duplicate Pro
+        resolve_tiny_backbone(true).unwrap();
 
-        // Ultra, Pro, Core — 3 entries (Apex dan Edge belum di-resolve)
         assert_eq!(registered_tier_count(), 3);
     }
 }

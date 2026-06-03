@@ -15,9 +15,11 @@ parking_lot.workspace = true
 rayon.workspace = true
 nexora-autograd = { path = "../autograd" }
 nexora-quantization = { path = "../quantization" }
+nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 wgpu = { version = "29", optional = true }
 half = { version = "2", optional = true }
 lru.workspace = true
+reqwest = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
@@ -29,3 +31,5 @@ harness = false
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]
+nccl = ["dep:reqwest"]
+http = ["dep:reqwest"]

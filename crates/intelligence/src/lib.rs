@@ -68,9 +68,4 @@ fn _intel_quantize(weights: &ndarray::Array2<f32>) -> nexora_quantization::Quant
     nexora_quantization::quantize_linear(weights, nexora_quantization::QuantizedDtype::Int8)
 }
 
-// Nyata: isolation untuk pre-inference security check
-fn _intel_isolation_check(agent_id: uuid::Uuid) -> std::result::Result<(), nexora_isolation::IsolationCheckError> {
-    let config = nexora_isolation::config::IsolationConfig::default();
-    let orch = nexora_isolation::IsolationOrchestrator::new(config);
-    orch.pre_inference_check(agent_id)
-}
+

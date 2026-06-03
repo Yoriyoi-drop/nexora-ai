@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
+use nexora_models::foundation::transformer_config_for;
 use nexora_models::wire_model;
-use nexora_quantization::QFormat;
-use nexora_transformer::{CausalLM, TransformerConfig};
+use nexora_transformer::TransformerConfig;
 
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
 use crate::shared::NxrModel;
@@ -15,93 +16,11 @@ use crate::shared::{
     ModelMeta,
 };
 
+/// Single source of truth for model config — delegates to `nexora_models::foundation`.
 fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
-    let _cfg = NxrModelConfig::for_model(model_id);
-    let low = || TransformerConfig {
-        vocab_size,
-        hidden_size: 128,
-        num_heads: 4,
-        num_kv_heads: 2,
-        num_layers: 3,
-        max_seq_len: 512,
-        intermediate_size: 512,
-        norm_eps: 1e-6,
-        rope_theta: 10000.0,
-        use_cache: true,
-        num_experts: 0,
-        top_k_experts: 0,
-        expert_intermediate_size: 0,
-        quantization: QFormat::Q8 { group_size: 128 },
-        use_half_precision: false,
-        shard: Default::default(),
-    };
-    let mid = || TransformerConfig {
-        vocab_size,
-        hidden_size: 256,
-        num_heads: 8,
-        num_kv_heads: 4,
-        num_layers: 6,
-        max_seq_len: 1024,
-        intermediate_size: 1024,
-        norm_eps: 1e-6,
-        rope_theta: 10000.0,
-        use_cache: true,
-        num_experts: 0,
-        top_k_experts: 0,
-        expert_intermediate_size: 0,
-        quantization: QFormat::Q8 { group_size: 128 },
-        use_half_precision: false,
-        shard: Default::default(),
-    };
-    let high = || TransformerConfig {
-        vocab_size,
-        hidden_size: 384,
-        num_heads: 8,
-        num_kv_heads: 4,
-        num_layers: 10,
-        max_seq_len: 1024,
-        intermediate_size: 1536,
-        norm_eps: 1e-6,
-        rope_theta: 10000.0,
-        use_cache: true,
-        num_experts: 0,
-        top_k_experts: 0,
-        expert_intermediate_size: 0,
-        quantization: QFormat::Q8 { group_size: 128 },
-        use_half_precision: false,
-        shard: Default::default(),
-    };
-    let flagship = || TransformerConfig {
-        vocab_size,
-        hidden_size: 512,
-        num_heads: 8,
-        num_kv_heads: 4,
-        num_layers: 16,
-        max_seq_len: 2048,
-        intermediate_size: 2048,
-        norm_eps: 1e-6,
-        rope_theta: 10000.0,
-        use_cache: true,
-        num_experts: 0,
-        top_k_experts: 0,
-        expert_intermediate_size: 0,
-        quantization: QFormat::Q8 { group_size: 128 },
-        use_half_precision: false,
-        shard: Default::default(),
-    };
-
-    match model_id {
-        NxrModelId::Omnis => flagship(),
-        NxrModelId::Axiom => high(),
-        NxrModelId::Genesis => mid(),
-        NxrModelId::Nexum => mid(),
-        NxrModelId::Cipher => low(),
-        NxrModelId::Vortex => low(),
-        NxrModelId::Aether => low(),
-        NxrModelId::Spectra => low(),
-        NxrModelId::Swift => low(),
-        NxrModelId::Kronos => low(),
-    }
+    let mut cfg = transformer_config_for(model_id);
+    cfg.vocab_size = vocab_size;
+    cfg
 }
 
 /// Model IDs that are initialized with full random weights (active at startup).
@@ -111,11 +30,14 @@ const ACTIVE_MODEL_IDS: [NxrModelId; 2] = [NxrModelId::Omnis, NxrModelId::Axiom]
 /// When `active` is true, the model gets full random weights (ready for inference).
 /// When `active` is false, the model uses `new_empty()` — no block weights loaded,
 /// suitable for lazy on-demand loading from checkpoint.
+/// If a checkpoint path is provided (via `checkpoints`), standby models can
+/// load pre-trained weights at startup.
 async fn register_causal_lm(
     model_id: NxrModelId,
     vocab_size: usize,
     transformer_config: TransformerConfig,
     active: bool,
+    checkpoints: &HashMap<NxrModelId, String>,
 ) -> Result<(), RegistryError> {
     let registry = global_registry();
     let cfg = NxrModelConfig::for_model(model_id);
@@ -169,6 +91,18 @@ async fn register_causal_lm(
             .initialize_empty()
             .await
             .map_err(|e| RegistryError::Validation(e.to_string()))?;
+
+        // If a checkpoint path is configured, load weights now
+        if let Some(ckpt_path) = checkpoints.get(&model_id) {
+            if std::path::Path::new(ckpt_path).exists() {
+                info!("Loading checkpoint for standby model {} from {}", model_id, ckpt_path);
+                if let Err(e) = model.load_checkpoint(ckpt_path).await {
+                    warn!("Failed to load checkpoint for {}: {} — remaining standby", model_id, e);
+                }
+            } else {
+                info!("Checkpoint path for {} not found: {} — remaining standby", model_id, ckpt_path);
+            }
+        }
     }
 
     let model_arc = Arc::new(model);
@@ -194,22 +128,34 @@ async fn register_causal_lm(
     Ok(())
 }
 
-pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
+pub async fn initialize_foundation_models_with_checkpoints(
+    checkpoints: HashMap<NxrModelId, String>,
+) -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
-    // Active-Standby: only 2 models (Omnis, Axiom) get full weights at startup.
-    // The other 8 use new_empty() — no block weights — and lazy-load from checkpoint on demand.
     let model_ids = NxrModelId::all();
 
     for model_id in &model_ids {
         let active = ACTIVE_MODEL_IDS.contains(model_id);
         let tc = tier_config(*model_id, vocab_size);
-        register_causal_lm(*model_id, vocab_size, tc, active).await?;
+        register_causal_lm(*model_id, vocab_size, tc, active, &checkpoints).await?;
     }
 
-    // Wire delegation agents — only active models have weights at this point
+    wire_delegation_agents(&model_ids).await?;
+
+    info!("All 10 NXR foundation models registered (2 active, 8 standby) ✓");
+    Ok(())
+}
+
+/// Backward-compatible: no checkpoint paths, all standby models remain empty.
+pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
+    initialize_foundation_models_with_checkpoints(HashMap::new()).await
+}
+
+/// Wire delegation agents for models that have weights loaded.
+async fn wire_delegation_agents(model_ids: &[NxrModelId]) -> Result<(), RegistryError> {
     let registry = global_registry();
-    for model_id in &model_ids {
+    for model_id in model_ids {
         if let Ok(model_raw) = registry.get_model_raw(model_id).await {
             if let Some(causal_lm_model) = model_raw.downcast_ref::<CausalLmModel>() {
                 if let Some(model_arc) = causal_lm_model.get_model_arc().await {
@@ -221,8 +167,6 @@ pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
             }
         }
     }
-
-    info!("All 10 NXR foundation models registered (2 active, 8 standby) ✓");
     Ok(())
 }
 

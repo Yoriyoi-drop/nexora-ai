@@ -237,6 +237,16 @@ impl MultiModelCoordinator {
             },
         );
 
+        // Reasoning - depends on Logic and Retrieval
+        deps.insert(
+            ModelId::Reasoning,
+            ModelDependency {
+                model: ModelId::Reasoning,
+                depends_on: vec![ModelId::Logic, ModelId::Retrieval],
+                priority: 3,
+            },
+        );
+
         deps
     }
 

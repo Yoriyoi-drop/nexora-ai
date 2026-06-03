@@ -32,6 +32,7 @@ rand.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
+futures = { workspace = true }
 
 [features]
 default = []

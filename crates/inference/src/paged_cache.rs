@@ -15,12 +15,36 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use nexora_transformer::KVCacheEntry;
-use tracing::{warn, info};
+use tracing::{warn, info, debug};
+use crate::cold_storage::{ColdStorage, ColdStorageConfig};
 
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::GpuContext;
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu_kv_cache::GpuPageTable;
+
+// ─── Memory Tiering ──────────────────────────────────────────────────────────
+
+/// Memory tier untuk sequence — menentukan presisi penyimpanan K/V cache.
+/// Hot = f32 (full precision, akses cepat)
+/// Warm = f16 (half precision, 2x hemat)
+/// Cold = q4 (4-bit quantized, 8x hemat vs f32)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemoryTier {
+    Hot,
+    Warm,
+    Cold,
+}
+
+impl MemoryTier {
+    pub fn label(&self) -> &'static str {
+        match self {
+            MemoryTier::Hot => "hot",
+            MemoryTier::Warm => "warm",
+            MemoryTier::Cold => "cold",
+        }
+    }
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -46,6 +70,15 @@ pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 4_294_967_296;
 
 /// Default watermark ratio — evict when blocks exceed this fraction of max_blocks.
 pub const DEFAULT_EVICTION_WATERMARK: f64 = 0.85;
+
+/// Default idle time before Hot → Warm demotion (seconds).
+pub const DEFAULT_HOT_TO_WARM_SECS: f64 = 30.0;
+
+/// Default idle time before Warm → Cold demotion (seconds).
+pub const DEFAULT_WARM_TO_COLD_SECS: f64 = 120.0;
+
+/// Default interval for background tier sweep (seconds).
+pub const DEFAULT_TIER_SWEEP_INTERVAL_SECS: f64 = 15.0;
 
 // ─── Global Singleton ─────────────────────────────────────────────────────────
 
@@ -103,6 +136,17 @@ pub struct PagedCacheConfig {
     /// Store K/V in 4-bit quantized — 8× memory reduction (vs f32), 4× (vs f16)
     /// Uses per-head symmetric quantization, wired via BlockData::Q4.
     pub q4_storage: bool,
+    // ── Memory Tiering ──────────────────────────────────────────────────────
+    /// Enable automatic memory tiering (Hot→Warm→Cold demotion).
+    pub enable_memory_tiering: bool,
+    /// Idle time before Hot → Warm demotion (seconds).
+    pub hot_to_warm_secs: f64,
+    /// Idle time before Warm → Cold demotion (seconds).
+    pub warm_to_cold_secs: f64,
+    /// Background tier sweep interval (seconds). 0 = no background sweep.
+    pub tier_sweep_interval_secs: f64,
+    /// Compress idle sequences to disk via ColdStorage instead of evicting.
+    pub enable_cold_disk_offload: bool,
 }
 
 impl Default for PagedCacheConfig {
@@ -121,6 +165,11 @@ impl Default for PagedCacheConfig {
             max_seq_len: 4096,
             f16_storage: true,
             q4_storage: false,
+            enable_memory_tiering: true,
+            hot_to_warm_secs: DEFAULT_HOT_TO_WARM_SECS,
+            warm_to_cold_secs: DEFAULT_WARM_TO_COLD_SECS,
+            tier_sweep_interval_secs: DEFAULT_TIER_SWEEP_INTERVAL_SECS,
+            enable_cold_disk_offload: true,
         }
     }
 }
@@ -410,6 +459,68 @@ impl BlockData {
         }
     }
 
+    /// Convert ke f16 (dari format apapun). No-op jika sudah f16.
+    fn to_f16(&self) -> Self {
+        let bs = self.block_size();
+        let cols = self.cols();
+        let flat: Vec<f32> = (0..bs)
+            .flat_map(|r| self.read_row(r))
+            .collect();
+        BlockData::F16(
+            flat.iter().map(|&v| crate::f32_to_f16_bits(v)).collect(),
+            bs,
+            cols,
+        )
+    }
+
+    /// Convert ke q4 (dari format apapun). No-op jika sudah q4.
+    fn to_q4(&self, num_kv_heads: usize) -> Self {
+        let bs = self.block_size();
+        let cols = self.cols();
+        let flat: Vec<f32> = (0..bs)
+            .flat_map(|r| self.read_row(r))
+            .collect();
+        let num_vals = flat.len();
+        let mut max_abs = vec![0.0f32; num_kv_heads];
+        let head_dim = if num_kv_heads > 0 { cols / num_kv_heads } else { 1 };
+        for (i, &v) in flat.iter().enumerate() {
+            let h = i / head_dim;
+            if h < num_kv_heads && v.abs() > max_abs[h] {
+                max_abs[h] = v.abs();
+            }
+        }
+        let scales: Vec<f32> = max_abs.iter().map(|&m| if m > 0.0 { m / 7.0 } else { 1.0 }).collect();
+        let packed_len = (num_vals + 1) / 2;
+        let mut packed = vec![0u8; packed_len];
+        for (i, &v) in flat.iter().enumerate() {
+            let h = i / head_dim;
+            let scale = if h < num_kv_heads { scales[h] } else { 1.0 };
+            let q = ((v / scale).round().clamp(-8.0, 7.0) as i8 + 8) as u8;
+            let byte_idx = i / 2;
+            if i % 2 == 0 {
+                packed[byte_idx] = (packed[byte_idx] & 0x0F) | (q << 4);
+            } else {
+                packed[byte_idx] = (packed[byte_idx] & 0xF0) | q;
+            }
+        }
+        BlockData::Q4(packed, scales, bs, cols)
+    }
+
+    /// Convert ke f32 (dari format apapun). No-op jika sudah f32.
+    fn to_f32(&self) -> Self {
+        match self {
+            BlockData::F32(_) => self.clone_data(),
+            BlockData::F16(..) | BlockData::Q4(..) => {
+                let bs = self.block_size();
+                let cols = self.cols();
+                let data: Vec<f32> = (0..bs)
+                    .flat_map(|r| self.read_row(r))
+                    .collect();
+                BlockData::F32(Array2::from_shape_vec((bs, cols), data).unwrap())
+            }
+        }
+    }
+
     fn memory_bytes(&self) -> usize {
         match self {
             BlockData::F32(a) => a.len() * 4,
@@ -421,7 +532,7 @@ impl BlockData {
 
 // ─── Physical Block ──────────────────────────────────────────────────────────
 
-/// Per-sequence metadata untuk eviction tracking.
+/// Per-sequence metadata untuk eviction dan memory tiering.
 struct SeqAccess {
     /// Waktu terakhir sequence ini diakses (read atau append)
     last_access: Instant,
@@ -429,6 +540,10 @@ struct SeqAccess {
     access_count: u64,
     /// Waktu sequence dibuat
     created_at: Instant,
+    /// Memory tier saat ini
+    tier: MemoryTier,
+    /// Waktu terakhir tier berubah (untuk demotion delay tracking)
+    tier_changed_at: Instant,
 }
 
 impl SeqAccess {
@@ -438,12 +553,37 @@ impl SeqAccess {
             last_access: now,
             access_count: 0,
             created_at: now,
+            tier: MemoryTier::Hot,
+            tier_changed_at: now,
         }
     }
 
     fn touch(&mut self) {
         self.last_access = Instant::now();
         self.access_count += 1;
+    }
+
+    /// Hitung idle time sejak akses terakhir.
+    fn idle_secs(&self) -> f64 {
+        Instant::now().duration_since(self.last_access).as_secs_f64()
+    }
+
+    /// Waktu sejak tier terakhir berubah.
+    fn since_tier_change_secs(&self) -> f64 {
+        Instant::now().duration_since(self.tier_changed_at).as_secs_f64()
+    }
+
+    /// Naikkan tier (Cold → Warm → Hot) saat diakses kembali.
+    fn promote(&mut self) {
+        let old = self.tier;
+        self.tier = match self.tier {
+            MemoryTier::Cold => MemoryTier::Warm,
+            MemoryTier::Warm => MemoryTier::Hot,
+            MemoryTier::Hot => MemoryTier::Hot,
+        };
+        if self.tier != old {
+            self.tier_changed_at = Instant::now();
+        }
     }
 }
 
@@ -568,6 +708,8 @@ pub struct PagedKVCache {
     /// GPU page table bridge (enabled with `gpu` feature)
     #[cfg(feature = "gpu")]
     pub gpu_page_table: Option<GpuPageTable>,
+    /// Cold storage for disk offload (optional)
+    cold_storage: Option<ColdStorage>,
 }
 
 impl PagedKVCache {
@@ -598,6 +740,12 @@ impl PagedKVCache {
             config.max_memory_bytes,
         );
 
+        let cold_storage = if config.enable_cold_disk_offload {
+            Some(ColdStorage::new(ColdStorageConfig::default()))
+        } else {
+            None
+        };
+
         Self {
             config,
             blocks,
@@ -610,6 +758,7 @@ impl PagedKVCache {
             max_used: 0,
             #[cfg(feature = "gpu")]
             gpu_page_table: None,
+            cold_storage,
         }
     }
 
@@ -684,10 +833,201 @@ impl PagedKVCache {
         }
     }
 
-    /// Mark a sequence as recently accessed (update LRU timestamp).
+    /// Mark a sequence as recently accessed (update LRU timestamp + promote tier).
     pub fn touch_sequence(&mut self, seq_id: u64) {
         if let Some(access) = self.seq_access.get_mut(&seq_id) {
+            let old_tier = access.tier;
             access.touch();
+            if self.config.enable_memory_tiering && old_tier != MemoryTier::Hot {
+                access.promote();
+                if access.tier != old_tier {
+                    self.promote_sequence_blocks(seq_id, old_tier);
+                }
+            }
+        }
+    }
+
+    /// Convert semua blocks milik sequence ke target tier format.
+    fn convert_sequence_blocks(
+        &mut self,
+        seq_id: u64,
+        target: MemoryTier,
+    ) {
+        let Some(table) = self.sequences.get(&seq_id) else {
+            return;
+        };
+        let num_layers = table.layers.len();
+        let num_kv_heads = self.config.num_kv_heads;
+
+        for layer in 0..num_layers {
+            for logical in 0..table.layers[layer].len() {
+                let Some(phys) = table.layers[layer][logical] else {
+                    continue;
+                };
+                if phys >= self.blocks[layer].len() {
+                    continue;
+                }
+                let block = &self.blocks[layer][phys];
+                let new_k = match target {
+                    MemoryTier::Hot => block.k.to_f32(),
+                    MemoryTier::Warm => block.k.to_f16(),
+                    MemoryTier::Cold => block.k.to_q4(num_kv_heads),
+                };
+                let new_v = match target {
+                    MemoryTier::Hot => block.v.to_f32(),
+                    MemoryTier::Warm => block.v.to_f16(),
+                    MemoryTier::Cold => block.v.to_q4(num_kv_heads),
+                };
+                let block = &mut self.blocks[layer][phys];
+                block.k = new_k;
+                block.v = new_v;
+            }
+        }
+    }
+
+    /// Promote sequence blocks dari tier lama ke tier baru (lebih tinggi presisi).
+    fn promote_sequence_blocks(&mut self, seq_id: u64, from: MemoryTier) {
+        let target = match from {
+            MemoryTier::Cold => MemoryTier::Warm,
+            MemoryTier::Warm => MemoryTier::Hot,
+            MemoryTier::Hot => return,
+        };
+        info!("Promoting seq {} from {} to {}", seq_id, from.label(), target.label());
+        self.convert_sequence_blocks(seq_id, target);
+    }
+
+    /// Demote sequence blocks ke tier lebih rendah (lebih hemat memori).
+    /// Dipanggil saat sequence idle.
+    fn demote_sequence(&mut self, seq_id: u64) -> bool {
+        // Clone data dari access sebelum mutable borrow
+        let (current, idle) = match self.seq_access.get(&seq_id) {
+            Some(acc) => (acc.tier, acc.idle_secs()),
+            None => return false,
+        };
+        let target = match current {
+            MemoryTier::Hot => MemoryTier::Warm,
+            MemoryTier::Warm => MemoryTier::Cold,
+            MemoryTier::Cold => return false,
+        };
+        info!(
+            "Demoting seq {} from {} to {} (idle {:.1}s)",
+            seq_id,
+            current.label(),
+            target.label(),
+            idle,
+        );
+        // Drop immutable borrow sebelum mutable call
+        self.convert_sequence_blocks(seq_id, target);
+        if let Some(acc) = self.seq_access.get_mut(&seq_id) {
+            acc.tier = target;
+            acc.tier_changed_at = Instant::now();
+        }
+        true
+    }
+
+    /// Demote satu step untuk sequence paling idle yang eligible.
+    /// Returns true jika ada yang di-demote.
+    pub fn demote_most_idle(&mut self) -> bool {
+        if !self.config.enable_memory_tiering {
+            return false;
+        }
+        let now = Instant::now();
+        let mut candidates: Vec<(u64, &SeqAccess)> = self.seq_access.iter()
+            .filter(|(_, acc)| {
+                acc.tier != MemoryTier::Cold
+                    && now.duration_since(acc.tier_changed_at).as_secs_f64() > 1.0
+            })
+            .map(|(k, v)| (*k, v))
+            .collect();
+        if candidates.is_empty() {
+            return false;
+        }
+        // Sort by: Cold candidates first (already cold → skip), then by idle time
+        candidates.sort_by(|a, b| {
+            let a_idle = a.1.idle_secs();
+            let b_idle = b.1.idle_secs();
+            b_idle.partial_cmp(&a_idle).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let best = candidates[0].0;
+        // Jangan demote jika masih di bawah threshold
+        let idle = candidates[0].1.idle_secs();
+        let since_change = candidates[0].1.since_tier_change_secs();
+        match candidates[0].1.tier {
+            MemoryTier::Hot if idle < self.config.hot_to_warm_secs || since_change < 5.0 => return false,
+            MemoryTier::Warm if idle < self.config.warm_to_cold_secs || since_change < 5.0 => return false,
+            _ => {}
+        }
+        self.demote_sequence(best)
+    }
+
+    /// Demote semua sequence idle sesuai konfigurasi tier.
+    /// Returns jumlah sequence yang di-demote.
+    pub fn demote_idle_sequences(&mut self) -> usize {
+        if !self.config.enable_memory_tiering {
+            return 0;
+        }
+        let now = Instant::now();
+        let seq_ids: Vec<u64> = self.seq_access.iter()
+            .filter(|(_, acc)| {
+                let idle = now.duration_since(acc.last_access).as_secs_f64();
+                let since_tier = now.duration_since(acc.tier_changed_at).as_secs_f64();
+                match acc.tier {
+                    MemoryTier::Hot => idle >= self.config.hot_to_warm_secs && since_tier >= 5.0,
+                    MemoryTier::Warm => idle >= self.config.warm_to_cold_secs && since_tier >= 5.0,
+                    MemoryTier::Cold => false,
+                }
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        let mut count = 0;
+        for seq_id in seq_ids {
+            if self.demote_sequence(seq_id) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Offload Cold sequence Cold → disk (instead of evicting).
+    /// Returns 1 jika berhasil, 0 jika tidak ada kandidat.
+    pub fn offload_coldest_to_disk(&mut self) -> usize {
+        if !self.config.enable_cold_disk_offload {
+            return 0;
+        }
+        let _ = Instant::now();
+        // Cari sequence Cold dengan idle terlama
+        let mut candidates: Vec<(u64, Instant)> = self.seq_access.iter()
+            .filter(|(_, acc)| acc.tier == MemoryTier::Cold)
+            .map(|(k, v)| (*k, v.last_access))
+            .collect();
+        if candidates.is_empty() {
+            return 0;
+        }
+        candidates.sort_by(|a, b| a.1.cmp(&b.1));
+        let (seq_id, _) = candidates[0];
+
+        // Convert ke flat KVCacheEntry (compressed)
+        let entries = match self.to_flat_cache(seq_id) {
+            Some(e) => e,
+            None => return 0,
+        };
+        let token_ids: Vec<u32> = (0..entries.first().map(|e| e.seq_len()).unwrap_or(0))
+            .map(|i| i as u32)
+            .collect();
+
+        // Save to cold storage (separate scope to avoid borrow conflict)
+        let result = self.cold_storage.as_mut().map(|cold| cold.save(&token_ids, &entries));
+        match result {
+            Some(Ok(())) => {
+                info!("Offloaded seq {} to cold disk storage ({} entries)", seq_id, entries.len());
+                self.remove_sequence(seq_id);
+                1
+            }
+            Some(Err(e)) => {
+                warn!("Failed to offload seq {} to cold disk: {}", seq_id, e);
+                0
+            }
+            None => 0,
         }
     }
 
@@ -775,7 +1115,7 @@ impl PagedKVCache {
     }
 
     /// Allocate a new physical block from the free list or create one.
-    /// Jika mendekati batas, akan melakukan defrag + eviction otomatis.
+    /// Jika mendekati batas, akan melakukan defrag + tier demotion + eviction.
     fn alloc_block(&mut self, layer: usize) -> Option<usize> {
         let effective_max = self.config.effective_max_blocks();
 
@@ -791,10 +1131,9 @@ impl PagedKVCache {
 
         // Cek apakah perlu eviction
         if self.should_evict() {
-            // Defrag dulu — mungkin ada blok yang bisa direklamasi
+            // Step 1: Defrag — mungkin ada blok yang bisa direklamasi
             let reclaimed = self.defragment();
             if reclaimed > 0 {
-                // Coba free list lagi setelah defrag
                 if let Some(free_idx) = self.free_lists[layer].pop() {
                     self.blocks[layer][free_idx].filled = 0;
                     self.blocks[layer][free_idx].ref_count = 1;
@@ -802,7 +1141,35 @@ impl PagedKVCache {
                     return Some(free_idx);
                 }
             }
-            // Evict LRU sequence
+
+            // Step 2: Demote Hot→Warm atau Warm→Cold untuk sequence idle
+            if self.config.enable_memory_tiering {
+                let demoted = self.demote_most_idle();
+                if demoted {
+                    // Demoting frees memory by reducing precision; blocks may still be allocated
+                    // but memory pressure is reduced. Try free list again after conversion.
+                    if let Some(free_idx) = self.free_lists[layer].pop() {
+                        self.blocks[layer][free_idx].filled = 0;
+                        self.blocks[layer][free_idx].ref_count = 1;
+                        self.num_allocated += 1;
+                        return Some(free_idx);
+                    }
+                }
+                // Step 3: Demote 1 Cold sequence ke disk (instead of evict)
+                if self.config.enable_cold_disk_offload {
+                    let offloaded = self.offload_coldest_to_disk();
+                    if offloaded > 0 {
+                        if let Some(free_idx) = self.free_lists[layer].pop() {
+                            self.blocks[layer][free_idx].filled = 0;
+                            self.blocks[layer][free_idx].ref_count = 1;
+                            self.num_allocated += 1;
+                            return Some(free_idx);
+                        }
+                    }
+                }
+            }
+
+            // Step 4: Traditional LRU eviction (last resort)
             let evicted = self.evict_lru(self.config.eviction_batch_size);
             if evicted > 0 {
                 if let Some(free_idx) = self.free_lists[layer].pop() {
@@ -1354,20 +1721,20 @@ impl PagedKVCache {
 
     /// Phase 2: Compact active blocks (ref_count > 0).
     ///
-    /// SAFETY NOTE (BF44): The original implementation tried to merge consecutive
-    /// partially-filled blocks by moving data from src_phys → dst_phys and
-    /// remapping block table entries. This was fundamentally broken:
-    ///   - Each logical block reads from row 0 of its mapped physical block.
-    ///     Appending src data at row `dst_filled` means the src logical block
-    ///     reads dst's original data at rows 0..dst_filled — SILENT CORRUPTION.
-    ///   - Shared blocks (ref_count > 1) were remapped for ALL referencing
-    ///     sequences, even though only the current sequence's data was moved.
-    ///   - ref_count was forcibly zeroed without proper accounting.
-    ///   - The test used identical K/V values for all positions, hiding corruption.
+    /// SAFETY NOTE (BF44): Active block defrag is fundamentally unsafe without
+    /// per-logical-block row offset tracking. Each logical block reads from row 0
+    /// of its mapped physical block. Moving data between physical blocks and
+    /// remapping logical→physical entries causes silent data corruption because:
+    ///   - The moved data's logical position changes (it now resides at row N of
+    ///     a different physical block, NOT row 0 where the logical block reads).
+    ///   - Shared blocks (ref_count > 1) affect ALL referencing sequences.
     ///
-    /// Active block defrag is not safe to implement for partial blocks without
-    /// per-logical-block row offset tracking. Phase 1 (free block defrag) is
-    /// sufficient for reclaiming fragmented space.
+    /// A correct implementation would require per-sequence, per-logical-block
+    /// row_offset tracking (where does this logical block's data start within
+    /// its physical block?). Phase 1 (free block defrag) reclaims fragmented
+    /// blocks that are not live, which is the primary source of reclaimable space.
+    /// Memory tiering (Hot→Warm→Cold demotion) provides additional memory savings
+    /// by reducing precision of idle sequences.
     fn defrag_active_blocks(&mut self, _layer: usize, _bs: usize) -> usize {
         0
     }

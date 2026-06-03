@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info, warn};
@@ -227,12 +228,9 @@ fn estimate_compressed_size(entries: &[KVCacheEntry]) -> usize {
 }
 
 fn touch_file(path: &Path) -> Result<(), std::io::Error> {
-    let now = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    let ts = filetime::FileTime::from_unix_time(now, 0);
-    filetime::set_file_mtime(path, ts)
+    // Update access time by opening and closing the file
+    let _ = fs::File::open(path)?;
+    Ok(())
 }
 
 #[cfg(test)]

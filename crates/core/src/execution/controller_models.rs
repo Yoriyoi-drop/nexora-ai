@@ -417,6 +417,14 @@ impl ModelProcessor {
         Ok(result)
     }
 
+    pub async fn process_reasoning(input: &str) -> CoreResult<String> {
+        let mut result = String::from("REASONING ANALYSIS:\n");
+        result.push_str(&format!("Input: {}\n", input));
+        result.push_str(&format!("Length: {} chars\n", input.len()));
+        result.push_str(&format!("Tokens (est): {} words\n", input.split_whitespace().count()));
+        Ok(result)
+    }
+
     pub async fn process_controller(input: &str) -> CoreResult<String> {
         let mut result = String::from("CONTROLLER ANALYSIS:\n");
 
@@ -458,6 +466,7 @@ impl ModelProcessor {
             ModelId::Validator => Self::process_validator(input).await,
             ModelId::Personality => Self::process_personality(input).await,
             ModelId::Optimizer => Self::process_optimizer(input).await,
+            ModelId::Reasoning => Self::process_reasoning(input).await,
             ModelId::Controller => Self::process_controller(input).await,
         }
     }

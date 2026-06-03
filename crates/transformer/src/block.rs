@@ -223,8 +223,7 @@ impl TransformerBlock {
         Ok(after_attn + ffn_global)
     }
 
-    /// GPU forward with pre-uploaded cos/sin GPU tensors.
-    /// cos_gpu / sin_gpu shape [1, half] — uploaded once per step, reused across all layers.
+    /// GPU forward with pre-uploaded cos/sin GPU tensors and optional collective.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_with_rope_gpu(
         &self,
@@ -234,6 +233,22 @@ impl TransformerBlock {
         cos_gpu: &nexora_autograd::gpu::GpuTensor,
         sin_gpu: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        self.forward_gpu_with_rope_gpu_collective(x_gpu, cache, layer_idx, cos_gpu, sin_gpu, None)
+    }
+
+    /// GPU forward with pre-uploaded cos/sin GPU tensors and tensor-parallel collective.
+    /// When `collective` is `Some` and the backend is `Nccl`, uses GPU-native all-reduce.
+    /// For non-NCCL backends, falls back to CPU roundtrip.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_rope_gpu_collective(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+        collective: Option<&ShardCollective>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -242,7 +257,7 @@ impl TransformerBlock {
         let attn_out = self
             .attention
             .forward_gpu_with_rope_gpu(&normed, cache, layer_idx, cos_gpu, sin_gpu)?;
-        let after_attn = ctx.add(x_gpu, &attn_out)?;
+        let after_attn = collective_gpu_reduce(ctx, x_gpu, &attn_out, collective, true)?;
 
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
@@ -256,7 +271,8 @@ impl TransformerBlock {
         } else {
             self.ffn.forward_gpu(&normed_ffn)?
         };
-        ctx.add(&after_attn, &ffn_out)
+        let after_ffn = collective_gpu_reduce(ctx, &after_attn, &ffn_out, collective, false)?;
+        Ok(after_ffn)
     }
 
     #[cfg(feature = "gpu")]
@@ -268,19 +284,29 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        self.forward_gpu_collective(x_gpu, cache, layer_idx, cos, sin, None)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_collective(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut Vec<KVCacheEntry>,
+        layer_idx: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+        collective: Option<&ShardCollective>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
 
-        // 1. Attention sub-block: RMSNorm -> GQA -> residual add
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
         let attn_out = self
             .attention
             .forward_gpu(&normed, cache, layer_idx, cos, sin)?;
-        // Residual: x + attn_out
-        let after_attn = ctx.add(x_gpu, &attn_out)?;
+        let after_attn = collective_gpu_reduce(ctx, x_gpu, &attn_out, collective, true)?;
 
-        // 2. FFN sub-block: RMSNorm -> SwiGLU -> residual add
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
             let mut sum = experts[0].forward_gpu(&normed_ffn)?;
@@ -293,13 +319,10 @@ impl TransformerBlock {
         } else {
             self.ffn.forward_gpu(&normed_ffn)?
         };
-        // Residual: after_attn + ffn_out
-        ctx.add(&after_attn, &ffn_out)
+        let after_ffn = collective_gpu_reduce(ctx, &after_attn, &ffn_out, collective, false)?;
+        Ok(after_ffn)
     }
 
-    /// GPU forward with GPU-resident KV cache AND pre-uploaded cos/sin GPU tensors.
-    /// cos_gpu / sin_gpu shape [1, half] — uploaded once per step, reused across all layers.
-    /// No per-layer CPU→GPU upload for RoPE.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_with_cache_precomputed_rope(
         &self,
@@ -308,6 +331,19 @@ impl TransformerBlock {
         layer_idx: usize,
         cos_gpu: &nexora_autograd::gpu::GpuTensor,
         sin_gpu: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        self.forward_gpu_with_cache_precomputed_rope_collective(x_gpu, cache, layer_idx, cos_gpu, sin_gpu, None)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache_precomputed_rope_collective(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut [super::gqa::GpuKVCacheEntry],
+        layer_idx: usize,
+        cos_gpu: &nexora_autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_autograd::gpu::GpuTensor,
+        collective: Option<&ShardCollective>,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
 
@@ -320,7 +356,7 @@ impl TransformerBlock {
             cos_gpu,
             sin_gpu,
         )?;
-        let after_attn = ctx.add(x_gpu, &attn_out)?;
+        let after_attn = collective_gpu_reduce(ctx, x_gpu, &attn_out, collective, true)?;
 
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
@@ -334,11 +370,10 @@ impl TransformerBlock {
         } else {
             self.ffn.forward_gpu(&normed_ffn)?
         };
-        ctx.add(&after_attn, &ffn_out)
+        let after_ffn = collective_gpu_reduce(ctx, &after_attn, &ffn_out, collective, false)?;
+        Ok(after_ffn)
     }
 
-    /// GPU forward with GPU-resident KV cache.
-    /// No CPU round-trip for K/V — uses GpuKVCacheEntry.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu_with_cache(
         &self,
@@ -348,19 +383,29 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+        self.forward_gpu_with_cache_collective(x_gpu, cache, layer_idx, cos, sin, None)
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu_with_cache_collective(
+        &self,
+        x_gpu: &nexora_autograd::gpu::GpuTensor,
+        cache: &mut [super::gqa::GpuKVCacheEntry],
+        layer_idx: usize,
+        cos: &Array1<f32>,
+        sin: &Array1<f32>,
+        collective: Option<&ShardCollective>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use nexora_autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
 
-        // 1. Attention sub-block: RMSNorm -> GQA -> residual add
         let normed = self.attention_norm.forward_gpu(x_gpu)?;
         let attn_out =
             self.attention
                 .forward_gpu_with_cache(&normed, &mut cache[layer_idx], cos, sin)?;
-        // Residual: x + attn_out
-        let after_attn = ctx.add(x_gpu, &attn_out)?;
+        let after_attn = collective_gpu_reduce(ctx, x_gpu, &attn_out, collective, true)?;
 
-        // 2. FFN sub-block: RMSNorm -> SwiGLU -> residual add
         let normed_ffn = self.ffn_norm.forward_gpu(&after_attn)?;
         let ffn_out = if let Some(experts) = &self.experts {
             let mut sum = experts[0].forward_gpu(&normed_ffn)?;
@@ -373,8 +418,8 @@ impl TransformerBlock {
         } else {
             self.ffn.forward_gpu(&normed_ffn)?
         };
-        // Residual: after_attn + ffn_out
-        ctx.add(&after_attn, &ffn_out)
+        let after_ffn = collective_gpu_reduce(ctx, &after_attn, &ffn_out, collective, false)?;
+        Ok(after_ffn)
     }
 
     #[cfg(feature = "gpu")]
@@ -392,7 +437,88 @@ impl TransformerBlock {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Helper: GPU tensor collective reduce (CPU roundtrip or NCCL)
+// ---------------------------------------------------------------------------
+
+/// Apply collective reduce to a pair of (residual, output) GPU tensors.
+///
+/// For non-NCCL backends, reads GPU → CPU, runs collective, uploads back.
+/// For NCCL, would use GPU-native all-reduce (stub for now).
+///
+/// `is_attn`: if true, reduce attention output (residual + attn_out).
+/// If false, reduce FFN output (after_attn + ffn_out).
+#[cfg(feature = "gpu")]
+pub(crate) fn collective_gpu_reduce(
+    ctx: &nexora_autograd::gpu::GpuContext,
+    residual: &nexora_autograd::gpu::GpuTensor,
+    output: &nexora_autograd::gpu::GpuTensor,
+    collective: Option<&ShardCollective>,
+    _is_attn: bool,
+) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+    use nexora_autograd::gpu::GpuTensor;
+
+    let Some(col) = collective else {
+        // No collective: just residual + output
+        return ctx.add(residual, output);
+    };
+
+    // NCCL path: GPU-native all-reduce (future)
+    if let ShardCollective::Nccl(_nccl) = col {
+        // TODO: wire NCCL all-reduce on GPU tensors directly
+        // For now, fall through to CPU roundtrip
+    }
+
+    // CPU roundtrip: read GPU → CPU → reduce → upload back
+    let cpu_out = output.to_cpu()?;
+    let cpu_residual = residual.to_cpu()?;
+    let shape = output.shape();
+    let rows = shape[0];
+    let cols = if shape.len() > 1 { shape[1] } else { 1 };
+    let cpu_out_arr = cpu_out.into_dimensionality::<ndarray::Ix2>()
+        .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+    let cpu_residual_arr = cpu_residual.into_dimensionality::<ndarray::Ix2>()
+        .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+
+    let reduced = col
+        .reduce_ffn(&cpu_out_arr)
+        .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+
+    let combined = &cpu_residual_arr + &reduced;
+    GpuTensor::from_cpu(&combined.into_dyn())
+}
+
+/// All-reduce an already-combined hidden state (residual + output already added).
+/// Used by inlined forward methods in `model.rs` that don't call `block.forward_gpu_*`.
+/// For NCCL backend, this path does CPU roundtrip (future: GPU-native all-reduce).
+#[cfg(feature = "gpu")]
+pub(crate) fn collective_gpu_all_reduce(
+    h: &nexora_autograd::gpu::GpuTensor,
+    collective: Option<&ShardCollective>,
+) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+    use nexora_autograd::gpu::GpuTensor;
+
+    let Some(col) = collective else {
+        return Ok(h.clone());
+    };
+
+    let cpu_h = h.to_cpu()?;
+    let shape = h.shape();
+    let rows = shape[0];
+    let cols = if shape.len() > 1 { shape[1] } else { 1 };
+    let cpu_h_arr = cpu_h
+        .into_dimensionality::<ndarray::Ix2>()
+        .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+
+    let reduced = col
+        .reduce_ffn(&cpu_h_arr)
+        .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+
+    GpuTensor::from_cpu(&reduced.into_dyn())
+}
+
 #[cfg(test)]
+
 mod tests {
     use super::*;
     use ndarray::array;

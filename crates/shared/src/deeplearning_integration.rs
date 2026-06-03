@@ -234,7 +234,7 @@ impl DeepLearningEngine {
                 })?;
                 Some(StarXPipeline {
                     tgh: TemporalGatingHierarchy::new(
-                        sc.input_size,
+                        sc.temporal_embedding_dim,
                         sc.hidden_size,
                         sc.micro_gate_size,
                         sc.meso_gate_size,
@@ -333,11 +333,21 @@ impl DeepLearningEngine {
 
                 let chunk_context = ArrayD::zeros(vec![starx_state.hidden_state.len()]);
 
+                let mem_pooled = if starx_state.memory_state.ndim() > 1 {
+                    starx_state
+                        .memory_state
+                        .mean_axis(ndarray::Axis(0))
+                        .map(|a| a.into_dyn())
+                        .unwrap_or_else(|| ArrayD::zeros(vec![starx_state.hidden_state.len()]))
+                } else {
+                    starx_state.memory_state.clone()
+                };
+
                 let (micro, meso, macro_out_v) = pipeline.tgh.process_hierarchical(
                     &hte_output,
                     &starx_state.hidden_state,
                     &chunk_context,
-                    &starx_state.memory_state,
+                    &mem_pooled,
                 )?;
 
                 let fused = pipeline.tgh.fuse_hierarchical(
@@ -406,11 +416,21 @@ impl DeepLearningEngine {
 
                     let hte_output = pipeline.hte.forward(input)?;
 
+                    let mem_pooled = if star_x.memory_state.ndim() > 1 {
+                        star_x
+                            .memory_state
+                            .mean_axis(ndarray::Axis(0))
+                            .map(|a| a.into_dyn())
+                            .unwrap_or_else(|| ArrayD::zeros(vec![star_x.hidden_state.len()]))
+                    } else {
+                        star_x.memory_state.clone()
+                    };
+
                     let (micro, meso, macro_out_v) = pipeline.tgh.process_hierarchical(
                         &hte_output,
                         &star_x.hidden_state,
                         &ArrayD::zeros(vec![star_x.hidden_state.len()]),
-                        &star_x.memory_state,
+                        &mem_pooled,
                     )?;
 
                     let fused = pipeline.tgh.fuse_hierarchical(

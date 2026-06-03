@@ -82,6 +82,7 @@ pub enum ModelId {
     Validator = 7,   // Validation specialist
     Personality = 8, // Personality specialist
     Optimizer = 9,   // Optimization specialist
+    Reasoning = 10,  // General reasoning / Omnis
 }
 
 impl Default for ModelId {
@@ -103,6 +104,7 @@ impl ModelId {
             ModelId::Validator => "Validation Specialist",
             ModelId::Personality => "Personality Specialist",
             ModelId::Optimizer => "Optimization Specialist",
+            ModelId::Reasoning => "Reasoning Specialist",
         }
     }
 }

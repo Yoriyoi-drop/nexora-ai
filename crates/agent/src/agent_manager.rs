@@ -20,6 +20,7 @@ use crate::state::AgentState;
 use crate::{
     Agent, AgentConfig, AgentError, AgentMessage, AgentResponse, AgentStats, AgentStatus, Result,
 };
+use nexora_isolation::quarantine::QuarantineManager;
 
 /// Konfigurasi untuk AgentManager
 #[derive(Debug, Clone)]
@@ -72,6 +73,8 @@ pub struct AgentManager {
     background_handles: StdArc<std::sync::Mutex<Vec<JoinHandle<()>>>>,
     /// Global inference engine for agent inference
     inference_engine: StdArc<tokio::sync::RwLock<Option<StdArc<dyn InferenceEngine>>>>,
+    /// Quarantine manager for agent isolation
+    quarantine: StdArc<tokio::sync::RwLock<QuarantineManager>>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -157,6 +160,7 @@ impl AgentManager {
             memory_store,
             is_running: StdArc::new(AtomicBool::new(true)),
             inference_engine: StdArc::new(tokio::sync::RwLock::new(None)),
+            quarantine: StdArc::new(tokio::sync::RwLock::new(QuarantineManager::new())),
         }
     }
 
@@ -420,6 +424,19 @@ impl AgentManager {
         Ok(())
     }
 
+    /// Check if agent is quarantined
+    async fn check_agent_quarantined(&self, agent_id: Uuid) -> Result<()> {
+        let q = self.quarantine.read().await;
+        if q.is_agent_quarantined(agent_id) {
+            warn!("Agent {} is quarantined — blocking message", agent_id);
+            return Err(AgentError::ProcessingError {
+                operation: "quarantine_check".to_string(),
+                reason: format!("Agent {} is quarantined", agent_id),
+            });
+        }
+        Ok(())
+    }
+
     /// Internal send message implementation
     async fn send_message_internal(
         &self,
@@ -427,6 +444,9 @@ impl AgentManager {
         message: AgentMessage,
     ) -> Result<AgentResponse> {
         debug!("Sending message to agent: {}", agent_id);
+
+        // Step 0: Quarantine check — block if agent is quarantined
+        self.check_agent_quarantined(agent_id).await?;
 
         // Step 1: Receive message
         {
@@ -576,6 +596,12 @@ impl AgentManager {
 
                 // Round-robin worker selection
                 let worker_id = worker_ids[i % worker_ids.len()];
+
+                // Quarantine check before dispatching to worker
+                if let Err(e) = self.check_agent_quarantined(worker_id).await {
+                    warn!("Skipping quarantined worker {} for step {}: {}", worker_id, step_id, e);
+                    continue;
+                }
 
                 let exec_msg = crate::AgentMessage::new(
                     "execute_step",
@@ -801,6 +827,7 @@ impl Clone for AgentManager {
             memory_store: StdArc::clone(&self.memory_store),
             is_running: StdArc::clone(&self.is_running),
             inference_engine: StdArc::clone(&self.inference_engine),
+            quarantine: StdArc::clone(&self.quarantine),
             background_handles: StdArc::clone(&self.background_handles),
         }
     }
