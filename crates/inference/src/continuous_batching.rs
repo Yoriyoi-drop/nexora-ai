@@ -54,6 +54,9 @@ pub struct ContinuousBatchingConfig {
     pub paged_block_size: usize,
     /// Use f16 (half-precision) for paged cache K/V storage — 2× memory reduction.
     pub paged_cache_f16: bool,
+    /// Use 4-bit quantized for paged cache K/V storage — 8× memory reduction.
+    /// When true, overrides paged_cache_f16.
+    pub paged_cache_q4: bool,
     /// Max physical blocks for paged cache. 0 = auto.
     pub paged_max_blocks: usize,
     /// Soft memory limit for paged KV cache in bytes (0 = auto from max_blocks).
@@ -112,6 +115,7 @@ impl Default for ContinuousBatchingConfig {
             use_paged_cache: true,
             paged_block_size: 0,
             paged_cache_f16: true,
+            paged_cache_q4: false,
             paged_max_blocks: 0,
             paged_max_memory_bytes: 0,
             paged_eviction_policy: crate::paged_cache::EvictionPolicy::LRU,
@@ -145,19 +149,19 @@ struct PrefixTrieNode {
 }
 
 #[derive(Debug)]
-struct PrefixTrie {
+pub(crate) struct PrefixTrie {
     root: PrefixTrieNode,
 }
 
 impl PrefixTrie {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             root: PrefixTrieNode::default(),
         }
     }
 
     /// Insert a sequence's prompt into the trie (full walk).
-    fn insert(&mut self, seq_id: u64, prompt: &[u32]) {
+    pub(crate) fn insert(&mut self, seq_id: u64, prompt: &[u32]) {
         let mut node = &mut self.root;
         for &token in prompt {
             node = node.children.entry(token).or_default();
@@ -171,7 +175,7 @@ impl PrefixTrie {
     /// Returns `None` when no shared prefix of any length exists.
     /// Handles partial matches: if prompt diverges at token P+1, the match
     /// at depth P is still returned.
-    fn find_shared_prefix(
+    pub(crate) fn find_shared_prefix(
         &self,
         prompt: &[u32],
         exclude_seq_id: u64,
@@ -333,6 +337,7 @@ where
                 head_dim,
                 max_seq_len,
                 f16_storage: self.config.paged_cache_f16,
+                q4_storage: self.config.paged_cache_q4,
             };
             self.shared_paged = Some(Arc::new(std::sync::Mutex::new(
                 crate::paged_cache::PagedKVCache::new(paged_config),

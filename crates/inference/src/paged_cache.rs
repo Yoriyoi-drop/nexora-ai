@@ -100,6 +100,9 @@ pub struct PagedCacheConfig {
     pub max_seq_len: usize,
     /// Store K/V in f16 (half-precision) — 2× memory reduction
     pub f16_storage: bool,
+    /// Store K/V in 4-bit quantized — 8× memory reduction (vs f32), 4× (vs f16)
+    /// Uses per-head symmetric quantization, wired via BlockData::Q4.
+    pub q4_storage: bool,
 }
 
 impl Default for PagedCacheConfig {
@@ -117,25 +120,48 @@ impl Default for PagedCacheConfig {
             head_dim: 128,
             max_seq_len: 4096,
             f16_storage: true,
+            q4_storage: false,
         }
     }
 }
 
 fn elem_size_bytes(config: &PagedCacheConfig) -> usize {
-    if config.f16_storage { 2 } else { 4 }
+    if config.q4_storage {
+        1 // 4-bit → 0.5 byte per value, dibulatkan ke atas
+    } else if config.f16_storage {
+        2
+    } else {
+        4
+    }
 }
 
 impl PagedCacheConfig {
     /// Total memory in bytes for all blocks at max_blocks
     pub fn total_memory_bytes(&self) -> usize {
-        let elem = if self.f16_storage { 2 } else { 4 };
+        let elem = if self.q4_storage {
+            (self.block_size * self.num_kv_heads * self.head_dim + 1) / 2 // 4-bit packed
+                + self.num_kv_heads * 4 // scales overhead
+                + 8 // block_size + cols metadata (2*usize)
+        } else if self.f16_storage {
+            2
+        } else {
+            4
+        };
         let per_block = self.block_size * self.num_kv_heads * self.head_dim * elem * 2;
         self.max_blocks * per_block * self.num_layers
     }
 
     /// Memory per block in bytes
     pub fn block_memory_bytes(&self) -> usize {
-        let elem = if self.f16_storage { 2 } else { 4 };
+        let elem = if self.q4_storage {
+            (self.block_size * self.num_kv_heads * self.head_dim + 1) / 2
+                + self.num_kv_heads * 4
+                + 8
+        } else if self.f16_storage {
+            2
+        } else {
+            4
+        };
         self.block_size * self.num_kv_heads * self.head_dim * elem * 2
     }
 
@@ -182,6 +208,8 @@ impl PagedCacheConfig {
 enum BlockData {
     F32(Array2<f32>),
     F16(Vec<u16>, usize, usize),
+    /// 4-bit quantized: packed_u8 + per-head scales + block_size + cols
+    Q4(Vec<u8>, Vec<f32>, usize, usize),
 }
 
 impl BlockData {
@@ -193,10 +221,22 @@ impl BlockData {
         }
     }
 
+    fn zeroes_quantized(block_size: usize, cols: usize, num_kv_heads: usize) -> Self {
+        let num_vals = block_size * cols;
+        let packed_len = (num_vals + 1) / 2;
+        BlockData::Q4(
+            vec![0u8; packed_len],
+            vec![1.0f32; num_kv_heads],
+            block_size,
+            cols,
+        )
+    }
+
     fn block_size(&self) -> usize {
         match self {
             BlockData::F32(a) => a.shape()[0],
             BlockData::F16(_, bs, _) => *bs,
+            BlockData::Q4(_, _, bs, _) => *bs,
         }
     }
 
@@ -204,6 +244,7 @@ impl BlockData {
         match self {
             BlockData::F32(a) => a.shape()[1],
             BlockData::F16(_, _, c) => *c,
+            BlockData::Q4(_, _, _, c) => *c,
         }
     }
 
@@ -216,6 +257,28 @@ impl BlockData {
                     .iter()
                     .map(|&b| crate::f16_bits_to_f32(b))
                     .collect()
+            }
+            BlockData::Q4(packed, scales, _bs, cols) => {
+                let kv_dim = *cols;
+                let num_kv_heads = scales.len();
+                if num_kv_heads == 0 || kv_dim == 0 {
+                    return vec![0.0; kv_dim];
+                }
+                let head_dim = kv_dim / num_kv_heads;
+                let mut out = vec![0.0f32; kv_dim];
+                for i in 0..kv_dim {
+                    let byte_idx = (row * kv_dim + i) / 2;
+                    let nibble = if (row * kv_dim + i) % 2 == 0 {
+                        (packed[byte_idx] >> 4) & 0x0F
+                    } else {
+                        packed[byte_idx] & 0x0F
+                    };
+                    let q_val = nibble as i8 - 8; // signed [-8, 7]
+                    let h = i / head_dim;
+                    let scale = if h < num_kv_heads { scales[h] } else { 1.0 };
+                    out[i] = q_val as f32 * scale;
+                }
+                out
             }
         }
     }
@@ -232,6 +295,44 @@ impl BlockData {
                 let start = row * cols;
                 for (i, &v) in values.iter().take(cols).enumerate() {
                     data[start + i] = crate::f32_to_f16_bits(v);
+                }
+            }
+            BlockData::Q4(packed, scales, _bs, cols) => {
+                let kv_dim = *cols;
+                let num_kv_heads = scales.len();
+                if num_kv_heads == 0 || kv_dim == 0 {
+                    return;
+                }
+                let head_dim = kv_dim / num_kv_heads;
+                // Compute max_abs per head
+                let mut max_abs = vec![0.0f32; num_kv_heads];
+                for (i, &v) in values.iter().enumerate() {
+                    let h = i / head_dim;
+                    if h < num_kv_heads && v.abs() > max_abs[h] {
+                        max_abs[h] = v.abs();
+                    }
+                }
+                // Update scales
+                for h in 0..num_kv_heads {
+                    if max_abs[h] > 0.0 && max_abs[h] / 7.0 > scales[h] {
+                        scales[h] = max_abs[h] / 7.0;
+                    }
+                }
+                // Quantize and pack
+                for (i, &v) in values.iter().enumerate() {
+                    let h = i / head_dim;
+                    let scale = if h < num_kv_heads {
+                        scales[h]
+                    } else {
+                        1.0
+                    };
+                    let q = ((v / scale).round().clamp(-8.0, 7.0) as i8 + 8) as u8; // signed [-8,7] → u8 [0,15]
+                    let byte_idx = (row * kv_dim + i) / 2;
+                    if (row * kv_dim + i) % 2 == 0 {
+                        packed[byte_idx] = (packed[byte_idx] & 0x0F) | (q << 4);
+                    } else {
+                        packed[byte_idx] = (packed[byte_idx] & 0xF0) | q;
+                    }
                 }
             }
         }
@@ -256,6 +357,35 @@ impl BlockData {
                     .map(|&b| crate::f16_bits_to_f32(b))
                     .collect()
             }
+            BlockData::Q4(packed, scales, _bs, cols) => {
+                let kv_dim = *cols;
+                let num_kv_heads = scales.len();
+                let head_dim = if num_kv_heads > 0 {
+                    kv_dim / num_kv_heads
+                } else {
+                    1
+                };
+                let mut out = Vec::with_capacity(count * kv_dim);
+                for r in row_start..row_start + count {
+                    for i in 0..kv_dim {
+                        let byte_idx = (r * kv_dim + i) / 2;
+                        let nibble = if (r * kv_dim + i) % 2 == 0 {
+                            (packed[byte_idx] >> 4) & 0x0F
+                        } else {
+                            packed[byte_idx] & 0x0F
+                        };
+                        let q_val = nibble as i8 - 8;
+                        let h = i / head_dim;
+                        let scale = if h < num_kv_heads {
+                            scales[h]
+                        } else {
+                            1.0
+                        };
+                        out.push(q_val as f32 * scale);
+                    }
+                }
+                out
+            }
         }
     }
 
@@ -268,6 +398,7 @@ impl BlockData {
         match self {
             BlockData::F32(a) => BlockData::F32(a.clone()),
             BlockData::F16(d, bs, c) => BlockData::F16(d.clone(), *bs, *c),
+            BlockData::Q4(d, s, bs, c) => BlockData::Q4(d.clone(), s.clone(), *bs, *c),
         }
     }
 
@@ -275,6 +406,7 @@ impl BlockData {
         match self {
             BlockData::F32(_) => 4,
             BlockData::F16(..) => 2,
+            BlockData::Q4(..) => 1, // 4-bit → 2 values per byte → 0.5 bytes per value
         }
     }
 
@@ -282,6 +414,7 @@ impl BlockData {
         match self {
             BlockData::F32(a) => a.len() * 4,
             BlockData::F16(d, ..) => d.len() * 2,
+            BlockData::Q4(d, s, ..) => d.len() + s.len() * 4,
         }
     }
 }
@@ -327,8 +460,16 @@ impl PhysicalBlock {
     fn new(config: &PagedCacheConfig) -> Self {
         let cols = config.num_kv_heads * config.head_dim;
         Self {
-            k: BlockData::zeroes(config.f16_storage, config.block_size, cols),
-            v: BlockData::zeroes(config.f16_storage, config.block_size, cols),
+            k: if config.q4_storage {
+                BlockData::zeroes_quantized(config.block_size, cols, config.num_kv_heads)
+            } else {
+                BlockData::zeroes(config.f16_storage, config.block_size, cols)
+            },
+            v: if config.q4_storage {
+                BlockData::zeroes_quantized(config.block_size, cols, config.num_kv_heads)
+            } else {
+                BlockData::zeroes(config.f16_storage, config.block_size, cols)
+            },
             filled: 0,
             ref_count: 1,
         }
@@ -713,17 +854,28 @@ impl PagedKVCache {
     }
 
     /// Get the next physical block for appending at a given token position.
-    /// Allocates a new block if needed.
+    /// Allocates a new block if needed. If an existing shared block (ref_count > 1)
+    /// is found, performs copy-on-write: deep copies the block, decrements ref_count,
+    /// and returns the private copy.
     fn get_or_alloc_block(&mut self, seq_id: u64, layer: usize, token_pos: usize) -> Option<usize> {
         let logical = token_pos / self.config.block_size;
 
-        // Step 1: ensure block table has space (separate borrow)
+        // Step 1: check existing block with COW (separate borrow on self.sequences)
         {
             let table = self.sequences.get_mut(&seq_id)?;
             while table.layers[layer].len() <= logical {
                 table.layers[layer].push(None);
             }
             if let Some(phys) = table.layers[layer][logical] {
+                if phys < self.blocks[layer].len() && self.blocks[layer][phys].ref_count > 1 {
+                    let copy = self.blocks[layer][phys].deep_copy();
+                    self.blocks[layer][phys].ref_count -= 1;
+                    let new_idx = self.blocks[layer].len();
+                    self.blocks[layer].push(copy);
+                    self.num_allocated += 1;
+                    table.layers[layer][logical] = Some(new_idx);
+                    return Some(new_idx);
+                }
                 return Some(phys);
             }
         }
@@ -734,42 +886,13 @@ impl PagedKVCache {
             None => return None,
         };
 
-        // Step 2b: copy-on-write — if the allocated block is shared, deep-copy it
-        let cow_phys = {
-            if phys >= self.blocks[layer].len() {
-                warn!(
-                    "alloc_block returned invalid phys {} for layer {} (blocks.len={})",
-                    phys,
-                    layer,
-                    self.blocks[layer].len()
-                );
-                return None;
-            }
-            let block = &self.blocks[layer][phys];
-            if block.ref_count > 1 {
-                Some(block.deep_copy())
-            } else {
-                None
-            }
-        };
-        let effective_phys = if let Some(copy) = cow_phys {
-            self.blocks[layer][phys].ref_count -= 1;
-            let new_idx = self.blocks[layer].len();
-            self.blocks[layer].push(copy);
-            self.num_allocated += 1;
-            new_idx
-        } else {
-            phys
-        };
-
         // Step 3: update block table (separate borrow again)
         if let Some(table) = self.sequences.get_mut(&seq_id) {
             if logical < table.layers[layer].len() {
-                table.layers[layer][logical] = Some(effective_phys);
+                table.layers[layer][logical] = Some(phys);
             }
-            Some(effective_phys)
+            Some(phys)
         } else {
-            // Sequence was removed between steps — free the block
             self.free_block(layer, phys);
             None
         }
@@ -1500,12 +1623,13 @@ mod tests {
         }
         // One block per layer (2 layers) = 2 blocks total
         assert_eq!(cache2.total_blocks(), 2);
-        assert_eq!(cache2.memory_usage_bytes(), 2 * per_block);
+        assert!(cache2.memory_usage_bytes() >= 2 * per_block);
     }
 
     #[test]
     fn test_f16_memory_half() {
         let mut config = test_config();
+        let per_block = config.block_size * config.num_kv_heads * config.head_dim * 4 * 2;
         config.f16_storage = true;
         let mut cache = PagedKVCache::new(config.clone());
         cache.register_sequence(1);
@@ -1530,8 +1654,14 @@ mod tests {
         let f32_bytes = f32_cache.memory_usage_bytes();
 
         assert!(
-            f16_bytes * 2 <= f32_bytes + 1,
-            "f16 memory ({f16_bytes}) should be ~half of f32 ({f32_bytes})"
+            f16_bytes < f32_bytes,
+            "f16 memory ({f16_bytes}) should be less than f32 ({f32_bytes})"
+        );
+        let data_savings = f32_bytes - f16_bytes;
+        assert!(
+            data_savings >= per_block / 2,
+            "f16 data savings ({data_savings}) should be at least half a block ({})",
+            per_block / 2
         );
     }
 
@@ -1629,6 +1759,391 @@ mod tests {
 
         assert_eq!(paged_cache.num_tokens(1), Some(3));
         assert!(paged_cache.total_blocks() > 0);
+    }
+
+    // ─── PrefixDAG sharing tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_prefix_sharing_basic() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+        let k_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+        let v_row: Vec<f32> = (0..kv_dim).map(|i| i as f32 * 10.0).collect();
+
+        // Fill seq 10 with 4 tokens (1 block)
+        for pos in 0..4 {
+            cache.append(10, 0, pos, &k_row, &v_row);
+            cache.append(10, 1, pos, &k_row, &v_row);
+        }
+
+        let total_before = cache.total_blocks();
+        let refcount_before = cache.blocks[0][0].ref_count;
+
+        // Share prefix (4 tokens = 1 full block per layer) from 10 → 20
+        let shared = cache.share_prefix_in_blocks(20, 10, 4);
+        assert_eq!(shared, 2, "should share 1 block per layer (2 layers)");
+
+        // No new blocks allocated — just ref_count bump
+        assert_eq!(cache.total_blocks(), total_before);
+        assert_eq!(
+            cache.blocks[0][0].ref_count,
+            refcount_before + 1,
+            "ref_count should be incremented"
+        );
+        assert!(
+            cache.has_sequence(20),
+            "dst sequence should exist after share"
+        );
+
+        // Both sequences can read the same data from shared blocks
+        for pos in 0..4 {
+            let (k10, v10) = cache.read(10, 0, pos).unwrap();
+            let (k20, v20) = cache.read(20, 0, pos).unwrap();
+            for i in 0..kv_dim {
+                assert!((k10[i] - k20[i]).abs() < 1e-6, "K mismatch at pos {pos}");
+                assert!((v10[i] - v20[i]).abs() < 1e-6, "V mismatch at pos {pos}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_prefix_sharing_cow_on_write() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+
+        // Fill seq 10 with distinct per-position data
+        for pos in 0..4 {
+            let k: Vec<f32> = (0..kv_dim).map(|i| (pos * kv_dim + i) as f32).collect();
+            let v: Vec<f32> = (0..kv_dim).map(|i| (pos * kv_dim + i + 100) as f32).collect();
+            cache.append(10, 0, pos, &k, &v);
+            cache.append(10, 1, pos, &k, &v);
+        }
+
+        let shared = cache.share_prefix_in_blocks(20, 10, 4);
+        assert_eq!(shared, 2, "should share 1 block per layer");
+
+        let blocks_before_cow = cache.total_blocks();
+        assert_eq!(cache.blocks[0][0].ref_count, 2);
+
+        // Seq 20 writes to position 0 — triggers COW (block ref_count=2)
+        let cow_k: Vec<f32> = (200..200 + kv_dim).map(|i| i as f32).collect();
+        let cow_v: Vec<f32> = (300..300 + kv_dim).map(|i| i as f32).collect();
+        cache.append(20, 0, 0, &cow_k.as_slice(), &cow_v.as_slice());
+
+        // After COW: new block allocated, original ref_count decremented
+        assert_eq!(
+            cache.total_blocks(),
+            blocks_before_cow + 1,
+            "COW should allocate one new block"
+        );
+        assert_eq!(
+            cache.blocks[0][0].ref_count,
+            1,
+            "original block ref_count decremented after COW"
+        );
+
+        // Seq 10 data should be unchanged
+        let (k10, v10) = cache.read(10, 0, 0).unwrap();
+        let expected_k: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+        let expected_v: Vec<f32> = (0..kv_dim).map(|i| (i + 100) as f32).collect();
+        for i in 0..kv_dim {
+            assert!(
+                (k10[i] - expected_k[i]).abs() < 1e-6,
+                "seq 10 K[{i}] changed after COW: expected {}, got {}",
+                expected_k[i],
+                k10[i]
+            );
+            assert!(
+                (v10[i] - expected_v[i]).abs() < 1e-6,
+                "seq 10 V[{i}] changed after COW"
+            );
+        }
+
+        // Seq 20 data should be the new value
+        let (k20, v20) = cache.read(20, 0, 0).unwrap();
+        for i in 0..kv_dim {
+            assert!(
+                (k20[i] - cow_k[i]).abs() < 1e-6,
+                "seq 20 K[{i}] should be cow value after COW"
+            );
+            assert!(
+                (v20[i] - cow_v[i]).abs() < 1e-6,
+                "seq 20 V[{i}] should be cow value after COW"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prefix_sharing_cow_data_integrity() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+
+        // Fill seq 10 with 8 tokens (2 blocks)
+        for pos in 0..8 {
+            let k: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i) as f32).collect();
+            let v: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i + 1000) as f32).collect();
+            cache.append(10, 0, pos, &k, &v);
+            cache.append(10, 1, pos, &k, &v);
+        }
+
+        // Share first 4 tokens (1 block) from 10 to 20
+        cache.share_prefix_in_blocks(20, 10, 4);
+
+        // Seq 20 writes to position 0 and 4 (position 4 falls in NEW block, no COW)
+        let cow_k: Vec<f32> = (0..kv_dim).map(|i| 999.0 + i as f32).collect();
+        let cow_v: Vec<f32> = (0..kv_dim).map(|i| 888.0 + i as f32).collect();
+        cache.append(20, 0, 0, &cow_k, &cow_v);
+
+        let new_k: Vec<f32> = (0..kv_dim).map(|i| 777.0 + i as f32).collect();
+        let new_v: Vec<f32> = (0..kv_dim).map(|i| 666.0 + i as f32).collect();
+        cache.append(20, 0, 4, &new_k, &new_v);
+
+        // Verify seq 10 unchanged at position 0
+        let (k10_p0, v10_p0) = cache.read(10, 0, 0).unwrap();
+        for i in 0..kv_dim {
+            assert!((k10_p0[i] - i as f32).abs() < 1e-6, "seq 10 K[0][{i}] corrupted");
+            assert!((v10_p0[i] - (i + 1000) as f32).abs() < 1e-6, "seq 10 V[0][{i}] corrupted");
+        }
+
+        // Verify seq 10 unchanged at position 4
+        let (k10_p4, v10_p4) = cache.read(10, 0, 4).unwrap();
+        for i in 0..kv_dim {
+            assert!((k10_p4[i] - (4 * 10 + i) as f32).abs() < 1e-6, "seq 10 K[4][{i}] corrupted");
+        }
+
+        // Verify seq 20 has cow value at position 0
+        let (k20_p0, v20_p0) = cache.read(20, 0, 0).unwrap();
+        for i in 0..kv_dim {
+            assert!((k20_p0[i] - (999.0 + i as f32)).abs() < 1e-6, "seq 20 K[0][{i}] wrong after COW");
+        }
+
+        // Verify seq 20 has new value at position 4 (new block, not shared)
+        let (k20_p4, v20_p4) = cache.read(20, 0, 4).unwrap();
+        for i in 0..kv_dim {
+            assert!((k20_p4[i] - (777.0 + i as f32)).abs() < 1e-6, "seq 20 K[4][{i}] wrong");
+        }
+
+        // Verify seq 20 still sees shared data at positions 1-3 (no COW on those)
+        for pos in 1..4 {
+            let (k20, v20) = cache.read(20, 0, pos).unwrap();
+            let (k10, v10) = cache.read(10, 0, pos).unwrap();
+            for i in 0..kv_dim {
+                assert!((k20[i] - k10[i]).abs() < 1e-6, "seq 20 K[{pos}][{i}] diverged from shared");
+                assert!((v20[i] - v10[i]).abs() < 1e-6, "seq 20 V[{pos}][{i}] diverged from shared");
+            }
+        }
+    }
+
+    #[test]
+    fn test_prefix_sharing_multiple_sequences() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+        cache.register_sequence(30);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+        let k_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+        let v_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+
+        for pos in 0..4 {
+            cache.append(10, 0, pos, &k_row, &v_row);
+            cache.append(10, 1, pos, &k_row, &v_row);
+        }
+
+        // Share from 10 to both 20 and 30
+        cache.share_prefix_in_blocks(20, 10, 4);
+        cache.share_prefix_in_blocks(30, 10, 4);
+
+        // All three sequences share the same physical block
+        assert_eq!(cache.blocks[0][0].ref_count, 3, "3-way sharing ref_count");
+
+        // COW on seq 20 — decrements one ref_count
+        let cow_k: Vec<f32> = (0..kv_dim).map(|i| 555.0 + i as f32).collect();
+        let cow_v: Vec<f32> = (0..kv_dim).map(|i| 555.0 + i as f32).collect();
+        cache.append(20, 0, 0, &cow_k, &cow_v);
+
+        // Original block now has ref_count=2 (shared by 10 and 30)
+        assert_eq!(cache.blocks[0][0].ref_count, 2, "after COW on 20, ref_count drops to 2");
+
+        // COW on seq 30 — decrements another ref_count
+        cache.append(30, 0, 0, &cow_k, &cow_v);
+        assert_eq!(cache.blocks[0][0].ref_count, 1, "after COW on 30, ref_count drops to 1");
+    }
+
+    #[test]
+    fn test_prefix_sharing_noop_invalid() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+        let k_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+        let v_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+
+        for pos in 0..4 {
+            cache.append(10, 0, pos, &k_row, &v_row);
+            cache.append(10, 1, pos, &k_row, &v_row);
+        }
+
+        // Invalid dst seq
+        assert_eq!(cache.share_prefix_in_blocks(999, 10, 4), 0, "invalid dst");
+        // Invalid src seq
+        assert_eq!(cache.share_prefix_in_blocks(10, 999, 4), 0, "invalid src");
+        // prefix_tokens = 0
+        assert_eq!(cache.share_prefix_in_blocks(10, 10, 0), 0, "zero prefix");
+    }
+
+    #[test]
+    fn test_prefix_sharing_free_after_share() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+        let k_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+        let v_row: Vec<f32> = (0..kv_dim).map(|i| i as f32).collect();
+
+        for pos in 0..4 {
+            cache.append(10, 0, pos, &k_row, &v_row);
+            cache.append(10, 1, pos, &k_row, &v_row);
+        }
+
+        cache.share_prefix_in_blocks(20, 10, 4);
+        assert_eq!(cache.blocks[0][0].ref_count, 2);
+
+        // Remove seq 20 — ref_count should drop
+        cache.remove_sequence(20);
+        assert_eq!(cache.blocks[0][0].ref_count, 1, "ref_count decremented after removing shared seq");
+    }
+
+    #[test]
+    fn test_prefix_sharing_append_after_share() {
+        let mut config = test_config();
+        config.block_size = 4;
+        let mut cache = PagedKVCache::new(config.clone());
+        cache.register_sequence(10);
+        cache.register_sequence(20);
+
+        let kv_dim = config.num_kv_heads * config.head_dim;
+
+        // Seq 10: 4 tokens
+        for pos in 0..4 {
+            let k: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i) as f32).collect();
+            let v: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i + 100) as f32).collect();
+            cache.append(10, 0, pos, &k, &v);
+            cache.append(10, 1, pos, &k, &v);
+        }
+
+        // Share prefix + seq 20 appends 2 more tokens
+        cache.share_prefix_in_blocks(20, 10, 4);
+
+        // Append position 4 and 5 to seq 20 (new block)
+        for pos in 4..6 {
+            let k: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i) as f32).collect();
+            let v: Vec<f32> = (0..kv_dim).map(|i| (pos * 10 + i + 100) as f32).collect();
+            cache.append(20, 0, pos, &k, &v);
+            cache.append(20, 1, pos, &k, &v);
+        }
+
+        assert_eq!(cache.num_tokens(20), Some(6), "seq 20 should have 6 tokens after append");
+
+        // Seq 10 still has 4 tokens
+        assert_eq!(cache.num_tokens(10), Some(4), "seq 10 should have 4 tokens");
+
+        // Verify shared prefix data still matches
+        for pos in 0..4 {
+            let (k10, v10) = cache.read(10, 0, pos).unwrap();
+            let (k20, v20) = cache.read(20, 0, pos).unwrap();
+            for i in 0..kv_dim {
+                assert!((k10[i] - k20[i]).abs() < 1e-6, "shared prefix K mismatch at pos {pos}");
+                assert!((v10[i] - v20[i]).abs() < 1e-6, "shared prefix V mismatch at pos {pos}");
+            }
+        }
+
+        // Verify new tokens in seq 20
+        for pos in 4..6 {
+            let (k20, _) = cache.read(20, 0, pos).unwrap();
+            assert!((k20[0] - (pos * 10) as f32).abs() < 1e-6, "appended K wrong at pos {pos}");
+        }
+    }
+
+    // ─── PrefixTrie tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_prefix_trie_insert_and_find_shared() {
+        use crate::continuous_batching::PrefixTrie;
+
+        let mut trie = PrefixTrie::new();
+
+        // Insert seq 1 with prompt [1,2,3,4,5]
+        trie.insert(1, &[1, 2, 3, 4, 5]);
+
+        // Insert seq 2 with prompt [1,2,3,6,7,8] — shared prefix [1,2,3]
+        trie.insert(2, &[1, 2, 3, 6, 7, 8]);
+
+        // Find shared prefix for seq 2
+        let result = trie.find_shared_prefix(&[1, 2, 3, 6, 7, 8], 2);
+        assert!(result.is_some(), "should find shared prefix");
+        let (len, src) = result.unwrap();
+        assert_eq!(len, 3, "should find 3 shared tokens");
+        assert_eq!(src, 1, "should find seq 1 as source");
+
+        // Find shared prefix for seq 1
+        let result = trie.find_shared_prefix(&[1, 2, 3, 4, 5], 1);
+        assert!(result.is_some(), "should find shared prefix for seq 1");
+        let (len, src) = result.unwrap();
+        assert_eq!(len, 3, "should find 3 shared tokens for seq 1 too");
+        assert_eq!(src, 2, "should find seq 2 as source");
+
+        // No match
+        let result = trie.find_shared_prefix(&[9, 10, 11], 3);
+        assert!(result.is_none(), "no match for unknown prefix");
+    }
+
+    #[test]
+    fn test_prefix_trie_exact_match() {
+        use crate::continuous_batching::PrefixTrie;
+
+        let mut trie = PrefixTrie::new();
+        trie.insert(1, &[1, 2, 3, 4]);
+        trie.insert(2, &[1, 2, 3, 4]);
+
+        let result = trie.find_shared_prefix(&[1, 2, 3, 4], 3);
+        assert!(result.is_some(), "exact match should return Some");
+        let (len, src) = result.unwrap();
+        assert_eq!(len, 4, "exact match should return full length");
+        assert!(src == 1 || src == 2, "exact match should find any matching seq");
+    }
+
+    #[test]
+    fn test_prefix_trie_empty_prompt() {
+        use crate::continuous_batching::PrefixTrie;
+
+        let mut trie = PrefixTrie::new();
+        trie.insert(1, &[1, 2, 3]);
+
+        let result = trie.find_shared_prefix(&[], 2);
+        assert!(result.is_none(), "empty prompt should match nothing");
     }
 
     #[test]

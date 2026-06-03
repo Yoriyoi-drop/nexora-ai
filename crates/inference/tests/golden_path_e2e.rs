@@ -36,6 +36,7 @@ fn test_model() -> CausalLM {
         expert_intermediate_size: 0,
         quantization: QFormat::F16,
         use_half_precision: true,
+        shard: Default::default(),
     });
     model.set_keep_on_gpu(false);
     model

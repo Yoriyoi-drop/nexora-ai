@@ -285,6 +285,7 @@ pub struct CausalLM {
     /// Set when `config.shard.num_shards > 1`. Used internally by `forward_cpu_impl`
     /// to all-reduce partial attention/FFN outputs across shards.
     pub collective: Option<super::sharded::ShardCollective>,
+
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]

@@ -45,13 +45,17 @@ pub(crate) struct GqaGpuWeights {
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
 pub struct GpuKVCacheEntry {
-    pub k: GpuTensor, // [capacity, kv_heads, head_dim]
-    pub v: GpuTensor, // [capacity, kv_heads, head_dim]
+    pub(crate) k: GpuTensor,
+    pub(crate) v: GpuTensor,
     pub seq_len: usize,
-    pub capacity: usize,
-    pub kv_heads: usize,
-    pub head_dim: usize,
-    pub f16_storage: bool,
+    pub(crate) capacity: usize,
+    pub(crate) kv_heads: usize,
+    pub(crate) head_dim: usize,
+    pub(crate) f16_storage: bool,
+    /// Copy-on-Write reference counter.
+    /// When `Some(count)` and count > 1, the GPU buffers are shared.
+    /// First mutation (append/clear) triggers real buffer copy.
+    pub(crate) cow_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 #[cfg(feature = "gpu")]
@@ -84,6 +88,7 @@ impl GpuKVCacheEntry {
                 kv_heads,
                 head_dim,
                 f16_storage: true,
+                cow_count: None,
             })
         } else {
             Ok(Self {
@@ -94,6 +99,7 @@ impl GpuKVCacheEntry {
                 kv_heads,
                 head_dim,
                 f16_storage: false,
+                cow_count: None,
             })
         }
     }
@@ -113,6 +119,9 @@ impl GpuKVCacheEntry {
                 self.seq_len, self.capacity
             )));
         }
+        // COW: jika buffer shared, copy dulu sebelum write
+        self.cow_ensure_unique(ctx)?;
+
         let kv_elems = self.kv_heads * self.head_dim;
 
         if self.f16_storage {
@@ -314,6 +323,8 @@ impl GpuKVCacheEntry {
     /// Does NOT deallocate buffers — memset to zero.
     /// Uses u32 zero fill for F16 storage, f32 zero fill for F32 storage.
     pub fn clear(&mut self, ctx: &GpuContext) -> Result<(), nexora_autograd::gpu::GpuError> {
+        // COW: jika buffer shared, copy dulu sebelum write
+        self.cow_ensure_unique(ctx)?;
         if self.f16_storage {
             ctx.fill_zero_u32(&self.k)?;
             ctx.fill_zero_u32(&self.v)?;
@@ -328,11 +339,54 @@ impl GpuKVCacheEntry {
 
 #[cfg(feature = "gpu")]
 impl GpuKVCacheEntry {
-    /// Deep clone: allocates new GPU buffers and copies data.
-    /// Required because `GpuTensor::clone()` is a shallow ref-counted handle —
-    /// two cloned entries sharing the same wgpu::Buffer would corrupt each
-    /// other on `clear()` or `Drop`.
+    /// COW (Copy-on-Write) deep clone.
+    /// Instead of immediately copying GPU buffers (expensive), this increments
+    /// a shared reference counter. The first `append()` or `clear()` on any
+    /// cloned entry triggers the real buffer copy.
     pub fn deep_clone(&self, ctx: &GpuContext) -> Result<Self, nexora_autograd::gpu::GpuError> {
+        let cow_count = self.cow_count.clone().unwrap_or_else(|| {
+            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1))
+        });
+        // Increment shared count — this clone shares the buffers
+        cow_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let k_buf = unsafe { self.k.buffer().clone() };
+        let v_buf = unsafe { self.v.buffer().clone() };
+        Ok(Self {
+            k: GpuTensor::from_raw(self.k.shape(), k_buf, self.k.dtype()),
+            v: GpuTensor::from_raw(self.v.shape(), v_buf, self.v.dtype()),
+            seq_len: self.seq_len,
+            capacity: self.capacity,
+            kv_heads: self.kv_heads,
+            head_dim: self.head_dim,
+            f16_storage: self.f16_storage,
+            cow_count: Some(cow_count),
+        })
+    }
+
+    /// Ensure unique ownership of GPU buffers.
+    /// If COW count > 1, performs actual buffer copy before mutation.
+    fn cow_ensure_unique(
+        &mut self,
+        ctx: &GpuContext,
+    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        let count = self
+            .cow_count
+            .as_ref()
+            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0);
+
+        if count <= 1 {
+            return Ok(()); // Already unique owner
+        }
+
+        // Decrement shared count
+        self.cow_count
+            .as_ref()
+            .unwrap()
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Copy GPU buffers
         let k_size = self.k.buffer().size();
         let v_size = self.v.buffer().size();
         let k_new = ctx.alloc_or_create_buffer(k_size, self.k.buffer().usage());
@@ -342,15 +396,12 @@ impl GpuKVCacheEntry {
             enc.copy_buffer_to_buffer(self.v.buffer(), 0, &v_new, 0, v_size);
             Ok(())
         })?;
-        Ok(Self {
-            k: GpuTensor::from_raw(self.k.shape(), k_new, self.k.dtype()),
-            v: GpuTensor::from_raw(self.v.shape(), v_new, self.v.dtype()),
-            seq_len: self.seq_len,
-            capacity: self.capacity,
-            kv_heads: self.kv_heads,
-            head_dim: self.head_dim,
-            f16_storage: self.f16_storage,
-        })
+
+        self.k = GpuTensor::from_raw(self.k.shape(), k_new, self.k.dtype());
+        self.v = GpuTensor::from_raw(self.v.shape(), v_new, self.v.dtype());
+        self.cow_count = None; // Unique owner now
+
+        Ok(())
     }
 }
 
@@ -369,6 +420,7 @@ impl Clone for GpuKVCacheEntry {
             kv_heads: self.kv_heads,
             head_dim: self.head_dim,
             f16_storage: self.f16_storage,
+            cow_count: self.cow_count.clone(),
         }
     }
 }

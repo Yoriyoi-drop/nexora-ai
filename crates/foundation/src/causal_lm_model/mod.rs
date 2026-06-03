@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use nexora_training::{Trainer, TrainerConfig};
+use nexora_transformer::config::ModelTier as TfModelTier;
 use nexora_transformer::{CausalLM, TransformerConfig};
 
 use crate::echo_net_injector::EchoNetInjector;
@@ -26,6 +27,17 @@ use crate::shared::{
     ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
     NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
 };
+
+fn shared_tier_to_transformer(tier: ModelTier) -> TfModelTier {
+    match tier {
+        ModelTier::Ultra => TfModelTier::Ultra,
+        ModelTier::Apex => TfModelTier::Apex,
+        ModelTier::Pro => TfModelTier::Pro,
+        ModelTier::Core => TfModelTier::Core,
+        ModelTier::Edge => TfModelTier::Edge,
+        ModelTier::Master => TfModelTier::Ultra,
+    }
+}
 
 pub struct CausalLmModel {
     meta: ModelMeta,
@@ -45,9 +57,10 @@ pub struct CausalLmModel {
 
 impl CausalLmModel {
     pub fn new(model_id: NxrModelId, transformer_config: TransformerConfig) -> Self {
+        let model_tier = model_id.tier();
         let meta = ModelMeta::new(
             model_id,
-            ModelTier::Core,
+            model_tier,
             "0.1.0".to_string(),
             model_id.fullname().to_string(),
         );
@@ -103,51 +116,86 @@ impl CausalLmModel {
     }
 
     pub async fn load_model(&self) -> NxrModelResult<()> {
-        let tc = self.transformer_config.read().await;
-        let mut model = CausalLM::new((*tc).clone());
-        if self.use_half_precision.load(Ordering::Relaxed) {
-            model = model.with_half_precision();
-        }
+        let model_id = self.meta.id;
 
-        if let Some(echo_cfg) = &self.echo_net_config {
-            let injector = EchoNetInjector::new(
-                tc.hidden_size,
-                echo_cfg.phase_separation_strength,
-                echo_cfg.max_window,
-                echo_cfg.alpha,
-            )
-            .map_err(|e| NxrModelError::Internal(format!("EchoNet injector: {}", e)))?;
+        // Resolve dari tier backbone registry — models dalam tier yang sama
+        // (misal Ultra: Omnis, Axiom, Genesis) share Arc<CausalLM>.
+        // Weight di-load sekali untuk seluruh tier.
+        let tf_tier = shared_tier_to_transformer(self.meta.tier);
+        let backbone = match nexora_transformer::resolve_tier_backbone(tf_tier) {
+            Ok(b) => {
+                info!(
+                    "Using shared tier backbone for {:?} (tier: {:?})",
+                    model_id, self.meta.tier
+                );
+                b
+            }
+            Err(e) => {
+                let tc = self.transformer_config.read().await;
+                warn!(
+                    "Tier backbone resolve failed ({}), creating independent model",
+                    e
+                );
+                Arc::new(CausalLM::new((*tc).clone()))
+            }
+        };
 
-            model.injectors.push((
-                echo_cfg.inject_after_layer,
-                std::sync::Mutex::new(Box::new(injector)),
-            ));
+        // Jika model perlu tambahan (EchoNet injector, SEDC), clone backbone.
+        // Jika tidak, pakai Arc langsung -> zero copy sharing.
+        let needs_modification = self.echo_net_config.is_some() || self.sedc_enabled;
+        let model: Arc<CausalLM> = if needs_modification {
+            let mut model = (*backbone).clone();
+            if self.use_half_precision.load(Ordering::Relaxed) {
+                model = model.with_half_precision();
+            }
 
-            info!(
-                "EchoNet APSS injector attached after layer {}",
-                echo_cfg.inject_after_layer
-            );
-        }
+            if let Some(echo_cfg) = &self.echo_net_config {
+                let tc = self.transformer_config.read().await;
+                let injector = EchoNetInjector::new(
+                    tc.hidden_size,
+                    echo_cfg.phase_separation_strength,
+                    echo_cfg.max_window,
+                    echo_cfg.alpha,
+                )
+                .map_err(|e| NxrModelError::Internal(format!("EchoNet injector: {}", e)))?;
 
-        if self.sedc_enabled {
-            match model.compress_sedc_default() {
-                Ok(Some(report)) => {
-                    let report_str = serde_json::to_string_pretty(&report).unwrap_or_default();
-                    *self.sedc_report.write().await = Some(report_str);
-                    info!("SEDC compression stored in model ✓");
-                }
-                Ok(None) => {
-                    info!("SEDC compression skipped");
-                }
-                Err(e) => {
-                    warn!("SEDC compression failed: {}", e);
+                model.injectors.push((
+                    echo_cfg.inject_after_layer,
+                    std::sync::Mutex::new(Box::new(injector)),
+                ));
+
+                info!(
+                    "EchoNet APSS injector attached after layer {}",
+                    echo_cfg.inject_after_layer
+                );
+            }
+
+            if self.sedc_enabled {
+                match model.compress_sedc_default() {
+                    Ok(Some(report)) => {
+                        let report_str =
+                            serde_json::to_string_pretty(&report).unwrap_or_default();
+                        *self.sedc_report.write().await = Some(report_str);
+                        info!("SEDC compression stored in model ✓");
+                    }
+                    Ok(None) => {
+                        info!("SEDC compression skipped");
+                    }
+                    Err(e) => {
+                        warn!("SEDC compression failed: {}", e);
+                    }
                 }
             }
-        }
 
-        *self.model.write().await = Some(Arc::new(model));
+            Arc::new(model)
+        } else {
+            // Zero-copy path: langsung pakai Arc dari registry
+            backbone.clone()
+        };
+
+        *self.model.write().await = Some(model);
         *self.initialized.write().await = true;
-        info!("CausalLM model loaded: {} params", tc.parameter_count());
+        info!("CausalLM model loaded: {} params", backbone.config.parameter_count());
         Ok(())
     }
 

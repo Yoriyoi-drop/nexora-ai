@@ -55,6 +55,7 @@ pub struct InferenceConfig {
     pub use_continuous_batching_config: Option<ContinuousBatchingConfig>,
     pub use_paged_cache: bool,
     pub paged_cache_f16: bool,
+    pub paged_cache_q4: bool,
     pub paged_block_size: usize,
     pub paged_max_blocks: usize,
     pub checkpoint_path: Option<String>,
@@ -89,6 +90,7 @@ impl Default for InferenceConfig {
             use_continuous_batching_config: None,
             use_paged_cache: true,
             paged_cache_f16: true,
+            paged_cache_q4: false,
             paged_block_size: 0,
             paged_max_blocks: 0,
             checkpoint_path: None,
@@ -279,10 +281,11 @@ impl InferenceEngine {
                 head_dim: c.head_dim(),
                 max_seq_len: c.max_seq_len,
                 f16_storage: config.paged_cache_f16,
+                q4_storage: config.paged_cache_q4,
             };
             info!(
-                "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}",
-                block_size, max_blocks, c.num_layers
+                "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}, q4={}",
+                block_size, max_blocks, c.num_layers, config.paged_cache_q4
             );
             Some(Arc::new(StdMutex::new(PagedKVCache::new(pc_config))))
         } else {
@@ -300,6 +303,7 @@ impl InferenceEngine {
                 head_dim: 64,
                 max_seq_len: 2048,
                 f16_storage: config.paged_cache_f16,
+                q4_storage: config.paged_cache_q4,
             }))))
         }
     }
