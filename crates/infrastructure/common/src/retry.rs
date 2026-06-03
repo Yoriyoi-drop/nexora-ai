@@ -23,6 +23,7 @@ impl Default for RetryConfig {
 
 impl RetryConfig {
     pub fn new(max_retries: u32, base_delay_ms: u64) -> Self {
+        let max_retries = max_retries.max(1);
         Self {
             max_retries,
             base_delay_ms,
@@ -59,7 +60,10 @@ impl RetryConfig {
                 }
             }
         }
-        Err(last_err.expect("retry loop always executes at least once because max_retries >= 0"))
+        match last_err {
+            Some(e) => Err(e),
+            None => panic!("retry loop with max_retries={} did not execute", self.max_retries),
+        }
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {

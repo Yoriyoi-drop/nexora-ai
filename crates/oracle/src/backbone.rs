@@ -411,7 +411,18 @@ impl MultiHeadLatentAttention {
         }
 
         let (batch_size, seq_len, head_dim) = heads[0].dim();
-        let mut concatenated = Array3::zeros((batch_size, seq_len, head_dim * heads.len()));
+        let concatenated_dim = head_dim * heads.len();
+        let expected_dim = self.config.latent_dim;
+
+        if concatenated_dim != expected_dim {
+            return Err(anyhow::anyhow!(
+                "MLA concatenate_heads: head_dim({}) * n_heads({}) = {} != latent_dim({}). \
+                 Each head output must align with latent projection dimension.",
+                head_dim, heads.len(), concatenated_dim, expected_dim,
+            ));
+        }
+
+        let mut concatenated = Array3::zeros((batch_size, seq_len, concatenated_dim));
 
         for (i, head) in heads.iter().enumerate() {
             let mut slice = concatenated.slice_mut(s![.., .., i * head_dim..(i + 1) * head_dim]);

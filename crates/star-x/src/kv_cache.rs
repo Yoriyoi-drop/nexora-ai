@@ -22,8 +22,9 @@ pub struct KVCache {
     head_dim: usize,
     num_heads: usize,
 
-    // Current sequence length
+    // Current sequence length and pre-allocated capacity
     seq_len: usize,
+    capacity: usize,
 
     // Cache statistics
     cache_hits: usize,
@@ -33,16 +34,38 @@ pub struct KVCache {
 impl KVCache {
     /// Create new KV cache
     pub fn new(max_cache_size: usize, head_dim: usize, num_heads: usize) -> Self {
+        let dim = head_dim * num_heads;
+        let initial_cap = max_cache_size.min(64);
         Self {
-            cached_keys: Array2::zeros((0, head_dim * num_heads)),
-            cached_values: Array2::zeros((0, head_dim * num_heads)),
+            cached_keys: Array2::zeros((initial_cap, dim)),
+            cached_values: Array2::zeros((initial_cap, dim)),
             max_cache_size,
             head_dim,
             num_heads,
             seq_len: 0,
+            capacity: initial_cap,
             cache_hits: 0,
             cache_misses: 0,
         }
+    }
+
+    fn ensure_capacity(&mut self, needed: usize) {
+        if needed <= self.capacity {
+            return;
+        }
+        let dim = self.head_dim * self.num_heads;
+        let new_cap = (self.capacity * 2).max(needed).min(self.max_cache_size).max(64);
+        let mut new_keys = Array2::zeros((new_cap, dim));
+        let mut new_values = Array2::zeros((new_cap, dim));
+        if self.seq_len > 0 {
+            new_keys.slice_mut(s![0..self.seq_len, ..])
+                .assign(&self.cached_keys.slice(s![0..self.seq_len, ..]));
+            new_values.slice_mut(s![0..self.seq_len, ..])
+                .assign(&self.cached_values.slice(s![0..self.seq_len, ..]));
+        }
+        self.cached_keys = new_keys;
+        self.cached_values = new_values;
+        self.capacity = new_cap;
     }
 
     /// Add new key-value pair to cache
@@ -55,31 +78,16 @@ impl KVCache {
         let key_2d = key.into_shape((1, self.head_dim * self.num_heads))?;
         let value_2d = value.into_shape((1, self.head_dim * self.num_heads))?;
 
-        // Append to cache
-        if self.seq_len == 0 {
-            self.cached_keys = key_2d;
-            self.cached_values = value_2d;
-        } else {
-            let mut new_keys = Array2::zeros((self.seq_len + 1, self.head_dim * self.num_heads));
-            let mut new_values = Array2::zeros((self.seq_len + 1, self.head_dim * self.num_heads));
+        // Ensure capacity before appending (geometric growth)
+        let needed = self.seq_len + 1;
+        self.ensure_capacity(needed);
 
-            new_keys
-                .slice_mut(s![0..self.seq_len, ..])
-                .assign(&self.cached_keys);
-            new_keys
-                .slice_mut(s![self.seq_len, ..])
-                .assign(&key_2d.slice(s![0, ..]));
-
-            new_values
-                .slice_mut(s![0..self.seq_len, ..])
-                .assign(&self.cached_values);
-            new_values
-                .slice_mut(s![self.seq_len, ..])
-                .assign(&value_2d.slice(s![0, ..]));
-
-            self.cached_keys = new_keys;
-            self.cached_values = new_values;
-        }
+        self.cached_keys
+            .slice_mut(s![self.seq_len, ..])
+            .assign(&key_2d.slice(s![0, ..]));
+        self.cached_values
+            .slice_mut(s![self.seq_len, ..])
+            .assign(&value_2d.slice(s![0, ..]));
 
         self.seq_len += 1;
         self.cache_misses += 1; // New computation
@@ -102,15 +110,19 @@ impl KVCache {
             .view()
             .into_shape((1, self.head_dim * self.num_heads))?;
 
+        // Only use active sequence portion (not pre-allocated capacity)
+        let active_keys = self.cached_keys.slice(s![0..self.seq_len, ..]);
+        let active_values = self.cached_values.slice(s![0..self.seq_len, ..]);
+
         // Compute attention scores: query @ keys^T
-        let attention_scores = query_2d.dot(&self.cached_keys.t());
+        let attention_scores = query_2d.dot(&active_keys.t());
 
         // Apply softmax
         let softmax_scores =
             self.softmax(&attention_scores.view().into_shape(self.seq_len)?.to_owned())?;
 
         // Compute output: weights @ values
-        let output = softmax_scores.dot(&self.cached_values);
+        let output = softmax_scores.dot(&active_values);
 
         self.cache_hits += 1;
         Ok(output.into_shape(self.head_dim * self.num_heads)?)
@@ -118,8 +130,11 @@ impl KVCache {
 
     /// Reset cache
     pub fn reset(&mut self) {
-        self.cached_keys = Array2::zeros((0, self.head_dim * self.num_heads));
-        self.cached_values = Array2::zeros((0, self.head_dim * self.num_heads));
+        let dim = self.head_dim * self.num_heads;
+        let initial_cap = self.max_cache_size.min(64);
+        self.cached_keys = Array2::zeros((initial_cap, dim));
+        self.cached_values = Array2::zeros((initial_cap, dim));
+        self.capacity = initial_cap;
         self.seq_len = 0;
         self.cache_hits = 0;
         self.cache_misses = 0;

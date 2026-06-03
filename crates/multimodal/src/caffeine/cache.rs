@@ -570,8 +570,14 @@ impl MultiModalCache {
         self.access_order.push(hash);
         self.stats.total_entries = self.entries.len();
 
-        let cached = self.entries.get(&hash).unwrap();
-        (cached.embedding.clone(), false)
+        let embedding = match self.entries.get(&hash) {
+            Some(e) => e.embedding.clone(),
+            None => {
+                tracing::warn!("cache entry vanished after insert for hash {:?}", hash);
+                return (CompressedEmbedding::FP32(vec![0.0f32]), false);
+            }
+        };
+        (embedding, false)
     }
 
     /// Get by hash (read-only).

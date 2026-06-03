@@ -182,9 +182,12 @@ impl Storage {
     }
 
     /// Returns Arc<ArrayD<f32>> — O(1) for CPU, O(N) readback for GPU.
-    /// Panics on GPU readback failure. Use try_data_arc() for fallback.
+    /// Falls back to empty tensor on GPU readback failure (logged).
     pub fn data_arc(&self) -> Arc<ArrayD<f32>> {
-        self.try_data_arc().expect("GPU/CUDA readback failed in data_arc")
+        self.try_data_arc().unwrap_or_else(|e| {
+            tracing::error!("GPU/CUDA readback failed in data_arc: {e}");
+            Arc::new(ndarray::ArrayD::zeros(vec![0]))
+        })
     }
 
     /// Returns Arc<ArrayD<f32>> — O(1) for CPU, O(N) readback for GPU.

@@ -367,6 +367,63 @@ impl Router {
         Ok(all_routes)
     }
 
+    /// Route batch with per-expert softmax confidence scores
+    pub fn route_with_weights(
+        &mut self,
+        input: &ndarray::Array2<f32>,
+    ) -> Result<Vec<Vec<(usize, f32)>>, String> {
+        let (batch_size, _) = input.dim();
+        let mut all_routes: Vec<Vec<(usize, f32)>> = Vec::with_capacity(batch_size);
+        let mut routing_weights: Vec<Vec<(usize, f32)>> = Vec::with_capacity(batch_size);
+
+        for i in 0..batch_size {
+            let row_view = input.row(i);
+            let row_slice = row_view.as_slice().unwrap_or(&[]);
+            let (route, weights) = self.route_single_with_weights(row_slice)?;
+            let top_k: Vec<(usize, f32)> = route.iter().map(|&e| {
+                let w = weights.get(e).copied().unwrap_or(0.0);
+                (e, w)
+            }).collect();
+            let weights_with_indices: Vec<(usize, f32)> = weights.into_iter().enumerate().collect();
+            routing_weights.push(weights_with_indices);
+            all_routes.push(top_k);
+        }
+
+        if self.config.use_capped_routing {
+            let capacity =
+                (batch_size as f32 * self.config.top_k as f32 * self.config.capacity_factor
+                    / self.config.num_experts as f32)
+                    .ceil() as usize;
+            let mut expert_counts = vec![0usize; self.config.num_experts];
+            let mut capped: Vec<Vec<(usize, f32)>> = vec![Vec::new(); batch_size];
+
+            for i in 0..batch_size {
+                for &(expert_id, conf) in &all_routes[i] {
+                    if expert_counts[expert_id] < capacity {
+                        capped[i].push((expert_id, conf));
+                        expert_counts[expert_id] += 1;
+                    }
+                }
+            }
+
+            self.expert_capacities = expert_counts;
+            all_routes = capped;
+        }
+
+        self.last_aux_loss = 0.0;
+        if self.config.use_load_balancing_loss {
+            self.last_aux_loss += self.compute_load_balancing_loss(&routing_weights, batch_size);
+        }
+
+        for route in &all_routes {
+            for &(expert_id, _) in route {
+                *self.routing_stats.entry(expert_id).or_insert(0) += 1;
+            }
+        }
+
+        Ok(all_routes)
+    }
+
     pub fn route_single_with_zloss(
         &self,
         input: &ndarray::Array1<f32>,

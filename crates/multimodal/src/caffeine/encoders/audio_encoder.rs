@@ -1,10 +1,73 @@
 //! Audio encoder implementation for CAFFEINE
 //!
-//! Based on Whisper architecture with multi-scale feature extraction
+//! Based on Whisper architecture with multi-scale feature extraction.
+//! Uses 2-layer MLP projection (GELU) with Xavier initialization.
 
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
-use ndarray::ArrayD;
+use ndarray::{Array1, Array2, ArrayD};
+use rand::Rng;
+
+/// 2-layer MLP for mel-spectrogram to embedding projection.
+struct AudioMLP {
+    w1: Array2<f32>,
+    b1: Array1<f32>,
+    w2: Array2<f32>,
+    b2: Array1<f32>,
+}
+
+impl AudioMLP {
+    fn new(input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let scale1 = (2.0 / input_dim as f32).sqrt();
+        let scale2 = (2.0 / hidden_dim as f32).sqrt();
+        Self {
+            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale1 - scale1
+            }),
+            b1: Array1::zeros(hidden_dim),
+            w2: Array2::from_shape_fn((hidden_dim, output_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale2 - scale2
+            }),
+            b2: Array1::zeros(output_dim),
+        }
+    }
+
+    fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
+        let hidden = x.dot(&self.w1) + &self.b1;
+        let gelu = hidden.mapv(|v| {
+            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
+        });
+        gelu.dot(&self.w2) + &self.b2
+    }
+}
+
+/// Simple DFT-based FFT for spectrogram computation.
+struct FFT {
+    n_fft: usize,
+}
+
+impl FFT {
+    fn new(window_size: usize) -> Self {
+        Self { n_fft: window_size / 2 + 1 }
+    }
+
+    fn compute(&self, window: &[f32]) -> Vec<f32> {
+        let n = window.len();
+        let mut magnitudes = vec![0.0f32; self.n_fft];
+        for k in 0..self.n_fft {
+            let mut real = 0.0f32;
+            let mut imag = 0.0f32;
+            for (i, &sample) in window.iter().enumerate() {
+                let angle = -2.0 * std::f32::consts::PI * k as f32 * i as f32 / n as f32;
+                real += sample * angle.cos();
+                imag += sample * angle.sin();
+            }
+            magnitudes[k] = (real * real + imag * imag).sqrt();
+        }
+        magnitudes
+    }
+}
 
 /// Audio encoder based on Whisper
 pub struct AudioEncoder {
@@ -12,16 +75,24 @@ pub struct AudioEncoder {
     model_loaded: bool,
     sample_rate: usize,
     n_mels: usize,
+    mel_projection: AudioMLP,
+    fft: FFT,
 }
 
 impl AudioEncoder {
     /// Create new audio encoder
     pub fn new(config: crate::caffeine::config::AudioEncoderConfig) -> Result<Self> {
+        let n_mels = 80; // Whisper uses 80 mel channels
+        let hidden_dim = config.output_dim.max(64);
+        let output_dim = config.output_dim;
+        let window_size = config.window_size;
         Ok(Self {
             sample_rate: config.sample_rate,
-            n_mels: 80, // Whisper uses 80 mel channels
+            n_mels,
             model_loaded: false,
             config,
+            mel_projection: AudioMLP::new(n_mels, hidden_dim, output_dim),
+            fft: FFT::new(window_size),
         })
     }
 
@@ -175,27 +246,10 @@ impl AudioEncoder {
 
     /// Compute FFT of window
     fn compute_fft(&self, window: &[f32]) -> Result<Vec<f32>> {
-        let n = window.len();
-        let mut magnitudes = vec![0.0f32; n / 2 + 1];
-
-        // Simple DFT implementation (in production, use FFTW or similar)
-        for k in 0..=n / 2 {
-            let mut real = 0.0f32;
-            let mut imag = 0.0f32;
-
-            for (i, &sample) in window.iter().enumerate() {
-                let angle = -2.0 * std::f32::consts::PI * k as f32 * i as f32 / n as f32;
-                real += sample * angle.cos();
-                imag += sample * angle.sin();
-            }
-
-            magnitudes[k] = (real * real + imag * imag).sqrt();
-        }
-
-        Ok(magnitudes)
+        Ok(self.fft.compute(window))
     }
 
-    /// Encode spectrogram with transformer layers
+    /// Encode spectrogram with MLP projection (not sinusoidal).
     fn encode_spectrogram(&self, mel_spec: &ArrayD<f32>) -> Result<ArrayD<f32>> {
         let shape = mel_spec.shape();
         let batch_size = shape[0];
@@ -203,18 +257,23 @@ impl AudioEncoder {
         let n_mels = shape[2];
         let embed_dim = self.config.output_dim;
 
-        // Project mel features to embedding dimension
         let mut encoded = vec![0.0f32; batch_size * seq_len * embed_dim];
 
         for b in 0..batch_size {
             for t in 0..seq_len {
-                for d in 0..embed_dim {
-                    let mel_idx = d % n_mels;
-                    let input_idx = b * seq_len * n_mels + t * n_mels + mel_idx;
-                    let output_idx = b * seq_len * embed_dim + t * embed_dim + d;
+                // Extract mel frame as 1D array
+                let mut frame = Vec::with_capacity(n_mels);
+                for m in 0..n_mels {
+                    let idx = b * seq_len * n_mels + t * n_mels + m;
+                    frame.push(mel_spec[idx]);
+                }
+                let frame_arr = Array1::from_vec(frame);
 
-                    // Simple linear projection
-                    encoded[output_idx] = mel_spec[input_idx] * (d as f32 * 0.01).sin();
+                // Project through 2-layer MLP
+                let projected = self.mel_projection.forward(&frame_arr);
+                let out_base = b * seq_len * embed_dim + t * embed_dim;
+                for d in 0..embed_dim {
+                    encoded[out_base + d] = projected[d];
                 }
             }
         }

@@ -307,15 +307,17 @@ impl VectorQuantizedVAE {
         sum.sqrt()
     }
 
-    /// Initialize codebook with random values
+    /// Initialize codebook with Xavier uniform random values
     fn initialize_codebook(token_dim: usize, codebook_size: usize) -> Result<Vec<f32>> {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let scale = (2.0 / token_dim as f32).sqrt();
         let mut codebook = vec![0.0f32; token_dim * codebook_size];
 
         for i in 0..codebook_size {
             for d in 0..token_dim {
                 let idx = i * token_dim + d;
-                // Initialize with small random values
-                codebook[idx] = ((i * d) as f32 * 0.01).sin() * 0.1;
+                codebook[idx] = rng.gen_range(-scale..scale);
             }
         }
 

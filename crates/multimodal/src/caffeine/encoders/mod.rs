@@ -139,17 +139,12 @@ impl MultiModalEncoders {
                     ModalityType::Image,
                     shape,
                     || {
-                        // FIX 1: Hanya simpan hasil akhir encoding, bukan feature map
-                        self.image_encoder.encode(input).unwrap_or_else(|_| {
-                            ndarray::ArrayD::from_shape_vec(
-                                vec![1, 1, 1],
-                                vec![0.0f32],
-                            )
-                            .unwrap()
-                        })
-                        .iter()
-                        .copied()
-                        .collect()
+                        self.image_encoder.encode(input)
+                            .map(|arr| arr.iter().copied().collect::<Vec<f32>>())
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("image_encoder failed: {:?}", e);
+                                vec![0.0f32; 768]
+                            })
                     },
                 );
 
@@ -184,16 +179,12 @@ impl MultiModalEncoders {
                     ModalityType::Audio,
                     shape,
                     || {
-                        self.audio_encoder.encode(input).unwrap_or_else(|_| {
-                            ndarray::ArrayD::from_shape_vec(
-                                vec![1, 1, 1],
-                                vec![0.0f32],
-                            )
-                            .unwrap()
-                        })
-                        .iter()
-                        .copied()
-                        .collect()
+                        self.audio_encoder.encode(input)
+                            .map(|arr| arr.iter().copied().collect::<Vec<f32>>())
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("audio_encoder failed: {:?}", e);
+                                vec![0.0f32; 768]
+                            })
                     },
                 );
 

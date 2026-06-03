@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -34,6 +35,12 @@ pub struct CreateApiKeyRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedStore {
+    keys_by_user: HashMap<String, Vec<ApiKeyRecord>>,
+    keys_by_value: HashMap<String, String>,
+}
+
 #[async_trait::async_trait]
 pub trait ApiKeyStore: Send + Sync {
     async fn create_key(&self, user_id: &str, name: &str) -> ApiKeyRecord;
@@ -47,6 +54,7 @@ pub trait ApiKeyStore: Send + Sync {
 pub struct InMemoryApiKeyStore {
     keys_by_user: Arc<RwLock<HashMap<String, Vec<ApiKeyRecord>>>>,
     keys_by_value: Arc<RwLock<HashMap<String, String>>>,
+    persist_path: Option<PathBuf>,
 }
 
 impl InMemoryApiKeyStore {
@@ -54,6 +62,53 @@ impl InMemoryApiKeyStore {
         Self {
             keys_by_user: Arc::new(RwLock::new(HashMap::new())),
             keys_by_value: Arc::new(RwLock::new(HashMap::new())),
+            persist_path: None,
+        }
+    }
+
+    pub fn with_persistence(path: PathBuf) -> Self {
+        let store = Self::new();
+        let _ = store.load_from_file(&path);
+        Self {
+            keys_by_user: store.keys_by_user,
+            keys_by_value: store.keys_by_value,
+            persist_path: Some(path),
+        }
+    }
+
+    fn persist_path(&self) -> Option<&PathBuf> {
+        self.persist_path.as_ref()
+    }
+
+    async fn persist(&self) {
+        let path = match self.persist_path() {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        let keys_by_user = self.keys_by_user.read().await;
+        let keys_by_value = self.keys_by_value.read().await;
+        let persisted = PersistedStore {
+            keys_by_user: keys_by_user.clone(),
+            keys_by_value: keys_by_value.clone(),
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&persisted) {
+            let _ = std::fs::write(&path, &json);
+        }
+    }
+
+    fn load_from_file(&self, path: &PathBuf) {
+        if !path.exists() {
+            return;
+        }
+        if let Ok(json) = std::fs::read_to_string(path) {
+            if let Ok(persisted) = serde_json::from_str::<PersistedStore>(&json) {
+                if let Ok(mut u) = self.keys_by_user.try_write() {
+                    *u = persisted.keys_by_user;
+                }
+                if let Ok(mut v) = self.keys_by_value.try_write() {
+                    *v = persisted.keys_by_value;
+                }
+            }
         }
     }
 }
@@ -87,6 +142,7 @@ impl ApiKeyStore for InMemoryApiKeyStore {
             .write()
             .await
             .insert(raw_key, id);
+        self.persist().await;
         record
     }
 
@@ -132,6 +188,7 @@ impl ApiKeyStore for InMemoryApiKeyStore {
         if let Some(keys) = users.get_mut(user_id) {
             if let Some(record) = keys.iter_mut().find(|k| k.id == key_id) {
                 record.is_active = false;
+                self.persist().await;
                 return true;
             }
         }
@@ -153,6 +210,7 @@ impl ApiKeyStore for InMemoryApiKeyStore {
 
         let mut key_map = self.keys_by_value.write().await;
         key_map.insert(new_raw, record.id.clone());
+        self.persist().await;
 
         Some(record.clone())
     }

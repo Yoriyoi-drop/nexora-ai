@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -180,11 +180,11 @@ pub struct MemoryStats {
     pub hit_rate: f64,
 }
 
-static GLOBAL_ORACLE_MEMORY: OnceLock<std::sync::Mutex<SharedOracleMemory>> = OnceLock::new();
+static GLOBAL_ORACLE_MEMORY: OnceLock<RwLock<SharedOracleMemory>> = OnceLock::new();
 
-pub fn global_oracle_memory() -> &'static std::sync::Mutex<SharedOracleMemory> {
+pub fn global_oracle_memory() -> &'static RwLock<SharedOracleMemory> {
     GLOBAL_ORACLE_MEMORY
-        .get_or_init(|| std::sync::Mutex::new(SharedOracleMemory::new(10_000)))
+        .get_or_init(|| RwLock::new(SharedOracleMemory::new(10_000)))
 }
 
 #[cfg(test)]
@@ -223,13 +223,13 @@ mod tests {
         mem.get_value("missing");
         let stats = mem.stats();
         assert_eq!(stats.total_hits, 1);
-        assert_eq!(stats.total_misses, 0);
+        assert_eq!(stats.total_misses, 1); // get_value("missing") increment miss
     }
 
     #[test]
     fn test_global_memory_access() {
         let mem = global_oracle_memory();
-        let mut guard = mem.lock().unwrap();
+        let mut guard = mem.write().unwrap();
         guard.set("global_key".into(), "global_val".into(), 3600);
         assert_eq!(guard.get_value("global_key"), Some("global_val".into()));
     }

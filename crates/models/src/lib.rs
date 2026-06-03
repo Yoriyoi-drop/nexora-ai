@@ -1,20 +1,11 @@
 //! NXR Model Series — model architecture definitions and agent-based implementations.
 //!
-//! # Real vs Simulated
+//! All model types (Omnis, Vortex, Aether, …) are backed by the same CausalLM with
+//! a different `TransformerConfig` size via `foundation` crate.
+//! Per-model delegation modules inject classifiers (real MLP) and route to subsystems
+//! (SACA reasoning, MoE gating, Caffeine multimodal, Oracle verifiers).
 //!
-//! **Real neural network inference** happens in:
-//! - `foundation` — wraps `CausalLM` (transformer) behind the `NxrModel` trait.
-//!   Every model ID (Omnis, Vortex, Aether, …) is backed by the same CausalLM with
-//!   a different `TransformerConfig` size. This is the PRIMARY inference path.
-//!
-//! **Simulated / agent-based architectures** (gated behind `simulated-models` feature):
-//! - Each model's `architecture` submodule (e.g. `omnis::architecture::OmnisArchitecture`)
-//!   contains keyword-matching and template-returning "architectures". They are NOT
-//!   neural networks. They exist for legacy agent orchestration flows.
-//! - The per-model `NxrOmnisModel` etc. delegate actual `infer()` calls to the real
-//!   `foundation` CausalLM-backed model, bypassing the fake architecture.
-//!
-//! Enable `simulated-models` feature to compile architecture submodules (default: off).
+//! Legacy `simulated-models` feature removed — all inference uses real neural networks.
 
 // Re-export shared components from nexora-shared
 pub use nexora_shared::*;

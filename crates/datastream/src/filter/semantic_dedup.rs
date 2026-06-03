@@ -1,14 +1,19 @@
 use async_trait::async_trait;
 use tokio::sync::Mutex;
+use std::collections::HashMap;
 
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
+
+const LSH_BANDS: usize = 16;
 
 pub struct SemanticDedupFilter {
     pub similarity_threshold: f64,
     pub signatures: Mutex<Vec<Vec<u64>>>,
     pub max_signatures: usize,
     pub min_hash_permutations: usize,
+    /// LSH index: band → bucket hash → list of signature indices
+    lsh_index: Mutex<HashMap<u64, Vec<usize>>>,
 }
 
 impl std::fmt::Debug for SemanticDedupFilter {
@@ -30,11 +35,17 @@ impl Clone for SemanticDedupFilter {
             .try_lock()
             .map(|g| g.clone())
             .unwrap_or_default();
+        let lsh_index = self
+            .lsh_index
+            .try_lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
         Self {
             similarity_threshold: self.similarity_threshold,
             signatures: Mutex::new(signatures),
             max_signatures: self.max_signatures,
             min_hash_permutations: self.min_hash_permutations,
+            lsh_index: Mutex::new(lsh_index),
         }
     }
 }
@@ -46,6 +57,7 @@ impl Default for SemanticDedupFilter {
             signatures: Mutex::new(Vec::new()),
             max_signatures: 100_000,
             min_hash_permutations: 128,
+            lsh_index: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -96,6 +108,26 @@ impl SemanticDedupFilter {
         sig
     }
 
+    /// LSH banding: split signature into bands, hash each band to a bucket
+    fn lsh_bands(sig: &[u64]) -> Vec<u64> {
+        let rows = sig.len() / LSH_BANDS;
+        if rows == 0 {
+            return vec![0];
+        }
+        let mut band_hashes = Vec::with_capacity(LSH_BANDS);
+        for b in 0..LSH_BANDS {
+            let start = b * rows;
+            let end = (start + rows).min(sig.len());
+            let mut h: u64 = 0xcbf29ce484222325;
+            for &v in &sig[start..end] {
+                h ^= v;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            band_hashes.push(h);
+        }
+        band_hashes
+    }
+
     fn jaccard_similarity(a: &[u64], b: &[u64]) -> f64 {
         use std::collections::HashSet;
         let set_b: HashSet<&u64> = b.iter().collect();
@@ -117,9 +149,25 @@ impl Filter for SemanticDedupFilter {
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
         let mut signatures = self.signatures.lock().await;
+        let mut lsh = self.lsh_index.lock().await;
 
-        for stored in signatures.iter() {
-            let similarity = Self::jaccard_similarity(&sig, stored);
+        // Fast candidate selection via LSH bands
+        let band_hashes = Self::lsh_bands(&sig);
+        let mut candidates = Vec::new();
+        for bh in &band_hashes {
+            if let Some(indices) = lsh.get(bh) {
+                for &idx in indices {
+                    if !candidates.contains(&idx) {
+                        candidates.push(idx);
+                    }
+                }
+            }
+        }
+
+        // Only compare against candidates (not all stored signatures)
+        for &candidate_idx in &candidates {
+            if candidate_idx >= signatures.len() { continue; }
+            let similarity = Self::jaccard_similarity(&sig, &signatures[candidate_idx]);
             if similarity >= self.similarity_threshold {
                 return FilterResult {
                     passed: false,
@@ -131,8 +179,13 @@ impl Filter for SemanticDedupFilter {
             }
         }
 
+        // Store new signature with LSH index
+        let idx = signatures.len();
         if signatures.len() < self.max_signatures {
             signatures.push(sig);
+            for bh in &band_hashes {
+                lsh.entry(*bh).or_insert_with(Vec::new).push(idx);
+            }
         }
 
         FilterResult {

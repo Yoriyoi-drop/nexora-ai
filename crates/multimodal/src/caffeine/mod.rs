@@ -263,21 +263,20 @@ impl Caffeine {
             // Convert to format expected by HAS-MoE-FFN
             let tensor_input = self.tokens_to_tensor(&compressed_tokens)?;
             if let Some(ref mut router) = self.has_moe_router {
-                // Convert routing decisions to expected format
-                let routing_decisions_raw = router.route(&tensor_input).map_err(|e| {
+                // Use real MoE softmax confidence scores instead of fake 1/(i+1)
+                let routing_with_weights = router.route_with_weights(&tensor_input).map_err(|e| {
                     crate::caffeine::error::CaffeineError::HasMoeRouting(format!("{}", e))
                 })?;
                 let routing_decisions: Vec<nexora_has_moe_ffn::types::RoutingDecision> =
-                    routing_decisions_raw
+                    routing_with_weights
                         .into_iter()
                         .flatten()
-                        .enumerate()
-                        .map(
-                            |(i, expert_id)| nexora_has_moe_ffn::types::RoutingDecision {
+                        .map(|(expert_id, confidence)| {
+                            nexora_has_moe_ffn::types::RoutingDecision {
                                 expert_id,
-                                confidence: 1.0 / (i as f32 + 1.0), // Simple confidence calculation
-                            },
-                        )
+                                confidence,
+                            }
+                        })
                         .collect();
                 self.apply_routing(compressed_tokens, routing_decisions)?
             } else {

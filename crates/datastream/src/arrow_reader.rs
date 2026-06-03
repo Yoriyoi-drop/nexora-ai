@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use std::io::Cursor;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -153,6 +154,47 @@ pub fn read_arrow_file(path: &Path, source: SourceInfo) -> Result<Vec<DataSample
                 score: None,
                 curriculum_level: None,
             });
+        }
+    }
+
+    Ok(samples)
+}
+
+/// Read arrow IPC data from in-memory bytes (avoids temp file roundtrip).
+pub fn read_arrow_bytes(data: &[u8], _source: SourceInfo) -> Result<Vec<DataSample>> {
+    use arrow::ipc::reader::FileReader;
+
+    let cursor = Cursor::new(data);
+    let reader = FileReader::try_new(cursor, None)
+        .with_context(|| "Failed to read arrow IPC from bytes".to_string())?;
+
+    let schema = reader.schema();
+    let text_idx = schema
+        .index_of("text")
+        .or_else(|_| schema.index_of("Text"))
+        .or_else(|_| schema.index_of("input"))
+        .or_else(|_| schema.index_of("content"))
+        .map_err(|_| anyhow::anyhow!("No text column found in arrow schema"))?;
+
+    let mut samples = Vec::new();
+    for batch_result in reader {
+        let batch = batch_result?;
+        let col = batch.column(text_idx);
+
+        for i in 0..col.len() {
+            if let Some(text) = get_text_value(col, i) {
+                samples.push(DataSample {
+                    id: Uuid::new_v4(),
+                    text,
+                    token_ids: None,
+                    metadata: std::collections::HashMap::new(),
+                    source: _source.clone(),
+                    stats: SampleStats::default(),
+                    domains: vec![],
+                    score: None,
+                    curriculum_level: None,
+                });
+            }
         }
     }
 

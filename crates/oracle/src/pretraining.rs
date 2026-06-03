@@ -110,10 +110,11 @@ impl FimProcessor {
                 input_ids.push(self.fim_tokens.suffix);
                 input_ids.extend_from_slice(&fim_example.middle);
 
+                // PSM: mask prefix + suffix as context, only predict middle
                 let mut labels = vec![-100; fim_example.prefix.len() + 1]; // Prefix + <PRE>
-                labels.extend_from_slice(&fim_example.suffix); // Suffix
+                labels.extend_from_slice(&vec![-100; fim_example.suffix.len()]); // Suffix (context)
                 labels.push(-100); // <SUF>
-                labels.extend_from_slice(&fim_example.middle); // Middle
+                labels.extend_from_slice(&fim_example.middle); // Middle (predict)
 
                 Ok(ModelInput {
                     input_ids: input_ids.clone(),
@@ -128,10 +129,11 @@ impl FimProcessor {
                 input_ids.push(self.fim_tokens.suffix);
                 input_ids.extend_from_slice(&fim_example.middle);
 
+                // SPM: mask suffix + prefix as context, only predict middle
                 let mut labels = vec![-100; fim_example.suffix.len() + 1]; // Suffix + <PRE>
-                labels.extend_from_slice(&fim_example.prefix); // Prefix
+                labels.extend_from_slice(&vec![-100; fim_example.prefix.len()]); // Prefix (context)
                 labels.push(-100); // <SUF>
-                labels.extend_from_slice(&fim_example.middle); // Middle
+                labels.extend_from_slice(&fim_example.middle); // Middle (predict)
 
                 Ok(ModelInput {
                     input_ids: input_ids.clone(),
@@ -146,11 +148,12 @@ impl FimProcessor {
                 input_ids.push(self.fim_tokens.suffix);
                 input_ids.extend_from_slice(&fim_example.suffix);
 
-                let mut labels = fim_example.middle.clone(); // Middle (no mask)
+                // MPS: mask middle + prefix as context, only predict suffix
+                let mut labels = vec![-100; fim_example.middle.len()]; // Middle (context)
                 labels.push(-100); // <PRE>
-                labels.extend_from_slice(&fim_example.prefix); // Prefix
+                labels.extend_from_slice(&vec![-100; fim_example.prefix.len()]); // Prefix (context)
                 labels.push(-100); // <SUF>
-                labels.extend_from_slice(&fim_example.suffix); // Suffix
+                labels.extend_from_slice(&fim_example.suffix); // Suffix (predict)
 
                 Ok(ModelInput {
                     input_ids: input_ids.clone(),

@@ -1,14 +1,9 @@
-//! Text encoder implementation for CAFFEINE
-//!
-//! Based on BERT with multi-lingual support
-
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
-use ndarray::ArrayD;
+use ndarray::{Array2, ArrayD};
+use rand::Rng;
 
 /// FNV-1a 32-bit hash — deterministic across runs and processes.
-/// Used by `TextEncoder::token_to_id` instead of `DefaultHasher::new()`
-/// which uses a random seed per process.
 fn fnv1a_hash(input: &str) -> u32 {
     const FNV_OFFSET_BASIS: u32 = 2166136261;
     const FNV_PRIME: u32 = 16777619;
@@ -20,21 +15,89 @@ fn fnv1a_hash(input: &str) -> u32 {
     hash
 }
 
+fn gelu(x: f32) -> f32 {
+    x * 0.5 * (1.0 + (x * 0.7978845608 * (1.0 + 0.044715 * x * x)).tanh())
+}
+
+fn xavier_init(rows: usize, cols: usize) -> Array2<f32> {
+    let scale = (2.0 / (rows as f32 + cols as f32)).sqrt();
+    let mut rng = rand::thread_rng();
+    let data: Vec<f32> = (0..rows * cols)
+        .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+        .collect();
+    Array2::from_shape_vec((rows, cols), data).unwrap()
+}
+
+/// Learned token embedding table with Xavier init
+struct TokenEmbedding {
+    weight: Array2<f32>,
+}
+
+impl TokenEmbedding {
+    fn new(vocab_size: usize, embed_dim: usize) -> Self {
+        Self {
+            weight: xavier_init(vocab_size, embed_dim),
+        }
+    }
+
+    fn forward(&self, token_ids: &[usize]) -> Array2<f32> {
+        let seq_len = token_ids.len();
+        let embed_dim = self.weight.shape()[1];
+        let mut output = Array2::zeros((seq_len, embed_dim));
+        let vocab_size = self.weight.shape()[0];
+        for (i, &id) in token_ids.iter().enumerate() {
+            let id = id.min(vocab_size - 1);
+            for d in 0..embed_dim {
+                output[[i, d]] = self.weight[[id, d]];
+            }
+        }
+        output
+    }
+}
+
+/// 2-layer MLP with GELU activation for text FFN
+struct TextFFN {
+    fc1: Array2<f32>,
+    fc2: Array2<f32>,
+}
+
+impl TextFFN {
+    fn new(embed_dim: usize, hidden_dim: usize) -> Self {
+        Self {
+            fc1: xavier_init(embed_dim, hidden_dim),
+            fc2: xavier_init(hidden_dim, embed_dim),
+        }
+    }
+
+    fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
+        let h = x.dot(&self.fc1);
+        let gelu_h = h.mapv(gelu);
+        gelu_h.dot(&self.fc2)
+    }
+}
+
 /// Text encoder based on BERT
 pub struct TextEncoder {
     config: crate::caffeine::config::TextEncoderConfig,
     model_loaded: bool,
     vocab_size: usize,
     max_position_embeddings: usize,
+    token_embedding: TokenEmbedding,
+    ffn_layers: Vec<TextFFN>,
 }
 
 impl TextEncoder {
     /// Create new text encoder
     pub fn new(config: crate::caffeine::config::TextEncoderConfig) -> Result<Self> {
+        let embed_dim = config.output_dim;
+        let hidden_dim = embed_dim * 4;
+        let ffn_layers = (0..6).map(|_| TextFFN::new(embed_dim, hidden_dim)).collect();
         Ok(Self {
             vocab_size: config.vocab_size,
             max_position_embeddings: 512,
             model_loaded: false,
+            token_embedding: TokenEmbedding::new(config.vocab_size, embed_dim),
+            ffn_layers,
             config,
         })
     }
@@ -51,13 +114,8 @@ impl TextEncoder {
             self.load_model()?;
         }
 
-        // Tokenize text
         let tokens = self.tokenize(&input.text)?;
-
-        // Convert to token IDs
         let token_ids = self.tokens_to_ids(&tokens)?;
-
-        // Encode with BERT layers
         let encoded = self.encode_tokens(&token_ids)?;
 
         Ok(encoded)
@@ -65,13 +123,9 @@ impl TextEncoder {
 
     /// Tokenize text
     fn tokenize(&self, text: &str) -> Result<Vec<String>> {
-        // Simple word-level tokenization (in production, use proper tokenizer)
         let mut tokens = Vec::new();
-
-        // Add special tokens
         tokens.push("[CLS]".to_string());
 
-        // Split by whitespace and punctuation
         for word in text.split_whitespace() {
             let clean_word = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
             if !clean_word.is_empty() {
@@ -79,10 +133,8 @@ impl TextEncoder {
             }
         }
 
-        // Add special token
         tokens.push("[SEP]".to_string());
 
-        // Truncate if too long
         if tokens.len() > self.max_position_embeddings {
             tokens.truncate(self.max_position_embeddings - 1);
             tokens.push("[SEP]".to_string());
@@ -94,18 +146,12 @@ impl TextEncoder {
     /// Convert tokens to IDs
     fn tokens_to_ids(&self, tokens: &[String]) -> Result<Vec<usize>> {
         let mut ids = Vec::new();
-
         for token in tokens {
-            let id = self.token_to_id(token)?;
-            ids.push(id);
+            ids.push(self.token_to_id(token)?);
         }
-
         Ok(ids)
     }
 
-    /// Convert single token to ID using a deterministic hash.
-    /// `DefaultHasher::new()` uses a random seed per process → non-deterministic.
-    /// We use FNV-1a (32-bit) which is deterministic across runs.
     fn token_to_id(&self, token: &str) -> Result<usize> {
         let hash = fnv1a_hash(token);
         let id = (hash as usize) % self.vocab_size;
@@ -116,129 +162,97 @@ impl TextEncoder {
     fn encode_tokens(&self, token_ids: &[usize]) -> Result<ArrayD<f32>> {
         let seq_len = token_ids.len();
         let embed_dim = self.config.output_dim;
-        let batch_size = 1;
+        let num_heads = 8;
+        let head_dim = embed_dim / num_heads;
 
-        // Create embeddings
-        let mut embeddings = vec![0.0f32; batch_size * seq_len * embed_dim];
+        // Learned token embedding [seq_len, embed_dim]
+        let mut hidden = self.token_embedding.forward(token_ids);
 
-        for (pos, &token_id) in token_ids.iter().enumerate() {
+        // Add sinusoidal position encoding
+        for pos in 0..seq_len {
             for d in 0..embed_dim {
-                let idx = pos * embed_dim + d;
-
-                // Token embedding
-                let token_embedding = (token_id as f32 * 0.01).sin();
-
-                // Position embedding
-                let pos_embedding = if d % 2 == 0 {
+                let pos_val = if d % 2 == 0 {
                     (pos as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).sin()
                 } else {
                     (pos as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).cos()
                 };
-
-                embeddings[idx] = token_embedding + pos_embedding;
+                hidden[[pos, d]] += pos_val;
             }
         }
 
-        // Apply transformer layers (simplified)
-        let encoded = self.apply_transformer_layers(&embeddings, batch_size, seq_len, embed_dim)?;
+        // Apply 6 transformer layers
+        for layer_idx in 0..6 {
+            // Multi-head attention with pre-norm
+            let normed = layer_norm(&hidden, embed_dim);
+            let attn_out = self.multi_head_attention(&normed, seq_len, embed_dim, num_heads, head_dim)?;
+            hidden = &hidden + &attn_out;
 
-        let shape = vec![batch_size, seq_len, embed_dim];
-        Ok(ArrayD::from_shape_vec(shape, encoded)?)
-    }
-
-    /// Apply simplified transformer layers
-    fn apply_transformer_layers(
-        &self,
-        embeddings: &[f32],
-        batch_size: usize,
-        seq_len: usize,
-        embed_dim: usize,
-    ) -> Result<Vec<f32>> {
-        let mut output = embeddings.to_vec();
-
-        // Apply multiple transformer layers
-        for layer in 0..6 {
-            // 6 layers like BERT-base
-            output =
-                self.apply_transformer_layer(&output, batch_size, seq_len, embed_dim, layer)?;
+            // FFN with pre-norm
+            let normed = layer_norm(&hidden, embed_dim);
+            let ff_out = self.ffn_layers[layer_idx].forward(&normed);
+            hidden = &hidden + &ff_out;
         }
 
-        Ok(output)
+        let shape = vec![1, seq_len, embed_dim];
+        Ok(ArrayD::from_shape_vec(shape, hidden.into_raw_vec())?)
     }
 
-    /// Apply single transformer layer
-    fn apply_transformer_layer(
+    /// Multi-head self-attention
+    fn multi_head_attention(
         &self,
-        input: &[f32],
-        batch_size: usize,
+        hidden: &Array2<f32>,
         seq_len: usize,
         embed_dim: usize,
-        layer_idx: usize,
-    ) -> Result<Vec<f32>> {
-        let mut output = vec![0.0f32; input.len()];
+        num_heads: usize,
+        _head_dim: usize,
+    ) -> Result<Array2<f32>> {
+        let scale = (embed_dim as f32 / num_heads as f32).sqrt().recip();
 
-        for b in 0..batch_size {
+        // Use a learned projection (simplified: reuse token embedding as Q/K/V projection)
+        let proj_weight = self.token_embedding.weight.view();
+        let q = hidden.dot(&proj_weight);
+        let k = hidden.dot(&proj_weight);
+        let v = hidden.dot(&proj_weight);
+
+        let head_size = embed_dim / num_heads;
+        let mut context = Array2::zeros((seq_len, embed_dim));
+
+        for h in 0..num_heads {
+            let h_start = h * head_size;
+            let h_end = h_start + head_size;
+
+            let mut scores = Array2::zeros((seq_len, seq_len));
             for i in 0..seq_len {
-                for d in 0..embed_dim {
-                    let input_idx = b * seq_len * embed_dim + i * embed_dim + d;
-                    let output_idx = input_idx;
-
-                    if input_idx < input.len() {
-                        // Simplified self-attention + feed-forward
-                        let attention_output =
-                            self.compute_attention(input, b, i, d, seq_len, embed_dim)?;
-                        let ff_output = self.compute_feed_forward(input[input_idx], layer_idx)?;
-
-                        output[output_idx] = attention_output + ff_output;
+                for j in 0..seq_len {
+                    let mut dot = 0.0;
+                    for d in h_start..h_end {
+                        dot += q[[i, d]] * k[[j, d]];
                     }
+                    scores[[i, j]] = dot * scale;
+                }
+            }
+
+            // Causal mask
+            for i in 0..seq_len {
+                for j in (i + 1)..seq_len {
+                    scores[[i, j]] = f32::NEG_INFINITY;
+                }
+            }
+
+            let weights = softmax_2d(&scores);
+
+            for i in 0..seq_len {
+                for d in h_start..h_end {
+                    let mut val = 0.0;
+                    for j in 0..seq_len {
+                        val += weights[[i, j]] * v[[j, d]];
+                    }
+                    context[[i, d]] = val;
                 }
             }
         }
 
-        Ok(output)
-    }
-
-    /// Compute attention for specific position
-    fn compute_attention(
-        &self,
-        input: &[f32],
-        batch: usize,
-        pos: usize,
-        dim: usize,
-        seq_len: usize,
-        embed_dim: usize,
-    ) -> Result<f32> {
-        let mut attention_sum = 0.0f32;
-
-        for j in 0..seq_len {
-            let query_idx = batch * seq_len * embed_dim + pos * embed_dim + dim;
-            let key_idx = batch * seq_len * embed_dim + j * embed_dim + dim;
-
-            if query_idx < input.len() && key_idx < input.len() {
-                let query = input[query_idx];
-                let key = input[key_idx];
-
-                // Simplified attention computation
-                let attention_score = query * key;
-                attention_sum += attention_score;
-            }
-        }
-
-        Ok(attention_sum / seq_len as f32)
-    }
-
-    /// Compute feed-forward layer
-    fn compute_feed_forward(&self, input: f32, layer_idx: usize) -> Result<f32> {
-        // Simplified feed-forward: linear -> gelu -> linear
-        let intermediate = input * (layer_idx as f32 + 1.0) * 0.1;
-        let gelu = intermediate
-            * 0.5
-            * (1.0
-                + (intermediate * 0.7978845608 * (1.0 + 0.044715 * intermediate * intermediate))
-                    .tanh());
-        let output = gelu * 0.5;
-
-        Ok(output)
+        Ok(context)
     }
 
     /// Check if model is loaded
@@ -250,6 +264,46 @@ impl TextEncoder {
     pub fn config(&self) -> &crate::caffeine::config::TextEncoderConfig {
         &self.config
     }
+}
+
+fn layer_norm(x: &Array2<f32>, _dim: usize) -> Array2<f32> {
+    let mut output = x.clone();
+    for mut row in output.rows_mut() {
+        let len = row.len() as f32;
+        let sum: f32 = row.iter().sum();
+        let mean = sum / len;
+        let var_sum: f32 = row.iter().map(|v| (*v - mean).powi(2)).sum();
+        let std = (var_sum / len + 1e-6).sqrt();
+        for val in row.iter_mut() {
+            *val = (*val - mean) / std;
+        }
+    }
+    output
+}
+
+fn softmax_2d(x: &Array2<f32>) -> Array2<f32> {
+    let (rows, cols) = x.dim();
+    let mut output = Array2::zeros((rows, cols));
+    for i in 0..rows {
+        let mut max = f32::NEG_INFINITY;
+        for j in 0..cols {
+            if x[[i, j]] > max {
+                max = x[[i, j]];
+            }
+        }
+        let mut sum = 0.0;
+        for j in 0..cols {
+            let val = (x[[i, j]] - max).exp();
+            output[[i, j]] = val;
+            sum += val;
+        }
+        if sum > 0.0 {
+            for j in 0..cols {
+                output[[i, j]] /= sum;
+            }
+        }
+    }
+    output
 }
 
 /// Multi-lingual text processor
@@ -286,7 +340,6 @@ impl MultiLingualProcessor {
 
     /// Detect language of text
     pub fn detect_language(&mut self, text: &str) -> Result<String> {
-        // Simple language detection based on character patterns
         let id_score =
             text.chars().filter(|c| *c >= 'a' && *c <= 'z').count() as f32 / text.len() as f32;
         let zh_score = text
@@ -298,7 +351,6 @@ impl MultiLingualProcessor {
         self.language_detectors.insert("id".to_string(), id_score);
         self.language_detectors.insert("zh".to_string(), zh_score);
 
-        // Return language with highest score
         let mut best_lang = "en".to_string();
         let mut best_score = 0.0;
 

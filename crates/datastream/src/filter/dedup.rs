@@ -8,11 +8,16 @@ use tokio::sync::Mutex;
 use super::traits::Filter;
 use crate::types::{DataSample, FilterAction, FilterResult};
 
+/// Number of shards for concurrent access
+const DEDUP_SHARDS: usize = 16;
+
 /// Fuzzy dedup filter using MinHash-style similarity estimation.
 ///
 /// Computes `hash_count` hash signatures per document using `ngram_size`-word ngrams.
 /// A new document is considered a duplicate when the proportion of its hashes that
 /// collide with previously seen hashes meets or exceeds `similarity_threshold`.
+///
+/// Uses sharded `HashSet<u64>` (DEDUP_SHARDS partitions) to reduce Mutex contention.
 ///
 /// References (large model training pipelines):
 ///   - LLaMA 2: 13-gram dedup for contamination detection (Touvron et al., 2023)
@@ -24,7 +29,7 @@ use crate::types::{DataSample, FilterAction, FilterResult};
 ///   - Gopher / MassiveText: URL + exact + paragraph dedup (Rae et al., 2022)
 #[derive(Debug, Clone)]
 pub struct DedupFilter {
-    pub seen_hashes: Arc<Mutex<HashSet<u64>>>,
+    pub seen_hashes: Arc<Vec<Mutex<HashSet<u64>>>>,
     pub ngram_size: usize,
     pub hash_count: usize,
     pub max_seen: usize,
@@ -45,10 +50,18 @@ impl DedupFilter {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
+        let shard_cap = (capacity / DEDUP_SHARDS).max(1024);
+        let shards = (0..DEDUP_SHARDS)
+            .map(|_| Mutex::new(HashSet::with_capacity(shard_cap)))
+            .collect();
         Self {
-            seen_hashes: Arc::new(Mutex::new(HashSet::with_capacity(capacity))),
+            seen_hashes: Arc::new(shards),
             ..Default::default()
         }
+    }
+
+    fn shard_index(hash: u64) -> usize {
+        (hash as usize) % DEDUP_SHARDS
     }
 
     /// Compute MinHash-style signatures for a text.
@@ -91,8 +104,48 @@ impl DedupFilter {
     }
 
     pub async fn reset(&mut self) {
-        let mut hashes = self.seen_hashes.lock().await;
-        hashes.clear();
+        for shard in self.seen_hashes.iter() {
+            shard.lock().await.clear();
+        }
+    }
+
+    fn total_seen(&self) -> usize {
+        self.seen_hashes
+            .iter()
+            .map(|s| s.try_lock().map(|g| g.len()).unwrap_or(0))
+            .sum()
+    }
+
+    fn contains_any(&self, fingerprints: &[u64]) -> Vec<bool> {
+        let mut results = vec![false; fingerprints.len()];
+        let mut shard_queries: Vec<Vec<usize>> = vec![Vec::new(); DEDUP_SHARDS];
+        for (i, &h) in fingerprints.iter().enumerate() {
+            shard_queries[Self::shard_index(h)].push(i);
+        }
+        for (sid, indices) in shard_queries.iter().enumerate() {
+            if indices.is_empty() { continue; }
+            if let Ok(guard) = self.seen_hashes[sid].try_lock() {
+                for &idx in indices {
+                    results[idx] = guard.contains(&fingerprints[idx]);
+                }
+            }
+        }
+        results
+    }
+
+    fn insert_all(&self, fingerprints: &[u64]) {
+        let mut shard_inserts: Vec<Vec<u64>> = vec![Vec::new(); DEDUP_SHARDS];
+        for &h in fingerprints {
+            shard_inserts[Self::shard_index(h)].push(h);
+        }
+        for (sid, hs) in shard_inserts.iter().enumerate() {
+            if hs.is_empty() { continue; }
+            if let Ok(mut guard) = self.seen_hashes[sid].try_lock() {
+                for &h in hs {
+                    guard.insert(h);
+                }
+            }
+        }
     }
 }
 
@@ -104,8 +157,11 @@ fn hash_text(text: &str) -> u64 {
 
 impl Default for DedupFilter {
     fn default() -> Self {
+        let shards = (0..DEDUP_SHARDS)
+            .map(|_| Mutex::new(HashSet::new()))
+            .collect();
         Self {
-            seen_hashes: Arc::new(Mutex::new(HashSet::new())),
+            seen_hashes: Arc::new(shards),
             ngram_size: 7,
             hash_count: 64,
             max_seen: 50_000_000,
@@ -125,8 +181,7 @@ impl Filter for DedupFilter {
         let fingerprints = self.fingerprint(&sample.text);
         let total_hashes = fingerprints.len();
 
-        let mut hashes = self.seen_hashes.lock().await;
-        if hashes.len() >= self.max_seen {
+        if self.total_seen() >= self.max_seen {
             return FilterResult {
                 passed: true,
                 sample_id: sample.id,
@@ -138,7 +193,9 @@ impl Filter for DedupFilter {
 
         // Short texts (single hash) — use exact match check
         if total_hashes == 1 {
-            let seen = hashes.contains(&fingerprints[0]);
+            let sid = Self::shard_index(fingerprints[0]);
+            let mut guard = self.seen_hashes[sid].lock().await;
+            let seen = guard.contains(&fingerprints[0]);
             if seen && self.exact_reject_on_seen {
                 return FilterResult {
                     passed: false,
@@ -148,7 +205,7 @@ impl Filter for DedupFilter {
                     score_delta: -0.5,
                 };
             }
-            hashes.insert(fingerprints[0]);
+            guard.insert(fingerprints[0]);
             return FilterResult {
                 passed: true,
                 sample_id: sample.id,
@@ -158,8 +215,9 @@ impl Filter for DedupFilter {
             };
         }
 
-        // Multi-hash: use MinHash-style Jaccard similarity estimate
-        let match_count = fingerprints.iter().filter(|h| hashes.contains(h)).count();
+        // Multi-hash: parallel shard queries via try_lock
+        let matched = self.contains_any(&fingerprints);
+        let match_count = matched.iter().filter(|&&m| m).count();
         let match_ratio = match_count as f64 / total_hashes as f64;
 
         if match_ratio >= self.similarity_threshold {
@@ -174,9 +232,8 @@ impl Filter for DedupFilter {
                 score_delta: -0.5,
             }
         } else {
-            for h in &fingerprints {
-                hashes.insert(*h);
-            }
+            // Parallel shard inserts
+            self.insert_all(&fingerprints);
             FilterResult {
                 passed: true,
                 sample_id: sample.id,
@@ -285,7 +342,7 @@ mod tests {
     #[test]
     fn test_with_capacity() {
         let f = DedupFilter::with_capacity(1000);
-        assert!(f.seen_hashes.try_lock().unwrap().capacity() >= 1000);
+        assert!(f.seen_hashes[0].try_lock().unwrap().capacity() >= 1000);
     }
 
     #[test]

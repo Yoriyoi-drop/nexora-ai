@@ -237,6 +237,34 @@ impl TokenizerCache {
         Ok(())
     }
 
+    pub fn load_from_disk(&mut self, shard_name: &str) -> anyhow::Result<bool> {
+        let path = self.cache_dir.join(format!("{}.tokens.cache", shard_name));
+        if !path.exists() {
+            return Ok(false);
+        }
+
+        use std::io::{BufRead, BufReader};
+        let file = std::fs::File::open(&path)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let tokens: Vec<u32> = line
+                .split(',')
+                .filter_map(|t| t.parse::<u32>().ok())
+                .collect();
+            if !tokens.is_empty() {
+                self.memory_cache.insert(line.clone(), tokens);
+            }
+        }
+
+        debug!("Tokenizer cache loaded: {} entries from {}", self.memory_cache.len(), path.display());
+        Ok(true)
+    }
+
     pub fn memory_usage(&self) -> usize {
         self.memory_cache.len()
     }

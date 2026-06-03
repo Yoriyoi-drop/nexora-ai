@@ -257,3 +257,18 @@ impl ApiClient {
         Ok(info_data)
     }
 }
+
+use std::sync::OnceLock;
+use crate::auth::AuthSystem;
+
+static GLOBAL_AUTH: OnceLock<AuthSystem> = OnceLock::new();
+
+/// Initialize global auth system (called once at startup).
+pub fn init_global_auth(jwt_secret: &str) -> &'static AuthSystem {
+    GLOBAL_AUTH.get_or_init(|| AuthSystem::new(jwt_secret))
+}
+
+/// Get a reference to the global auth system, if initialized.
+pub fn get_global_auth() -> Option<&'static AuthSystem> {
+    GLOBAL_AUTH.get()
+}

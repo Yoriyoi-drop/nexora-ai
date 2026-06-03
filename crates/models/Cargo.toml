@@ -36,10 +36,6 @@ async-trait = "0.1"
 [features]
 default = []
 
-# Simulated model architectures — keyword-matching/template-based agent models.
-# These are NOT real neural networks. They exist for legacy agent orchestration flows.
-# Default OFF. All real inference uses CausalLM-backed foundation models instead.
-simulated-models = []
-
 # Hallucination detection and mitigation pipelines for production inference
+# Activated via nexora-hallucination dependency (not empty feature gate)
 hallucination = []

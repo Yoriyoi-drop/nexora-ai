@@ -465,12 +465,8 @@ async fn load_shard_integrated(
         .decompress(&raw)
         .map_err(|e| LoaderError::Compression(e.to_string()))?;
 
-    // Write to arrow file for parsing
-    let tmpdir = tempfile::TempDir::new().map_err(|e| LoaderError::Io(e.to_string()))?;
-    let arrow_path = tmpdir.path().join("shard.arrow");
-    std::fs::write(&arrow_path, &decompressed).map_err(|e| LoaderError::Io(e.to_string()))?;
-
-    let mut samples = arrow_reader::read_arrow_file(&arrow_path, source)
+    // Parse arrow from in-memory bytes (avoids temp file roundtrip)
+    let mut samples = arrow_reader::read_arrow_bytes(&decompressed, source)
         .map_err(|e| LoaderError::Arrow(e.to_string()))?;
 
     // Tokenizer cache: if cache_dir is set, cache token IDs
@@ -488,6 +484,8 @@ async fn load_shard_integrated(
             if sample.text.len() < 10000 {
                 if let Some(cached) = token_cache.get(&sample.text) {
                     sample.token_ids = Some(cached.clone());
+                } else if let Some(ref ids) = sample.token_ids {
+                    token_cache.insert(sample.text.clone(), ids.clone());
                 }
             }
         }

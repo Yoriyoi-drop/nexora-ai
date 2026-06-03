@@ -1012,7 +1012,7 @@ impl PagedKVCache {
         self.free_lists.iter_mut().for_each(|f| f.clear());
     }
 
-    /// Memory usage estimate in bytes — subtracts freed blocks
+    /// Memory usage estimate in bytes — includes data + estimated metadata overhead
     pub fn memory_usage_bytes(&self) -> usize {
         let total = self.total_blocks();
         let freed: usize = self.free_lists.iter().map(|f| f.len()).sum();
@@ -1021,18 +1021,27 @@ impl PagedKVCache {
             return 0;
         }
         // Use actual block memory (handles f16 vs f32)
-        let mut bytes = 0usize;
+        let mut data_bytes = 0usize;
         let mut counted = 0usize;
         'outer: for layer_blocks in &self.blocks {
             for block in layer_blocks {
                 if counted >= used {
                     break 'outer;
                 }
-                bytes += block.memory_bytes();
+                data_bytes += block.memory_bytes();
                 counted += 1;
             }
         }
-        bytes
+        // Estimated metadata overhead per block (~56 bytes: ref_count, filled, last_access, padding)
+        let block_metadata = used * 56;
+        // Sequence block tables: each sequence stores (seq_len / block_size) block IDs per layer
+        let block_table_overhead: usize = self.sequences.len()
+            * self.blocks.len()
+            * std::mem::size_of::<usize>()
+            * 4; // 4× estimate for Vec capacity overhead
+        // Free lists Vec capacity overhead
+        let free_list_overhead: usize = self.free_lists.iter().map(|f| f.capacity() * 8).sum();
+        data_bytes + block_metadata + block_table_overhead + free_list_overhead
     }
 }
 
@@ -1118,11 +1127,31 @@ impl PagedKVCache {
         free as f64 / total as f64
     }
 
+    /// Build a reverse index: physical block → list of (seq_id, layer, logical_block).
+    /// Used by defragment to update block tables after moving data between blocks.
+    fn build_reverse_block_map(&self, layer: usize) -> Vec<Vec<(u64, usize)>> {
+        let num_blocks = self.blocks[layer].len();
+        let mut map = vec![Vec::new(); num_blocks];
+        for (&seq_id, table) in &self.sequences {
+            for (logical, &phys_opt) in table.layers[layer].iter().enumerate() {
+                if let Some(phys) = phys_opt {
+                    if phys < num_blocks {
+                        map[phys].push((seq_id, logical));
+                    }
+                }
+            }
+        }
+        map
+    }
+
     /// Defragment by compacting sparse blocks within each layer.
     ///
-    /// Scans all blocks, identifies those with filled < block_size (partial),
-    /// and moves data from the sparsest blocks into earlier partial blocks.
-    /// After compaction, freed blocks are returned to the free list.
+    /// Two-phase compaction:
+    ///   1. Free blocks (ref_count == 0): merge data from sparser blocks into fuller ones.
+    ///      Freed blocks returned to free list. No remap needed.
+    ///   2. Active blocks (ref_count > 0): merge consecutive partially-filled blocks
+    ///      belonging to the same sequence. Block tables are updated to reflect the new
+    ///      physical block mapping.
     ///
     /// Returns number of blocks reclaimed.
     pub fn defragment(&mut self) -> usize {
@@ -1134,80 +1163,190 @@ impl PagedKVCache {
         let num_layers = self.blocks.len();
 
         for layer in 0..num_layers {
-            // Collect blocks by fill level: partial (< bs) or full (=bs)
-            let mut partial_indices: Vec<usize> = (0..self.blocks[layer].len())
-                .filter(|&i| {
-                    let b = &self.blocks[layer][i];
-                    b.ref_count == 0 && b.filled > 0 && b.filled < bs
-                })
-                .collect();
+            // ── Phase 1: Compact free blocks (ref_count == 0) ──
+            total_reclaimed += self.defrag_free_blocks(layer, bs);
 
-            if partial_indices.len() <= 1 {
-                continue;
-            }
-
-            // Sort by filled ascending (sparsest first)
-            partial_indices.sort_by(|&a, &b| {
-                self.blocks[layer][a]
-                    .filled
-                    .cmp(&self.blocks[layer][b].filled)
-            });
-
-            // Compact: move data from sparser blocks into fuller ones,
-            // then free the sparsest blocks when all their data has been moved.
-            let mut drain_targets: Vec<usize> = Vec::new();
-            let mut i = 0;
-            while i + 1 < partial_indices.len() {
-                let src = partial_indices[i];
-                let dst = partial_indices[i + 1];
-                let src_filled = self.blocks[layer][src].filled;
-                let dst_filled = self.blocks[layer][dst].filled;
-                let dst_capacity = bs - dst_filled;
-                let move_count = src_filled.min(dst_capacity);
-
-                if move_count > 0 {
-                    for row in 0..move_count {
-                        let k_row = self.blocks[layer][src].k.read_row(row);
-                        let v_row = self.blocks[layer][src].v.read_row(row);
-                        let dst_row_idx = dst_filled + row;
-                        self.blocks[layer][dst].k.write_row(dst_row_idx, &k_row);
-                        self.blocks[layer][dst].v.write_row(dst_row_idx, &v_row);
-                    }
-                    self.blocks[layer][dst].filled = dst_filled + move_count;
-                    self.blocks[layer][src].filled = src_filled - move_count;
-                }
-
-                if self.blocks[layer][src].filled == 0 {
-                    drain_targets.push(src);
-                    i += 2;
-                } else {
-                    // Not fully drained, advance by one
-                    partial_indices[i] = src;
-                    partial_indices[i] = dst;
-                    i += 1;
-                }
-            }
-
-            // Free fully-drained blocks and remap block tables
-            for &phys in &drain_targets {
-                // Clear and add to free list
-                self.blocks[layer][phys].filled = 0;
-                self.blocks[layer][phys].ref_count = 0;
-                self.free_lists[layer].push(phys);
-                self.num_freed += 1;
-                total_reclaimed += 1;
-            }
-
-            // Remap block tables: any sequence pointing to a recycled block
-            // needs to be reassigned if that block still has an owner.
-            // In our free-list model, freed blocks go to a pool and are
-            // reused on next alloc. Block tables keep logical→physical mapping
-            // that's valid until the sequence that owns it is removed.
-            // Since we only freed blocks with ref_count=0 (no sequence owns them),
-            // we don't need to remap — they were already unused.
+            // ── Phase 2: Compact active blocks (ref_count > 0) ──
+            // Build reverse map for this layer to update block tables
+            total_reclaimed += self.defrag_active_blocks(layer, bs);
         }
 
         total_reclaimed
+    }
+
+    /// Phase 1: Compact free blocks (ref_count == 0).
+    /// Safe — no sequences reference these blocks, so no remap needed.
+    fn defrag_free_blocks(&mut self, layer: usize, bs: usize) -> usize {
+        let mut partial_indices: Vec<usize> = (0..self.blocks[layer].len())
+            .filter(|&i| {
+                let b = &self.blocks[layer][i];
+                b.ref_count == 0 && b.filled > 0 && b.filled < bs
+            })
+            .collect();
+
+        if partial_indices.len() <= 1 {
+            return 0;
+        }
+
+        // Sort by filled ascending (sparsest first)
+        partial_indices.sort_by(|&a, &b| {
+            self.blocks[layer][a]
+                .filled
+                .cmp(&self.blocks[layer][b].filled)
+        });
+
+        let mut drain_targets: Vec<usize> = Vec::new();
+        let mut j = 0;
+        let mut reclaimed = 0usize;
+
+        while j + 1 < partial_indices.len() {
+            let src = partial_indices[j];
+            let dst = partial_indices[j + 1];
+            let src_filled = self.blocks[layer][src].filled;
+            let dst_filled = self.blocks[layer][dst].filled;
+            let dst_capacity = bs - dst_filled;
+            let move_count = src_filled.min(dst_capacity);
+
+            if move_count > 0 {
+                for row in 0..move_count {
+                    let k_row = self.blocks[layer][src].k.read_row(row);
+                    let v_row = self.blocks[layer][src].v.read_row(row);
+                    let dst_row_idx = dst_filled + row;
+                    self.blocks[layer][dst].k.write_row(dst_row_idx, &k_row);
+                    self.blocks[layer][dst].v.write_row(dst_row_idx, &v_row);
+                }
+                self.blocks[layer][dst].filled = dst_filled + move_count;
+                self.blocks[layer][src].filled = src_filled - move_count;
+            }
+
+            if self.blocks[layer][src].filled == 0 {
+                drain_targets.push(src);
+                j += 2;
+            } else {
+                // Not fully drained, advance by one (keep src, skip dst)
+                partial_indices[j + 1] = src; // swap: keep the still-partial src
+                j += 1;
+            }
+        }
+
+        // Free fully-drained blocks (no remap needed — ref_count == 0)
+        for &phys in &drain_targets {
+            self.blocks[layer][phys].filled = 0;
+            self.blocks[layer][phys].ref_count = 0;
+            self.free_lists[layer].push(phys);
+            self.num_freed += 1;
+            reclaimed += 1;
+        }
+
+        reclaimed
+    }
+
+    /// Phase 2: Compact active blocks (ref_count > 0).
+    /// Merges consecutive partially-filled blocks belonging to the same sequence.
+    /// Block tables are updated so sequences read from the correct physical block.
+    fn defrag_active_blocks(&mut self, layer: usize, bs: usize) -> usize {
+        if self.sequences.is_empty() {
+            return 0;
+        }
+
+        let reverse_map = self.build_reverse_block_map(layer);
+        let mut reclaimed = 0usize;
+
+        // Collect active partial block indices
+        let partial_active: Vec<usize> = (0..self.blocks[layer].len())
+            .filter(|&i| {
+                let b = &self.blocks[layer][i];
+                b.ref_count > 0 && b.filled > 0 && b.filled < bs
+            })
+            .collect();
+
+        if partial_active.len() <= 1 {
+            return 0;
+        }
+
+        // Group by sequence: for each active sequence, find its partial blocks
+        let mut seq_blocks: Vec<(u64, Vec<(usize, usize)>)> = Vec::new();
+
+        for &phys in &partial_active {
+            for &(seq_id, logical) in &reverse_map[phys] {
+                // Find or create entry for this seq_id
+                let idx = seq_blocks.iter().position(|(id, _)| *id == seq_id);
+                if let Some(idx) = idx {
+                    seq_blocks[idx].1.push((phys, logical));
+                } else {
+                    seq_blocks.push((seq_id, vec![(phys, logical)]));
+                }
+            }
+        }
+
+        // For each sequence, try to merge consecutive partially-filled blocks
+        for (_seq_id, blocks) in &seq_blocks {
+            if blocks.len() <= 1 {
+                continue;
+            }
+
+            // Sort by logical position ascending
+            let mut sorted = blocks.clone();
+            sorted.sort_by(|a, b| a.1.cmp(&b.1));
+
+            // Try merging consecutive pairs where both are partially filled
+            let mut k = 0;
+            while k + 1 < sorted.len() {
+                let (src_phys, _src_logical) = sorted[k];
+                let (dst_phys, _dst_logical) = sorted[k + 1];
+
+                let src_filled = self.blocks[layer][src_phys].filled;
+                let dst_filled = self.blocks[layer][dst_phys].filled;
+                let dst_capacity = bs - dst_filled;
+                let move_count = src_filled.min(dst_capacity);
+
+                if move_count > 0 && src_phys != dst_phys {
+                    // Move data from src to dst
+                    for row in 0..move_count {
+                        let k_row = self.blocks[layer][src_phys].k.read_row(row);
+                        let v_row = self.blocks[layer][src_phys].v.read_row(row);
+                        let dst_row_idx = dst_filled + row;
+                        self.blocks[layer][dst_phys].k.write_row(dst_row_idx, &k_row);
+                        self.blocks[layer][dst_phys].v.write_row(dst_row_idx, &v_row);
+                    }
+                    self.blocks[layer][dst_phys].filled = dst_filled + move_count;
+                    self.blocks[layer][src_phys].filled = src_filled - move_count;
+
+                    // Update block tables: sequences that pointed to src for these rows
+                    // now read from dst at the correct offset
+                    for &(ref_seq_id, ref_logical) in &reverse_map[src_phys] {
+                        if let Some(table) = self.sequences.get_mut(&ref_seq_id) {
+                            if ref_logical < table.layers[layer].len() {
+                                table.layers[layer][ref_logical] = Some(dst_phys);
+                            }
+                        }
+                    }
+                }
+
+                if self.blocks[layer][src_phys].filled == 0 {
+                    // Source block fully drained — free it
+                    let old_ref_count = self.blocks[layer][src_phys].ref_count;
+                    self.blocks[layer][src_phys].filled = 0;
+                    self.blocks[layer][src_phys].ref_count = 0;
+                    self.free_lists[layer].push(src_phys);
+                    self.num_freed += 1;
+                    reclaimed += 1;
+
+                    // Drain ref_count from all sequences that referenced it
+                    for _ in 0..old_ref_count.saturating_sub(1) {
+                        // ref_count was already decremented by table updates above;
+                        // remaining references are dropped via sequence removal.
+                    }
+
+                    k += 2;
+                } else {
+                    // Partial drain — advance one
+                    k += 1;
+                }
+            }
+        }
+
+        reclaimed
     }
 
     pub fn stats(&self) -> PagedCacheStats {

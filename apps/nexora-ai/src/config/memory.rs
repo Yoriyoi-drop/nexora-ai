@@ -21,6 +21,41 @@ impl Default for EvictionStrategy {
     }
 }
 
+impl EvictionStrategy {
+    /// Score an item for eviction: higher = more likely to evict.
+    /// - LRU: `1.0 / (last_access_secs_ago + 1.0)` — recently accessed items score lower
+    /// - FIFO: `1.0 / (created_secs_ago + 1.0)` — older items score higher
+    /// - TTL: `(age_secs / max_age_secs).clamp(0, 2)` — items past TTL score >1.0
+    /// - LruTtl: LRU + TTL combined, items past TTL get double weight
+    pub fn eviction_score(
+        &self,
+        last_access_secs_ago: f64,
+        created_secs_ago: f64,
+        max_age_secs: f64,
+    ) -> f64 {
+        match self {
+            EvictionStrategy::LRU => 1.0 / (last_access_secs_ago + 1.0),
+            EvictionStrategy::FIFO => created_secs_ago,
+            EvictionStrategy::TTL => {
+                if max_age_secs <= 0.0 {
+                    1.0
+                } else {
+                    (created_secs_ago / max_age_secs).clamp(0.0, 2.0)
+                }
+            }
+            EvictionStrategy::LruTtl => {
+                let lru = 1.0 / (last_access_secs_ago + 1.0);
+                let ttl_bonus = if max_age_secs > 0.0 && created_secs_ago > max_age_secs {
+                    2.0
+                } else {
+                    0.0
+                };
+                lru + ttl_bonus
+            }
+        }
+    }
+}
+
 /// Memory configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {

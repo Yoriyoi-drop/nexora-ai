@@ -203,26 +203,67 @@ impl UnifiedTokenizer {
     }
 
     /// Predict next token using the LLM backbone (not available in this context)
-    /// Falls back to returning a default continuation token rather than failing.
+    /// Falls back to bigram/unigram frequency-based prediction rather than a counter.
     fn predict_next_token(&self, context_tokens: &[UnifiedToken]) -> Result<UnifiedToken> {
-        if let Some(last) = context_tokens.last() {
-            // Simple fallback: return a continuation token with the same modality
+        if context_tokens.is_empty() {
             return Ok(UnifiedToken {
-                token_id: last.token_id.wrapping_add(1),
-                modality: last.modality,
-                embedding: last.embedding.clone(),
-                position: last.position + 1,
-                timestamp: last.timestamp.map(|t| t + 0.1),
-                spatial_coords: last.spatial_coords,
+                token_id: self.vocabulary.get_start_token_id(),
+                modality: ModalityType::Text,
+                embedding: vec![0.0; self.config.token_dim],
+                position: 0,
+                timestamp: None,
+                spatial_coords: None,
             });
         }
+
+        let last = context_tokens.last().unwrap();
+        let max_id = self.config.vocab_size.max(100);
+
+        // Build bigram frequencies from context
+        let mut bigram_counts: std::collections::HashMap<(usize, usize), usize> =
+            std::collections::HashMap::new();
+        let mut unigram_counts: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for pair in context_tokens.windows(2) {
+            let prev = pair[0].token_id;
+            let next = pair[1].token_id;
+            *bigram_counts.entry((prev, next)).or_insert(0) += 1;
+            *unigram_counts.entry(next).or_insert(0) += 1;
+        }
+        if !context_tokens.is_empty() {
+            *unigram_counts.entry(last.token_id).or_insert(0) += 1;
+        }
+
+        // Pick next token: prefer bigram match, fall back to unigram, then heuristic
+        let next_id = bigram_counts
+            .iter()
+            .filter(|((prev, _), _)| *prev == last.token_id)
+            .max_by_key(|(_, &count)| count)
+            .map(|((_, next), _)| *next)
+            .or_else(|| {
+                unigram_counts
+                    .iter()
+                    .max_by_key(|(_, &count)| count)
+                    .map(|(&id, _)| id)
+            })
+            .unwrap_or_else(|| {
+                let mod_token = match last.modality {
+                    ModalityType::Text => 100,
+                    ModalityType::Image => 200,
+                    ModalityType::Audio => 300,
+                    ModalityType::Video => 400,
+                    ModalityType::Action => 500,
+                };
+                (last.token_id + 1).max(mod_token + 1) % max_id
+            });
+
         Ok(UnifiedToken {
-            token_id: 1,
-            modality: ModalityType::Text,
-            embedding: vec![0.0; self.config.token_dim],
-            position: 0,
-            timestamp: None,
-            spatial_coords: None,
+            token_id: next_id,
+            modality: last.modality,
+            embedding: last.embedding.clone(),
+            position: last.position + 1,
+            timestamp: last.timestamp.map(|t| t + 0.1),
+            spatial_coords: last.spatial_coords,
         })
     }
 

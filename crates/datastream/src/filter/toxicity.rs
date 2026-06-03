@@ -11,16 +11,9 @@ pub struct ToxicityFilter {
 }
 
 fn default_blocklist() -> Vec<Regex> {
-    vec![
-        Regex::new(r"(?i)\b(nigg[ae]r|fag+ot|retard|cunt|whore|slut|bitch)\b")
-            .expect("valid toxicity regex: slurs"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(kill\s+(yourself|everyone|them)|rape|torture)\b")
-            .expect("valid toxicity regex: violence"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(gore|cp\b|child\s*porn|bestiality)\b")
-            .expect("valid toxicity regex: gore/abuse"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(hitler|nazi|white\s*supremac|kkk)\b")
-            .expect("valid toxicity regex: hate groups"), // safe: hardcoded regex pattern
-    ]
+    vec![Regex::new(
+        r"(?i)\b(nigg[ae]r|fag+ot|retard|cunt|whore|slut|bitch|kill\s+(?:yourself|everyone|them)|rape|torture|gore|cp\b|child\s*porn|bestiality|hitler|nazi|white\s*supremac|kkk)\b"
+    ).expect("valid combined toxicity regex")]
 }
 
 impl Default for ToxicityFilter {

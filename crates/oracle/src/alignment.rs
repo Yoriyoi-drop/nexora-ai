@@ -201,19 +201,15 @@ impl CodeDpoTrainer {
 
     /// Update model parameters using gradient descent on CodeModel
     fn update_model_parameters(&mut self, loss: f32) -> Result<()> {
-        // Real gradient update: adjust CodeModel based on DPO loss
-        // The gradient indicates which direction to move parameters
         let lr = self.config.learning_rate;
         let grad = loss * lr;
-
-        // Update CodeModel parameters:
-        // Increase weights that produce chosen outputs, decrease for rejected
-        for pair_idx in 0..10.min(100) {
-            let param_idx = self.model.vocab_size.saturating_sub(1) / 10.max(1) * pair_idx;
-            let current = self.model.get_param(param_idx);
-            self.model.set_param(param_idx, current - grad * current);
+        let (rows, cols) = self.model.weights.dim();
+        for r in 0..rows {
+            for c in 0..cols {
+                let current = self.model.weights[[r, c]];
+                self.model.weights[[r, c]] = current - grad * current;
+            }
         }
-
         Ok(())
     }
 
@@ -282,12 +278,69 @@ impl CodeDpoTrainer {
         Ok(preferences)
     }
 
-    /// Compute log probability (simplified)
+    /// Compute log probability using model weights as bigram embeddings
     fn compute_log_probability(&self, prompt: &str, code: &str) -> Result<f32> {
+        use std::collections::HashMap;
+
         let combined = format!("{} {}", prompt, code);
-        let hash_value = combined.len() as u64; // Simplified hash for now
-        let prob = (hash_value as f32 / u64::MAX as f32).ln();
-        Ok(prob)
+        let bytes: Vec<usize> = combined.bytes().map(|b| b as usize).collect();
+        let n = bytes.len();
+        if n < 2 {
+            return Ok(0.0);
+        }
+
+        let (vocab_size, embed_dim) = self.model.weights.dim();
+        let embed_dim = embed_dim.min(64);
+        let vocab_size = vocab_size.max(256);
+
+        // Map byte values to valid vocab range
+        let tokens: Vec<usize> = bytes.into_iter().map(|b| b % vocab_size).collect();
+
+        let mut log_prob_sum = 0.0;
+        let mut count = 0;
+
+        // Bigram log-probability: P(token_{i+1} | token_i) via dot-product with embedding
+        for i in 0..n - 1 {
+            let curr = tokens[i];
+            let next = tokens[i + 1];
+            if curr >= vocab_size || next >= vocab_size {
+                continue;
+            }
+
+            // Get embedding for current token
+            let mut curr_embed = vec![0.0f32; embed_dim];
+            for d in 0..embed_dim {
+                curr_embed[d] = self.model.weights[[curr, d]];
+            }
+
+            // Compute logits for next token: embedding @ weights^T (simplified)
+            let mut max_logit = f32::NEG_INFINITY;
+            let mut target_logit = 0.0;
+            let mut logits = Vec::with_capacity(vocab_size.min(256));
+            for v in 0..vocab_size.min(256) {
+                let mut score = 0.0;
+                for d in 0..embed_dim {
+                    score += curr_embed[d] * self.model.weights[[v, d]];
+                }
+                score += self.model.bias[v.min(self.model.bias.len() - 1)];
+                if v == next { target_logit = score; }
+                max_logit = max_logit.max(score);
+                logits.push(score);
+            }
+
+            // Softmax normalization (safe max subtraction)
+            let mut sum_exp = 0.0;
+            for &l in &logits {
+                sum_exp += (l - max_logit).exp();
+            }
+            let log_z = max_logit + sum_exp.ln();
+            let log_prob = target_logit - log_z;
+
+            log_prob_sum += log_prob;
+            count += 1;
+        }
+
+        Ok(if count > 0 { log_prob_sum / count as f32 } else { 0.0 })
     }
 
     /// Get alignment statistics
@@ -380,51 +433,57 @@ impl CodeModel {
     }
 
     pub fn generate_code(&self, prompt: &str) -> Result<String> {
-        // Generate code using model weights to influence output
-        let prompt_hash: f32 = prompt.bytes().map(|b| b as f32).sum::<f32>() / 255.0;
-        let weight_scale = self.weights[[(prompt_hash.abs() as usize) % self.vocab_size.max(1), 0]];
+        let base: Vec<f32> = prompt.bytes().map(|b| b as f32 / 255.0).collect();
+        let embed_dim = self.weights.shape()[1].min(64);
+        let char_set = b"def ()\n    return{}[];:,.=+-><_!&|'\"/*#@$%^~`?0123456789";
+        let mut output = Vec::new();
 
-        let templates = vec![
-            format!(
-                "def {}(data):\n    result = process(data)\n    return result",
-                if weight_scale > 0.05 {
-                    "compute_result"
-                } else {
-                    "helper"
+        // Generate up to 128 chars using weight matrix as character-level logits
+        for i in 0..128.min(base.len() + 64) {
+            let row = i % self.vocab_size.max(1);
+            let mut logits = Vec::new();
+            for (c_idx, &c) in char_set.iter().enumerate() {
+                let col = (c_idx as usize) % embed_dim;
+                let w = self.weights[[row, col]];
+                let b = self.bias[row.min(self.bias.len() - 1)];
+                let input_val = base.get(i % base.len()).copied().unwrap_or(0.5);
+                logits.push(w * input_val + b);
+            }
+            let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let mut sum_exp = 0.0;
+            for l in &logits {
+                sum_exp += (l - max_logit).exp();
+            }
+            let mut r = rand::random::<f32>() * sum_exp;
+            for (c_idx, l) in logits.iter().enumerate() {
+                r -= (l - max_logit).exp();
+                if r <= 0.0 {
+                    output.push(char_set[c_idx]);
+                    break;
                 }
-            ),
-            format!(
-                "function {}(input) {{\n    return transform(input);\n}}",
-                if weight_scale > 0.0 {
-                    "processData"
-                } else {
-                    "doStuff"
-                }
-            ),
-            format!(
-                "class {}:\n    def __init__(self, value):\n        self.value = value",
-                if weight_scale > -0.05 {
-                    "DataProcessor"
-                } else {
-                    "MyClass"
-                }
-            ),
-        ];
-
-        let idx = ((weight_scale.abs() * 10.0) as usize) % templates.len();
-        Ok(templates[idx].clone())
+            }
+        }
+        Ok(String::from_utf8_lossy(&output).to_string())
     }
 
     pub fn compute_log_probability(&self, prompt: &str, code: &str) -> Result<f32> {
-        // Real log-probability using model weights
         let combined = format!("{} {}", prompt, code);
-        let total: f32 = combined.bytes().map(|b| b as f32).sum();
-        let idx = (total.abs() as usize) % self.vocab_size.max(1);
-        let w = self.weights[[idx, 0]];
-        let b = self.bias[idx.min(self.bias.len() - 1)];
-        let logit = w * (total / 255.0) + b;
-        // Convert to log-prob via softmax approximation
-        Ok(logit - (1.0 + logit.exp()).ln())
+        let bytes: Vec<f32> = combined.bytes().map(|b| b as f32 / 255.0).collect();
+        let n = bytes.len();
+        if n == 0 {
+            return Ok(0.0);
+        }
+        let embed_dim = self.weights.shape()[1];
+        let embedding_dim = embed_dim.min(64);
+        let mut logit_sum = 0.0;
+        for (i, &b) in bytes.iter().enumerate() {
+            let row = i % self.vocab_size.max(1);
+            let col = (i / self.vocab_size.max(1)) % embedding_dim;
+            logit_sum += self.weights[[row, col]] * b;
+        }
+        let mean_logit = logit_sum / n as f32 + self.bias[0];
+        let log_z = (1.0 + mean_logit.exp()).ln();
+        Ok(mean_logit - log_z)
     }
 }
 

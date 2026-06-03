@@ -1,25 +1,68 @@
 //! Video encoder implementation for CAFFEINE
 //!
-//! Based on 3D Vision Transformer with temporal modeling
+//! Based on 3D Vision Transformer with temporal modeling.
+//! Uses 2-layer MLP projections (GELU) with Xavier initialization
+//! instead of sinusoidal coefficients.
 
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
-use ndarray::ArrayD;
+use ndarray::{Array1, Array2, ArrayD};
+use rand::Rng;
+
+/// 2-layer MLP for frame patch projection.
+struct FrameMLP {
+    w1: Array2<f32>,
+    b1: Array1<f32>,
+    w2: Array2<f32>,
+    b2: Array1<f32>,
+}
+
+impl FrameMLP {
+    fn new(input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let scale1 = (2.0 / input_dim as f32).sqrt();
+        let scale2 = (2.0 / hidden_dim as f32).sqrt();
+        Self {
+            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale1 - scale1
+            }),
+            b1: Array1::zeros(hidden_dim),
+            w2: Array2::from_shape_fn((hidden_dim, output_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale2 - scale2
+            }),
+            b2: Array1::zeros(output_dim),
+        }
+    }
+
+    fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
+        let hidden = x.dot(&self.w1) + &self.b1;
+        let gelu = hidden.mapv(|v| {
+            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
+        });
+        gelu.dot(&self.w2) + &self.b2
+    }
+}
 
 /// Video encoder based on 3D Vision Transformer
 pub struct VideoEncoder {
     config: crate::caffeine::config::VideoEncoderConfig,
     model_loaded: bool,
     _temporal_dim: usize,
+    frame_projection: FrameMLP,
 }
 
 impl VideoEncoder {
     /// Create new video encoder
     pub fn new(config: crate::caffeine::config::VideoEncoderConfig) -> Result<Self> {
+        let input_dim = 3; // RGB means
+        let hidden_dim = config.output_dim.max(64);
+        let output_dim = config.output_dim;
+        let num_frames = config.num_frames;
         Ok(Self {
-            _temporal_dim: config.num_frames,
+            _temporal_dim: num_frames,
             model_loaded: false,
             config,
+            frame_projection: FrameMLP::new(input_dim, hidden_dim, output_dim),
         })
     }
 
@@ -42,7 +85,6 @@ impl VideoEncoder {
         let mut frame_features = Vec::new();
 
         for frame in &sampled_frames {
-            // Use image encoder for individual frames
             let frame_feature = self.encode_frame(frame)?;
             frame_features.push(frame_feature);
         }
@@ -72,14 +114,13 @@ impl VideoEncoder {
         Ok(sampled)
     }
 
-    /// Encode individual frame using actual pixel data
+    /// Encode individual frame using actual pixel data with MLP projection.
     pub fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
         let patch_size = 16;
         let cols = (frame.width / patch_size).max(1);
         let rows = (frame.height / patch_size).max(1);
         let num_patches = cols * rows;
         let embed_dim = self.config.output_dim;
-        let pixels_per_patch = (patch_size * patch_size).min(frame.data.len());
 
         let mut features = vec![0.0f32; num_patches * embed_dim];
         for p in 0..num_patches {
@@ -88,7 +129,7 @@ impl VideoEncoder {
             let mut mean_r = 0.0f32;
             let mut mean_g = 0.0f32;
             let mut mean_b = 0.0f32;
-            let sample_count = pixels_per_patch.min(frame.data.len() / 3);
+            let mut count = 0u32;
 
             for py in 0..patch_size.min(frame.height - patch_row * patch_size) {
                 for px in 0..patch_size.min(frame.width - patch_col * patch_size) {
@@ -99,23 +140,20 @@ impl VideoEncoder {
                         mean_r += frame.data[idx] as f32;
                         mean_g += frame.data[idx + 1] as f32;
                         mean_b += frame.data[idx + 2] as f32;
+                        count += 1;
                     }
                 }
             }
-            let count = sample_count.max(1) as f32;
-            mean_r /= count;
-            mean_g /= count;
-            mean_b /= count;
+            let c = count.max(1) as f32;
+            mean_r /= c;
+            mean_g /= c;
+            mean_b /= c;
 
+            // Project RGB means through MLP
+            let rgb_arr = Array1::from_vec(vec![mean_r / 255.0, mean_g / 255.0, mean_b / 255.0]);
+            let projected = self.frame_projection.forward(&rgb_arr);
             for d in 0..embed_dim {
-                let idx = p * embed_dim + d;
-                features[idx] = match d % 3 {
-                    0 => (mean_r / 255.0) * (0.5 + (d as f32 * 0.1).cos()),
-                    1 => (mean_g / 255.0) * (0.5 + (d as f32 * 0.1).sin()),
-                    _ => {
-                        (mean_b / 255.0) * ((d as f32 * 0.05).cos() + (d as f32 * 0.05).sin()) * 0.5
-                    }
-                };
+                features[p * embed_dim + d] = projected[d];
             }
         }
 

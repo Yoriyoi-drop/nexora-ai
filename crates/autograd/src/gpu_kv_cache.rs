@@ -1,4 +1,5 @@
 use crate::gpu::{GpuContext, GpuError, GpuTensor};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // ─── GpuPageTable ──────────────────────────────────────────────────────────────
 
@@ -9,7 +10,8 @@ pub struct GpuPageTable {
     pub data: GpuTensor,
     /// Page table: [num_pages] → offset in `data` (page index)
     pub page_table: GpuTensor,
-    /// Free list: [max_pages] → page indices available for allocation
+    /// Free list GPU mirror — synced from `cpu_free` lazily.
+    /// Only read by future shader code; gather/scatter use separate `page_ids` param.
     pub free_list: GpuTensor,
     pub page_size: usize,
     pub num_heads: usize,
@@ -17,6 +19,8 @@ pub struct GpuPageTable {
     pub max_pages: usize,
     free_count: u32,
     pub cpu_free: Vec<u32>,
+    /// True if cpu_free changed since last GPU sync.
+    dirty: AtomicBool,
 }
 
 impl GpuPageTable {
@@ -53,6 +57,7 @@ impl GpuPageTable {
             max_pages,
             free_count: max_pages as u32,
             cpu_free,
+            dirty: AtomicBool::new(false),
         })
     }
 
@@ -63,17 +68,33 @@ impl GpuPageTable {
 
     /// Allocate a page. Returns the page index, or None if OOM.
     pub fn alloc(&mut self) -> Option<u32> {
-        self.cpu_free.pop()
+        let page = self.cpu_free.pop();
+        if page.is_some() {
+            self.dirty.store(true, Ordering::Release);
+        }
+        page
     }
 
     /// Free a page index, returning it to the pool.
     pub fn free(&mut self, page_idx: u32) {
         if (page_idx as usize) < self.max_pages && !self.cpu_free.contains(&page_idx) {
             self.cpu_free.push(page_idx);
+            self.dirty.store(true, Ordering::Release);
         }
     }
 
-    /// Sync CPU free list to GPU free_list tensor (e.g. after alloc/free batch).
+    /// Sync CPU free list to GPU if dirty. No-op if already synced.
+    /// Clears the dirty flag after successful sync.
+    pub fn sync_free_list_if_dirty(&self, ctx: &GpuContext) -> Result<(), GpuError> {
+        if !self.dirty.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        self.sync_free_list_to_gpu(ctx)?;
+        self.dirty.store(false, Ordering::Release);
+        Ok(())
+    }
+
+    /// Force-sync CPU free list to GPU free_list tensor.
     pub fn sync_free_list_to_gpu(&self, ctx: &GpuContext) -> Result<(), GpuError> {
         let mut data = vec![0.0f32; self.max_pages];
         for (i, &idx) in self.cpu_free.iter().enumerate() {
@@ -269,7 +290,7 @@ pub fn dispatch_scatter_pages(
 
 const GATHER_PAGES_WGSL: &str = r"
 @group(0) @binding(0) var<storage, read> pool: array<f32>;
-@group(0) @binding(1) var<storage, read> page_ids: array<u32>;
+@group(0) @binding(1) var<storage, read> page_ids: array<f32>;
 @group(0) @binding(2) var<storage, read_write> output: array<f32>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
 
@@ -288,7 +309,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let page_idx = i / entries_per_page;
     let within_page = i % entries_per_page;
-    let block_id = page_ids[page_idx];
+    let block_id = u32(page_ids[page_idx]);
     let src_offset = block_id * entries_per_page + within_page;
     output[i] = pool[src_offset];
 }
@@ -296,7 +317,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 const SCATTER_PAGES_WGSL: &str = r"
 @group(0) @binding(0) var<storage, read_write> pool: array<f32>;
-@group(0) @binding(1) var<storage, read> page_ids: array<u32>;
+@group(0) @binding(1) var<storage, read> page_ids: array<f32>;
 @group(0) @binding(2) var<storage, read> input: array<f32>;
 @group(0) @binding(3) var<uniform> cfg: vec4<u32>;
 
@@ -315,7 +336,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let page_idx = i / entries_per_page;
     let within_page = i % entries_per_page;
-    let block_id = page_ids[page_idx];
+    let block_id = u32(page_ids[page_idx]);
     let dst_offset = block_id * entries_per_page + within_page;
     pool[dst_offset] = input[i];
 }

@@ -51,6 +51,7 @@ impl PooledBuffer {
 
 const MAX_POOL_CAPACITY: usize = 512;
 const LRU_EVICT_THRESHOLD: usize = 384;
+const EVICTION_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug)]
 pub struct GpuMemoryPool {
@@ -68,6 +69,7 @@ pub struct PoolStats {
     pub cache_misses: u64,
     pub bytes_allocated: u64,
     pub bytes_reused: u64,
+    pub dealloc_dropped: u64,
 }
 
 impl GpuMemoryPool {
@@ -148,14 +150,25 @@ impl GpuMemoryPool {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(key) = buf.pool_key {
             let list = self.free_buffers.entry(key).or_default();
-            if list.len() < self.max_capacity {
+            evict_expired_in_bucket(list);
+            if list.len() >= self.max_capacity {
+                self.stats.dealloc_dropped += 1;
+            } else {
                 list.push_back((buf.buffer, Instant::now()));
             }
-            // LRU eviction if over threshold
             while self.total_free_count() > LRU_EVICT_THRESHOLD {
                 self.evict_one_lru();
             }
         }
+    }
+
+    /// Garbage collect all expired buffers across all buckets
+    pub fn gc(&mut self) {
+        for list in self.free_buffers.values_mut() {
+            evict_expired_in_bucket(list);
+        }
+        // Force wgpu to process buffer destruction: GPU memory reclaimed
+        self.device.poll(wgpu::Maintain::Poll);
     }
 
     pub fn return_buffer_raw(&mut self, buffer: wgpu::Buffer, key: (usize, wgpu::BufferUsages)) {
@@ -176,6 +189,10 @@ impl GpuMemoryPool {
         let mut oldest_time: Option<Instant> = None;
 
         for (key, list) in &self.free_buffers {
+            // Skip empty buckets
+            if list.is_empty() {
+                continue;
+            }
             if let Some((_, time)) = list.front() {
                 match oldest_time {
                     None => {
@@ -194,6 +211,10 @@ impl GpuMemoryPool {
         if let Some(key) = oldest {
             if let Some(list) = self.free_buffers.get_mut(&key) {
                 list.pop_front();
+                // Remove bucket if now empty to avoid iterating over dead keys
+                if list.is_empty() {
+                    self.free_buffers.remove(&key);
+                }
             }
         }
     }
@@ -213,5 +234,23 @@ impl GpuMemoryPool {
 
     pub fn set_max_capacity(&mut self, max: usize) {
         self.max_capacity = max;
+        // Trim excess buffers to fit new capacity per bucket
+        for list in self.free_buffers.values_mut() {
+            while list.len() > self.max_capacity {
+                list.pop_front();
+            }
+        }
+    }
+}
+
+/// Prune buffers in a bucket that have been idle longer than EVICTION_TTL
+fn evict_expired_in_bucket(list: &mut VecDeque<(wgpu::Buffer, Instant)>) {
+    let cutoff = Instant::now() - EVICTION_TTL;
+    while let Some(front) = list.front() {
+        if front.1 < cutoff {
+            list.pop_front();
+        } else {
+            break;
+        }
     }
 }

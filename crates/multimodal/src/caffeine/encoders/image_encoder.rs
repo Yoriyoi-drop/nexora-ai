@@ -1,27 +1,68 @@
 //! Image encoder implementation for CAFFEINE
 //!
-//! Based on CLIP ViT with regional contrastive alignment support
+//! Based on CLIP ViT with regional contrastive alignment support.
+//! Uses a 2-layer MLP projection (GELU activation) with Xavier initialization
+//! instead of sinusoidal coefficient mapping.
 
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
-use ndarray::{s, ArrayD};
+use ndarray::{s, Array1, Array2, ArrayD};
+use rand::Rng;
 use std::collections::HashMap;
+
+/// 2-layer MLP with GELU activation for image patch projection.
+struct PatchMLP {
+    w1: Array2<f32>,
+    b1: Array1<f32>,
+    w2: Array2<f32>,
+    b2: Array1<f32>,
+}
+
+impl PatchMLP {
+    fn new(input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let scale1 = (2.0 / input_dim as f32).sqrt();
+        let scale2 = (2.0 / hidden_dim as f32).sqrt();
+        let w1 = Array2::from_shape_fn((input_dim, hidden_dim), |_| {
+            rng.gen::<f32>() * 2.0 * scale1 - scale1
+        });
+        let b1 = Array1::zeros(hidden_dim);
+        let w2 = Array2::from_shape_fn((hidden_dim, output_dim), |_| {
+            rng.gen::<f32>() * 2.0 * scale2 - scale2
+        });
+        let b2 = Array1::zeros(output_dim);
+        Self { w1, b1, w2, b2 }
+    }
+
+    fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
+        let hidden = x.dot(&self.w1) + &self.b1;
+        let gelu = hidden.mapv(|v| {
+            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
+        });
+        gelu.dot(&self.w2) + &self.b2
+    }
+}
 
 /// Image encoder based on CLIP ViT
 pub struct ImageEncoder {
     config: crate::caffeine::config::ImageEncoderConfig,
     model_loaded: bool,
-    // Pre-computed embeddings for efficient encoding
-    // In production, this would contain trained model weights
+    // Real 2-layer MLP for patch-to-embedding projection
+    patch_projection: PatchMLP,
     _embeddings: HashMap<String, ArrayD<f32>>,
 }
 
 impl ImageEncoder {
     /// Create new image encoder
     pub fn new(config: crate::caffeine::config::ImageEncoderConfig) -> Result<Self> {
+        let pixels_per_patch = config.patch_size * config.patch_size * 3; // RGB channels
+        let hidden_dim = config.output_dim.max(64);
+        let patch_projection = PatchMLP::new(pixels_per_patch, hidden_dim, config.output_dim);
+
         Ok(Self {
             config,
             model_loaded: false,
+            patch_projection,
             _embeddings: HashMap::new(),
         })
     }
@@ -38,41 +79,50 @@ impl ImageEncoder {
             self.load_model()?;
         }
 
-        // Encode through patch embedding
         let batch_size = 1;
+        let patch_size = self.config.patch_size;
         let seq_len =
-            (input.width / self.config.patch_size) * (input.height / self.config.patch_size);
+            (input.width / patch_size) * (input.height / patch_size);
         let embed_dim = self.config.output_dim;
-        let total_elements = batch_size * seq_len * embed_dim;
+        let num_patches_x = input.width / patch_size;
+        let channels = input.channels.max(3);
 
         // Normalize image bytes to float values
         let pixels: Vec<f32> = input.data.iter().map(|&b| b as f32 / 255.0).collect();
-        let patch_size = self.config.patch_size;
-        let num_patches_x = input.width / patch_size;
-        let _num_patches_y = input.height / patch_size;
 
-        let mut data = vec![0.0f32; total_elements];
+        let mut data = vec![0.0f32; batch_size * seq_len * embed_dim];
 
-        // Actual patch embedding from image data
+        // Patch embedding through MLP projection (not sinusoidal)
         for p in 0..seq_len {
             let py = p / num_patches_x;
             let px = p % num_patches_x;
 
-            let mut pi = 0;
+            // Extract patch pixels
+            let mut patch_vec = Vec::with_capacity(patch_size * patch_size * channels);
             for j in 0..patch_size {
                 for i in 0..patch_size {
-                    for c in 0..input.channels {
+                    for c in 0..channels {
                         let y = py * patch_size + j;
                         let x = px * patch_size + i;
                         if y < input.height && x < input.width {
-                            let idx = (y * input.width + x) * input.channels + c;
-                            if idx < pixels.len() && pi < embed_dim {
-                                data[p * embed_dim + pi] = pixels[idx];
+                            let idx = (y * input.width + x) * channels + c;
+                            if idx < pixels.len() {
+                                patch_vec.push(pixels[idx]);
+                            } else {
+                                patch_vec.push(0.0);
                             }
+                        } else {
+                            patch_vec.push(0.0);
                         }
-                        pi += 1;
                     }
                 }
+            }
+
+            // Project patch through MLP
+            let patch_arr = Array1::from_vec(patch_vec);
+            let projected = self.patch_projection.forward(&patch_arr);
+            for d in 0..embed_dim {
+                data[p * embed_dim + d] = projected[d];
             }
         }
 

@@ -54,18 +54,23 @@ impl MemoryPool {
     }
 }
 
-/// Cross-modal attention mechanism with memory optimization
+/// Cross-modal attention mechanism with proper Q/K/V projections
 pub struct CrossModalAttention {
     hidden_dim: usize,
     num_heads: usize,
+    head_dim: usize,
     _dropout_rate: f32,
+    q_proj: Vec<f32>,
+    k_proj: Vec<f32>,
+    v_proj: Vec<f32>,
+    o_proj: Vec<f32>,
     projection_weights: HashMap<String, Vec<f32>>,
     memory_pool: MemoryPool,
 }
 
 impl CrossModalAttention {
-    /// Create new cross-modal attention with memory optimization
-    pub fn new(hidden_dim: usize, num_heads: usize, _dropout_rate: f32) -> Result<Self> {
+    /// Create new cross-modal attention with proper Q/K/V projections
+    pub fn new(hidden_dim: usize, num_heads: usize, dropout_rate: f32) -> Result<Self> {
         if hidden_dim == 0 || num_heads == 0 {
             return Err(crate::caffeine::error::CaffeineError::qformer(
                 "Hidden dimension and number of heads must be greater than 0",
@@ -78,9 +83,21 @@ impl CrossModalAttention {
             ));
         }
 
-        let mut projection_weights = HashMap::new();
+        let head_dim = hidden_dim / num_heads;
+        let scale = (2.0 / hidden_dim as f32).sqrt();
+
+        let init_proj = |rows: usize, cols: usize| -> Vec<f32> {
+            let size = rows * cols;
+            (0..size).map(|_| rand::random::<f32>() * scale - scale / 2.0).collect()
+        };
+
+        let q_proj = init_proj(hidden_dim, hidden_dim);
+        let k_proj = init_proj(hidden_dim, hidden_dim);
+        let v_proj = init_proj(hidden_dim, hidden_dim);
+        let o_proj = init_proj(hidden_dim, hidden_dim);
 
         // Initialize projection weights for different modality pairs
+        let mut projection_weights = HashMap::new();
         let modality_pairs = vec![
             ("image_text", hidden_dim * hidden_dim),
             ("audio_text", hidden_dim * hidden_dim),
@@ -91,35 +108,47 @@ impl CrossModalAttention {
         ];
 
         for (pair_name, size) in modality_pairs {
-            let weights = Self::initialize_weights(size, hidden_dim)?;
+            let weights = Self::xavier_weights(size, hidden_dim);
             projection_weights.insert(pair_name.to_string(), weights);
         }
 
-        // Initialize memory pool with reasonable size
         let memory_pool = MemoryPool::new(10);
 
         Ok(Self {
             hidden_dim,
             num_heads,
-            _dropout_rate,
+            head_dim,
+            _dropout_rate: dropout_rate,
+            q_proj,
+            k_proj,
+            v_proj,
+            o_proj,
             projection_weights,
             memory_pool,
         })
     }
 
-    /// Initialize weights using Xavier initialization
-    fn initialize_weights(size: usize, hidden_dim: usize) -> Result<Vec<f32>> {
-        let mut weights = vec![0.0f32; size];
+    fn xavier_weights(size: usize, hidden_dim: usize) -> Vec<f32> {
         let scale = (2.0 / hidden_dim as f32).sqrt();
-
-        for i in 0..size {
-            weights[i] = rand::random::<f32>() * scale - scale / 2.0;
-        }
-
-        Ok(weights)
+        (0..size).map(|_| rand::random::<f32>() * scale - scale / 2.0).collect()
     }
 
-    /// Compute cross-attention between modalities with memory optimization
+    /// Project input through weight matrix: output[b,i,o] = sum_d input[b,i,d] * W[d,o]
+    fn project(&self, input: &[f32], weight: &[f32], n: usize, d_in: usize, d_out: usize) -> Vec<f32> {
+        let mut out = vec![0.0f32; n * d_out];
+        for i in 0..n {
+            for o in 0..d_out {
+                let mut s = 0.0f32;
+                for d in 0..d_in {
+                    s += input[i * d_in + d] * weight[d * d_out + o];
+                }
+                out[i * d_out + o] = s;
+            }
+        }
+        out
+    }
+
+    /// Compute cross-modal self-attention using proper Q/K/V projections
     pub fn compute_cross_attention(
         &self,
         features: &[f32],
@@ -132,124 +161,83 @@ impl CrossModalAttention {
             ));
         }
 
-        // Use memory pool for output buffer
-        let mut attended_features = self.memory_pool.get_buffer(features.len());
+        let (n, d) = (num_queries, hidden_dim);
+        let nh = self.num_heads;
+        let dh = self.head_dim;
 
-        // Process each head with optimized computation
-        let head_dim = hidden_dim / self.num_heads;
+        // 1. Project Q, K, V from the same input (self-attention between queries)
+        let q = self.project(features, &self.q_proj, n, d, d);
+        let k = self.project(features, &self.k_proj, n, d, d);
+        let v = self.project(features, &self.v_proj, n, d, d);
 
-        for head in 0..self.num_heads {
-            let start_dim = head * head_dim;
-            let end_dim = std::cmp::min((head + 1) * head_dim, hidden_dim);
+        // 2. Per-head scaled dot-product attention
+        let mut head_outputs = Vec::with_capacity(nh * n * dh);
 
-            // Vectorized computation for this head
-            self.compute_head_attention_optimized(
-                features,
-                &mut attended_features,
-                start_dim,
-                end_dim,
-                num_queries,
-                hidden_dim,
-                head,
-            )?;
+        for h in 0..nh {
+            let hd = h * dh;
+
+            // Slice Q_h, K_h, V_h: each is [n × dh]
+            let qh = &q[hd * n..][..n * dh];
+            let kh = &k[hd * n..][..n * dh];
+            let vh = &v[hd * n..][..n * dh];
+
+            // 3. Compute attention scores: S[i,j] = Q[i,:] · K[j,:] / sqrt(dh)
+            let scale = (dh as f32).sqrt().recip();
+            let mut attn = vec![0.0f32; n * n];
+
+            for i in 0..n {
+                for j in 0..n {
+                    let mut dot = 0.0f32;
+                    for d in 0..dh {
+                        dot += qh[i * dh + d] * kh[j * dh + d];
+                    }
+                    attn[i * n + j] = dot * scale;
+                }
+            }
+
+            // 4. Softmax over j for each i
+            for i in 0..n {
+                let row_start = i * n;
+                let mut max_val = attn[row_start];
+                for j in 1..n { max_val = max_val.max(attn[row_start + j]); }
+                let mut sum_exp = 0.0f32;
+                for j in 0..n {
+                    let e = (attn[row_start + j] - max_val).exp();
+                    attn[row_start + j] = e;
+                    sum_exp += e;
+                }
+                if sum_exp > 0.0 {
+                    let inv = 1.0 / sum_exp;
+                    for j in 0..n { attn[row_start + j] *= inv; }
+                }
+            }
+
+            // 5. Weighted sum of V: out[i,d] = sum_j A[i,j] * V[j,d]
+            for i in 0..n {
+                for d in 0..dh {
+                    let mut acc = 0.0f32;
+                    for j in 0..n {
+                        acc += attn[i * n + j] * vh[j * dh + d];
+                    }
+                    head_outputs.push(acc);
+                }
+            }
         }
 
-        // Clone result and return buffer to pool to prevent memory leak
-        let result = attended_features.clone();
-        self.memory_pool.return_buffer(attended_features);
+        // 6. Concatenate heads and project through output weights
+        // head_outputs layout: [h, n, dh] → flat [n, d] via concatenation
+        let mut concat = vec![0.0f32; n * d];
+        for h in 0..nh {
+            let h_offset = h * n * dh;
+            for i in 0..n {
+                for d in 0..dh {
+                    concat[i * d + h * dh + d] = head_outputs[h_offset + i * dh + d];
+                }
+            }
+        }
+
+        let result = self.project(&concat, &self.o_proj, n, d, d);
         Ok(result)
-    }
-
-    /// Optimized head attention computation with SIMD-like operations
-    fn compute_head_attention_optimized(
-        &self,
-        features: &[f32],
-        attended_features: &mut [f32],
-        start_dim: usize,
-        end_dim: usize,
-        num_queries: usize,
-        hidden_dim: usize,
-        head_idx: usize,
-    ) -> Result<()> {
-        let _dim_count = end_dim - start_dim;
-
-        // Process queries in batches for better cache performance
-        const BATCH_SIZE: usize = 4;
-
-        for i_batch in (0..num_queries).step_by(BATCH_SIZE) {
-            let i_end = std::cmp::min(i_batch + BATCH_SIZE, num_queries);
-
-            for i in i_batch..i_end {
-                // Pre-compute attention scores for all dimensions at once
-                let attention_scores = self.compute_attention_scores_vectorized(
-                    features,
-                    i,
-                    start_dim,
-                    end_dim,
-                    num_queries,
-                    hidden_dim,
-                    head_idx,
-                )?;
-
-                // Apply attention scores with vectorized operations
-                for (d_idx, d) in (start_dim..end_dim).enumerate() {
-                    let input_idx = i * hidden_dim + d;
-                    let output_idx = input_idx;
-
-                    if input_idx < features.len() && d_idx < attention_scores.len() {
-                        attended_features[output_idx] =
-                            features[input_idx] * attention_scores[d_idx];
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Vectorized attention score computation
-    fn compute_attention_scores_vectorized(
-        &self,
-        features: &[f32],
-        query_idx: usize,
-        start_dim: usize,
-        end_dim: usize,
-        num_queries: usize,
-        hidden_dim: usize,
-        head_idx: usize,
-    ) -> Result<Vec<f32>> {
-        let dim_count = end_dim - start_dim;
-        let mut scores = vec![0.0f32; dim_count];
-
-        // Pre-compute head factor
-        let head_factor = (head_idx as f32 + 1.0) * 0.1;
-        let head_factor_sin = head_factor.sin();
-
-        // Vectorized computation across dimensions
-        for (d_idx, d) in (start_dim..end_dim).enumerate() {
-            let query_val = features[query_idx * hidden_dim + d];
-
-            // Compute dot product with all other queries
-            let mut dot_product = 0.0f32;
-
-            // Process in chunks for better cache performance
-            const CHUNK_SIZE: usize = 8;
-            for j_chunk in (0..num_queries).step_by(CHUNK_SIZE) {
-                let j_end = std::cmp::min(j_chunk + CHUNK_SIZE, num_queries);
-
-                for j in j_chunk..j_end {
-                    let other_idx = j * hidden_dim + d;
-                    if other_idx < features.len() {
-                        let key_val = features[other_idx];
-                        dot_product += query_val * key_val;
-                    }
-                }
-            }
-
-            scores[d_idx] = (dot_product * head_factor_sin) / num_queries as f32;
-        }
-
-        Ok(scores)
     }
 
     /// Apply modality-specific projection with optimized computation

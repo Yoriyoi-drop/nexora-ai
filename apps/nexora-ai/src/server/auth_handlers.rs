@@ -1,10 +1,9 @@
 use axum::{
-    extract::{Path, State},
+    extract::Path,
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
-use std::sync::Arc;
 use std::collections::HashMap;
 
 use super::router::ApiKey;
@@ -25,7 +24,7 @@ fn err_json(msg: &str) -> JsonResp {
 
 pub async fn register_handler(
     Extension(nexora): Extension<Arc<NexoraAI>>,
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
     if req.email.trim().is_empty() || req.password.trim().is_empty() || req.username.trim().is_empty() {
@@ -55,7 +54,7 @@ pub async fn register_handler(
 
 pub async fn login_handler(
     Extension(nexora): Extension<Arc<NexoraAI>>,
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Json(req): Json<LoginRequest>,
 ) -> impl IntoResponse {
     if req.email.trim().is_empty() || req.password.trim().is_empty() {
@@ -74,7 +73,7 @@ pub async fn login_handler(
 }
 
 pub async fn get_profile_handler(
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
 ) -> impl IntoResponse {
     let user = auth.authenticate_api_key(&api_key.0).await;
@@ -85,7 +84,7 @@ pub async fn get_profile_handler(
 }
 
 pub async fn update_profile_handler(
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -106,7 +105,7 @@ pub async fn update_profile_handler(
 }
 
 pub async fn list_api_keys_handler(
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
 ) -> impl IntoResponse {
     let user = match auth.authenticate_api_key(&api_key.0).await {
@@ -119,7 +118,7 @@ pub async fn list_api_keys_handler(
 
 pub async fn create_api_key_handler(
     Extension(nexora): Extension<Arc<NexoraAI>>,
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> impl IntoResponse {
@@ -139,7 +138,7 @@ pub async fn create_api_key_handler(
 
 pub async fn revoke_api_key_handler(
     Extension(nexora): Extension<Arc<NexoraAI>>,
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
     Path(key_id): Path<String>,
 ) -> impl IntoResponse {
@@ -158,7 +157,7 @@ pub async fn revoke_api_key_handler(
 }
 
 pub async fn rotate_api_key_handler(
-    State(auth): State<Arc<AuthSystem>>,
+    Extension(auth): Extension<Arc<AuthSystem>>,
     Extension(api_key): Extension<ApiKey>,
     Path(key_id): Path<String>,
 ) -> impl IntoResponse {

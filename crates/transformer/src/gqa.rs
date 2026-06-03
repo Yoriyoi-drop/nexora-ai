@@ -761,26 +761,14 @@ impl GQA {
         if let (Some(wq), Some(wk), Some(wv), Some(wo)) =
             (&self.wq, &self.wk, &self.wv, &self.wo)
         {
-            let wq_slice = wq.as_slice().unwrap_or_else(|| {
-                let v: Vec<f32> = wq.iter().copied().collect();
-                Box::leak(v.into_boxed_slice())
-            });
-            let wk_slice = wk.as_slice().unwrap_or_else(|| {
-                let v: Vec<f32> = wk.iter().copied().collect();
-                Box::leak(v.into_boxed_slice())
-            });
-            let wv_slice = wv.as_slice().unwrap_or_else(|| {
-                let v: Vec<f32> = wv.iter().copied().collect();
-                Box::leak(v.into_boxed_slice())
-            });
-            let wo_slice = wo.as_slice().unwrap_or_else(|| {
-                let v: Vec<f32> = wo.iter().copied().collect();
-                Box::leak(v.into_boxed_slice())
-            });
-            self.wq_f16 = Some(crate::pack_f32_slice_to_f16(wq_slice));
-            self.wk_f16 = Some(crate::pack_f32_slice_to_f16(wk_slice));
-            self.wv_f16 = Some(crate::pack_f32_slice_to_f16(wv_slice));
-            self.wo_f16 = Some(crate::pack_f32_slice_to_f16(wo_slice));
+            let wq_contig = wq.iter().copied().collect::<Vec<f32>>();
+            let wk_contig = wk.iter().copied().collect::<Vec<f32>>();
+            let wv_contig = wv.iter().copied().collect::<Vec<f32>>();
+            let wo_contig = wo.iter().copied().collect::<Vec<f32>>();
+            self.wq_f16 = Some(crate::pack_f32_slice_to_f16(&wq_contig));
+            self.wk_f16 = Some(crate::pack_f32_slice_to_f16(&wk_contig));
+            self.wv_f16 = Some(crate::pack_f32_slice_to_f16(&wv_contig));
+            self.wo_f16 = Some(crate::pack_f32_slice_to_f16(&wo_contig));
         }
     }
 
@@ -987,16 +975,18 @@ impl GQA {
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
-        let (k_cached, v_cached, total_seq): (Cow<[f32]>, Cow<[f32]>, usize) = match cache {
+        let (k_cached, v_cached, total_seq, is_causal): (Cow<[f32]>, Cow<[f32]>, usize, bool) = match cache {
             Some(cache) if layer_idx < cache.len() => {
                 let entry = &cache[layer_idx];
                 let seq = entry.k.len() / (batch_size * kv_dim);
-                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq)
+                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq, false)
             }
             _ => {
                 let kf: Vec<f32> = k.iter().copied().collect();
                 let vf: Vec<f32> = v.iter().copied().collect();
-                (Cow::Owned(kf), Cow::Owned(vf), 1)
+                // No cache: batch_size = seq_len, all tokens attend in one forward.
+                // Apply causal mask so token i only attends to tokens 0..=i.
+                (Cow::Owned(kf), Cow::Owned(vf), batch_size, true)
             }
         };
 
@@ -1021,7 +1011,6 @@ impl GQA {
 
             for kv_h in 0..self.num_kv_heads {
                 let kv_off = kv_h * self.head_dim;
-                let heads_in_group = (kv_h + 1) * self.num_groups.min(self.num_heads - kv_h * self.num_groups);
                 let start_head = kv_h * self.num_groups;
                 let end_head = (start_head + self.num_groups).min(self.num_heads);
                 let n_heads = end_head - start_head;
@@ -1038,21 +1027,29 @@ impl GQA {
                 let scores = q_group.dot(&k_slice.t().to_owned());
                 let scaled = scores.mapv(|s| s * self.head_dim_rs);
 
+                // Apply causal mask: token b can only attend to positions 0..=b
+                let causal_pos = if is_causal { b } else { total_seq - 1 };
+
                 let softmax_out = {
                     let mut out = Array2::zeros((n_heads, total_seq));
                     for r in 0..n_heads {
-                        let max_v = scaled.row(r).iter()
-                            .cloned()
-                            .fold(f32::NEG_INFINITY, f32::max);
+                        let mut max_v = f32::NEG_INFINITY;
+                        for c in 0..=causal_pos {
+                            let v = scaled[[r, c]];
+                            if v > max_v {
+                                max_v = v;
+                            }
+                        }
                         let mut sum = 0.0;
-                        for c in 0..total_seq {
+                        for c in 0..=causal_pos {
                             let v = (scaled[[r, c]] - max_v).exp();
                             out[[r, c]] = v;
                             sum += v;
                         }
+                        // Positions beyond causal_pos stay 0 (masked out)
                         if sum > 0.0 {
                             let inv = 1.0 / sum;
-                            for c in 0..total_seq {
+                            for c in 0..=causal_pos {
                                 out[[r, c]] *= inv;
                             }
                         }

@@ -108,19 +108,28 @@ impl OracleVortexIntegration {
             analysis_depth: 4,
             integration_frequency_ms: 5000,
         };
-        Self {
-            oracle_trainer: nexora_oracle::trainer::OracleTrainer::new(
-                nexora_oracle::trainer::OracleConfig::default(),
-                8_000,
-            )
-            .unwrap_or_else(|_| {
-                tracing::warn!("OracleTrainer fallback: using degraded mode");
+        let oracle_trainer = {
+            let mut trainer = None;
+            for &size in &[8_000usize, 256, 64, 16] {
+                match nexora_oracle::trainer::OracleTrainer::new(
+                    nexora_oracle::trainer::OracleConfig::default(),
+                    size,
+                ) {
+                    Ok(t) => { trainer = Some(t); break; }
+                    Err(e) => tracing::warn!("OracleTrainer(size={}) failed: {:?}", size, e),
+                }
+            }
+            trainer.unwrap_or_else(|| {
+                tracing::error!("OracleTrainer all sizes failed, using placeholder");
                 nexora_oracle::trainer::OracleTrainer::new(
                     nexora_oracle::trainer::OracleConfig::default(),
-                    256,
+                    8,
                 )
-                .expect("OracleTrainer degraded mode should always succeed — using minimal config")
-            }),
+                .expect("OracleTrainer with size=8 should always succeed")
+            })
+        };
+        Self {
+            oracle_trainer,
             vortex_model: NxrVortexModel::new(),
             integration_config,
         }

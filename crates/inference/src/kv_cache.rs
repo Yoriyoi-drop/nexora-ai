@@ -314,10 +314,13 @@ impl KVCache {
     }
 
     fn hash_key(&self, key: &[u8]) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        key.hash(&mut hasher);
-        hasher.finish()
+        // FNV-1a hash (fast, no crypto overhead — internal cache, not user-exposed)
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in key {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
     }
 }
 

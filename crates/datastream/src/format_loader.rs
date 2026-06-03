@@ -13,12 +13,184 @@
 //! | `.parquet` | Apache Parquet | `parquet` | columnar, looks for `text` column |
 //! | `.arrow` / `.ipc` | Apache Arrow IPC | `arrow` | zero-copy columnar format (existing) |
 
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::types::{DataSample, SourceInfo};
+
+/// Streaming dataset iterator — yields `DataSample` one at a time
+/// without loading the entire dataset into memory.
+///
+/// The iterator holds an open file handle and reads on demand.
+/// Available for JSONL and CSV formats (naturally line-oriented).
+pub struct StreamingDatasetIterator {
+    reader: Box<dyn BufRead + Send>,
+    source: SourceInfo,
+    format: StreamingFormat,
+    line_number: usize,
+    finished: bool,
+}
+
+enum StreamingFormat {
+    Jsonl,
+    Csv {
+        /// Column index for text data
+        text_col: Option<usize>,
+    },
+}
+
+impl StreamingDatasetIterator {
+    /// Create a streaming iterator from a file path.
+    /// Auto-detects format from extension.
+    pub fn open(path: &Path, source: SourceInfo) -> Result<Self, String> {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let file = std::fs::File::open(path)
+            .map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+
+        let mut reader: Box<dyn BufRead + Send> = Box::new(BufReader::new(file));
+
+        match ext.as_str() {
+            "jsonl" | "ndjson" => Ok(Self {
+                reader,
+                source,
+                format: StreamingFormat::Jsonl,
+                line_number: 0,
+                finished: false,
+            }),
+            "csv" => {
+                // Parse header from existing reader (no re-open needed)
+                let text_col = {
+                    let mut header_buf = String::new();
+                    reader
+                        .read_line(&mut header_buf)
+                        .map_err(|e| format!("CSV header error: {}", e))?;
+                    let headers: Vec<String> = header_buf
+                        .trim()
+                        .split(',')
+                        .map(|h| h.trim_matches('"').to_string())
+                        .collect();
+                    find_text_column(&headers)
+                };
+
+                Ok(Self {
+                    reader,
+                    source,
+                    format: StreamingFormat::Csv { text_col },
+                    line_number: 1,
+                    finished: false,
+                })
+            }
+            _ => Err(format!(
+                "Streaming not supported for '.{}' format. Use load_dataset() for batch loading.",
+                ext
+            )),
+        }
+    }
+}
+
+impl Iterator for StreamingDatasetIterator {
+    type Item = Result<DataSample, String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        match &self.format {
+            StreamingFormat::Jsonl => {
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match self.reader.read_line(&mut line) {
+                        Ok(0) => {
+                            self.finished = true;
+                            return None;
+                        }
+                        Ok(_) => {
+                            self.line_number += 1;
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            let value: serde_json::Value = match serde_json::from_str(trimmed) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return Some(Err(format!(
+                                        "JSONL parse error at line {}: {}",
+                                        self.line_number, e
+                                    )));
+                                }
+                            };
+                            if let Some(text) = extract_text(&value) {
+                                if !text.is_empty() {
+                                    return Some(Ok(make_sample(text, &self.source)));
+                                }
+                            }
+                            // No text field found, skip silently
+                        }
+                        Err(e) => {
+                            self.finished = true;
+                            return Some(Err(format!("Read error at line {}: {}", self.line_number, e)));
+                        }
+                    }
+                }
+            }
+            StreamingFormat::Csv { text_col } => {
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match self.reader.read_line(&mut line) {
+                        Ok(0) => {
+                            self.finished = true;
+                            return None;
+                        }
+                        Ok(_) => {
+                            self.line_number += 1;
+                            // Skip header (first line)
+                            if self.line_number == 1 {
+                                continue;
+                            }
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            let fields: Vec<&str> = trimmed.split(',').collect();
+                            let text = if let Some(col) = text_col {
+                                fields
+                                    .get(*col)
+                                    .map(|s| s.trim_matches('"').to_string())
+                                    .unwrap_or_default()
+                            } else {
+                                fields.join(" ")
+                            };
+                            if !text.trim().is_empty() {
+                                return Some(Ok(make_sample(text.trim().to_string(), &self.source)));
+                            }
+                        }
+                        Err(e) => {
+                            self.finished = true;
+                            return Some(Err(format!("Read error at line {}: {}", self.line_number, e)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Open a dataset file for streaming iteration (memory-efficient).
+/// Supports JSONL and CSV. For other formats, use `load_dataset()`.
+pub fn stream_dataset(path: &Path, source: SourceInfo) -> Result<StreamingDatasetIterator, String> {
+    StreamingDatasetIterator::open(path, source)
+}
 
 /// Detect file format via magic bytes, returning the extension that should be used.
 fn detect_format_by_magic(path: &Path) -> Option<&'static str> {

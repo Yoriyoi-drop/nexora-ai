@@ -557,7 +557,13 @@ impl TrainableCausalLM {
                     None => out,
                 });
             }
-            let sum = sum.expect("experts must be non-empty");
+            let sum = match sum {
+                Some(s) => s,
+                None => {
+                    tracing::warn!("MoE experts list is empty, returning zeros");
+                    return Tensor::from_slice(&[0.0f32], &[1, 1]);
+                }
+            };
             let n = sum.clone().div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
             if cfg.early_free { drop(sum); }
             n

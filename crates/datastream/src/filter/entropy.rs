@@ -27,17 +27,17 @@ impl EntropyFilter {
     }
 
     fn compute_entropy(&self, text: &str) -> f64 {
-        let chars: Vec<char> = text.chars().collect();
-        if chars.is_empty() {
+        let total = text.chars().count();
+        if total == 0 {
             return 0.0;
         }
 
         let mut freq: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
-        for &c in &chars {
+        for c in text.chars() {
             *freq.entry(c).or_insert(0) += 1;
         }
 
-        let total = chars.len() as f64;
+        let total = total as f64;
         let mut entropy = 0.0;
         for &count in freq.values() {
             let p = count as f64 / total;

@@ -28,7 +28,9 @@ impl QualityFilter {
     fn compute_quality(&self, sample: &DataSample) -> (f64, Option<String>) {
         let text = &sample.text;
         let char_count = text.len().max(1);
-        let word_count = text.split_whitespace().count().max(1);
+
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let word_count = words.len().max(1);
 
         let uppercase = text.chars().filter(|c| c.is_uppercase()).count() as f64;
         let uppercase_ratio = uppercase / char_count as f64;
@@ -50,7 +52,7 @@ impl QualityFilter {
 
         let mut word_freq: std::collections::HashMap<&str, usize> =
             std::collections::HashMap::new();
-        for w in text.split_whitespace() {
+        for &w in &words {
             *word_freq.entry(w).or_insert(0) += 1;
         }
         let unique_ratio = word_freq.len() as f64 / word_count as f64;
@@ -73,8 +75,7 @@ impl QualityFilter {
             );
         }
 
-        let avg_word_len: f64 =
-            text.split_whitespace().map(|w| w.len() as f64).sum::<f64>() / word_count as f64;
+        let avg_word_len: f64 = words.iter().map(|w| w.len() as f64).sum::<f64>() / word_count as f64;
         let has_mixed_case =
             text.chars().any(|c| c.is_lowercase()) && text.chars().any(|c| c.is_uppercase());
         let has_variety = word_freq.len() > 5;

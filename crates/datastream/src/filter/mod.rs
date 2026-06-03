@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 pub mod curriculum;
 pub mod custom;
 pub mod dedup;
@@ -37,6 +39,39 @@ pub use token::TokenFilter;
 pub use toxicity::ToxicityFilter;
 pub use traits::{Filter, ParallelFilter};
 pub use trust_score::TrustScoreFilter;
+
+#[async_trait]
+impl ParallelFilter for curriculum::CurriculumRanker {}
+#[async_trait]
+impl ParallelFilter for custom::CustomFilter {}
+#[async_trait]
+impl ParallelFilter for dedup::DedupFilter {}
+#[async_trait]
+impl ParallelFilter for domain::DomainClassifier {}
+#[async_trait]
+impl ParallelFilter for entropy::EntropyFilter {}
+#[async_trait]
+impl ParallelFilter for language::LanguageFilter {}
+#[async_trait]
+impl ParallelFilter for length::LengthFilter {}
+#[async_trait]
+impl ParallelFilter for perplexity::PerplexityFilter {}
+#[cfg(feature = "prompt-injection")]
+#[async_trait]
+impl ParallelFilter for prompt_injection::PromptInjectionFilter {}
+#[async_trait]
+impl ParallelFilter for quality::QualityFilter {}
+#[async_trait]
+impl ParallelFilter for regex::RegexFilter {}
+#[async_trait]
+impl ParallelFilter for semantic_dedup::SemanticDedupFilter {}
+#[async_trait]
+impl ParallelFilter for token::TokenFilter {}
+#[cfg(feature = "toxicity")]
+#[async_trait]
+impl ParallelFilter for toxicity::ToxicityFilter {}
+#[async_trait]
+impl ParallelFilter for trust_score::TrustScoreFilter {}
 
 #[cfg(test)]
 mod tests {
