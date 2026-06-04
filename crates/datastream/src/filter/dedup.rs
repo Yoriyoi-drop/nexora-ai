@@ -104,7 +104,11 @@ impl DedupFilter {
 
     pub fn reset(&mut self) {
         for shard in self.seen_hashes.iter() {
-            shard.lock().unwrap().clear();
+            if let Ok(mut guard) = shard.try_lock() {
+                guard.clear();
+            } else {
+                tracing::warn!("DedupFilter::reset: mutex poisoned, skipping shard");
+            }
         }
     }
 
@@ -193,7 +197,19 @@ impl Filter for DedupFilter {
         // Short texts (single hash) — use exact match check
         if total_hashes == 1 {
             let sid = Self::shard_index(fingerprints[0]);
-            let mut guard = self.seen_hashes[sid].lock().unwrap();
+            let mut guard = match self.seen_hashes[sid].try_lock() {
+                Ok(g) => g,
+                Err(_) => {
+                    tracing::warn!("DedupFilter::evaluate: mutex poisoned, treating as not seen");
+                    return FilterResult {
+                        passed: true,
+                        sample_id: sample.id,
+                        filter_name: self.name().to_string(),
+                        reason: None,
+                        score_delta: 0.0,
+                    };
+                }
+            };
             let seen = guard.contains(&fingerprints[0]);
             if seen && self.exact_reject_on_seen {
                 return FilterResult {

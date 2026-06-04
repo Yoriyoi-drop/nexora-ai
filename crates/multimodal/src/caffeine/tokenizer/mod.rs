@@ -216,7 +216,9 @@ impl UnifiedTokenizer {
             });
         }
 
-        let last = context_tokens.last().unwrap();
+        let last = context_tokens.last().ok_or_else(|| {
+            crate::caffeine::error::CaffeineError::tokenizer("No context tokens available")
+        })?;
         let max_id = self.config.vocab_size.max(100);
 
         // Build bigram frequencies from context

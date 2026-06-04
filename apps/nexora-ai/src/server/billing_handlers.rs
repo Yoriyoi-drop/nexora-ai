@@ -143,19 +143,18 @@ pub async fn subscribe(
     }
 
     let plan_name = payload.plan.to_lowercase();
-    let tier = TierName::from_str(&plan_name);
-    if tier.is_none() {
+    let Some(tier) = TierName::from_str(&plan_name) else {
         return Json(json!({
             "success": false,
             "error": format!("Unknown plan: {}. Available: free, pro, enterprise", plan_name)
         }));
-    }
+    };
 
     let mut meta = HashMap::new();
     meta.insert("plan".to_string(), plan_name.clone());
     nexora.telemetry.recorder.record_event("billing.subscribe", None, meta).await;
 
-    let plan = BillingPlan::find(tier.as_ref().unwrap());
+    let plan = BillingPlan::find(&tier);
     info!("Subscription request for plan: {}", plan_name);
 
     match plan {

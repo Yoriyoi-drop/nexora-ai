@@ -160,14 +160,43 @@ impl LoRAModel {
                 continue;
             }
             let target = parts[1];
+            let block = &mut model.blocks[layer_idx];
             match target {
-                "wq" => layer.merge_weights(model.blocks[layer_idx].attention.wq.as_mut().unwrap()),
-                "wk" => layer.merge_weights(model.blocks[layer_idx].attention.wk.as_mut().unwrap()),
-                "wv" => layer.merge_weights(model.blocks[layer_idx].attention.wv.as_mut().unwrap()),
-                "wo" => layer.merge_weights(model.blocks[layer_idx].attention.wo.as_mut().unwrap()),
-                "w1" => layer.merge_weights(model.blocks[layer_idx].ffn.w1.as_mut().unwrap()),
-                "w2" => layer.merge_weights(model.blocks[layer_idx].ffn.w2.as_mut().unwrap()),
-                "w3" => layer.merge_weights(model.blocks[layer_idx].ffn.w3.as_mut().unwrap()),
+                "wq" => {
+                    if let Some(w) = block.attention.wq.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "wk" => {
+                    if let Some(w) = block.attention.wk.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "wv" => {
+                    if let Some(w) = block.attention.wv.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "wo" => {
+                    if let Some(w) = block.attention.wo.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "w1" => {
+                    if let Some(w) = block.ffn.w1.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "w2" => {
+                    if let Some(w) = block.ffn.w2.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
+                "w3" => {
+                    if let Some(w) = block.ffn.w3.as_mut() {
+                        layer.merge_weights(w);
+                    }
+                }
                 _ => {}
             }
         }
@@ -198,36 +227,41 @@ impl LoRAModel {
                 Err(_) => continue,
             };
             let delta = b_2d.dot(&a_2d).mapv(|v| v * layer.scaling);
+            let block = &mut model.blocks[layer_idx];
             match target {
                 "wq" => {
-                    let wq = model.blocks[layer_idx].attention.wq.as_mut().unwrap();
-                    for i in 0..wq.shape()[0] {
-                        for j in 0..wq.shape()[1] {
-                            wq[[i, j]] -= delta[[i, j]];
+                    if let Some(wq) = block.attention.wq.as_mut() {
+                        for i in 0..wq.shape()[0] {
+                            for j in 0..wq.shape()[1] {
+                                wq[[i, j]] -= delta[[i, j]];
+                            }
                         }
                     }
                 }
                 "wk" => {
-                    let wk = model.blocks[layer_idx].attention.wk.as_mut().unwrap();
-                    for i in 0..wk.shape()[0] {
-                        for j in 0..wk.shape()[1] {
-                            wk[[i, j]] -= delta[[i, j]];
+                    if let Some(wk) = block.attention.wk.as_mut() {
+                        for i in 0..wk.shape()[0] {
+                            for j in 0..wk.shape()[1] {
+                                wk[[i, j]] -= delta[[i, j]];
+                            }
                         }
                     }
                 }
                 "wv" => {
-                    let wv = model.blocks[layer_idx].attention.wv.as_mut().unwrap();
-                    for i in 0..wv.shape()[0] {
-                        for j in 0..wv.shape()[1] {
-                            wv[[i, j]] -= delta[[i, j]];
+                    if let Some(wv) = block.attention.wv.as_mut() {
+                        for i in 0..wv.shape()[0] {
+                            for j in 0..wv.shape()[1] {
+                                wv[[i, j]] -= delta[[i, j]];
+                            }
                         }
                     }
                 }
                 "wo" => {
-                    let wo = model.blocks[layer_idx].attention.wo.as_mut().unwrap();
-                    for i in 0..wo.shape()[0] {
-                        for j in 0..wo.shape()[1] {
-                            wo[[i, j]] -= delta[[i, j]];
+                    if let Some(wo) = block.attention.wo.as_mut() {
+                        for i in 0..wo.shape()[0] {
+                            for j in 0..wo.shape()[1] {
+                                wo[[i, j]] -= delta[[i, j]];
+                            }
                         }
                     }
                 }

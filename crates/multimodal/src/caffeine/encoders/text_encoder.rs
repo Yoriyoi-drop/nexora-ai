@@ -19,13 +19,13 @@ fn gelu(x: f32) -> f32 {
     x * 0.5 * (1.0 + (x * 0.7978845608 * (1.0 + 0.044715 * x * x)).tanh())
 }
 
-fn xavier_init(rows: usize, cols: usize) -> Array2<f32> {
+fn xavier_init(rows: usize, cols: usize) -> Result<Array2<f32>> {
     let scale = (2.0 / (rows as f32 + cols as f32)).sqrt();
     let mut rng = rand::thread_rng();
     let data: Vec<f32> = (0..rows * cols)
         .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
         .collect();
-    Array2::from_shape_vec((rows, cols), data).unwrap()
+    Ok(Array2::from_shape_vec((rows, cols), data)?)
 }
 
 /// Learned token embedding table with Xavier init
@@ -34,10 +34,10 @@ struct TokenEmbedding {
 }
 
 impl TokenEmbedding {
-    fn new(vocab_size: usize, embed_dim: usize) -> Self {
-        Self {
-            weight: xavier_init(vocab_size, embed_dim),
-        }
+    fn new(vocab_size: usize, embed_dim: usize) -> Result<Self> {
+        Ok(Self {
+            weight: xavier_init(vocab_size, embed_dim)?,
+        })
     }
 
     fn forward(&self, token_ids: &[usize]) -> Array2<f32> {
@@ -62,11 +62,11 @@ struct TextFFN {
 }
 
 impl TextFFN {
-    fn new(embed_dim: usize, hidden_dim: usize) -> Self {
-        Self {
-            fc1: xavier_init(embed_dim, hidden_dim),
-            fc2: xavier_init(hidden_dim, embed_dim),
-        }
+    fn new(embed_dim: usize, hidden_dim: usize) -> Result<Self> {
+        Ok(Self {
+            fc1: xavier_init(embed_dim, hidden_dim)?,
+            fc2: xavier_init(hidden_dim, embed_dim)?,
+        })
     }
 
     fn forward(&self, x: &Array2<f32>) -> Array2<f32> {
@@ -93,14 +93,16 @@ impl TextEncoder {
     pub fn new(config: crate::caffeine::config::TextEncoderConfig) -> Result<Self> {
         let embed_dim = config.output_dim;
         let hidden_dim = embed_dim * 4;
-        let ffn_layers = (0..6).map(|_| TextFFN::new(embed_dim, hidden_dim)).collect();
+        let ffn_layers = (0..6)
+            .map(|_| TextFFN::new(embed_dim, hidden_dim))
+            .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             vocab_size: config.vocab_size,
             max_position_embeddings: 512,
             model_loaded: false,
-            token_embedding: TokenEmbedding::new(config.vocab_size, embed_dim),
+            token_embedding: TokenEmbedding::new(config.vocab_size, embed_dim)?,
             ffn_layers,
-            qkv_proj: xavier_init(embed_dim, embed_dim),
+            qkv_proj: xavier_init(embed_dim, embed_dim)?,
             config,
         })
     }

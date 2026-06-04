@@ -112,14 +112,11 @@ impl Router {
         }
     }
 
-    fn get_weights(&self) -> &Vec<Vec<f32>> {
-        match self.router_weights.as_ref() {
-            Some(w) => w,
-            None => {
-                warn!("router_weights not initialized — call init_random() or load from checkpoint");
-                panic!("router_weights not initialized — call init_random() or load from checkpoint");
-            }
-        }
+    fn get_weights(&self) -> Result<&Vec<Vec<f32>>, String> {
+        self.router_weights.as_ref().ok_or_else(|| {
+            warn!("router_weights not initialized — call init_random() or load from checkpoint");
+            "router_weights not initialized — call init_random() or load from checkpoint".to_string()
+        })
     }
 
     pub fn init_random(&mut self) {
@@ -151,7 +148,13 @@ impl Router {
 
     /// Compute gating weight for a specific expert
     fn compute_gating_weight(&self, input: &[f32], expert_idx: usize) -> f32 {
-        let w = self.get_weights();
+        let w = match self.get_weights() {
+            Ok(w) => w,
+            Err(e) => {
+                warn!("compute_gating_weight failed: {e}");
+                return 0.0;
+            }
+        };
         let dot_product: f32 = input
             .iter()
             .enumerate()
@@ -193,13 +196,21 @@ impl Router {
 
         // Batched matmul: input [batch × hidden] @ weightsᵀ [hidden × experts] = [batch × experts]
         // Replaces O(batch × num_experts × hidden) sequential dot products
-        let mut gating_weights = {
-            let w = self.get_weights();
-            let w_flat: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
-            // safe: weight dimensions match (num_experts × hidden_size) — freshly constructed from get_weights()
-            let w_arr = ndarray::Array2::from_shape_vec((num_experts, hidden_size), w_flat)
-                .expect("weight matrix shape");
-            input.dot(&w_arr.t().to_owned())
+        let mut gating_weights = match self.get_weights() {
+            Ok(w) => {
+                let w_flat: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+                match ndarray::Array2::from_shape_vec((num_experts, hidden_size), w_flat) {
+                    Ok(w_arr) => input.dot(&w_arr.t().to_owned()),
+                    Err(e) => {
+                        warn!("failed to create weight matrix: {e}");
+                        return ndarray::Array2::zeros((input.shape()[0], num_experts));
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("forward failed: {e}");
+                return ndarray::Array2::zeros((input.shape()[0], num_experts));
+            }
         };
 
         // Row-wise softmax in-place

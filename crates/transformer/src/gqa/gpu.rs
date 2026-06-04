@@ -375,21 +375,18 @@ impl GpuKVCacheEntry {
         &mut self,
         ctx: &GpuContext,
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
-        let count = self
-            .cow_count
-            .as_ref()
-            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
-            .unwrap_or(0);
+        let cow_count = match &self.cow_count {
+            Some(c) => c,
+            None => return Ok(()),
+        };
+        let count = cow_count.load(std::sync::atomic::Ordering::Relaxed);
 
         if count <= 1 {
             return Ok(()); // Already unique owner
         }
 
         // Decrement shared count
-        self.cow_count
-            .as_ref()
-            .unwrap()
-            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        cow_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
         // Copy GPU buffers
         let k_size = self.k.buffer().size();

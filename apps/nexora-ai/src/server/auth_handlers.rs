@@ -33,15 +33,15 @@ pub async fn register_handler(
     let result = auth.register(&req).await;
     let mut meta = HashMap::new();
     meta.insert("email".to_string(), req.email.clone());
-    match &result {
-        Ok(_) => {
+    match result {
+        Ok(ref value) => {
             nexora.telemetry.recorder.record_event("auth.register", Some(req.email.clone()), meta).await;
-            (StatusCode::CREATED, ok_json(serde_json::to_value(result.as_ref().unwrap()).unwrap_or_default())).into_response()
+            (StatusCode::CREATED, ok_json(serde_json::to_value(value).unwrap_or_default())).into_response()
         }
         Err(e) => {
             meta.insert("error".to_string(), e.to_string());
             nexora.telemetry.recorder.record_event("auth.register.failed", Some(req.email), meta).await;
-            let status = match e {
+            let status = match &e {
                 crate::auth::user::AuthError::EmailAlreadyTaken => StatusCode::CONFLICT,
                 crate::auth::user::AuthError::UsernameAlreadyTaken => StatusCode::CONFLICT,
                 crate::auth::user::AuthError::PasswordHashError(_) => StatusCode::INTERNAL_SERVER_ERROR,

@@ -60,10 +60,7 @@ impl RetryConfig {
                 }
             }
         }
-        match last_err {
-            Some(e) => Err(e),
-            None => panic!("retry loop with max_retries={} did not execute", self.max_retries),
-        }
+        Err(last_err.unwrap())
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {

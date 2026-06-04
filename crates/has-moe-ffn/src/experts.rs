@@ -119,44 +119,32 @@ impl Expert {
         }
     }
 
-    fn get_fc1_weights(&self) -> &Vec<Vec<f32>> {
-        match self.fc1_weights.as_ref() {
-            Some(w) => w,
-            None => {
-                warn!("fc1_weights not initialized — call init_random()");
-                panic!("fc1_weights not initialized — call init_random()");
-            }
-        }
+    fn get_fc1_weights(&self) -> Result<&Vec<Vec<f32>>, String> {
+        self.fc1_weights.as_ref().ok_or_else(|| {
+            warn!("fc1_weights not initialized — call init_random()");
+            "fc1_weights not initialized — call init_random()".to_string()
+        })
     }
 
-    fn get_fc1_bias(&self) -> &Vec<f32> {
-        match self.fc1_bias.as_ref() {
-            Some(b) => b,
-            None => {
-                warn!("fc1_bias not initialized — call init_random()");
-                panic!("fc1_bias not initialized — call init_random()");
-            }
-        }
+    fn get_fc1_bias(&self) -> Result<&Vec<f32>, String> {
+        self.fc1_bias.as_ref().ok_or_else(|| {
+            warn!("fc1_bias not initialized — call init_random()");
+            "fc1_bias not initialized — call init_random()".to_string()
+        })
     }
 
-    fn get_fc2_weights(&self) -> &Vec<Vec<f32>> {
-        match self.fc2_weights.as_ref() {
-            Some(w) => w,
-            None => {
-                warn!("fc2_weights not initialized — call init_random()");
-                panic!("fc2_weights not initialized — call init_random()");
-            }
-        }
+    fn get_fc2_weights(&self) -> Result<&Vec<Vec<f32>>, String> {
+        self.fc2_weights.as_ref().ok_or_else(|| {
+            warn!("fc2_weights not initialized — call init_random()");
+            "fc2_weights not initialized — call init_random()".to_string()
+        })
     }
 
-    fn get_fc2_bias(&self) -> &Vec<f32> {
-        match self.fc2_bias.as_ref() {
-            Some(b) => b,
-            None => {
-                warn!("fc2_bias not initialized — call init_random()");
-                panic!("fc2_bias not initialized — call init_random()");
-            }
-        }
+    fn get_fc2_bias(&self) -> Result<&Vec<f32>, String> {
+        self.fc2_bias.as_ref().ok_or_else(|| {
+            warn!("fc2_bias not initialized — call init_random()");
+            "fc2_bias not initialized — call init_random()".to_string()
+        })
     }
 
     pub fn init_random(&mut self) {
@@ -603,8 +591,13 @@ impl Expert {
 
     /// First linear layer forward pass
     fn fc1_forward(&self, input: &[f32]) -> Vec<f32> {
-        let w = self.get_fc1_weights();
-        let b = self.get_fc1_bias();
+        let (w, b) = match (self.get_fc1_weights(), self.get_fc1_bias()) {
+            (Ok(w), Ok(b)) => (w, b),
+            _ => {
+                warn!("fc1_forward failed: weights or bias not initialized");
+                return Vec::new();
+            }
+        };
         w.iter()
             .zip(b.iter())
             .map(|(weights, bias)| {
@@ -619,8 +612,13 @@ impl Expert {
 
     /// Second linear layer forward pass
     fn fc2_forward(&self, input: &[f32]) -> Vec<f32> {
-        let w = self.get_fc2_weights();
-        let b = self.get_fc2_bias();
+        let (w, b) = match (self.get_fc2_weights(), self.get_fc2_bias()) {
+            (Ok(w), Ok(b)) => (w, b),
+            _ => {
+                warn!("fc2_forward failed: weights or bias not initialized");
+                return Vec::new();
+            }
+        };
         w.iter()
             .zip(b.iter())
             .map(|(weights, bias)| {

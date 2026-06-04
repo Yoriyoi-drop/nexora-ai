@@ -81,14 +81,16 @@ impl LazyWeightLoader {
             num_tensors, path, cache_blocks
         );
 
+        // safe: cache_blocks.max(1) >= 1, NonZeroUsize::new(2) is infallible
+        let cache_size = std::num::NonZeroUsize::new(cache_blocks.max(1))
+            .unwrap_or(std::num::NonZeroUsize::new(2).expect("2 is non-zero"));
+
         Ok(Self {
             path,
             raw,
             header,
             data_offset: header_end,
-            block_cache: Mutex::new(LruCache::new(
-                std::num::NonZeroUsize::new(cache_blocks.max(1)).unwrap_or(std::num::NonZeroUsize::new(2).unwrap()),
-            )),
+            block_cache: Mutex::new(LruCache::new(cache_size)),
             singleton_cache: Mutex::new(HashMap::new()),
         })
     }

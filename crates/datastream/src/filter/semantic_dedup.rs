@@ -160,8 +160,26 @@ impl Filter for SemanticDedupFilter {
 
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
-        let mut signatures = self.signatures.lock().unwrap();
-        let mut lsh = self.lsh_index.lock().unwrap();
+        let Ok(mut signatures) = self.signatures.try_lock() else {
+            tracing::warn!("SemanticDedupFilter::evaluate: signatures mutex poisoned, passing through");
+            return FilterResult {
+                passed: true,
+                sample_id: sample.id,
+                filter_name: self.name().to_string(),
+                reason: None,
+                score_delta: 0.0,
+            };
+        };
+        let Ok(mut lsh) = self.lsh_index.try_lock() else {
+            tracing::warn!("SemanticDedupFilter::evaluate: lsh_index mutex poisoned, passing through");
+            return FilterResult {
+                passed: true,
+                sample_id: sample.id,
+                filter_name: self.name().to_string(),
+                reason: None,
+                score_delta: 0.0,
+            };
+        };
 
         // Fast candidate selection via LSH bands with HashSet dedup
         let band_hashes = Self::lsh_bands(&sig);

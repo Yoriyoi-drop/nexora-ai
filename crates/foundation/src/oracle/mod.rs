@@ -102,37 +102,37 @@ impl EnhancedCodeAnalysis {
 impl OracleVortexIntegration {
     /// Create a degraded fallback instance when OracleTrainer is unavailable.
     /// Uses a placeholder vortex model with default config — no analysis capabilities.
-    pub fn default_fallback() -> Self {
+    pub fn default_fallback() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let integration_config = OracleVortexConfig {
             enable_vortex_analysis: true,
             analysis_depth: 4,
             integration_frequency_ms: 5000,
         };
-        let oracle_trainer = {
-            let mut trainer = None;
-            for &size in &[8_000usize, 256, 64, 16] {
-                match nexora_oracle::trainer::OracleTrainer::new(
-                    nexora_oracle::trainer::OracleConfig::default(),
-                    size,
-                ) {
-                    Ok(t) => { trainer = Some(t); break; }
-                    Err(e) => tracing::warn!("OracleTrainer(size={}) failed: {:?}", size, e),
-                }
+        let mut trainer = None;
+        for &size in &[8_000usize, 256, 64, 16] {
+            match nexora_oracle::trainer::OracleTrainer::new(
+                nexora_oracle::trainer::OracleConfig::default(),
+                size,
+            ) {
+                Ok(t) => { trainer = Some(t); break; }
+                Err(e) => tracing::warn!("OracleTrainer(size={}) failed: {:?}", size, e),
             }
-            trainer.unwrap_or_else(|| {
-                tracing::error!("OracleTrainer all sizes failed, using placeholder");
+        }
+        let oracle_trainer = match trainer {
+            Some(t) => t,
+            None => {
+                tracing::error!("OracleTrainer all sizes failed; trying size=8 as last resort");
                 nexora_oracle::trainer::OracleTrainer::new(
                     nexora_oracle::trainer::OracleConfig::default(),
                     8,
-                )
-                .expect("OracleTrainer with size=8 should always succeed")
-            })
+                )?
+            }
         };
-        Self {
+        Ok(Self {
             oracle_trainer,
             vortex_model: NxrVortexModel::new(),
             integration_config,
-        }
+        })
     }
 }
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_oracle_vortex_default_fallback_never_panics() {
-        let instance = OracleVortexIntegration::default_fallback();
+        let instance = OracleVortexIntegration::default_fallback().expect("default_fallback should succeed");
         assert!(instance.integration_config.enable_vortex_analysis);
         assert_eq!(instance.integration_config.analysis_depth, 4);
     }

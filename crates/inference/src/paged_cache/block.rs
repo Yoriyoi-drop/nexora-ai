@@ -257,7 +257,7 @@ impl BlockData {
                 let data: Vec<f32> = (0..bs)
                     .flat_map(|r| self.read_row(r))
                     .collect();
-                BlockData::F32(Array2::from_shape_vec((bs, cols), data).unwrap())
+                BlockData::F32(Array2::from_shape_vec((bs, cols), data).expect("read_row returns cols elements per block row, total == bs*cols"))
             }
         }
     }
