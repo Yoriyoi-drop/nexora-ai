@@ -3424,7 +3424,7 @@ name = "nexora-blaa"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "futures",
@@ -4183,7 +4183,7 @@ name = "nexora-utils"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "flate2",
  "hex",

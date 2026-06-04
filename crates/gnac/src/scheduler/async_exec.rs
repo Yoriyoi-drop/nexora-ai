@@ -144,7 +144,7 @@ impl AsyncExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas::GraphEdge;
+    use crate::canvas::{GraphEdge, GraphNode};
     use crate::TensorDesc;
     use uuid::Uuid;
 

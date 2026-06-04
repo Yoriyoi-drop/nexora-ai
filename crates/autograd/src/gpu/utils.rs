@@ -14,6 +14,35 @@ const MAX_WORKGROUPS_PER_DIM: u32 = 65535;
 const DEFAULT_WORKGROUP_SIZE: u32 = 256;
 
 impl GpuContext {
+    // ── Private helpers ──
+
+    fn compile_shader(
+        &mut self,
+        name: &'static str,
+        bindings: &[wgpu::BindGroupLayoutEntry],
+        wgsl: &'static str,
+        entry: &'static str,
+    ) -> Result<(), GpuError> {
+        self.compile_pipeline(name, bindings, std::borrow::Cow::Borrowed(wgsl), entry)
+    }
+
+    /// Create a uniform buffer and write u32 config data (common pattern).
+    fn uniform_cfg_u32(&self, label: &str, data: &[u32]) -> wgpu::Buffer {
+        let bytes = bytemuck::cast_slice(data);
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes.len() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue.write_buffer(&buf, 0, bytes);
+        buf
+    }
+
+    // ====================================================================
+    // SECTION: Gradient & MoE
+    // ====================================================================
+
     pub fn gradient_allreduce(
         &self,
         grad_buffers: &GpuTensor,
@@ -26,15 +55,7 @@ impl GpuContext {
             .get("gradient_allreduce")
             .ok_or_else(|| GpuError::Pipeline("gradient_allreduce not compiled".into()))?;
 
-        let cfg_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gradient_allreduce_cfg"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let cfg: [u32; 4] = [numel, num_replicas, 0, 0];
-        self.queue
-            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
+        let cfg_buf = self.uniform_cfg_u32("gradient_allreduce_cfg", &[numel, num_replicas, 0, 0]);
 
         self.dispatch_1d_chunked(
             pipeline,
@@ -90,97 +111,45 @@ impl GpuContext {
         Ok(())
     }
 
+    // ====================================================================
+    // SECTION: Shader Compilation (sampling/norm pipelines)
+    // ====================================================================
+
     pub(crate) fn compile_causal_softmax(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "causal_softmax",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(CAUSAL_SOFTMAX_WGSL),
-            "causal_softmax_main",
-        )
+        self.compile_shader("causal_softmax", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], CAUSAL_SOFTMAX_WGSL, "causal_softmax_main")
     }
 
     pub(crate) fn compile_l2_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "l2_norm",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(L2_NORM_WGSL),
-            "l2_norm_main",
-        )
+        self.compile_shader("l2_norm", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], L2_NORM_WGSL, "l2_norm_main")
     }
 
     pub(crate) fn compile_gradient_clip(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "gradient_clip",
-            &[
-                storage_binding(0, false),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(GRADIENT_CLIP_WGSL),
-            "main",
-        )
+        self.compile_shader("gradient_clip", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], GRADIENT_CLIP_WGSL, "main")
     }
 
     pub(crate) fn compile_temperature_scale(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "temperature_scale",
-            &[storage_binding(0, false), uniform_binding(1)],
-            std::borrow::Cow::Borrowed(TEMPERATURE_SCALE_WGSL),
-            "temperature_scale_main",
-        )
+        self.compile_shader("temperature_scale", &[storage_binding(0, false), uniform_binding(1)], TEMPERATURE_SCALE_WGSL, "temperature_scale_main")
     }
 
     pub(crate) fn compile_top_k_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "top_k_mask",
-            &[storage_binding(0, false), uniform_binding(1)],
-            std::borrow::Cow::Borrowed(TOP_K_MASK_WGSL),
-            "top_k_mask_main",
-        )
+        self.compile_shader("top_k_mask", &[storage_binding(0, false), uniform_binding(1)], TOP_K_MASK_WGSL, "top_k_mask_main")
     }
 
     pub(crate) fn compile_top_p_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "top_p_mask",
-            &[storage_binding(0, false), uniform_binding(1)],
-            std::borrow::Cow::Borrowed(TOP_P_MASK_WGSL),
-            "top_p_mask_main",
-        )
+        self.compile_shader("top_p_mask", &[storage_binding(0, false), uniform_binding(1)], TOP_P_MASK_WGSL, "top_p_mask_main")
     }
 
     pub(crate) fn compile_multinomial_sample(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "multinomial_sample",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(MULTINOMIAL_SAMPLE_WGSL),
-            "multinomial_main",
-        )
+        self.compile_shader("multinomial_sample", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], MULTINOMIAL_SAMPLE_WGSL, "multinomial_main")
     }
 
     pub(crate) fn compile_dropout_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "dropout_mask",
-            &[
-                storage_binding(0, false),
-                uniform_binding(1),
-            ],
-            std::borrow::Cow::Borrowed(DROPOUT_MASK_WGSL),
-            "dropout_mask_main",
-        )
+        self.compile_shader("dropout_mask", &[storage_binding(0, false), uniform_binding(1)], DROPOUT_MASK_WGSL, "dropout_mask_main")
     }
+
+    // ====================================================================
+    // SECTION: Buffer Operations (fill, scale, norm, sampling)
+    // ====================================================================
 
     /// Generate dropout mask directly on GPU — avoids CPU random + upload.
     /// Fills `mask` buffer with 0.0 or `scale` based on random samples.
@@ -377,6 +346,10 @@ impl GpuContext {
             device_id: 0,
         })
     }
+
+    // ====================================================================
+    // SECTION: GPU Sampling (temperature, top-k, top-p, multinomial)
+    // ====================================================================
 
     /// GPU sampling: temperature → softmax → top-k → top-p → multinomial
     pub fn gpu_sample(
@@ -703,45 +676,15 @@ impl GpuContext {
         )
     }
     pub(crate) fn compile_rotary_embedding(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "rotary_embedding",
-            &[
-                storage_binding(0, false),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(ROTARY_EMBEDDING_WGSL),
-            "rotary_main",
-        )
+        self.compile_shader("rotary_embedding", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, true), uniform_binding(3)], ROTARY_EMBEDDING_WGSL, "rotary_main")
     }
 
     pub(crate) fn compile_adam_step(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "adam_step",
-            &[
-                storage_binding(0, false),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                storage_binding(3, false),
-                uniform_binding(4),
-            ],
-            std::borrow::Cow::Borrowed(ADAM_WGSL),
-            "main",
-        )
+        self.compile_shader("adam_step", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, false), storage_binding(3, false), uniform_binding(4)], ADAM_WGSL, "main")
     }
 
     pub(crate) fn compile_repeat_heads(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "repeat_heads",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(REPEAT_HEADS_WGSL),
-            "repeat_heads_main",
-        )
+        self.compile_shader("repeat_heads", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], REPEAT_HEADS_WGSL, "repeat_heads_main")
     }
 
     pub fn matmul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
@@ -1392,26 +1335,11 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_elementwise(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "elementwise",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(ELEMENTWISE_WGSL),
-            "elementwise_main",
-        )
+        self.compile_shader("elementwise", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], ELEMENTWISE_WGSL, "elementwise_main")
     }
 
     pub(crate) fn compile_elementwise_inplace(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "elementwise_inplace",
-            &[storage_binding(0, false), uniform_binding(1)],
-            std::borrow::Cow::Borrowed(ELEMENTWISE_INPLACE_WGSL),
-            "elementwise_inplace_main",
-        )
+        self.compile_shader("elementwise_inplace", &[storage_binding(0, false), uniform_binding(1)], ELEMENTWISE_INPLACE_WGSL, "elementwise_inplace_main")
     }
 
     /// Dispatch element-wise/unary op: output = op(a)
@@ -1605,71 +1533,28 @@ impl GpuContext {
         })
     }
 
-    /// Convenience: element-wise add on GPU
     pub fn add(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
         self.elementwise_binary(a, b, ElemOp::Add)
     }
 
-    /// GPU-side in-place add: a = a + b
-    /// Uses buffer swap instead of copy-back to avoid extra allocation+copy.
     pub fn add_inplace(&self, a: &mut GpuTensor, b: &GpuTensor) -> Result<(), GpuError> {
         let result = self.add(&a.view_as(a.shape()), b)?;
         a.buffer = result.buffer;
         Ok(())
     }
 
-    /// Convenience: element-wise sub on GPU
-    pub fn sub(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_binary(a, b, ElemOp::Sub)
-    }
+    pub fn sub(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Sub) }
+    pub fn mul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Mul) }
+    pub fn div(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Div) }
+    pub fn sqrt(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Sqrt) }
+    pub fn exp(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Exp) }
+    pub fn relu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Relu) }
+    pub fn sigmoid(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Sigmoid) }
+    pub fn silu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Silu) }
+    pub fn gelu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Gelu) }
+    pub fn tanh(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Tanh) }
 
-    /// Convenience: element-wise mul on GPU
-    pub fn mul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_binary(a, b, ElemOp::Mul)
-    }
-
-    /// Convenience: element-wise div on GPU
-    pub fn div(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_binary(a, b, ElemOp::Div)
-    }
-
-    /// Convenience: sqrt on GPU
-    pub fn sqrt(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Sqrt)
-    }
-
-    /// Convenience: exp on GPU
-    pub fn exp(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Exp)
-    }
-
-    /// Convenience: relu on GPU
-    pub fn relu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Relu)
-    }
-
-    /// Convenience: sigmoid on GPU
-    pub fn sigmoid(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Sigmoid)
-    }
-
-    /// Convenience: silu on GPU
-    pub fn silu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Silu)
-    }
-
-    /// Convenience: gelu on GPU
-    pub fn gelu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Gelu)
-    }
-
-    /// Convenience: tanh on GPU
-    pub fn tanh(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
-        self.elementwise_unary(a, ElemOp::Tanh)
-    }
-
-    /// LeakyReLU in-place on GPU: x = x > 0 ? x : x * negative_slope
-    /// Uses elementwise_inplace pipeline with custom cfg for slope parameter.
+    // ── LeakyReLU (needs custom cfg, not plain elementwise_unary) ──
     pub fn leaky_relu_inplace(
         &self,
         tensor: &mut GpuTensor,
@@ -2061,16 +1946,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_softmax(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "softmax",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(SOFTMAX_WGSL),
-            "softmax_main",
-        )
+        self.compile_shader("softmax", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], SOFTMAX_WGSL, "softmax_main")
     }
 
     /// Softmax along last axis. Input shape: [rows, dim].
@@ -2143,17 +2019,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_rms_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "rms_norm",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(RMSNORM_WGSL),
-            "rms_norm_main",
-        )
+        self.compile_shader("rms_norm", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], RMSNORM_WGSL, "rms_norm_main")
     }
 
     /// RMSNorm: out = x / rms(x) * weight. Shapes: x[batch, dim], weight[dim].
@@ -2229,19 +2095,7 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_rms_norm_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "rms_norm_backward",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                storage_binding(3, false),
-                storage_binding(4, false),
-                uniform_binding(5),
-            ],
-            std::borrow::Cow::Borrowed(RMSNORM_BACKWARD_WGSL),
-            "rms_norm_bwd_main",
-        )
+        self.compile_shader("rms_norm_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), storage_binding(4, false), uniform_binding(5)], RMSNORM_BACKWARD_WGSL, "rms_norm_bwd_main")
     }
 
     pub fn rms_norm_backward(
@@ -2347,21 +2201,7 @@ impl GpuContext {
     // ── LayerNorm Backward ──────────────────────────────────────────────
 
     pub(crate) fn compile_layer_norm_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "layer_norm_backward",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                storage_binding(3, true),
-                storage_binding(4, false),
-                storage_binding(5, false),
-                storage_binding(6, false),
-                uniform_binding(7),
-            ],
-            std::borrow::Cow::Borrowed(LAYERNORM_BACKWARD_WGSL),
-            "layer_norm_bwd_main",
-        )
+        self.compile_shader("layer_norm_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, true), storage_binding(4, false), storage_binding(5, false), storage_binding(6, false), uniform_binding(7)], LAYERNORM_BACKWARD_WGSL, "layer_norm_bwd_main")
     }
 
     pub fn layer_norm_backward(
@@ -2498,17 +2338,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_cross_entropy(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "cross_entropy",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(CROSS_ENTROPY_WGSL),
-            "cross_entropy_main",
-        )
+        self.compile_shader("cross_entropy", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], CROSS_ENTROPY_WGSL, "cross_entropy_main")
     }
 
     /// Cross-entropy loss. logits: [batch, classes], targets: [batch] (u32 as f32).
@@ -2586,18 +2416,7 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_cross_entropy_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "cross_entropy_backward",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                storage_binding(3, false),
-                uniform_binding(4),
-            ],
-            std::borrow::Cow::Borrowed(CROSS_ENTROPY_BACKWARD_WGSL),
-            "cross_entropy_bwd_main",
-        )
+        self.compile_shader("cross_entropy_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4)], CROSS_ENTROPY_BACKWARD_WGSL, "cross_entropy_bwd_main")
     }
 
     /// Cross-entropy backward: d_logits = grad * (softmax - one_hot(targets)).
@@ -2655,31 +2474,11 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_embedding(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "embedding",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(EMBEDDING_WGSL),
-            "embedding_main",
-        )
+        self.compile_shader("embedding", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], EMBEDDING_WGSL, "embedding_main")
     }
 
     pub(crate) fn compile_embedding_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "embedding_backward",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, false),
-                uniform_binding(3),
-            ],
-            std::borrow::Cow::Borrowed(EMBEDDING_BACKWARD_WGSL),
-            "embedding_backward_main",
-        )
+        self.compile_shader("embedding_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], EMBEDDING_BACKWARD_WGSL, "embedding_backward_main")
     }
 
     /// Embedding backward: scatter-add grad into d_weight.
@@ -2800,18 +2599,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_layer_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "layer_norm",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                storage_binding(3, false),
-                uniform_binding(4),
-            ],
-            std::borrow::Cow::Borrowed(LAYERNORM_WGSL),
-            "layer_norm_main",
-        )
+        self.compile_shader("layer_norm", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4)], LAYERNORM_WGSL, "layer_norm_main")
     }
 
     /// LayerNorm: out = (x - mean) / sqrt(var + eps) * weight + bias
@@ -2899,16 +2687,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_transpose(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "transpose",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, false),
-                uniform_binding(2),
-            ],
-            std::borrow::Cow::Borrowed(TRANSPOSE_WGSL),
-            "transpose_main",
-        )
+        self.compile_shader("transpose", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], TRANSPOSE_WGSL, "transpose_main")
     }
 
     /// Transpose a 2D tensor [rows, cols] → [cols, rows]
@@ -2984,19 +2763,7 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_fused_attention(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "fused_attention",
-            &[
-                storage_binding(0, true),
-                storage_binding(1, true),
-                storage_binding(2, true),
-                storage_binding(3, false),
-                uniform_binding(4),
-                uniform_binding(5),
-            ],
-            std::borrow::Cow::Borrowed(FUSED_ATTENTION_WGSL),
-            "fused_attention_main",
-        )
+        self.compile_shader("fused_attention", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4), uniform_binding(5)], FUSED_ATTENTION_WGSL, "fused_attention_main")
     }
 
     /// Fused attention: O = softmax(Q @ K^T / scale) @ V
@@ -3277,22 +3044,7 @@ impl GpuContext {
     // Allocates dQ/dK/dV internally (caller must ensure zero-init if needed).
 
     pub(crate) fn compile_fused_attention_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_pipeline(
-            "fused_attention_backward",
-            &[
-                storage_binding(0, true),  // q
-                storage_binding(1, true),  // k
-                storage_binding(2, true),  // v
-                storage_binding(3, true),  // dO
-                storage_binding(4, false), // dq
-                storage_binding(5, false), // dk (atomic<u32>)
-                storage_binding(6, false), // dv (atomic<u32>)
-                uniform_binding(7),        // cfg1
-                uniform_binding(8),        // cfg2
-            ],
-            std::borrow::Cow::Borrowed(FUSED_ATTENTION_BACKWARD_WGSL),
-            "fused_attn_backward_main",
-        )
+        self.compile_shader("fused_attention_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, true), storage_binding(4, false), storage_binding(5, false), storage_binding(6, false), uniform_binding(7), uniform_binding(8)], FUSED_ATTENTION_BACKWARD_WGSL, "fused_attn_backward_main")
     }
 
     /// Fused attention backward: compute dQ, dK, dV from Q, K, V, dO.

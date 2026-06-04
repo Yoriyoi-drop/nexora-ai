@@ -5,8 +5,8 @@ use tokio::runtime::Runtime;
 #[test]
 fn test_inference_config_defaults() {
     let config = InferenceConfig::default();
-    assert_eq!(config.max_concurrent_requests, 10);
-    assert_eq!(config.queue_size_limit, 100);
+    assert_eq!(config.max_concurrent_requests, 32);
+    assert_eq!(config.queue_size_limit, 1000);
     assert!(config.enable_caching);
     assert!(config.enable_streaming);
     assert_eq!(config.default_timeout_seconds, 30);

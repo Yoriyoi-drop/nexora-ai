@@ -9,7 +9,7 @@ mod tests {
     use nexora_autograd::gpu_adam::GpuAdam;
     use nexora_autograd::tensor::Tensor;
     use nexora_autograd::Device;
-    use nexora_autograd::ops::losses::cross_entropy_loss;
+    use nexora_autograd::ops;
 
     #[test]
     fn test_gpu_training_step_simple() {
@@ -25,7 +25,7 @@ mod tests {
             vec![2, 4],
             vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
         ).unwrap();
-        let target_data = ArrayD::from_shape_vec(vec![2], vec![3, 7]).unwrap();
+        let target_data = ArrayD::from_shape_vec(vec![2], vec![3.0, 7.0]).unwrap();
 
         // Create tensors
         let mut w = Tensor::new(w_data);
@@ -47,12 +47,12 @@ mod tests {
         x.set_device(Device::Gpu(0));
 
         // Forward
-        let logits = x.matmul(&w).unwrap();
-        let logits_bias = logits.add(&bias).unwrap();
-        let loss = cross_entropy_loss(&logits_bias, &target).unwrap();
+        let logits = ops::matmul(&x, &w);
+        let logits_bias = ops::add(&logits, &bias);
+        let loss = ops::cross_entropy_loss(&logits_bias, &target);
 
         // Backward
-        loss.backward(None).unwrap();
+        loss.backward();
 
         // Check gradients
         assert!(w.grad().is_some(), "W should have gradient");
@@ -75,7 +75,7 @@ mod tests {
             vec![2, 4],
             vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
         ).unwrap();
-        let target_data = ArrayD::from_shape_vec(vec![2], vec![0, 1]).unwrap();
+        let target_data = ArrayD::from_shape_vec(vec![2], vec![0.0, 1.0]).unwrap();
 
         let mut w = Tensor::new(w_data);
         w.set_requires_grad(true);
@@ -88,6 +88,10 @@ mod tests {
         let gw = GpuTensor::from_cpu(&w.data()).unwrap();
         let gbias = GpuTensor::from_cpu(&bias.data()).unwrap();
         let gx = GpuTensor::from_cpu(&x.data()).unwrap();
+
+        // Clone before moving into storage so optimizer keeps references
+        let gw_opt = gw.clone();
+        let gbias_opt = gbias.clone();
         w.set_storage(nexora_autograd::Storage::Gpu(gw));
         w.set_device(Device::Gpu(0));
         bias.set_storage(nexora_autograd::Storage::Gpu(gbias));
@@ -96,44 +100,39 @@ mod tests {
         x.set_device(Device::Gpu(0));
 
         // Create optimizer
-        let mut adam = GpuAdam::new(
-            vec![gw.clone(), gbias.clone()],
-            0.01,
-            0.9,
-            0.999,
-            1e-8,
-            0.0,
-        );
+        let mut adam = GpuAdam::new(&ctx, &[&gw_opt, &gbias_opt], 0.01).unwrap();
 
         // Training loop: 3 steps
         let initial_loss = {
-            let logits = x.matmul(&w).unwrap();
-            let logits_bias = logits.add(&bias).unwrap();
-            let loss = cross_entropy_loss(&logits_bias, &target).unwrap();
+            let logits = ops::matmul(&x, &w);
+            let logits_bias = ops::add(&logits, &bias);
+            let loss = ops::cross_entropy_loss(&logits_bias, &target);
             loss.data()[[0]]
         };
 
         for step in 0..3 {
             // Forward
-            let logits = x.matmul(&w).unwrap();
-            let logits_bias = logits.add(&bias).unwrap();
-            let loss = cross_entropy_loss(&logits_bias, &target).unwrap();
+            let logits = ops::matmul(&x, &w);
+            let logits_bias = ops::add(&logits, &bias);
+            let loss = ops::cross_entropy_loss(&logits_bias, &target);
 
             // Backward
-            loss.backward(None).unwrap();
+            loss.backward();
 
             // Get gradients as GPU tensors
-            let gw_grad = GpuTensor::from_cpu(&w.grad().unwrap().data()).unwrap();
-            let gbias_grad = GpuTensor::from_cpu(&bias.grad().unwrap().data()).unwrap();
+            let w_grad_arr = w.grad().unwrap();
+            let bias_grad_arr = bias.grad().unwrap();
+            let gw_grad = GpuTensor::from_cpu(&w_grad_arr).unwrap();
+            let gbias_grad = GpuTensor::from_cpu(&bias_grad_arr).unwrap();
 
             // Optimizer step
-            adam.step(&ctx, &[gw.clone(), gbias.clone()], &[gw_grad, gbias_grad]).unwrap();
+            adam.step(&ctx, &[&gw_opt, &gbias_opt], &[&gw_grad, &gbias_grad]).unwrap();
 
             // Update parameters
-            let w_updated = gw.to_cpu().unwrap();
-            let bias_updated = gbias.to_cpu().unwrap();
-            w.set_data(ArrayD::from(w_updated.into_raw_vec()).into_shape(vec![4, 8]).unwrap());
-            bias.set_data(ArrayD::from(bias_updated.into_raw_vec()).into_shape(vec![8]).unwrap());
+            let w_updated = gw_opt.to_cpu().unwrap();
+            let bias_updated = gbias_opt.to_cpu().unwrap();
+            w.set_data(ArrayD::from_shape_vec(vec![4, 8], w_updated.into_raw_vec()).unwrap());
+            bias.set_data(ArrayD::from_shape_vec(vec![8], bias_updated.into_raw_vec()).unwrap());
 
             // Zero gradients
             w.zero_grad();
@@ -144,9 +143,9 @@ mod tests {
 
         // Loss should decrease
         let final_loss = {
-            let logits = x.matmul(&w).unwrap();
-            let logits_bias = logits.add(&bias).unwrap();
-            let loss = cross_entropy_loss(&logits_bias, &target).unwrap();
+            let logits = ops::matmul(&x, &w);
+            let logits_bias = ops::add(&logits, &bias);
+            let loss = ops::cross_entropy_loss(&logits_bias, &target);
             loss.data()[[0]]
         };
 

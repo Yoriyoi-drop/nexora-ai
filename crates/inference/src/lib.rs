@@ -8,7 +8,6 @@ pub mod batching;
 pub mod beam_search;
 pub mod blaa_integration;
 pub mod cold_storage;
-pub mod continuous_batching;
 pub mod decoding;
 pub mod degradation;
 pub mod distributed;
@@ -32,7 +31,7 @@ pub mod streaming;
 // Re-export main types
 pub use beam_search::{BeamHypothesis, BeamSearchConfig};
 pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
-pub use continuous_batching::{
+pub use batching::{
     ContinuousBatchingConfig, ContinuousBatchingEngine, SequentialBatchingEngine, StepResult,
 };
 pub use decoding::{DecodingConfig, DecodingStrategy};

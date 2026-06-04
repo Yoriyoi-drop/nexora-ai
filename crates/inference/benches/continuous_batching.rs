@@ -2,11 +2,11 @@ use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use ndarray::Array1;
-use nexora_inference::continuous_batching::{
+use nexora_inference::batching::{
     ContinuousBatchingConfig, ContinuousBatchingEngine, SchedulingPolicy,
 };
 use nexora_inference::inference_trait::ModelForward;
-use nexora_inference::{InferenceRequest, StepResult};
+use nexora_inference::InferenceRequest;
 use nexora_transformer::{CpuKVCache, KVCacheProvider};
 
 // ─── Mock Model ─────────────────────────────────────────────────────────────────

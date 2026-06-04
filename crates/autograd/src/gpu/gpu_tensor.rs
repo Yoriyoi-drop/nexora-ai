@@ -4,6 +4,13 @@ use std::time::Duration;
 
 use super::gpu_types::{GpuContext, GpuError};
 
+/// Convert a Vec<u8> of f32 bytes into Vec<f32>, safely handling alignment.
+fn bytes_to_f32_vec(data: Vec<u8>) -> Vec<f32> {
+    data.chunks_exact(4)
+        .map(|chunk| f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect()
+}
+
 const GPU_READBACK_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone)]
@@ -399,11 +406,9 @@ impl GpuTensor {
 
         let (data, staging) = self.readback_inner(0, byte_size)?;
 
-        let result = ArrayD::from_shape_vec(self.shape.clone(), {
-            let f32_data: &[f32] = bytemuck::cast_slice(&data);
-            f32_data.to_vec()
-        })
-        .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?;
+        let f32_vec = bytes_to_f32_vec(data);
+        let result = ArrayD::from_shape_vec(self.shape.clone(), f32_vec)
+            .map_err(|e| GpuError::ShapeMismatch(format!("to_cpu shape mismatch: {e}")))?;
 
         Self::return_staging(ctx, staging, byte_size, true);
         Ok(result)
@@ -439,7 +444,7 @@ impl GpuTensor {
         ctx.flush();
 
         let (data, staging) = self.readback_inner(0, 4)?;
-        let value: f32 = bytemuck::cast_slice::<_, f32>(&data)[0];
+        let value = f32::from_ne_bytes([data[0], data[1], data[2], data[3]]);
         Self::return_staging(ctx, staging, 4, true);
         Ok(value)
     }
@@ -452,7 +457,7 @@ impl GpuTensor {
         let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
 
         let (data, staging) = self.readback_inner(0, byte_size)?;
-        let f32_data: &[f32] = bytemuck::cast_slice(&data);
+        let f32_data = bytes_to_f32_vec(data);
         let checksum: f64 = f32_data.iter().map(|&x| x as f64).sum();
         Self::return_staging(ctx, staging, byte_size, true);
         Ok(checksum)

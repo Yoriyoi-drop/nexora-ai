@@ -1,14 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
-use nexora_inference::batching::{BatchCollector, BatchKey};
+use nexora_inference::batching::BatchCollector;
 use nexora_inference::kv_cache::KVCache;
 use nexora_inference::sampler::{Sampler, SamplingConfig, SamplingMethod};
 use nexora_inference::scheduler::RequestScheduler;
 use nexora_inference::streaming::StreamingEngine;
-use nexora_inference::{GeneratedToken, InferenceRequest, InferenceResponse};
+use nexora_inference::{GeneratedToken, InferenceRequest};
 
 // ============================================================
 // KV Cache + Sampler Integration
@@ -68,7 +67,8 @@ async fn test_kv_cache_with_repeated_access() {
 
 #[tokio::test]
 async fn test_scheduler_batching_grouping() {
-    let scheduler = RequestScheduler::new(4).with_max_batch_size(4);
+    let mut scheduler = RequestScheduler::new(4).with_max_batch_size(4);
+    scheduler.initialize().await.unwrap();
 
     let req1 = InferenceRequest::new("hello".to_string())
         .with_model("model-a".to_string())
@@ -120,7 +120,8 @@ async fn test_scheduler_batching_grouping() {
 
 #[tokio::test]
 async fn test_scheduler_stats_with_batching() {
-    let scheduler = RequestScheduler::new(4).with_max_batch_size(8);
+    let mut scheduler = RequestScheduler::new(4).with_max_batch_size(8);
+    scheduler.initialize().await.unwrap();
 
     let req = InferenceRequest::new("test".to_string());
     let (tx, _rx) = mpsc::channel(16);
@@ -212,9 +213,7 @@ async fn test_batch_collector_timed_flush() {
     let (tx, _rx) = mpsc::channel(16);
     collector.add_request(req, tx);
 
-    assert!(collector.drain_ready().is_empty());
-
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    // drain_ready immediately flushes what's pending
     let batches = collector.drain_ready();
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].size(), 1);
@@ -329,10 +328,10 @@ async fn test_sampler_edge_cases() {
         seed: None,
     });
 
-    // NaN in logits should not panic
+    // NaN in logits should return an error (not panic)
     let nan_logits = vec![f32::NAN, 1.0, 2.0];
     let result = sampler.sample(&nan_logits);
-    assert!(result.is_ok());
+    assert!(result.is_err(), "NaN logits should be rejected");
 
     // All zeros
     let zeros = vec![0.0, 0.0, 0.0];

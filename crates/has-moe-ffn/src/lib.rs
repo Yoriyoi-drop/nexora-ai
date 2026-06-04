@@ -294,10 +294,16 @@ impl HasMoeFFN {
             }
         }
 
-        // Allocate output buffer on GPU
-        let output_zeros = vec![0.0f32; batch_size * hidden_size];
-        let mut output_gpu =
-            CudaTensor::from_cpu(&cuda.device, vec![batch_size, hidden_size], &output_zeros).ok()?;
+        // Allocate output buffer directly on GPU — no CPU Vec<f32> intermediate
+        let output_buffer = cuda
+            .stream
+            .alloc_zeros::<f32>(batch_size * hidden_size)
+            .ok()?;
+        let mut output_gpu = CudaTensor {
+            shape: vec![batch_size, hidden_size],
+            buffer: output_buffer,
+            device_id: cuda.device_id,
+        };
 
         // Process each expert on GPU, scatter results in-place
         for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
@@ -306,15 +312,12 @@ impl HasMoeFFN {
                 continue;
             }
 
-            // Gather token embeddings (CPU)
-            let mut batch_input = ndarray::Array2::zeros((n, hidden_size));
-            for (k, &(token_idx, _)) in tokens.iter().enumerate() {
-                let row_view = input.row(token_idx);
-                batch_input.row_mut(k).assign(&row_view);
+            // Gather token embeddings directly into flat Vec, skipping CPU ndarray alloc
+            let mut batch_flat = Vec::with_capacity(n * hidden_size);
+            for &(token_idx, _) in tokens.iter() {
+                let row = input.row(token_idx);
+                batch_flat.extend_from_slice(row.as_slice().unwrap_or(&[]));
             }
-
-            // Upload to CUDA
-            let batch_flat: Vec<f32> = batch_input.iter().copied().collect();
             let input_group =
                 CudaTensor::from_cpu(&cuda.device, vec![n, hidden_size], &batch_flat).ok()?;
 

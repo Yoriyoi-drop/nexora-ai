@@ -191,9 +191,10 @@ pub fn dispatch_gather_pages(
     ctx.queue
         .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
-    let bind_group = ctx.get_or_create_bind_group_shared(
-        &pipeline.get_bind_group_layout(0),
-        &[
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("gather_pages_bg"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: page_table.data.buffer().as_entire_binding(),
@@ -211,8 +212,7 @@ pub fn dispatch_gather_pages(
                 resource: cfg_buf.buffer.as_entire_binding(),
             },
         ],
-        "gather_pages_bg",
-    );
+    });
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
     ctx.with_encoder(|enc| {
@@ -250,9 +250,10 @@ pub fn dispatch_scatter_pages(
     ctx.queue
         .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
-    let bind_group = ctx.get_or_create_bind_group_shared(
-        &pipeline.get_bind_group_layout(0),
-        &[
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("scatter_pages_bg"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: page_table.data.buffer().as_entire_binding(),
@@ -270,8 +271,7 @@ pub fn dispatch_scatter_pages(
                 resource: cfg_buf.buffer.as_entire_binding(),
             },
         ],
-        "scatter_pages_bg",
-    );
+    });
 
     let total_elements = num_pages * page_table.page_size as u32 * 2 * page_table.head_dim as u32;
     ctx.with_encoder(|enc| {

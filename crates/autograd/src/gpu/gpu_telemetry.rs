@@ -88,6 +88,7 @@ impl GpuTelemetry {
     pub fn record_error(&self, is_oom: bool, is_device_lost: bool) {
         self.error_count.fetch_add(1, Ordering::Relaxed);
         self.window_error_count.fetch_add(1, Ordering::Relaxed);
+        self.window_total_ops.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut t) = self.last_error_time.lock() {
             if t.is_none() {
                 *t = Some(Instant::now());

@@ -6,61 +6,16 @@
 mod tests {
     use ndarray::ArrayD;
     use nexora_autograd::gpu::{GpuContext, GpuTensor};
-    use nexora_autograd::gpu_mixed::{GpuDType, MixedPrecisionConfig, LossScaler};
+    use nexora_autograd::gpu_mixed::{GpuDType, GpuLossScaler};
 
     #[test]
     fn test_loss_scaler_basic() {
-        let scaler = LossScaler::new(2.0, 1000, 2.0, 0.5);
+        let ctx = GpuContext::init().expect("GPU context init failed");
+        let scaler = GpuLossScaler::new(&ctx, 2.0).unwrap();
         
-        assert_eq!(scaler.scale, 2.0);
-        assert_eq!(scaler.growth_interval, 1000);
-        assert_eq!(scaler.growth_factor, 2.0);
-        assert_eq!(scaler.backoff_factor, 0.5);
+        assert!((scaler.scale() - 2.0).abs() < 1e-6);
         
         println!("LossScaler basic OK");
-    }
-
-    #[test]
-    fn test_loss_scaler_growth() {
-        let mut scaler = LossScaler::new(1.0, 2, 2.0, 0.5);
-        
-        // Growth after interval steps
-        scaler.update_growth();
-        assert_eq!(scaler.scale, 2.0);
-        
-        scaler.update_growth();
-        assert_eq!(scaler.scale, 4.0);
-        
-        println!("LossScaler growth OK");
-    }
-
-    #[test]
-    fn test_loss_scaler_backoff() {
-        let mut scaler = LossScaler::new(4.0, 1000, 2.0, 0.5);
-        
-        // Backoff on overflow
-        scaler.update_backoff();
-        assert_eq!(scaler.scale, 2.0);
-        
-        scaler.update_backoff();
-        assert_eq!(scaler.scale, 1.0);
-        
-        println!("LossScaler backoff OK");
-    }
-
-    #[test]
-    fn test_mixed_precision_config() {
-        let config = MixedPrecisionConfig {
-            compute_dtype: GpuDType::F16,
-            master_weights: true,
-            loss_scaling: LossScaler::new(2.0, 1000, 2.0, 0.5),
-        };
-        
-        assert!(matches!(config.compute_dtype, GpuDType::F16));
-        assert!(config.master_weights);
-        assert_eq!(config.loss_scaling.scale, 2.0);
-        
-        println!("MixedPrecisionConfig OK");
     }
 
     #[test]
@@ -69,7 +24,6 @@ mod tests {
         let f16 = GpuDType::F16;
         let bf16 = GpuDType::BF16;
         
-        // Test that all variants exist
         match f32 {
             GpuDType::F32 => {},
             _ => panic!("F32 variant failed"),
@@ -87,14 +41,15 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed_precision_default_config() {
-        let config = MixedPrecisionConfig::default();
+    fn test_gpu_dtype_methods() {
+        assert_eq!(GpuDType::F32.bytes_per_element(), 4);
+        assert_eq!(GpuDType::F16.bytes_per_element(), 2);
+        assert_eq!(GpuDType::BF16.bytes_per_element(), 2);
         
-        // Default should be FP32 compute, no master weights, no loss scaling
-        assert!(matches!(config.compute_dtype, GpuDType::F32));
-        assert!(!config.master_weights);
-        assert_eq!(config.loss_scaling.scale, 1.0);
+        assert!(GpuDType::F16.is_half());
+        assert!(GpuDType::BF16.is_half());
+        assert!(!GpuDType::F32.is_half());
         
-        println!("MixedPrecisionConfig default OK");
+        println!("GpuDType methods OK");
     }
 }

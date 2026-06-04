@@ -63,13 +63,16 @@ impl CudaTensor {
         })
     }
 
-    /// Create a zero-filled CUDA tensor.
+    /// Create a zero-filled CUDA tensor directly on GPU — no CPU Vec<f32> intermediate.
     pub fn zeros(device: &CudaDevice, shape: Vec<usize>) -> Result<Self, String> {
+        use cudarc::driver::DeviceSlice;
         let numel: usize = shape.iter().product();
-        let data = vec![0.0f32; numel];
-        let buffer = device
-            .htod_sync_copy(&data)
-            .map_err(|e| format!("CudaTensor::zeros: {e}"))?;
+        let stream = device
+            .default_stream()
+            .map_err(|e| format!("CudaTensor::zeros default_stream: {e}"))?;
+        let buffer = stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CudaTensor::zeros alloc: {e}"))?;
         Ok(CudaTensor {
             shape,
             buffer,

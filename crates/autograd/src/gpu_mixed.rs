@@ -21,8 +21,8 @@ pub enum GpuDType {
 impl GpuDType {
     pub fn bytes_per_element(&self) -> u64 {
         match self {
-            GpuDType::F32 | GpuDType::BF16 => 4,
-            GpuDType::F16 => 2,
+            GpuDType::F32 => 4,
+            GpuDType::F16 | GpuDType::BF16 => 2,
         }
     }
 

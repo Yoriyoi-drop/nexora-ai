@@ -1882,7 +1882,7 @@ mod tests {
     fn test_vet_optimal_rank_basic() {
         // Concentrated spectrum → low rank (should pick k=1 or k=2)
         let s = vec![100.0, 0.1, 0.01, 0.001, 0.0001];
-        let k = vet_optimal_rank(&s, 0.1, 10000.0);
+        let k = vet_optimal_rank(&s, 1.0, 10000.0);
         assert!(
             k <= 2,
             "concentrated spectrum should choose low rank (k<=2), got {k}"

@@ -19,7 +19,7 @@ chrono = { workspace = true }
 # GPU compute backend (wgpu)
 wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl", "vulkan"] }
 pollster = { version = "0.4", optional = true }
-bytemuck = { version = "1", optional = true }
+bytemuck = { version = "1", optional = true, features = ["extern_crate_alloc"] }
 
 # CUDA backend
 cudarc = { version = "0.19", optional = true, default-features = false, features = ["dynamic-loading", "cuda-version-from-build-system"] }

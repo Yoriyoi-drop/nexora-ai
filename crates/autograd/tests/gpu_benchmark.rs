@@ -392,7 +392,7 @@ mod tests {
                 .run(|| {
                     // Use GPU timestamp query for accurate kernel timing
                     for _ in 0..iterations {
-                        let _ = ctx.matmul_with_timestamp(&ga, &gb).unwrap();
+                        let _ = ctx.matmul(&ga, &gb).unwrap();
                     }
                     Ok::<(), ()>(())
                 })

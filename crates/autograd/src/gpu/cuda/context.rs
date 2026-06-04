@@ -20,6 +20,7 @@ pub struct CudaRuntime {
     pub blas_lt: CudaBlasLT,
     pub device_id: usize,
     kernels: Mutex<HashMap<String, CudaFunction>>,
+    scratch: Mutex<Option<(usize, CudaSlice<f32>)>>,
 }
 
 impl CudaRuntime {
@@ -60,7 +61,27 @@ impl CudaRuntime {
             blas_lt,
             device_id,
             kernels: Mutex::new(HashMap::new()),
+            scratch: Mutex::new(None),
         })
+    }
+
+    /// Get or allocate a scratch buffer of at least `numel` f32 elements.
+    /// Contents are undefined (may contain stale data) — only use for ops where
+    /// every element is fully written by the kernel (elementwise, unary, etc.).
+    /// Avoids per-op `alloc_zeros` overhead.
+    fn scratch_f32(&self, numel: usize) -> Result<CudaSlice<f32>, String> {
+        let mut lock = self.scratch.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((cap, ref buf)) = *lock {
+            if cap >= numel {
+                return Ok(buf.clone());
+            }
+        }
+        let buf = self
+            .stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CUDA scratch alloc({numel}): {e}"))?;
+        *lock = Some((numel, buf.clone()));
+        Ok(buf)
     }
 
     // ── CUDA kernel compilation ──────────────────────────────────────
@@ -113,9 +134,8 @@ impl CudaRuntime {
 
         let result_len = (m as usize) * (n as usize);
         let mut result = self
-            .stream
-            .alloc_zeros::<f32>(result_len)
-            .map_err(|e| format!("cuBLAS matmul alloc: {e}"))?;
+            .scratch_f32(result_len)
+            .map_err(|e| format!("cuBLAS matmul scratch: {e}"))?;
 
         let cfg = GemmConfig {
             transa: cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_T,
@@ -176,9 +196,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
 
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA elem {} alloc: {e}", op))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA elem {} scratch: {e}", op))?;
 
         let cfg = LaunchConfig {
             grid: ((numel + 255) / 256) as u32,
@@ -224,9 +243,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
 
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA scalar {} alloc: {e}", op))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA scalar {} scratch: {e}", op))?;
 
         let scalar = self
             .stream
@@ -309,9 +327,8 @@ extern "C" __global__ void add_broadcast_row(float* __restrict__ out,
 "#;
         let func = self.get_or_compile_kernel(kernel_name, source)?;
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA add_broadcast alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA add_broadcast scratch: {e}"))?;
         let cfg = LaunchConfig {
             grid: ((numel + 255) / 256) as u32,
             block: 256,
@@ -414,8 +431,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 
         let mut out = self
             .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA powf alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA powf scratch: {e}"))?;
 
         let cfg = LaunchConfig {
             grid: ((numel + 255) / 256) as u32,
@@ -459,9 +476,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
 
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA {} alloc: {e}", op))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA {} scratch: {e}", op))?;
 
         let cfg = LaunchConfig {
             grid: ((numel + 255) / 256) as u32,
@@ -513,9 +529,8 @@ extern "C" __global__ void transpose_2d(float* __restrict__ out,
 "#,
         )?;
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA transpose alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA transpose scratch: {e}"))?;
         let cfg = LaunchConfig {
             grid: ((numel + 255) / 256) as u32,
             block: 256,
@@ -562,9 +577,8 @@ extern "C" __global__ void transpose_2d(float* __restrict__ out,
 
         let numel = q.numel();
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA fused_attention alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA fused_attention scratch: {e}"))?;
 
         let kernel_name = "flash_attn";
         let block_size: u32 = 256;
@@ -804,8 +818,8 @@ extern "C" __global__ void softmax_2d(float* __restrict__ out,
 
         let mut out = self
             .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA softmax alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA softmax scratch: {e}"))?;
 
         let cfg = LaunchConfig {
             grid: rows as u32,
@@ -946,9 +960,8 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
 
         let numel = m * n;
         let mut out = self
-            .stream
-            .alloc_zeros::<f32>(numel)
-            .map_err(|e| format!("CUDA matmul_int4 alloc: {e}"))?;
+            .scratch_f32(numel)
+            .map_err(|e| format!("CUDA matmul_int4 scratch: {e}"))?;
 
         // 1 thread per output element: grid(M, ceil(N/256)), block(256)
         let block_size: u32 = 256;

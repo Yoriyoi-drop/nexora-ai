@@ -11,6 +11,9 @@ use super::*;
             head_dim: 4,
             max_seq_len: 64,
             f16_storage: false,
+            q4_storage: false,
+            enable_memory_tiering: false,
+            enable_cold_disk_offload: false,
             ..Default::default()
         }
     }
@@ -47,21 +50,25 @@ use super::*;
         let mut cache = PagedKVCache::new(test_config());
         cache.register_sequence(99);
 
-        // pos=0: should allocate block 0
-        let b0 = cache.get_or_alloc_block(99, 0, 0);
-        assert_eq!(b0, Some(0));
+        // Append tokens to trigger block allocation via public API
+        let k_row = vec![0.1; 8];
+        let v_row = vec![0.2; 8];
+
+        // pos=0: should allocate block 0 for layer 0 only
+        cache.append(99, 0, 0, &k_row, &v_row);
+        assert_eq!(cache.total_blocks(), 1); // 1 block
 
         // pos=1: should reuse block 0
-        let b1 = cache.get_or_alloc_block(99, 0, 1);
-        assert_eq!(b1, Some(0));
+        cache.append(99, 0, 1, &k_row, &v_row);
+        assert_eq!(cache.total_blocks(), 1);
 
-        // pos=4: should allocate block 1
-        let b4 = cache.get_or_alloc_block(99, 0, 4);
-        assert_eq!(b4, Some(1));
+        // pos=4: should allocate block 1 (block boundary)
+        cache.append(99, 0, 4, &k_row, &v_row);
+        assert_eq!(cache.total_blocks(), 2);
 
         // pos=5: should reuse block 1
-        let b5 = cache.get_or_alloc_block(99, 0, 5);
-        assert_eq!(b5, Some(1));
+        cache.append(99, 0, 5, &k_row, &v_row);
+        assert_eq!(cache.total_blocks(), 2);
     }
 
     #[test]
@@ -228,9 +235,9 @@ use super::*;
         let mut cache = PagedKVCache::new(test_config());
         cache.register_sequence(1);
 
-        let k_arr = Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32).collect()).unwrap();
+        let k_arr = ndarray::Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32).collect()).unwrap();
         let v_arr =
-            Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32 * 2.0).collect()).unwrap();
+            ndarray::Array2::from_shape_vec((1, 8), (0..8).map(|i| i as f32 * 2.0).collect()).unwrap();
 
         cache.append_token(1, 0, 0, &k_arr, &v_arr);
 
@@ -649,7 +656,7 @@ use super::*;
 
     #[test]
     fn test_prefix_trie_insert_and_find_shared() {
-        use crate::continuous_batching::PrefixTrie;
+        use crate::batching::queue::PrefixTrie;
 
         let mut trie = PrefixTrie::new();
 
@@ -680,7 +687,7 @@ use super::*;
 
     #[test]
     fn test_prefix_trie_exact_match() {
-        use crate::continuous_batching::PrefixTrie;
+        use crate::batching::queue::PrefixTrie;
 
         let mut trie = PrefixTrie::new();
         trie.insert(1, &[1, 2, 3, 4]);
@@ -695,7 +702,7 @@ use super::*;
 
     #[test]
     fn test_prefix_trie_empty_prompt() {
-        use crate::continuous_batching::PrefixTrie;
+        use crate::batching::queue::PrefixTrie;
 
         let mut trie = PrefixTrie::new();
         trie.insert(1, &[1, 2, 3]);
@@ -717,6 +724,9 @@ use super::*;
             max_blocks: 1024,
             max_seq_len: 512,
             f16_storage: false,
+            q4_storage: false,
+            enable_memory_tiering: false,
+            enable_cold_disk_offload: false,
             ..Default::default()
         };
 

@@ -23,17 +23,10 @@ mod tests {
         let ggrad = GpuTensor::from_cpu(&grad_data).unwrap();
 
         // Create Adam optimizer
-        let mut adam = GpuAdam::new(
-            vec![gparam.clone()],
-            0.001,  // lr
-            0.9,    // beta1
-            0.999,  // beta2
-            1e-8,   // eps
-            0.0,    // weight_decay
-        );
+        let mut adam = GpuAdam::new(&ctx, &[&gparam], 0.001).unwrap();
 
         // Perform step
-        adam.step(&ctx, &[gparam], &[ggrad]).unwrap();
+        adam.step(&ctx, &[&gparam], &[&ggrad]).unwrap();
 
         // Parameters should have changed
         let updated = gparam.to_cpu().unwrap();
@@ -65,18 +58,11 @@ mod tests {
         let gparam = GpuTensor::from_cpu(&param_data).unwrap();
         let ggrad = GpuTensor::from_cpu(&grad_data).unwrap();
 
-        let mut adam = GpuAdam::new(
-            vec![gparam.clone()],
-            0.01,   // lr
-            0.9,    // beta1
-            0.999,  // beta2
-            1e-8,   // eps
-            0.01,   // weight_decay
-        );
+        let mut adam = GpuAdam::new(&ctx, &[&gparam], 0.01).unwrap();
 
         // Perform 5 steps
         for _ in 0..5 {
-            adam.step(&ctx, &[gparam.clone()], &[ggrad.clone()]).unwrap();
+            adam.step(&ctx, &[&gparam], &[&ggrad]).unwrap();
         }
 
         let updated = gparam.to_cpu().unwrap();
@@ -96,17 +82,11 @@ mod tests {
         let gparam = GpuTensor::from_cpu(&param_data).unwrap();
         let ggrad = GpuTensor::from_cpu(&grad_data).unwrap();
 
-        // Adam with weight decay
-        let mut adam = GpuAdam::new(
-            vec![gparam.clone()],
-            0.001,
-            0.9,
-            0.999,
-            1e-8,
-            0.1,  // high weight decay
-        );
+        // Adam with weight decay (default is 0.0 — must set explicitly)
+        let mut adam = GpuAdam::new(&ctx, &[&gparam], 0.001).unwrap();
+        adam.weight_decay = 0.01;
 
-        adam.step(&ctx, &[gparam], &[ggrad]).unwrap();
+        adam.step(&ctx, &[&gparam], &[&ggrad]).unwrap();
 
         let updated = gparam.to_cpu().unwrap();
         // With weight decay and zero gradient, params should decay toward zero

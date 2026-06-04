@@ -21,6 +21,8 @@ fn tiny_model() -> CausalLM {
         shared_expert: 0,
         quantization: QFormat::F16,
         use_half_precision: true,
+        use_domain_experts: false,
+        shard: Default::default(),
     })
 }
 

@@ -1,0 +1,324 @@
+use std::sync::{Mutex, OnceLock, RwLock};
+use ndarray::{Array1, Array2};
+use nexora_quantization::QFormat;
+use rand::Rng;
+use crate::block::TransformerBlock;
+use crate::gqa::KVCacheProvider;
+use crate::rope::RoPE;
+use crate::{LayerInjector, TransformerConfig};
+
+#[cfg(feature = "gpu")]
+#[derive(Debug)]
+pub(crate) struct GpuWeights {
+    pub token_embedding: nexora_autograd::gpu::GpuTensor,
+    pub lm_head_t: nexora_autograd::gpu::GpuTensor,
+    pub lm_head_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub lm_head_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub lm_head_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub lm_head_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub block_weights: Vec<BlockGpuWeights>,
+}
+
+#[cfg(feature = "gpu")]
+#[derive(Debug)]
+pub(crate) struct BlockGpuWeights {
+    pub attention_norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub ffn_norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub wq_t: nexora_autograd::gpu::GpuTensor,
+    pub wk_t: nexora_autograd::gpu::GpuTensor,
+    pub wv_t: nexora_autograd::gpu::GpuTensor,
+    pub wo_t: nexora_autograd::gpu::GpuTensor,
+    pub w1_t: nexora_autograd::gpu::GpuTensor,
+    pub w2_t: nexora_autograd::gpu::GpuTensor,
+    pub w3_t: nexora_autograd::gpu::GpuTensor,
+    pub wq_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_i8: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wq_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_scales: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wq_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
+}
+
+#[derive(Debug)]
+pub struct CausalLM {
+    pub config: TransformerConfig,
+    pub token_embedding: Option<Array2<f32>>,
+    pub blocks: Vec<TransformerBlock>,
+    pub norm: crate::rms_norm::RMSNorm,
+    pub lm_head: Option<Array2<f32>>,
+    pub rope: RoPE,
+    pub precomputed_cos: Array1<f32>,
+    pub precomputed_sin: Array1<f32>,
+    /// Optional injectors that run after specified layers.
+    /// Key = layer index, value = the injector.
+    pub injectors: Vec<(usize, Mutex<Box<dyn LayerInjector>>)>,
+    /// If true, keep intermediates on GPU to avoid repeated CPU readbacks.
+    /// When set, `forward()` will use the GPU-resident path and only read back
+    /// the final logits, eliminating ~4×N_layers synchronous sync transfers.
+    pub keep_on_gpu: bool,
+    /// If true, upload quantized (int8) weights for GPU matmul acceleration.
+    /// Weight matrices are quantized during `preupload_weights_gpu()` using
+    /// symmetric per-tensor int8 quantization. The int8 kernels dequantize
+    /// on-the-fly in the WGSL shader, reducing GPU memory bandwidth ~4×.
+    pub quantize_weights: bool,
+    /// If true, store weights as packed F16 (2 f16 per u32, 2× memory savings).
+    /// At the start of each forward pass, F16 weights are bulk-upconverted to
+    /// F32 temp buffers for matmul computation. Ignored when `quantize_weights`
+    /// is true (int8 takes priority).
+    pub use_half_precision: bool,
+    /// Weight change notifier — external components register here to be
+    /// notified when weights are updated (sync_to_inference, load_checkpoint).
+    pub weight_notifier: crate::observer::WeightNotifier,
+    /// Optional lazy weight loader for on-demand block weight loading.
+    /// When set, individual block weights are loaded from disk during forward
+    /// and can be unloaded after to save memory.
+    pub lazy_loader: Option<std::sync::Arc<crate::lazy_weights::LazyWeightLoader>>,
+    /// If true, unload block weights after each forward pass.
+    pub unload_blocks_after_forward: bool,
+    /// Collective communication for tensor parallelism.
+    /// Set when `config.shard.num_shards > 1`. Used internally by `forward_cpu_impl`
+    /// to all-reduce partial attention/FFN outputs across shards.
+    pub collective: Option<crate::sharded::ShardCollective>,
+
+    #[cfg(feature = "gpu")]
+    pub(crate) gpu_weights: OnceLock<GpuWeights>,
+    #[cfg(feature = "gpu")]
+    pub(crate) gpu_cache: RwLock<Option<Vec<crate::gqa::GpuKVCacheEntry>>>, // never held across await points
+}
+
+#[cfg(not(feature = "gpu"))]
+impl Clone for CausalLM {
+    fn clone(&self) -> Self {
+        tracing::warn!("Cloning CausalLM — creates independent weight copies (~{}GB). Use Arc<CausalLM> for shared ownership.",
+            (self.config.vocab_size * self.config.hidden_size * 2 // embedding + lm_head
+                + self.config.num_layers * self.config.hidden_size * self.config.hidden_size * 8 // ~8 weight matrices per block
+            ) * 4 / 1_000_000_000);
+        Self {
+            config: self.config.clone(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
+            norm: self.norm.clone(),
+            lm_head: self.lm_head.clone(),
+            rope: self.rope.clone(),
+            precomputed_cos: self.precomputed_cos.clone(),
+            precomputed_sin: self.precomputed_sin.clone(),
+            injectors: self.injectors.clone(),
+            keep_on_gpu: self.keep_on_gpu,
+            quantize_weights: self.quantize_weights,
+            use_half_precision: self.use_half_precision,
+            weight_notifier: crate::observer::WeightNotifier::new(),
+            lazy_loader: self.lazy_loader.clone(),
+            unload_blocks_after_forward: self.unload_blocks_after_forward,
+            collective: self.collective.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Clone for CausalLM {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            token_embedding: self.token_embedding.clone(),
+            blocks: self.blocks.clone(),
+            norm: self.norm.clone(),
+            lm_head: self.lm_head.clone(),
+            rope: self.rope.clone(),
+            precomputed_cos: self.precomputed_cos.clone(),
+            precomputed_sin: self.precomputed_sin.clone(),
+            injectors: Vec::new(),
+            keep_on_gpu: self.keep_on_gpu,
+            quantize_weights: self.quantize_weights,
+            use_half_precision: self.use_half_precision,
+            weight_notifier: crate::observer::WeightNotifier::new(),
+            lazy_loader: self.lazy_loader.clone(),
+            unload_blocks_after_forward: self.unload_blocks_after_forward,
+            collective: self.collective.clone(),
+            gpu_weights: OnceLock::new(),
+            gpu_cache: RwLock::new(None),
+        }
+    }
+}
+
+impl CausalLM {
+    pub fn new(config: TransformerConfig) -> Self {
+        let mut rng = rand::thread_rng();
+        let scale = (config.hidden_size as f32).sqrt().recip();
+
+        let token_embedding = Some(
+            Array2::from_shape_fn((config.vocab_size, config.hidden_size), |_| {
+                rng.gen::<f32>() * 2.0 * scale - scale
+            }));
+
+        let nh_local = config.num_heads_local();
+        let nkv_local = config.num_kv_heads_local();
+        let int_local = config.intermediate_size_local();
+        let exp_int_local = config.expert_intermediate_size_local();
+        let head_dim = config.head_dim();
+
+        let blocks = (0..config.num_layers)
+            .map(|_| {
+                let mut block = TransformerBlock::new(
+                    config.hidden_size,
+                    nh_local,
+                    nkv_local,
+                    head_dim,
+                    int_local,
+                    config.norm_eps,
+                    config.num_experts,
+                    exp_int_local,
+                );
+                block.init_random(config.hidden_size, nh_local, nkv_local, head_dim, int_local, exp_int_local);
+                block
+            })
+            .collect();
+        let norm = crate::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps);
+        let lm_head = Some(Array2::from_shape_fn((config.vocab_size, config.hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        }));
+        let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
+        let (cos_full, sin_full) = rope.precompute_freqs_cis();
+        let half = head_dim / 2;
+        let precomputed_cos = cos_full
+            .into_shape(config.max_seq_len * half)
+            .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
+        let precomputed_sin = sin_full
+            .into_shape(config.max_seq_len * half)
+            .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
+
+        let collective = if config.is_sharded() {
+            Some(crate::sharded::ShardCollective::CpuLocal(
+                crate::sharded::CpuLocalCollective::new(
+                    config.shard.num_shards,
+                    config.shard.shard_rank,
+                    config.hidden_size,
+                ),
+            ))
+        } else {
+            None
+        };
+
+        let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..});
+        let hp = config.use_half_precision;
+
+        Self {
+            config,
+            token_embedding,
+            blocks,
+            norm,
+            lm_head,
+            rope,
+            precomputed_cos,
+            precomputed_sin,
+            injectors: Vec::new(),
+            keep_on_gpu: {
+                #[cfg(feature = "gpu")]
+                {
+                    nexora_autograd::gpu::GpuContext::is_available()
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    false
+                }
+            },
+            quantize_weights: qw,
+            use_half_precision: hp,
+            weight_notifier: crate::observer::WeightNotifier::new(),
+            lazy_loader: None,
+            unload_blocks_after_forward: false,
+            collective,
+            #[cfg(feature = "gpu")]
+            gpu_weights: OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            gpu_cache: RwLock::new(None),
+        }
+    }
+
+    /// Create a CausalLM with no block weights loaded (weights loaded lazily).
+    /// Only structural fields (rope, cos/sin) are initialized; token_embedding,
+    /// lm_head, norm, and all block weights are set to None.
+    /// Call `load_lazy_blocks()` or set weights manually before forward.
+    pub fn new_empty(config: TransformerConfig) -> Self {
+        let head_dim = config.head_dim();
+        let nh_local = config.num_heads_local();
+        let nkv_local = config.num_kv_heads_local();
+        let int_local = config.intermediate_size_local();
+        let exp_int_local = config.expert_intermediate_size_local();
+
+        let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
+        let (cos_full, sin_full) = rope.precompute_freqs_cis();
+        let half = head_dim / 2;
+        let collective = if config.is_sharded() {
+            Some(crate::sharded::ShardCollective::CpuLocal(
+                crate::sharded::CpuLocalCollective::new(
+                    config.shard.num_shards,
+                    config.shard.shard_rank,
+                    config.hidden_size,
+                ),
+            ))
+        } else {
+            None
+        };
+        let blocks: Vec<TransformerBlock> = (0..config.num_layers)
+            .map(|_| TransformerBlock::new(
+                config.hidden_size,
+                nh_local,
+                nkv_local,
+                head_dim,
+                int_local,
+                config.norm_eps,
+                config.num_experts,
+                exp_int_local,
+            ))
+            .collect();
+        Self {
+            config: config.clone(),
+            token_embedding: None,
+            blocks,
+            norm: crate::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps),
+            lm_head: None,
+            rope,
+            precomputed_cos: cos_full
+                .into_shape(config.max_seq_len * half)
+                .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
+            precomputed_sin: sin_full
+                .into_shape(config.max_seq_len * half)
+                .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
+            injectors: Vec::new(),
+            keep_on_gpu: false,
+            quantize_weights: matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..}),
+            use_half_precision: config.use_half_precision,
+            weight_notifier: crate::observer::WeightNotifier::new(),
+            lazy_loader: None,
+            unload_blocks_after_forward: false,
+            collective,
+            #[cfg(feature = "gpu")]
+            gpu_weights: OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            gpu_cache: RwLock::new(None),
+        }
+    }
+}

@@ -110,6 +110,7 @@ fn create_caffeine_config(enable_atqs: bool, enable_moe: bool) -> CaffeineConfig
         num_hidden_layers: 6,
         hidden_dim: 3072,
         dropout_rate: 0.1,
+        ..Default::default()
     };
 
     debug!("Caffeine configuration created successfully");

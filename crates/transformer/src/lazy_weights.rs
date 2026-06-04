@@ -279,7 +279,6 @@ pub fn load_lazy_into_causal_lm(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TransformerConfig;
 
     #[test]
     fn test_lazy_loader_nonexistent_file() {

@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tracing::{debug, error, info, info_span, warn};
 use uuid::Uuid;
 
-use crate::continuous_batching::ContinuousBatchingConfig;
+use crate::batching::ContinuousBatchingConfig;
 use crate::distributed::DistributedRouter;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;

@@ -19,7 +19,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 
 # BLAA-specific dependencies
-base64 = "0.21"
+base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
 url = "2.4"

@@ -77,9 +77,10 @@ impl GpuContext {
 
         for g in grad_tensors.iter() {
             let numel = g.numel() as u32;
-            let bg = self.get_or_create_bind_group_shared(
-                &pipeline.bind_group_layout,
-                &[
+            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("gradient_clip_bg"),
+                layout: &pipeline.bind_group_layout,
+                entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: g.buffer().as_entire_binding(),
@@ -97,8 +98,7 @@ impl GpuContext {
                         resource: cfg_buf.buffer.as_entire_binding(),
                     },
                 ],
-                "gradient_clip_bg",
-            );
+            });
             let wg_count = numel.div_ceil(256);
             self.dispatch(pipeline, &bg, (wg_count, 1, 1));
         }

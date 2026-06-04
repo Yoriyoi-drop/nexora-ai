@@ -12,21 +12,19 @@ use nexora_shared::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ============================================================================
+// Agent Types
+// ============================================================================
+
 /// Arch Weaver Agent - Architecture analysis and design evaluation
 #[derive(Debug, Clone)]
 pub struct ArchWeaverAgent {
-    /// Agent configuration
     pub config: ArchWeaverConfig,
-    /// Architecture analysis capabilities
     pub architecture_analysis_capabilities: ArchitectureAnalysisCapabilities,
-    /// Design evaluation
     pub design_evaluation: DesignEvaluation,
-    /// Pattern recognition
-    pub pattern_recognition: ArchitecturePatternRecognition,
-    /// Agent status
-    status: AgentStatus,
-    /// Agent metrics
-    metrics: AgentMetrics,
+        pub pattern_recognition: ArchitecturePatternRecognition,
+    pub status: AgentStatus,
+    pub metrics: AgentMetrics,
 }
 
 /// Arch Weaver Configuration
@@ -116,6 +114,10 @@ pub enum MeasurementMethod {
     AutomatedAnalysis,
 }
 
+// ============================================================================
+// Analysis Configuration Types
+// ============================================================================
+
 /// Design Principle
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DesignPrinciple {
@@ -151,6 +153,10 @@ pub enum PrincipleCategory {
     /// Scalability principles
     Scalability,
 }
+
+// ============================================================================
+// Analysis Capabilities & Evaluation
+// ============================================================================
 
 /// Architecture Analysis Capabilities
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +206,10 @@ pub enum EvaluationMethod {
     /// Peer review
     PeerReview,
 }
+
+// ============================================================================
+// Quality & Performance Attributes
+// ============================================================================
 
 /// Quality Attributes
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -676,6 +686,10 @@ pub struct MitigationStrategy {
     pub implementation_cost: f32,
 }
 
+// ============================================================================
+// Security, Compliance & Trade-off Analysis
+// ============================================================================
+
 /// Compliance Checking
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceChecking {
@@ -813,6 +827,10 @@ pub enum ImplementationEffort {
     /// Very high effort
     VeryHigh,
 }
+
+// ============================================================================
+// Pattern Recognition Types
+// ============================================================================
 
 /// Architecture Pattern Recognition
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1058,15 +1076,12 @@ pub struct PatternRecommendation {
 /// Pattern Recommendation Type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PatternRecommendationType {
-    /// Apply pattern
     ApplyPattern,
-    /// Remove anti-pattern
-    RemoveAntiPattern,
-    /// Refactor pattern
-    RefactorPattern,
-    /// Combine patterns
-    CombinePatterns,
 }
+
+// ============================================================================
+// Architecture Description & Component Types
+// ============================================================================
 
 /// Arch Weaver Task Input
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1309,6 +1324,10 @@ pub struct SecurityRequirements {
     /// Audit requirements
     pub audit_requirements: Vec<String>,
 }
+
+// ============================================================================
+// Analysis Results Types
+// ============================================================================
 
 /// Arch Weaver Task Output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2507,6 +2526,10 @@ impl Default for ArchWeaverAgent {
 }
 
 #[async_trait]
+// ============================================================================
+// Agent Trait Implementation
+// ============================================================================
+
 impl BaseAgent for ArchWeaverAgent {
     type Config = ArchWeaverConfig;
     type Input = ArchWeaverTaskInput;
@@ -2618,6 +2641,10 @@ impl BaseAgent for ArchWeaverAgent {
         Ok(())
     }
 }
+
+// ============================================================================
+// Agent Implementation
+// ============================================================================
 
 impl ArchWeaverAgent {
     /// Create a new Arch Weaver Agent
@@ -3248,6 +3275,10 @@ impl ArchWeaverAgent {
         })
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {

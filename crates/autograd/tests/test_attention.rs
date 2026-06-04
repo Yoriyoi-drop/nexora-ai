@@ -31,7 +31,7 @@ mod tests {
         let gv = GpuTensor::from_cpu(&v_data).unwrap();
 
         // Compute attention
-        let output = ctx.attention(&gq, &gk, &gv, None, None).unwrap();
+        let output = ctx.fused_attention(&gq, &gk, &gv, 1.0, false).unwrap();
         let cpu_output = output.to_cpu().unwrap();
 
         // Check output shape
@@ -72,7 +72,7 @@ mod tests {
         let gv = GpuTensor::from_cpu(&v_data).unwrap();
         let gmask = GpuTensor::from_cpu(&mask_data).unwrap();
 
-        let output = ctx.attention(&gq, &gk, &gv, Some(&gmask), None).unwrap();
+        let output = ctx.fused_attention(&gq, &gk, &gv, 1.0, true).unwrap();
         let cpu_output = output.to_cpu().unwrap();
 
         assert_eq!(cpu_output.shape(), &[1, 2, 4, 8]);
@@ -85,19 +85,20 @@ mod tests {
         let ctx = GpuContext::init().expect("GPU context init failed");
         
         // Test with large values to check numerical stability
+        // Shape [1, 1, 4, 8] = 32 elements: 4 positions × 8 head_dim
         let q_data = ArrayD::from_shape_vec(
             vec![1, 1, 4, 8],
-            vec![100.0, 200.0, 300.0, 400.0,
-                 100.0, 200.0, 300.0, 400.0,
-                 100.0, 200.0, 300.0, 400.0,
-                 100.0, 200.0, 300.0, 400.0],
+            vec![100.0, 200.0, 300.0, 400.0, 100.0, 200.0, 300.0, 400.0,
+                 100.0, 200.0, 300.0, 400.0, 100.0, 200.0, 300.0, 400.0,
+                 100.0, 200.0, 300.0, 400.0, 100.0, 200.0, 300.0, 400.0,
+                 100.0, 200.0, 300.0, 400.0, 100.0, 200.0, 300.0, 400.0],
         ).unwrap();
         let k_data = ArrayD::from_shape_vec(
             vec![1, 1, 4, 8],
-            vec![50.0, 100.0, 150.0, 200.0,
-                 50.0, 100.0, 150.0, 200.0,
-                 50.0, 100.0, 150.0, 200.0,
-                 50.0, 100.0, 150.0, 200.0],
+            vec![50.0, 100.0, 150.0, 200.0, 50.0, 100.0, 150.0, 200.0,
+                 50.0, 100.0, 150.0, 200.0, 50.0, 100.0, 150.0, 200.0,
+                 50.0, 100.0, 150.0, 200.0, 50.0, 100.0, 150.0, 200.0,
+                 50.0, 100.0, 150.0, 200.0, 50.0, 100.0, 150.0, 200.0],
         ).unwrap();
         let v_data = ArrayD::from_shape_vec(
             vec![1, 1, 4, 8],
@@ -108,7 +109,7 @@ mod tests {
         let gk = GpuTensor::from_cpu(&k_data).unwrap();
         let gv = GpuTensor::from_cpu(&v_data).unwrap();
 
-        let output = ctx.attention(&gq, &gk, &gv, None, None).unwrap();
+        let output = ctx.fused_attention(&gq, &gk, &gv, 1.0, false).unwrap();
         let cpu_output = output.to_cpu().unwrap();
 
         // Check for NaN/Inf

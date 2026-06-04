@@ -6,7 +6,7 @@
 mod tests {
     use ndarray::ArrayD;
     use nexora_autograd::gpu::{GpuContext, GpuTensor};
-    use nexora_autograd::ops::normalization::{layer_norm, rms_norm};
+    use nexora_autograd::ops::nn::{layer_norm_2d, rms_norm_2d};
     use nexora_autograd::tensor::Tensor;
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
         // CPU reference
         let tx = Tensor::new(x);
         let tw = Tensor::new(weight);
-        let cpu_result = rms_norm(&tx, &tw, epsilon).unwrap();
+        let cpu_result = rms_norm_2d(&tx, &tw, epsilon);
         let cpu_data = cpu_result.data();
 
         for i in 0..4 {
@@ -79,7 +79,7 @@ mod tests {
         let tx = Tensor::new(x);
         let tw = Tensor::new(weight);
         let tb = Tensor::new(bias);
-        let cpu_result = layer_norm(&tx, &tw, &tb, epsilon).unwrap();
+        let cpu_result = layer_norm_2d(&tx, Some(&tw), Some(&tb), epsilon);
         let cpu_data = cpu_result.data();
 
         for i in 0..8 {

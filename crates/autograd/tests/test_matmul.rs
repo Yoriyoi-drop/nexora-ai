@@ -32,7 +32,7 @@ mod tests {
         // CPU reference
         let a_tensor = Tensor::new(a_data);
         let b_tensor = Tensor::new(b_data);
-        let cpu_result = matmul(&a_tensor, &b_tensor).unwrap();
+        let cpu_result = matmul(&a_tensor, &b_tensor);
         let cpu_data = cpu_result.data();
 
         // Compare
@@ -70,7 +70,7 @@ mod tests {
 
         let a_tensor = Tensor::new(a_data);
         let b_tensor = Tensor::new(b_data);
-        let cpu_result = matmul(&a_tensor, &b_tensor).unwrap();
+        let cpu_result = matmul(&a_tensor, &b_tensor);
         let cpu_data = cpu_result.data();
 
         // Sample check (not all elements to save time)
@@ -108,7 +108,7 @@ mod tests {
 
         let a_tensor = Tensor::new(a_data);
         let b_tensor = Tensor::new(b_data);
-        let cpu_result = matmul(&a_tensor, &b_tensor).unwrap();
+        let cpu_result = matmul(&a_tensor, &b_tensor);
         let cpu_data = cpu_result.data();
 
         for i in 0..32 {

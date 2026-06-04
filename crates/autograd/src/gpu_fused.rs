@@ -220,9 +220,10 @@ impl GpuContext {
             .get("fused_matmul_bias")
             .ok_or_else(|| GpuError::Pipeline("fused_matmul_bias not compiled".into()))?;
 
-        let bg = self.get_or_create_bind_group_shared(
-            &pipeline.bind_group_layout,
-            &[
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fused_mm_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -244,8 +245,7 @@ impl GpuContext {
                     resource: cfg_buf.buffer.as_entire_binding(),
                 },
             ],
-            "fused_mm_bg",
-        );
+        });
 
         // New shader uses workgroup_size(256, 1, 1) - dispatch based on total elements
         let total_elements = m * n;
@@ -487,9 +487,10 @@ impl GpuContext {
             .get("fused_online_softmax")
             .ok_or_else(|| GpuError::Pipeline("fused_online_softmax not compiled".into()))?;
 
-        let bg = self.get_or_create_bind_group_shared(
-            &pipeline.bind_group_layout,
-            &[
+        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fused_softmax_bg"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: inp.buffer().as_entire_binding(),
@@ -503,8 +504,7 @@ impl GpuContext {
                     resource: cfg_buf.buffer.as_entire_binding(),
                 },
             ],
-            "fused_softmax_bg",
-        );
+        });
 
         // one workgroup per row
         self.dispatch(pipeline, &bg, (rows, 1, 1));

@@ -8,6 +8,7 @@ mod tests {
     use nexora_autograd::gpu::{GpuContext, GpuTensor};
     use nexora_autograd::tensor::Tensor;
     use nexora_autograd::Device;
+    use nexora_autograd::ops::{add, matmul, mul};
 
     #[test]
     fn test_gpu_backward_matmul() {
@@ -24,9 +25,9 @@ mod tests {
         ).unwrap();
 
         // Create tensors with requires_grad
-        let mut a = Tensor::new(a_data);
+        let mut a = Tensor::new(a_data.clone());
         a.set_requires_grad(true);
-        let mut b = Tensor::new(b_data);
+        let mut b = Tensor::new(b_data.clone());
         b.set_requires_grad(true);
 
         // Move to GPU
@@ -38,11 +39,10 @@ mod tests {
         b.set_device(Device::Gpu(0));
 
         // Forward
-        let c = a.matmul(&b).unwrap();
+        let c = matmul(&a, &b);
         
         // Backward
-        let grad_output = Tensor::ones_like(&c);
-        c.backward(Some(&grad_output)).unwrap();
+        c.backward();
 
         // Check gradients exist
         assert!(a.grad().is_some(), "A should have gradient");
@@ -73,11 +73,10 @@ mod tests {
         b.set_device(Device::Gpu(0));
 
         // Forward
-        let c = a.add(&b).unwrap();
+        let c = add(&a, &b);
         
         // Backward
-        let grad_output = Tensor::ones_like(&c);
-        c.backward(Some(&grad_output)).unwrap();
+        c.backward();
 
         // Gradients should be all ones
         let a_grad = a.grad().unwrap();
@@ -85,12 +84,12 @@ mod tests {
         
         for i in 0..4 {
             assert!(
-                (a_grad.data()[[i]] - 1.0).abs() < 1e-5,
+                (a_grad[[i]] - 1.0).abs() < 1e-5,
                 "grad_a[{}] should be 1.0",
                 i
             );
             assert!(
-                (b_grad.data()[[i]] - 1.0).abs() < 1e-5,
+                (b_grad[[i]] - 1.0).abs() < 1e-5,
                 "grad_b[{}] should be 1.0",
                 i
             );
@@ -108,9 +107,9 @@ mod tests {
         let b_data = ArrayD::from_shape_vec(vec![4], vec![2.0, 2.0, 2.0, 2.0]).unwrap();
         let c_data = ArrayD::from_shape_vec(vec![4], vec![1.0, 1.0, 1.0, 1.0]).unwrap();
 
-        let mut a = Tensor::new(a_data);
+        let mut a = Tensor::new(a_data.clone());
         a.set_requires_grad(true);
-        let mut b = Tensor::new(b_data);
+        let mut b = Tensor::new(b_data.clone());
         b.set_requires_grad(true);
         let mut c = Tensor::new(c_data);
         c.set_requires_grad(true);
@@ -127,12 +126,11 @@ mod tests {
         c.set_device(Device::Gpu(0));
 
         // Forward: a * b + c
-        let mul = a.mul(&b).unwrap();
-        let result = mul.add(&c).unwrap();
+        let ab = mul(&a, &b);
+        let result = add(&ab, &c);
         
         // Backward
-        let grad_output = Tensor::ones_like(&result);
-        result.backward(Some(&grad_output)).unwrap();
+        result.backward();
 
         // Check gradients
         let a_grad = a.grad().unwrap();
@@ -142,17 +140,17 @@ mod tests {
         // grad_a = b, grad_b = a, grad_c = 1
         for i in 0..4 {
             assert!(
-                (a_grad.data()[[i]] - b_data[[i]]).abs() < 1e-5,
+                (a_grad[[i]] - b_data[[i]]).abs() < 1e-5,
                 "grad_a[{}] should be {}",
                 i, b_data[[i]]
             );
             assert!(
-                (b_grad.data()[[i]] - a_data[[i]]).abs() < 1e-5,
+                (b_grad[[i]] - a_data[[i]]).abs() < 1e-5,
                 "grad_b[{}] should be {}",
                 i, a_data[[i]]
             );
             assert!(
-                (c_grad.data()[[i]] - 1.0).abs() < 1e-5,
+                (c_grad[[i]] - 1.0).abs() < 1e-5,
                 "grad_c[{}] should be 1.0",
                 i
             );
