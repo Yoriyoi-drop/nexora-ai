@@ -353,10 +353,10 @@ fn unfold_and_svd(
     let rows = shape.iter().take(mode + 1).product();
     let cols = shape.iter().skip(mode + 1).product();
 
-    let reshaped = tensor.clone().into_shape((rows, cols))?;
+    let reshaped = tensor.view().into_shape((rows, cols))?;
 
     // Perform SVD
-    let (u, s, vt) = compute_svd_truncated(&reshaped.view(), rank)?;
+    let (u, s, vt) = compute_svd_truncated(&reshaped, rank)?;
 
     // Create core
     let core_shape = (rank, dim_size, cols / dim_size);
@@ -563,7 +563,7 @@ pub fn tensor_train_reconstruct(
 
     // Reshape to original shape
     result
-        .into_shape(decomposition.original_shape.clone())
+        .into_shape(decomposition.original_shape.as_slice())
         .map_err(|e| {
             crate::ATQSError::CompressionError(format!(
                 "Failed to reshape to original dimensions: {}",

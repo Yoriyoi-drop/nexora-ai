@@ -91,9 +91,8 @@ pub fn create_sparse_mask(
     let mut sparse_count = 0;
 
     for (idx, &value) in tensor.indexed_iter() {
-        let idx_clone = idx.clone();
         let is_important = value.abs() > threshold;
-        mask[idx_clone] = is_important;
+        mask[&idx] = is_important;
 
         if is_important {
             important_indices.push(idx[0]); // Use first dimension index for simplicity
@@ -121,9 +120,9 @@ pub fn apply_sparse_mask(
 
     for (idx, &is_important) in mask.mask.indexed_iter() {
         if is_important {
-            result[idx.clone()] = tensor[idx.clone()];
+            result[&idx] = tensor[&idx];
         } else {
-            result[idx.clone()] = 0.0;
+            result[&idx] = 0.0;
         }
     }
 

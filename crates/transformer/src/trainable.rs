@@ -564,7 +564,7 @@ impl TrainableCausalLM {
                     return Tensor::from_slice(&[0.0f32], &[1, 1]);
                 }
             };
-            let n = sum.clone().div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
+            let n = sum.div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
             if cfg.early_free { drop(sum); }
             n
         } else {

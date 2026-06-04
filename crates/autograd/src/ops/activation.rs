@@ -30,7 +30,7 @@ pub fn relu(input: &Tensor) -> Tensor {
                                     ndarray::ArrayD::zeros(gpu_for_cpu.shape())
                                 });
                                 let mask = x.mapv(|v| if v > 0.0 { 1.0 } else { 0.0 });
-                                vec![grad.clone() * mask]
+                                vec![grad * mask]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
@@ -64,15 +64,14 @@ pub fn relu(input: &Tensor) -> Tensor {
     if !input.requires_grad() {
         return Tensor::new(result);
     }
-    let saved = data.clone();
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
-        vec![saved],
+        vec![data],
         Box::new(|grad, saved| {
             let input_data = &saved[0];
             let mask = input_data.mapv(|x| if x > 0.0 { 1.0 } else { 0.0 });
-            vec![grad.clone() * mask]
+            vec![grad * mask]
         }),
     )
 }
@@ -113,7 +112,7 @@ pub fn gelu(input: &Tensor) -> Tensor {
                                             * sqrt_2_over_pi
                                             * (1.0 + 0.134145 * xv * xv)
                                 });
-                                vec![grad.clone() * gelu_grad]
+                                vec![grad * gelu_grad]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let da = crate::gpu_backward::gelu_backward(
@@ -141,11 +140,10 @@ pub fn gelu(input: &Tensor) -> Tensor {
     if !input.requires_grad() {
         return Tensor::new(result);
     }
-    let saved = data.clone();
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
-        vec![saved],
+        vec![data],
         Box::new(move |grad, saved| {
             let x = &saved[0];
             let sqrt_2_over_pi = (2.0 / std::f64::consts::PI) as f32;
@@ -156,7 +154,7 @@ pub fn gelu(input: &Tensor) -> Tensor {
                 let sech2 = 1.0 - t * t;
                 0.5 * (1.0 + t) + 0.5 * xv * sech2 * sqrt_2_over_pi * (1.0 + 0.134145 * xv * xv)
             });
-            vec![grad.clone() * gelu_grad]
+            vec![grad * gelu_grad]
         }),
     )
 }
@@ -185,7 +183,7 @@ pub fn tanh(input: &Tensor) -> Tensor {
                                     ndarray::ArrayD::zeros(gpu_for_cpu.shape())
                                 });
                                 let grad_t = t.mapv(|v| 1.0 - v * v);
-                                vec![grad.clone() * grad_t]
+                                vec![grad * grad_t]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let y = &saved_gpu[0];
@@ -222,7 +220,7 @@ pub fn tanh(input: &Tensor) -> Tensor {
         Box::new(|grad, saved| {
             let t = &saved[0];
             let grad_t = t.mapv(|v| 1.0 - v * v);
-            vec![grad.clone() * grad_t]
+            vec![grad * grad_t]
         }),
     )
 }
@@ -254,7 +252,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                                     ndarray::ArrayD::zeros(gpu_for_cpu.shape())
                                 });
                                 let grad_x = x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
-                                vec![grad.clone() * grad_x]
+                                vec![grad * grad_x]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let da = crate::gpu_backward::leaky_relu_backward(
@@ -278,15 +276,14 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
     if !input.requires_grad() {
         return Tensor::new(result);
     }
-    let saved = data.clone();
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
-        vec![saved],
+        vec![data],
         Box::new(move |grad, saved| {
             let x = &saved[0];
             let grad_x = x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
-            vec![grad.clone() * grad_x]
+            vec![grad * grad_x]
         }),
     )
 }
@@ -317,7 +314,7 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
                                     ndarray::ArrayD::zeros(gpu_for_cpu.shape())
                                 });
                                 let sig_grad = sig.mapv(|s| s * (1.0 - s));
-                                vec![grad.clone() * sig_grad]
+                                vec![grad * sig_grad]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let y = &saved_gpu[0];
@@ -360,7 +357,7 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
         Box::new(|grad, saved| {
             let sig = &saved[0];
             let sig_grad = sig.mapv(|s| s * (1.0 - s));
-            vec![grad.clone() * sig_grad]
+            vec![grad * sig_grad]
         }),
     )
 }
@@ -396,7 +393,7 @@ pub fn silu(input: &Tensor) -> Tensor {
                                     }
                                 });
                                 let silu_grad = &sig + x * &sig * (1.0 - &sig);
-                                vec![grad.clone() * silu_grad]
+                                vec![grad * silu_grad]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 let x = &saved_gpu[0];
@@ -441,11 +438,10 @@ pub fn silu(input: &Tensor) -> Tensor {
     if !input.requires_grad() {
         return Tensor::new(result);
     }
-    let saved = data.clone();
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
-        vec![saved],
+        vec![data],
         Box::new(|grad, saved| {
             let x = &saved[0];
             let sig = x.mapv(|v| {
@@ -456,7 +452,7 @@ pub fn silu(input: &Tensor) -> Tensor {
                 }
             });
             let silu_grad = &sig + x * &sig * (1.0 - &sig);
-            vec![grad.clone() * silu_grad]
+            vec![grad * silu_grad]
         }),
     )
 }
@@ -501,8 +497,8 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                             }
                                         });
                                         let dsilu = &sig + g * &sig * (1.0 - &sig);
-                                        let d_gate = grad.clone() * x_val * dsilu;
-                                        let d_x = grad.clone() * &sig;
+                                        let d_gate = grad * x_val * dsilu;
+                                        let d_x = grad * &sig;
                                         vec![d_gate, d_x]
                                     }),
                                     Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
@@ -541,7 +537,7 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
     if !requires_grad {
         return Tensor::new(result);
     }
-    let saved = vec![gate_data.clone(), x_data.clone()];
+    let saved = vec![gate_data, x_data];
     Tensor::with_grad_fn(
         result,
         vec![gate.clone(), x.clone()],
@@ -557,8 +553,8 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                 }
             });
             let dsilu = &sig + g * &sig * (1.0 - &sig);
-            let d_gate = grad.clone() * x_val * dsilu;
-            let d_x = grad.clone() * &sig;
+            let d_gate = grad * x_val * dsilu;
+            let d_x = grad * &sig;
             vec![d_gate, d_x]
         }),
     )

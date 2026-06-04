@@ -198,10 +198,10 @@ impl ExecuteEngine {
             test_results: test_results
                 .into_iter()
                 .map(|r| crate::saca::types::TestResult {
-                    test_name: r.test_id.clone(),
+                    test_name: r.test_id,
                     passed: r.passed,
                     execution_time_ms: r.execution_time.as_millis() as u64,
-                    error_message: r.error_message.clone(),
+                    error_message: r.error_message,
                 })
                 .collect(),
             performance_metrics,
@@ -500,8 +500,8 @@ impl SandboxCodeExecutor {
                 Ok(ExecutionOutput {
                     success,
                     stdout,
-                    stderr: stderr.clone(),
-                    error_logs: if success { vec![] } else { vec![stderr] },
+                    error_logs: if success { vec![] } else { vec![stderr.clone()] },
+                    stderr,
                     exit_code: output.status.code().unwrap_or(-1),
                     execution_time: Some(elapsed.as_millis() as u64),
                     memory_usage: None,

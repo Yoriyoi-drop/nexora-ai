@@ -440,11 +440,10 @@ impl MessageBus {
             return None;
         }
 
-        let candidates_clone = candidates.clone();
         drop(role_subscribers);
 
         let queue = self.message_queue.read().await;
-        candidates_clone
+        candidates
             .into_iter()
             .map(|id| {
                 let load = queue

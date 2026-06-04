@@ -201,7 +201,7 @@ impl AgentRegistry {
                 reason: format!("Deadlock detected: timeout acquiring agent_info write lock for {agent_id}"),
             })?;
         if let Some(info) = agent_info.get_mut(&agent_id) {
-            info.status = status.clone();
+            info.status = status;
             info.last_updated = Utc::now();
             Ok(())
         } else {

@@ -201,7 +201,7 @@ impl CoTEngine {
 
         // Use TF-IDF-style term extraction for deeper analysis
         let top_tokens = Self::extract_token_frequencies(&task.description);
-        let key_terms: Vec<String> = top_tokens.iter().map(|(t, _)| t.clone()).collect();
+        let key_terms: Vec<String> = top_tokens.into_iter().map(|(t, _)| t).collect();
 
         // Score each dimension using keyword frequency rather than binary contains()
         let data_score = Self::score_dimension(
@@ -322,7 +322,7 @@ impl CoTEngine {
                 .join(", ")
         };
 
-        dimensions.extend(dimension_scores.iter().map(|(d, _)| d.clone()));
+        dimensions.extend(dimension_scores.into_iter().map(|(d, _)| d));
 
         let mut analysis = format!(
             "Task: {}\nRequirements: {}\nConstraints: {}\nDimensions: [{}]\nKey terms: {}\nContext: {}",
@@ -565,7 +565,7 @@ impl CoTEngine {
         }
 
         // Component list for reporting
-        let comp_list: Vec<String> = components.iter().map(|(c, _)| c.clone()).collect();
+        let comp_list: Vec<String> = components.into_iter().map(|(c, _)| c).collect();
         graph_repr.push_str(&format!(
             "\nKey components identified: {}",
             comp_list.join(", ")

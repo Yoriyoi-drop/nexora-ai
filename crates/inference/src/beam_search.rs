@@ -41,7 +41,7 @@ impl PersistentTokens {
     ) -> Arc<PersistentTokens> {
         let new_len = prefix.as_ref().map(|p| p.len).unwrap_or(0) + 1;
         Arc::new(PersistentTokens {
-            prefix: prefix.clone(),
+            prefix: prefix,
             token,
             len: new_len,
         })

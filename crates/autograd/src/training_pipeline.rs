@@ -827,8 +827,8 @@ pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::
     }
 
     // 2. Sum all norms on GPU via elementwise add (no readback)
-    let mut total_norm_sq = norm_sq_tensors[0].clone();
-    for t in &norm_sq_tensors[1..] {
+    let mut total_norm_sq = norm_sq_tensors.swap_remove(0);
+    for t in &norm_sq_tensors {
         if let Ok(result) = ctx.add(&total_norm_sq, t) {
             total_norm_sq = result;
         }

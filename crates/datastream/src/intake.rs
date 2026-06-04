@@ -277,8 +277,10 @@ pub async fn dynamic_batcher(
 ) -> BatchedReceiver {
     let (batch_tx, batch_rx) = mpsc::channel(16);
     static BATCHER_SEM: std::sync::OnceLock<Arc<Semaphore>> = std::sync::OnceLock::new();
-    let sem = BATCHER_SEM.get_or_init(|| Arc::new(Semaphore::new(16)));
-    let _permit = sem.clone().acquire_owned().await;
+    let _permit = BATCHER_SEM
+        .get_or_init(|| Arc::new(Semaphore::new(16)))
+        .acquire()
+        .await;
 
     let handle = tokio::spawn(async move {
         let __permit = _permit;

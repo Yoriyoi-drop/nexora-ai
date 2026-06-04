@@ -441,14 +441,14 @@ fn contract_neighbors(tensor: &ArrayD<f32>) -> Result<ArrayD<f32>, crate::ATQSEr
 fn truncate_bonds(tensor: &ArrayD<f32>, max_dim: usize) -> Result<ArrayD<f32>, crate::ATQSError> {
     let shape = tensor.shape();
     let reshaped = tensor
-        .clone()
+        .view()
         .into_shape((shape[0] * shape[1], shape[2] * shape[3]))?;
 
-    let (u, s, vt) = compute_svd_truncated(&reshaped.view(), max_dim)?;
+    let (u, s, vt) = compute_svd_truncated(&reshaped, max_dim)?;
 
     // Reconstruct with truncated singular values
     let truncated = u
-        .dot(&Array::from_diag(&Array::from_vec(s.clone())))
+        .dot(&Array::from_diag(&Array::from_vec(s)))
         .dot(&vt);
 
     Ok(truncated

@@ -623,10 +623,8 @@ impl PriorityGodAgent {
             return None;
         }
         let mut best_idx = 0;
-        let mut best = self.queue[0].clone();
         for (i, t) in self.queue.iter().enumerate().skip(1) {
-            if t.effective_priority() < best.effective_priority() {
-                best = t.clone();
+            if t.effective_priority() < self.queue[best_idx].effective_priority() {
                 best_idx = i;
             }
         }

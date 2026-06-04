@@ -199,7 +199,7 @@ pub fn load_safetensors_with_meta(
         .map_err(|e| crate::TransformerError::Implementation(format!("JSON parse: {}", e)))?;
 
     let mut result = HashMap::new();
-    for (name, entry) in &header.tensors {
+    for (name, entry) in header.tensors {
         let start = 8 + header_len + entry.data_offsets[0];
         let end = 8 + header_len + entry.data_offsets[1];
         if end > raw.len() {
@@ -228,9 +228,9 @@ pub fn load_safetensors_with_meta(
             }
         };
 
-        let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats)
+        let arr = ArrayD::from_shape_vec(entry.shape, floats)
             .map_err(|e| crate::TransformerError::Implementation(format!("Shape error: {}", e)))?;
-        result.insert(name.clone(), arr);
+        result.insert(name, arr);
     }
 
     Ok((result, header.__metadata__))

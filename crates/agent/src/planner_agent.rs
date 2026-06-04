@@ -227,16 +227,17 @@ impl PlannerAgent {
         }
 
         // Add to active plans
+        let plan_id = plan.plan_id;
         {
             let mut plans = self.active_plans.lock().await;
-            plans.insert(plan.plan_id, plan.clone());
+            plans.insert(plan_id, plan);
         }
 
         info!(
             "Plan {} created for task: {}",
-            plan.plan_id, task_description
+            plan_id, task_description
         );
-        Ok(plan.plan_id)
+        Ok(plan_id)
     }
 
     /// Execute next step in plan

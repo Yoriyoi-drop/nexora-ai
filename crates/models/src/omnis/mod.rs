@@ -360,7 +360,7 @@ impl NxrOmnisModel {
 
         // Step 6: Synthesis
         let synthesis = self.agents.synth_prime().synthesize(&[
-            decomposition.clone(),
+            decomposition,
             meta_reasoning,
             chain_result,
             truth_arbitration,

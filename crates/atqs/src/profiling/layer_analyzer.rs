@@ -439,10 +439,10 @@ fn estimate_weight_rank(weights: &ArrayD<f32>) -> Result<(usize, Vec<f32>), crat
     // Reshape to 2D for SVD
     let rows = shape[0];
     let cols = shape.iter().skip(1).product();
-    let reshaped = weights.clone().into_shape((rows, cols))?;
+    let reshaped = weights.view().into_shape((rows, cols))?;
 
     // Compute SVD
-    let (_u, s, _vt) = compute_weight_svd(&reshaped.view())?;
+    let (_u, s, _vt) = compute_weight_svd(&reshaped)?;
 
     // Estimate rank based on singular value threshold
     let threshold = s[0] * 1e-6; // Relative threshold

@@ -126,13 +126,14 @@ pub fn optimize_calibration(
 
     // Extract best parameters
     let best_parameters = extract_best_parameters(model)?;
+    let converged = !state.convergence_metrics.loss_trend.is_empty();
 
     Ok(OptimizationResult {
-        final_state: state.clone(),
+        final_state: state,
         optimization_history: history,
         best_parameters,
         total_training_time: 0.0, // Would be measured
-        convergence_achieved: !state.convergence_metrics.loss_trend.is_empty(),
+        convergence_achieved: converged,
     })
 }
 

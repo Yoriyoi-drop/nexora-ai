@@ -21,8 +21,8 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
 
     let n = samples.len();
     let mut ids = Vec::with_capacity(n);
-    let mut texts = Vec::with_capacity(n);
-    let mut source_names = Vec::with_capacity(n);
+    let mut texts: Vec<&str> = Vec::with_capacity(n);
+    let mut source_names: Vec<&str> = Vec::with_capacity(n);
     let mut source_urls: Vec<Option<&str>> = Vec::with_capacity(n);
     let mut source_cats = Vec::with_capacity(n);
     let mut trust_scores = Vec::with_capacity(n);
@@ -30,8 +30,8 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
 
     for s in samples {
         ids.push(s.id.to_string());
-        texts.push(s.text.clone());
-        source_names.push(s.source.name.clone());
+        texts.push(s.text.as_str());
+        source_names.push(s.source.name.as_str());
         source_urls.push(s.source.url.as_deref());
         source_cats.push(format!("{:?}", s.source.category));
         trust_scores.push(s.source.trust_score);

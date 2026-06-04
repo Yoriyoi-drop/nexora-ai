@@ -870,9 +870,9 @@ fn apply_layer_operation(
         let weights_2d = weights.view().into_dimensionality::<ndarray::Ix2>()?;
         let input_reshaped = input.view().into_shape((input.len(), 1))?;
         let output = weights_2d.dot(&input_reshaped);
+        let output_len = output.len();
         Ok(output
-            .clone()
-            .into_shape((output.len(),))
+            .into_shape((output_len,))
             .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape output".to_string()))?
             .into_dyn())
     } else {

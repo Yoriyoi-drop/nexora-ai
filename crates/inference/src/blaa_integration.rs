@@ -302,8 +302,8 @@ impl InferenceEngine for BlaaInferenceEngine {
             // Permit and client lock released here
 
             let mut final_response = InferenceResponse::new(request.request_id);
-            final_response.text = full_response.clone();
             final_response.total_tokens = full_response.chars().count();
+            final_response.text = full_response;
             final_response.finish_reason = FinishReason::EndOfSequence;
             final_response
                 .metadata

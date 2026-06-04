@@ -1123,7 +1123,7 @@ impl GpuContext {
             .take(k_actual)
             .map(|x| if *x > 1e-10 { 1.0 / x } else { 0.0 })
             .collect();
-        let s_inv_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, 1], s_inv_data.clone())
+        let s_inv_arr = ndarray::ArrayD::from_shape_vec(vec![k_actual, 1], s_inv_data)
             .map_err(|e| SedcError::Svd(e.to_string()))?;
         let s_inv_gpu = GpuTensor::from_cpu(&s_inv_arr).map_err(SedcError::Gpu)?;
 

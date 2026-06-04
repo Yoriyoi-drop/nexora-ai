@@ -1916,7 +1916,7 @@ impl InferenceEngineHandle {
                 sampler.set_use_gpu(use_gpu);
 
                 let model_c = Arc::clone(&model);
-                let prompt_ids_c = prompt_ids.clone();
+                let prompt_ids_c = prompt_ids;
                 let gen_result = tokio::task::spawn_blocking(move || {
                     run_generation_loop(
                         &model_c,

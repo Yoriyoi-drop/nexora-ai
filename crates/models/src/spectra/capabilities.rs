@@ -400,7 +400,7 @@ impl SpectraCapabilities {
         for (domain, capability) in &self.vector.capabilities {
             let capability_detail = CapabilityDetail {
                 domain: domain.clone(),
-                level: capability.level.clone(),
+                level: capability.level,
                 score: capability.score(),
                 sub_capabilities: capability.sub_capabilities.clone(),
                 metrics: capability.metrics.clone(),
@@ -430,8 +430,8 @@ impl SpectraCapabilities {
                     self_score,
                     other_score,
                     difference: self_score - other_score,
-                    self_level: self.vector.get_capability(domain).map(|c| c.level.clone()),
-                    other_level: other.vector.get_capability(domain).map(|c| c.level.clone()),
+                    self_level: self.vector.get_capability(domain).map(|c| c.level),
+                    other_level: other.vector.get_capability(domain).map(|c| c.level),
                 },
             );
         }

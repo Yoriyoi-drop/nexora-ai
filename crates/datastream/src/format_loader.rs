@@ -229,27 +229,27 @@ pub fn load_dataset(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, 
         match ext {
             "csv" => {
                 info!("Loading CSV: {}", path.display());
-                Some(load_csv(path, source.clone()))
+                Some(load_csv(path, &source))
             }
             "tsv" => {
                 info!("Loading TSV: {}", path.display());
-                Some(load_tsv(path, source.clone()))
+                Some(load_tsv(path, &source))
             }
             "json" => {
                 info!("Loading JSON: {}", path.display());
-                Some(load_json(path, source.clone()))
+                Some(load_json(path, &source))
             }
             "jsonl" | "ndjson" => {
                 info!("Loading JSONL: {}", path.display());
-                Some(load_jsonl(path, source.clone()))
+                Some(load_jsonl(path, &source))
             }
             "parquet" => {
                 info!("Loading Parquet: {}", path.display());
-                Some(load_parquet(path, source.clone()))
+                Some(load_parquet(path, &source))
             }
             "arrow" | "ipc" | "feather" => {
                 info!("Loading Arrow: {}", path.display());
-                Some(load_arrow(path, source.clone()))
+                Some(load_arrow(path, &source))
             }
             _ => None,
         }
@@ -309,7 +309,7 @@ fn make_sample(text: String, source: &SourceInfo) -> DataSample {
 // ── CSV ──────────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "csv")]
-fn load_csv(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_csv(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
     let mut reader = csv::ReaderBuilder::new()
         .flexible(true)
         .trim(csv::Trim::All)
@@ -349,7 +349,7 @@ fn load_csv(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> 
 // ── TSV ──────────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "csv")]
-fn load_tsv(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_tsv(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .flexible(true)
@@ -388,12 +388,12 @@ fn load_tsv(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> 
 }
 
 #[cfg(not(feature = "csv"))]
-fn load_csv(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_csv(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("CSV support not enabled (feature 'csv')".into())
 }
 
 #[cfg(not(feature = "csv"))]
-fn load_tsv(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_tsv(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("TSV support not enabled (feature 'csv')".into())
 }
 
@@ -423,7 +423,7 @@ fn find_text_column(headers: &[String]) -> Option<usize> {
 // ── JSON array ───────────────────────────────────────────────────────────────
 
 #[cfg(feature = "json")]
-fn load_json(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_json(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("JSON read error: {}", e))?;
 
     let value: serde_json::Value =
@@ -458,7 +458,7 @@ fn load_json(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String>
 // ── JSONL / NDJSON ──────────────────────────────────────────────────────────
 
 #[cfg(feature = "json")]
-fn load_jsonl(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_jsonl(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("JSONL read error: {}", e))?;
 
     let mut samples = Vec::new();
@@ -484,12 +484,12 @@ fn load_jsonl(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String
 }
 
 #[cfg(not(feature = "json"))]
-fn load_json(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_json(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("JSON support not enabled (feature 'json')".into())
 }
 
 #[cfg(not(feature = "json"))]
-fn load_jsonl(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_jsonl(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("JSONL support not enabled (feature 'json')".into())
 }
 
@@ -539,7 +539,7 @@ fn extract_text(value: &serde_json::Value) -> Option<String> {
 // ── Parquet ─────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "parquet")]
-fn load_parquet(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_parquet(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
     use parquet::file::reader::{FileReader, SerializedFileReader};
 
     let file = std::fs::File::open(path).map_err(|e| format!("Parquet open error: {}", e))?;
@@ -630,20 +630,20 @@ fn field_to_string(field: &parquet::record::Field) -> Option<String> {
 }
 
 #[cfg(not(feature = "parquet"))]
-fn load_parquet(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_parquet(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("Parquet support not enabled (feature 'parquet')".into())
 }
 
 // ── Arrow (delegate to existing arrow_reader) ────────────────────────────────
 
 #[cfg(feature = "arrow")]
-fn load_arrow(path: &Path, source: SourceInfo) -> Result<Vec<DataSample>, String> {
-    crate::arrow_reader::read_arrow_file(path, source)
+fn load_arrow(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
+    crate::arrow_reader::read_arrow_file(path, source.clone())
         .map_err(|e| format!("Arrow load error: {}", e))
 }
 
 #[cfg(not(feature = "arrow"))]
-fn load_arrow(_: &Path, _: SourceInfo) -> Result<Vec<DataSample>, String> {
+fn load_arrow(_: &Path, _: &SourceInfo) -> Result<Vec<DataSample>, String> {
     Err("Arrow support not enabled (feature 'arrow')".into())
 }
 
@@ -663,7 +663,7 @@ mod tests {
             category: crate::types::SourceCategory::Other,
             fetch_timestamp: 0,
         };
-        let samples = load_csv(&path, src).unwrap();
+        let samples = load_csv(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
         assert_eq!(samples[0].text, "Hello world");
         assert_eq!(samples[1].text, "Foo bar");
@@ -681,7 +681,7 @@ mod tests {
             category: crate::types::SourceCategory::Other,
             fetch_timestamp: 0,
         };
-        let samples = load_json(&path, src).unwrap();
+        let samples = load_json(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
         assert_eq!(samples[0].text, "Hello");
         assert_eq!(samples[1].text, "World");
@@ -705,7 +705,7 @@ mod tests {
             category: crate::types::SourceCategory::Other,
             fetch_timestamp: 0,
         };
-        let samples = load_jsonl(&path, src).unwrap();
+        let samples = load_jsonl(&path, &src).unwrap();
         assert_eq!(samples.len(), 3);
         assert_eq!(samples[0].text, "Line1");
         assert_eq!(samples[2].text, "Line3");
@@ -723,7 +723,7 @@ mod tests {
             category: crate::types::SourceCategory::Other,
             fetch_timestamp: 0,
         };
-        let samples = load_tsv(&path, src).unwrap();
+        let samples = load_tsv(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
         assert_eq!(samples[0].text, "Hello");
         assert_eq!(samples[1].text, "World");

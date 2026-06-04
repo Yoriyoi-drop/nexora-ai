@@ -188,7 +188,7 @@ impl StreamingLoader {
 
         // --- 8. Spawn workers ---
         let loader = Self {
-            config: config.clone(),
+            config,
             progress,
             stats,
             batch_rx,

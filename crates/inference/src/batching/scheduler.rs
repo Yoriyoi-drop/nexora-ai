@@ -426,12 +426,12 @@ where
                     if s.prompt_pos > 0 {
                         continue;
                     }
-                    s.prompt.clone()
+                    &s.prompt
                 }
                 None => continue,
             };
 
-            let (prefix_len, src_id) = match trie.find_shared_prefix(&prompt, sid) {
+            let (prefix_len, src_id) = match trie.find_shared_prefix(prompt, sid) {
                 Some(m) => m,
                 None => continue,
             };

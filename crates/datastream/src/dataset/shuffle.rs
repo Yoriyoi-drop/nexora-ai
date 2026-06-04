@@ -177,9 +177,9 @@ mod tests {
                 split: "val".into(),
             },
         ];
-        let original = shards.clone();
+        let original_len = shards.len();
         shuffle_shards(&mut shards);
         // Order may (or may not) change, but length must stay
-        assert_eq!(shards.len(), original.len());
+        assert_eq!(shards.len(), original_len);
     }
 }

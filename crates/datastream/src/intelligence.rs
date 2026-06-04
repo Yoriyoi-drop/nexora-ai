@@ -101,7 +101,7 @@ impl DatasetIntelligenceCore {
         if dist.is_empty() {
             return 0.5;
         }
-        let mut sorted = dist.clone();
+        let mut sorted: Vec<f64> = dist.iter().copied().collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((percentile / 100.0) * sorted.len() as f64) as usize;
         sorted

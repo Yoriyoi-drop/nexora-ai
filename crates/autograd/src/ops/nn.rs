@@ -120,7 +120,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
         }
     }
 
-    let result = ArrayD::from_shape_vec(soft_shape.clone(), result_data).unwrap_or_else(|e| {
+    let result = ArrayD::from_shape_vec(soft_shape, result_data).unwrap_or_else(|e| {
         debug!("shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
@@ -314,12 +314,10 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
         return Tensor::new(result);
     }
 
-    let saved = data.clone();
-
     Tensor::with_grad_fn(
         result,
         vec![input.clone()],
-        vec![saved],
+        vec![data],
         Box::new(move |grad, saved| {
             let soft = &saved[0];
             let sum_g = grad.sum_axis(ndarray::Axis(axis)).into_dyn();
@@ -579,20 +577,19 @@ pub fn layer_norm_2d(
         inputs.push(b.clone());
     }
 
-    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean.clone()).unwrap_or_else(|e| {
+    let mean_arr = ArrayD::from_shape_vec(vec![shape[0]], mean).unwrap_or_else(|e| {
         debug!("shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
-    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std.clone()).unwrap_or_else(|e| {
+    let std_arr = ArrayD::from_shape_vec(vec![shape[0]], std).unwrap_or_else(|e| {
         debug!("shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
-    let orig_data = data.clone();
 
     Tensor::with_grad_fn(
         result,
         inputs,
-        vec![orig_data, mean_arr, std_arr, ArrayD::from_elem(vec![1], n)],
+        vec![data, mean_arr, std_arr, ArrayD::from_elem(vec![1], n)],
         Box::new(move |grad, saved| {
             let x = &saved[0];
             let mean = &saved[1];
@@ -1218,7 +1215,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
         return Tensor::new(result);
     }
 
-    let orig_data = data.clone();
+    let orig_data = data;
     let w_data = weight.data();
     let saved = vec![
         orig_data,

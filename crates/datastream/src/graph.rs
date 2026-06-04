@@ -85,7 +85,7 @@ impl ExecutionGraph {
             }
         }
 
-        self.entry_points = is_entry.iter().cloned().collect();
+        self.entry_points = is_entry.into_iter().collect();
 
         self.exit_points = self
             .nodes

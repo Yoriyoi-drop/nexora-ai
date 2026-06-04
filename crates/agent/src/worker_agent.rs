@@ -539,7 +539,7 @@ impl WorkerAgent {
                                         error: None,
                                     };
                                     info!("Restored in-flight work item {}", wid);
-                                    wm.insert(wid, work.clone());
+                                    wm.insert(wid, work);
                                 }
                             }
                         }

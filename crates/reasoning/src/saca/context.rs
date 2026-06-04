@@ -765,7 +765,7 @@ impl FileAnalyzer for RustAnalyzer {
             naming_samples: NamingSamples {
                 function_names: functions_clone,
                 variable_names: Vec::new(),
-                class_names: structs.clone(), // Map structs to class_names
+                class_names: structs,
                 constant_names: Vec::new(),
             },
         })
@@ -823,7 +823,7 @@ impl FileAnalyzer for PythonAnalyzer {
             naming_samples: NamingSamples {
                 function_names: functions_clone,
                 variable_names: Vec::new(),
-                class_names: classes.clone(), // Map classes to class_names
+                class_names: classes,
                 constant_names: Vec::new(),
             },
         })
@@ -882,7 +882,7 @@ impl FileAnalyzer for JavaScriptAnalyzer {
             naming_samples: NamingSamples {
                 function_names: functions_clone,
                 variable_names: Vec::new(),
-                class_names: classes.clone(), // Map classes to class_names
+                class_names: classes,
                 constant_names: Vec::new(),
             },
         })

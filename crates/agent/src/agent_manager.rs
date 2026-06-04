@@ -369,7 +369,7 @@ impl AgentManager {
         let agent_id = agent.id();
 
         // Initialize agent before wrapping
-        agent.initialize(config.clone()).await?;
+        agent.initialize(config).await?;
 
         // Register agent (wraps in Arc<Mutex> internally)
         self.registry
@@ -465,7 +465,7 @@ impl AgentManager {
                 context.parameters.insert(k.clone(), v.clone());
             }
         } else {
-            context.parameters.insert("payload".to_string(), message.payload.clone());
+            context.parameters.insert("payload".to_string(), message.payload);
         }
 
         // Step 2: Process message

@@ -235,9 +235,8 @@ impl SACAPipeline {
                 self.execute_engine.execute_all(
                     pipeline_data
                         .candidates
-                        .as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("Candidates not available"))?
-                        .clone(),
+                        .take()
+                        .ok_or_else(|| anyhow::anyhow!("Candidates not available"))?,
                     pipeline_data
                         .context
                         .as_ref()
@@ -257,9 +256,8 @@ impl SACAPipeline {
                 self.rerank_engine.rerank(
                     pipeline_data
                         .executed_candidates
-                        .as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("Executed candidates not available"))?
-                        .clone(),
+                        .take()
+                        .ok_or_else(|| anyhow::anyhow!("Executed candidates not available"))?,
                     pipeline_data
                         .context
                         .as_ref()

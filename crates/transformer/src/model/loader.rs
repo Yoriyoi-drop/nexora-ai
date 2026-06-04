@@ -101,25 +101,25 @@ impl CausalLM {
             to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned());
         for (i, block) in model.blocks.iter_mut().enumerate() {
             let prefix = format!("blocks.{}.", i);
-            let name = prefix.clone() + "attention_norm.weight";
+            let name = format!("{}attention_norm.weight", prefix);
             block.attention_norm.weight = Some(
                 to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "ffn_norm.weight";
+            let name = format!("{}ffn_norm.weight", prefix);
             block.ffn_norm.weight = Some(
                 to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "attention.wq";
+            let name = format!("{}attention.wq", prefix);
             block.attention.wq = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "attention.wk";
+            let name = format!("{}attention.wk", prefix);
             block.attention.wk = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "attention.wv";
+            let name = format!("{}attention.wv", prefix);
             block.attention.wv = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "attention.wo";
+            let name = format!("{}attention.wo", prefix);
             block.attention.wo = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "ffn.w1";
+            let name = format!("{}ffn.w1", prefix);
             block.ffn.w1 = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "ffn.w2";
+            let name = format!("{}ffn.w2", prefix);
             block.ffn.w2 = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
-            let name = prefix.clone() + "ffn.w3";
+            let name = format!("{}ffn.w3", prefix);
             block.ffn.w3 = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
             // Load expert weights if present in checkpoint
             if let Some(experts) = &mut block.experts {

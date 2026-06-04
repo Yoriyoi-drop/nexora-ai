@@ -60,7 +60,7 @@ impl CurriculumRanker {
             .iter()
             .enumerate()
             .find(|(_, (_, domains, _))| domains.contains(&domain))
-            .map(|(i, (level, _, _))| (level.clone(), i as u8))
+            .map(|(i, (level, _, _))| (*level, i as u8))
             .unwrap_or_else(|| {
                 let fallback = (domain_level as u8).saturating_sub(1).max(1);
                 let level = match fallback {

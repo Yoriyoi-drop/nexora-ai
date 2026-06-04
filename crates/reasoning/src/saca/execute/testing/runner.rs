@@ -134,14 +134,11 @@ impl TestRunner {
         if actual_output == test_case.expected_output.trim() {
             (true, actual_output, None)
         } else {
-            (
-                false,
-                actual_output.clone(),
-                Some(format!(
-                    "Expected '{}', got '{}'",
-                    test_case.expected_output, actual_output
-                )),
-            )
+            let error_message = Some(format!(
+                "Expected '{}', got '{}'",
+                test_case.expected_output, actual_output
+            ));
+            (false, actual_output, error_message)
         }
     }
 }
