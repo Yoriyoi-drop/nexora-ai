@@ -699,10 +699,12 @@ mod tests {
         let (h, i) = e.size_info();
         assert_eq!(h, 16);
         assert_eq!(i, 32);
-        assert_eq!(e.get_fc1_weights().len(), 32);
-        assert_eq!(e.get_fc1_weights()[0].len(), 16);
-        assert_eq!(e.get_fc2_weights().len(), 16);
-        assert_eq!(e.get_fc2_weights()[0].len(), 32);
+        let fc1 = e.get_fc1_weights().unwrap();
+        assert_eq!(fc1.len(), 32);
+        assert_eq!(fc1[0].len(), 16);
+        let fc2 = e.get_fc2_weights().unwrap();
+        assert_eq!(fc2.len(), 16);
+        assert_eq!(fc2[0].len(), 32);
     }
 
     #[test]

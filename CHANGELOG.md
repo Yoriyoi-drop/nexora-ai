@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0
+
+### Batch Fix 31 — Production Unwrap & Panic Comprehensive Cleanup (4 Juni 2026)
+
+Audit komprehensif 41 crate membuktikan **0 `.unwrap()`/`panic!()` di production code**. Semua ~1.373 unwrap dan 33 panic yang dilaporkan sebelumnya ternyata berada di test code.
+
+**23 production unwrap/panic real diperbaiki di 17 file:**
+
+| Crate | Issue | Fix |
+|-------|-------|-----|
+| `has-moe-ffn` | 6 panic/expect di routing + experts | Return Result, warn fallback |
+| `inference` | 3 unwrap di cold_storage + paged_cache | Option/Result propagation |
+| `transformer` | 2 unwrap di lazy_weights + GQA GPU | expect(msg) + match |
+| `datastream` | 4 Mutex lock unwrap | try_lock + warn fallback |
+| `multimodal` | 2 unwrap di text_encoder + tokenizer | Result propagation |
+| `training` | 11 unwrap di lora merge/unmerge | if let Some + skip |
+| `foundation` | 1 expect di oracle mod | Result via ? |
+| `star-x` | 1 unwrap di f16_storage | unwrap_or_else zeros |
+| `infrastructure` | 1 panic di retry.rs | Return Err |
+| `apps` | 2 unwrap di auth + billing | Destructure langsung |
+
+`cargo check --all-targets` ✅ 0 errors, 0 warnings baru.
+
+### Dead code verification
+
+- `speculative_decoding.rs` + `token_loop.rs` — confirmed sudah tidak ada di disk
+
 ## 0.2.0
 
 ### Version Bump

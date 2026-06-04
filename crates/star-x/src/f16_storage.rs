@@ -38,7 +38,8 @@ impl MixedPrecisionTensor {
         match (&self.f32_data, &self.f16_data) {
             (Some(f32), _) => f32.clone(),
             (None, Some(f16)) => crate::f16_storage_to_f32_tensor(f16, self.shape.clone()),
-            (None, None) => ArrayD::from_shape_vec(self.shape.clone(), vec![]).unwrap(),
+            (None, None) => ArrayD::from_shape_vec(self.shape.clone(), vec![])
+                .unwrap_or_else(|_| ArrayD::zeros(self.shape.clone())),
         }
     }
 
