@@ -6,7 +6,9 @@ use crate::{TransformerConfig, TransformerResult, TransformerError};
 impl CausalLM {
     pub fn parameter_count(&self) -> usize {
         let mut count = self.token_embedding.as_ref().map_or(0, |w| w.len());
-        count += self.lm_head.as_ref().map_or(0, |w| w.len());
+        if !self.weight_tied {
+            count += self.lm_head.as_ref().map_or(0, |w| w.len());
+        }
         for block in &self.blocks {
             count += block.attention.wq.as_ref().map_or(0, |w| w.len());
             count += block.attention.wk.as_ref().map_or(0, |w| w.len());
@@ -31,8 +33,13 @@ impl CausalLM {
         weights.push(self.token_embedding.clone().unwrap_or(Array2::zeros((0, 0))));
         names.push("token_embedding".to_string());
 
-        weights.push(self.lm_head.clone().unwrap_or(Array2::zeros((0, 0))));
-        names.push("lm_head".to_string());
+        if self.weight_tied {
+            weights.push(Array2::zeros((0, 0)));
+            names.push("lm_head (tied)".to_string());
+        } else {
+            weights.push(self.lm_head.clone().unwrap_or(Array2::zeros((0, 0))));
+            names.push("lm_head".to_string());
+        }
 
         for (i, block) in self.blocks.iter().enumerate() {
             let prefix = format!("blocks.{}", i);

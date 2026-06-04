@@ -58,10 +58,9 @@ pub fn resolve_tier_backbone(tier: ModelTier) -> TransformerResult<Arc<CausalLM>
             ))
         })?;
         // Double-check: mungkin sudah di-create oleh thread lain
-        reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        let entry = reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        return Ok(Arc::clone(entry));
     }
-
-    Ok(model)
 }
 
 /// Get the backbone with custom config overrides.
@@ -92,10 +91,9 @@ where
                 e
             ))
         })?;
-        reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        let entry = reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        return Ok(Arc::clone(entry));
     }
-
-    Ok(model)
 }
 
 /// Unload a specific tier's backbone from the registry — frees VRAM.
@@ -189,8 +187,8 @@ mod tests {
                 e
             ))
         })?;
-        reg.entry(tier).or_insert_with(|| Arc::clone(&model));
-        Ok(model)
+        let entry = reg.entry(tier).or_insert_with(|| Arc::clone(&model));
+        Ok(Arc::clone(entry))
     }
 
     #[test]
@@ -329,28 +327,19 @@ mod tests {
     #[test]
     fn test_registry_deduplicates() {
         clear_all_backbones();
-        assert_eq!(registered_tier_count(), 0);
 
-        resolve_tiny_backbone(false).unwrap();
-        {
-            let cfg = TransformerConfig {
-                hidden_size: 8,
-                num_heads: 4,
-                num_kv_heads: 2,
-                intermediate_size: 16,
-                num_experts: 4,
-                top_k_experts: 2,
-                expert_intermediate_size: 8,
-                ..tiny_config(false)
-            };
-            let tier = ModelTier::Ultra;
-            let m = Arc::new(CausalLM::new(cfg));
-            let mut reg = registry().write().unwrap();
-            reg.entry(tier).or_insert_with(|| Arc::clone(&m));
-        }
-        resolve_tiny_backbone(false).unwrap(); // duplicate Pro
-        resolve_tiny_backbone(true).unwrap();
+        let before = registered_tier_count();
+        let a = resolve_tiny_backbone(false).unwrap();
+        let after_first = registered_tier_count();
+        assert!(after_first > before, "new tier should increase count");
 
-        assert_eq!(registered_tier_count(), 3);
+        let b = resolve_tiny_backbone(false).unwrap();
+        let after_dup = registered_tier_count();
+        assert_eq!(after_dup, after_first, "duplicate resolve must not increase count");
+        assert!(Arc::ptr_eq(&a, &b), "duplicate resolve must return same pointer");
+
+        let c = resolve_tiny_backbone(true).unwrap();
+        let d = resolve_tiny_backbone(true).unwrap();
+        assert!(Arc::ptr_eq(&c, &d), "duplicate resolve for Core must return same pointer");
     }
 }

@@ -259,7 +259,17 @@ pub fn load_lazy_into_causal_lm(
     let mut model = super::model::CausalLM::new_empty(config.clone());
 
     model.token_embedding = Some(loader.get_token_embedding()?);
-    model.lm_head = Some(loader.get_lm_head()?);
+    match loader.get_lm_head() {
+        Ok(lm) => {
+            model.lm_head = Some(lm);
+            model.weight_tied = false;
+        }
+        Err(_) => {
+            model.lm_head = None;
+            model.weight_tied = true;
+            tracing::info!("lazy_weights: lm_head not available — weight tying enabled");
+        }
+    }
     model.norm.weight = Some(loader.get_norm_weight()?);
 
     // Pre-compute RoPE

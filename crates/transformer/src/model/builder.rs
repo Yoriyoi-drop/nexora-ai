@@ -1,9 +1,9 @@
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use ndarray::{Array1, Array2};
 use nexora_quantization::QFormat;
-use rand::Rng;
 use crate::block::TransformerBlock;
-use crate::gqa::KVCacheProvider;
+use crate::embedding_registry;
+use crate::lora::LayerLoRA;
 use crate::rope::RoPE;
 use crate::{LayerInjector, TransformerConfig};
 
@@ -103,6 +103,16 @@ pub struct CausalLM {
     /// to all-reduce partial attention/FFN outputs across shards.
     pub collective: Option<crate::sharded::ShardCollective>,
 
+    /// Weight tying: lm_head is the same as token_embedding.
+    /// When true, `lm_head` field is `None` and all lm_head operations
+    /// use `token_embedding` directly. Saves ~(vocab_size × hidden_size × 4) bytes.
+    pub weight_tied: bool,
+
+    /// LoRA PEFT adapters for runtime inference.
+    /// Each entry corresponds to a transformer block layer.
+    /// Applied on-the-fly in forward pass: Wx + A·B·x·scaling.
+    pub lora_adapters: Option<Arc<Vec<LayerLoRA>>>,
+
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
@@ -133,6 +143,8 @@ impl Clone for CausalLM {
             lazy_loader: self.lazy_loader.clone(),
             unload_blocks_after_forward: self.unload_blocks_after_forward,
             collective: self.collective.clone(),
+            weight_tied: self.weight_tied,
+            lora_adapters: self.lora_adapters.clone(),
         }
     }
 }
@@ -157,6 +169,8 @@ impl Clone for CausalLM {
             lazy_loader: self.lazy_loader.clone(),
             unload_blocks_after_forward: self.unload_blocks_after_forward,
             collective: self.collective.clone(),
+            weight_tied: self.weight_tied,
+            lora_adapters: self.lora_adapters.clone(),
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
         }
@@ -164,14 +178,42 @@ impl Clone for CausalLM {
 }
 
 impl CausalLM {
-    pub fn new(config: TransformerConfig) -> Self {
-        let mut rng = rand::thread_rng();
-        let scale = (config.hidden_size as f32).sqrt().recip();
+    /// Enable weight tying: lm_head reuses token_embedding data.
+    /// Drops lm_head allocation, all lm_head operations use token_embedding.
+    /// Returns self for chaining.
+    pub fn with_weight_tying(mut self) -> Self {
+        self.weight_tied = true;
+        self.lm_head = None;
+        self
+    }
 
-        let token_embedding = Some(
-            Array2::from_shape_fn((config.vocab_size, config.hidden_size), |_| {
-                rng.gen::<f32>() * 2.0 * scale - scale
-            }));
+    /// Attach LoRA PEFT adapters for runtime inference.
+    /// `adapters` should have one entry per transformer block layer.
+    /// Returns self for chaining.
+    pub fn attach_lora(mut self, adapters: Vec<LayerLoRA>) -> Self {
+        self.lora_adapters = Some(Arc::new(adapters));
+        self
+    }
+
+    /// Get LoRA adapter for a specific layer, if attached.
+    pub fn get_lora(&self, layer_idx: usize) -> Option<&LayerLoRA> {
+        self.lora_adapters.as_ref().and_then(|adapters| {
+            if layer_idx < adapters.len() {
+                Some(&adapters[layer_idx])
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn new(config: TransformerConfig) -> Self {
+        let embedding_seed = 42;
+        let shared_embed = embedding_registry::resolve_embedding(
+            config.vocab_size,
+            config.hidden_size,
+            embedding_seed,
+        );
+        let token_embedding = Some((*shared_embed).clone());
 
         let nh_local = config.num_heads_local();
         let nkv_local = config.num_kv_heads_local();
@@ -196,9 +238,9 @@ impl CausalLM {
             })
             .collect();
         let norm = crate::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps);
-        let lm_head = Some(Array2::from_shape_fn((config.vocab_size, config.hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        }));
+        // Weight tying: lm_head = token_embedding by default.
+        // Set `lm_head = None` and `weight_tied = true` to save memory.
+        let lm_head = Some((*shared_embed).clone());
         let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
         let (cos_full, sin_full) = rope.precompute_freqs_cis();
         let half = head_dim / 2;
@@ -250,6 +292,8 @@ impl CausalLM {
             lazy_loader: None,
             unload_blocks_after_forward: false,
             collective,
+            weight_tied: false,
+            lora_adapters: None,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
@@ -315,6 +359,8 @@ impl CausalLM {
             lazy_loader: None,
             unload_blocks_after_forward: false,
             collective,
+            weight_tied: false,
+            lora_adapters: None,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]

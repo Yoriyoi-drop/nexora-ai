@@ -45,14 +45,19 @@ impl CausalLM {
     }
 
     fn get_lm_head(&self) -> TransformerResult<&Array2<f32>> {
+        if self.weight_tied {
+            return self.get_token_embedding();
+        }
         self.lm_head.as_ref().ok_or_else(|| {
             TransformerError::Implementation("lm_head not available".into())
         })
     }
 
     pub fn drop_cpu_weights(&mut self) {
+        if !self.weight_tied {
+            self.lm_head = None;
+        }
         self.token_embedding = None;
-        self.lm_head = None;
         for block in &mut self.blocks {
             block.attention.drop_cpu_weights();
             block.ffn.drop_cpu_weights();
@@ -176,8 +181,27 @@ impl CausalLM {
 
         h = self.norm.forward(&h)?;
 
-        let lh = self.get_lm_head()?;
-        Ok(h.row(0).dot(&lh.t()))
+        // Apply LoRA PEFT to final hidden state before lm_head projection
+        let logits = if let Some(ref adapters) = self.lora_adapters {
+            let lora_out: Array2<f32> = adapters.iter().fold(
+                Array2::zeros((1, self.config.vocab_size)),
+                |acc, layer| {
+                    acc + layer.q.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.k.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.v.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.o.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w1.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w2.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w3.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                },
+            );
+            let lh = self.get_lm_head()?;
+            h.row(0).dot(&lh.t()) + lora_out.row(0)
+        } else {
+            let lh = self.get_lm_head()?;
+            h.row(0).dot(&lh.t())
+        };
+        Ok(logits)
     }
 
     pub fn reset_cache(&self) -> CpuKVCache {
@@ -238,8 +262,26 @@ impl CausalLM {
 
         h = self.norm.forward(&h)?;
 
-        let lh = self.get_lm_head()?;
-        Ok(h.row(0).dot(&lh.t()))
+        let logits = if let Some(ref adapters) = self.lora_adapters {
+            let lora_out: Array2<f32> = adapters.iter().fold(
+                Array2::zeros((1, self.config.vocab_size)),
+                |acc, layer| {
+                    acc + layer.q.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.k.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.v.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.o.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w1.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w2.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                        + layer.w3.as_ref().map_or(Array2::zeros((1, self.config.vocab_size)), |l| l.apply(&h))
+                },
+            );
+            let lh = self.get_lm_head()?;
+            h.row(0).dot(&lh.t()) + lora_out.row(0)
+        } else {
+            let lh = self.get_lm_head()?;
+            h.row(0).dot(&lh.t())
+        };
+        Ok(logits)
     }
 
     /// GPU forward with pre-uploaded cos/sin GPU tensors.

@@ -95,8 +95,16 @@ impl CausalLM {
         }
         model.token_embedding = Some(
             to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?.to_owned());
-        model.lm_head = Some(
-            to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned());
+        if loaded.contains_key("lm_head") {
+            model.lm_head = Some(
+                to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned());
+            model.weight_tied = false;
+        } else {
+            // Weight tying: lm_head not in checkpoint, use token_embedding
+            model.lm_head = None;
+            model.weight_tied = true;
+            tracing::info!("lm_head not found in checkpoint — weight tying enabled");
+        }
         model.norm.weight = Some(
             to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned());
         for (i, block) in model.blocks.iter_mut().enumerate() {
@@ -179,7 +187,7 @@ impl CausalLM {
                 }
             }
         }
-        let model = Self::new(config);
+        let mut model = Self::new(config);
 
         let get_arr = |name: &str| -> crate::TransformerResult<ArrayD<f32>> {
             loaded.get(name).cloned().ok_or_else(|| {
@@ -193,9 +201,17 @@ impl CausalLM {
         };
 
         let te_gpu = to_gpu(get_arr("token_embedding")?)?;
-        let lh_gpu = to_gpu(get_arr("lm_head")?)?;
-        let lm_head_t = ctx.transpose(&lh_gpu)
-            .map_err(|e| crate::TransformerError::Implementation(format!("lm_head transpose: {e}")))?;
+        let lm_head_t = if loaded.contains_key("lm_head") {
+            let lh_gpu = to_gpu(get_arr("lm_head")?)?;
+            ctx.transpose(&lh_gpu)
+                .map_err(|e| crate::TransformerError::Implementation(format!("lm_head transpose: {e}")))?
+        } else {
+            model.weight_tied = true;
+            model.lm_head = None;
+            tracing::info!("lm_head not found in GPU checkpoint — weight tying enabled");
+            ctx.transpose(&te_gpu)
+                .map_err(|e| crate::TransformerError::Implementation(format!("lm_head transpose (tied): {e}")))?
+        };
         let nw_gpu = to_gpu(get_arr("norm.weight")?)?;
         let _ = model.norm.gpu_weights.set(crate::rms_norm::RmsNormGpuWeights {
             weight: nw_gpu.clone(),

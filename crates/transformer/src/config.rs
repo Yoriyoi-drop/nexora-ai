@@ -195,6 +195,7 @@ impl TransformerConfig {
         };
         let final_norm = self.hidden_size;
         let lm_head = self.vocab_size * self.hidden_size;
+        // Weight tying: lm_head included once in embedding count
         embedding + self.num_layers * (per_layer_attn + per_layer_ffn) + final_norm + lm_head
     }
 

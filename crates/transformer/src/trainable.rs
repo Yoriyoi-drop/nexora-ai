@@ -220,6 +220,14 @@ impl TrainableCausalLM {
             })
             .collect();
 
+        let lm_head = if model.weight_tied {
+            // Weight tying: lm_head shares token_embedding
+            let t = to_tensor(model.token_embedding.as_ref(), "token_embedding (lm_head tied)");
+            t
+        } else {
+            to_tensor(model.lm_head.as_ref(), "lm_head")
+        };
+
         Self {
             config: model.config.clone(),
             token_embedding: to_tensor(model.token_embedding.as_ref(), "token_embedding"),
@@ -228,7 +236,7 @@ impl TrainableCausalLM {
                 weight: to_tensor_1d(model.norm.weight.as_ref(), "norm.weight"),
                 eps: model.norm.eps,
             },
-            lm_head: to_tensor(model.lm_head.as_ref(), "lm_head"),
+            lm_head,
             training_config: TrainingConfig::default(),
         }
     }
@@ -243,12 +251,16 @@ impl TrainableCausalLM {
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|_| "Internal invariant: token_embedding must be 2D")?
             .to_owned());
-        model.lm_head = Some(self
-            .lm_head
-            .data()
-            .into_dimensionality::<ndarray::Ix2>()
-            .map_err(|_| "Internal invariant: lm_head must be 2D")?
-            .to_owned());
+        if model.weight_tied {
+            model.lm_head = None;
+        } else {
+            model.lm_head = Some(self
+                .lm_head
+                .data()
+                .into_dimensionality::<ndarray::Ix2>()
+                .map_err(|_| "Internal invariant: lm_head must be 2D")?
+                .to_owned());
+        }
         model.norm.weight = Some(
             self.norm.weight.data()
                 .into_dimensionality::<ndarray::Ix1>()
@@ -585,9 +597,16 @@ impl TrainableCausalLM {
     pub fn parameters(&self) -> Vec<Tensor> {
         let mut params = vec![
             self.token_embedding.clone(),
-            self.lm_head.clone(),
             self.norm.weight.clone(),
         ];
+        // Only add lm_head if it differs from token_embedding (non-tied)
+        let lm_head_data = self.lm_head.data();
+        let te_data = self.token_embedding.data();
+        let is_tied = lm_head_data.shape() == te_data.shape()
+            && lm_head_data.iter().zip(te_data.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
+        if !is_tied {
+            params.push(self.lm_head.clone());
+        }
         for block in &self.blocks {
             params.push(block.attention_norm.weight.clone());
             params.push(block.ffn_norm.weight.clone());
@@ -610,8 +629,32 @@ impl TrainableCausalLM {
     }
 
     pub fn zero_grad(&self) {
-        for p in self.parameters() {
-            p.zero_grad();
+        self.token_embedding.zero_grad();
+        self.norm.weight.zero_grad();
+        let lm_head_data = self.lm_head.data();
+        let te_data = self.token_embedding.data();
+        let is_tied = lm_head_data.shape() == te_data.shape()
+            && lm_head_data.iter().zip(te_data.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
+        if !is_tied {
+            self.lm_head.zero_grad();
+        }
+        for block in &self.blocks {
+            block.attention_norm.weight.zero_grad();
+            block.ffn_norm.weight.zero_grad();
+            block.attention.wq.zero_grad();
+            block.attention.wk.zero_grad();
+            block.attention.wv.zero_grad();
+            block.attention.wo.zero_grad();
+            block.ffn.w1.zero_grad();
+            block.ffn.w2.zero_grad();
+            block.ffn.w3.zero_grad();
+            if let Some(experts) = &block.experts {
+                for e in experts {
+                    e.w1.zero_grad();
+                    e.w2.zero_grad();
+                    e.w3.zero_grad();
+                }
+            }
         }
     }
 
@@ -631,7 +674,14 @@ impl TrainableCausalLM {
         let mut tensors: Vec<(String, ndarray::ArrayD<f32>)> =
             Vec::with_capacity(3 + 9 * self.blocks.len() + expert_tensors_per * self.blocks.len());
         tensors.push(("token_embedding".into(), self.token_embedding.data()));
-        tensors.push(("lm_head".into(), self.lm_head.data()));
+        // Skip lm_head in checkpoint if weight tied — save storage
+        let lm_head_data = self.lm_head.data();
+        let te_data = self.token_embedding.data();
+        if lm_head_data.shape() != te_data.shape()
+            || lm_head_data.iter().zip(te_data.iter()).any(|(a, b)| (a - b).abs() > 1e-6)
+        {
+            tensors.push(("lm_head".into(), lm_head_data));
+        }
         tensors.push(("norm.weight".into(), self.norm.weight.data()));
         for (i, block) in self.blocks.iter().enumerate() {
             let data_refs = [
@@ -704,8 +754,15 @@ impl TrainableCausalLM {
 
         model.token_embedding = Some(
             to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?);
-        model.lm_head = Some(
-            to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?);
+        if loaded.contains_key("lm_head") {
+            model.lm_head = Some(
+                to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?);
+            model.weight_tied = false;
+        } else {
+            model.lm_head = None;
+            model.weight_tied = true;
+            tracing::info!("trainable load_checkpoint: lm_head not found — weight tying enabled");
+        }
         model.norm.weight = Some(
             to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?);
 
@@ -855,7 +912,7 @@ mod tests {
         let inf = small_model();
         let trainable = TrainableCausalLM::from_inference(&inf);
         let params = trainable.parameters();
-        assert_eq!(params.len(), 3 + 9);
+        assert_eq!(params.len(), 2 + 9);
     }
 
     #[test]
