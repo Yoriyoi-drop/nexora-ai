@@ -351,7 +351,7 @@ impl GpuKVCacheEntry {
     /// Instead of immediately copying GPU buffers (expensive), this increments
     /// a shared reference counter. The first `append()` or `clear()` on any
     /// cloned entry triggers the real buffer copy.
-    pub fn deep_clone(&self, ctx: &GpuContext) -> Result<Self, nexora_autograd::gpu::GpuError> {
+    pub fn deep_clone(&self, _ctx: &GpuContext) -> Result<Self, nexora_autograd::gpu::GpuError> {
         let cow_count = self.cow_count.clone().unwrap_or_else(|| {
             std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1))
         });
@@ -853,7 +853,7 @@ impl KVCacheEntry {
 }
 
 impl GQA {
-    pub fn new(hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) -> Self {
+    pub fn new(_hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) -> Self {
         Self {
             num_heads,
             num_kv_heads,
@@ -1082,7 +1082,7 @@ impl GQA {
     pub fn forward(
         &self,
         x: &Array2<f32>,
-        mut cache: Option<&mut Vec<KVCacheEntry>>,
+        cache: Option<&mut Vec<KVCacheEntry>>,
         layer_idx: usize,
         cos: &[f32],
         sin: &[f32],
@@ -1808,7 +1808,7 @@ impl GQA {
         cos_gpu: &nexora_autograd::gpu::GpuTensor,
         sin_gpu: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use nexora_autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
         let shape_v = x_gpu.shape();
@@ -2204,7 +2204,7 @@ impl GQA {
                     Err(_) => break Err(wgpu::BufferAsyncError),
                 }
             };
-            let map_result =
+            let _map_result =
                 map_result.map_err(|e| GpuError::Device(format!("map_async: {e:?}")))?;
             let out: Vec<f32> = {
                 let mapped = slice.get_mapped_range();

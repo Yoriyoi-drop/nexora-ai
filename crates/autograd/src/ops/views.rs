@@ -133,7 +133,7 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
         debug!("cat_gpu concatenate failed: {e}");
         ArrayD::zeros(vec![0])
     });
-    let ctx = match GpuContext::global() {
+    let _ctx = match GpuContext::global() {
         Ok(c) => c,
         Err(_) => return Tensor::new(result),
     };
@@ -195,7 +195,7 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
         debug!("stack_gpu concatenate failed: {e}");
         ArrayD::zeros(vec![0])
     });
-    let ctx = match GpuContext::global() {
+    let _ctx = match GpuContext::global() {
         Ok(c) => c,
         Err(_) => return Tensor::new(result),
     };

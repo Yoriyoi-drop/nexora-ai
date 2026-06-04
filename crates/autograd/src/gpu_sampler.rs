@@ -171,7 +171,7 @@ pub fn gpu_sample(
             ctx,
             &pipelines.temperature_scale,
             &scale_bg,
-            ((numel as u32 + 255) / 256, 1, 1),
+            ((numel as u32).div_ceil(256), 1, 1),
             "temperature_scale",
         );
     }

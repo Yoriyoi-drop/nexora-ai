@@ -115,7 +115,7 @@ impl AWQEngine {
         weight: &Array2<f32>,
         saliency: &Array1<f32>,
     ) -> (Vec<f32>, Vec<i32>) {
-        let num_groups = (weight.shape()[1] + self.config.group_size - 1) / self.config.group_size;
+        let num_groups = weight.shape()[1].div_ceil(self.config.group_size);
         let max_quant = (1 << self.config.bits) as f32 - 1.0;
 
         let mut scales = Vec::with_capacity(num_groups);
@@ -172,7 +172,7 @@ impl AWQEngine {
         let max_quant = (1 << self.config.bits) as f32 - 1.0;
         let entries_per_byte = 8 / self.config.bits as usize;
         let total_elements = weight.shape()[0] * weight.shape()[1];
-        let qdata_len = (total_elements + entries_per_byte - 1) / entries_per_byte;
+        let qdata_len = total_elements.div_ceil(entries_per_byte);
 
         let mut qdata = vec![0u8; qdata_len];
         let mut idx = 0;

@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use ndarray::Array1;
 use rand::seq::SliceRandom;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -235,7 +234,7 @@ impl CausalLmModel {
 
     #[cfg(feature = "gpu")]
     pub async fn load_checkpoint_gpu(&self, path: &str) -> NxrModelResult<()> {
-        use nexora_transformer::TransformerConfig;
+        
         let tc = self.transformer_config.read().await.clone();
         let gpu_model = CausalLM::from_checkpoint_gpu(tc, path)
             .map_err(|e| NxrModelError::Inference(format!("GPU checkpoint load failed: {}", e)))?;
@@ -899,7 +898,7 @@ impl CausalLmModel {
         let text = match &input.data {
             InputData::Text(t) => t.clone(),
             InputData::Tokens(t) => {
-                let decoded = tok.decode(t);
+                let _decoded = tok.decode(t);
                 let elapsed = std::time::Instant::now();
                 let total = t.len() as u64;
                 let dur = elapsed.elapsed().as_millis() as u64;

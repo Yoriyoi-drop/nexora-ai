@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::info;
 
-use super::manifest::{DatasetManifest, ManifestError};
+use super::manifest::DatasetManifest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetInfo {

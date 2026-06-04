@@ -106,8 +106,7 @@ pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD
         return grad.clone();
     }
     let grad_shape = grad.shape().to_vec();
-    let padded: Vec<usize> = std::iter::repeat(1)
-        .take(grad_shape.len().saturating_sub(orig_shape.len()))
+    let padded: Vec<usize> = std::iter::repeat_n(1, grad_shape.len().saturating_sub(orig_shape.len()))
         .chain(orig_shape.iter().cloned())
         .collect();
 

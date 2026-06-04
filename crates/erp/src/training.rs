@@ -170,7 +170,7 @@ impl ERPTrainer {
         Ok(TrainedERPModel {
             calibrated_model: model.clone(),
             lora_adapters: lora_adapters.clone(),
-            training_stats: self.compute_training_stats(&model, &lora_adapters),
+            training_stats: self.compute_training_stats(model, &lora_adapters),
         })
     }
 
@@ -312,7 +312,7 @@ impl ERPTrainer {
     ) -> Result<Vec<LoRAAdapter>, ERPError> {
         let mut adapters = Vec::new();
 
-        for (_layer_idx, layer) in layers.iter().enumerate() {
+        for layer in layers.iter() {
             let adapter = self.train_layer_lora(layer, training_data, rank)?;
             adapters.push(adapter);
         }
@@ -374,13 +374,11 @@ impl ERPTrainer {
                 lora_b -= &(lora_grad_b * learning_rate);
             }
 
-            if epoch % 1 == 0 {
-                tracing::info!(
-                    "LoRA training epoch {} for layer {}",
-                    epoch,
-                    layer.layer_idx
-                );
-            }
+            tracing::info!(
+                "LoRA training epoch {} for layer {}",
+                epoch,
+                layer.layer_idx
+            );
         }
 
         Ok(LoRAAdapter {
@@ -605,7 +603,7 @@ impl ERPTrainer {
             1.0 - (total_compressed_params as f32 / total_original_params as f32);
 
         // Optimal compression ratio is around 0.5-0.8
-        if compression_ratio >= 0.5 && compression_ratio <= 0.8 {
+        if (0.5..=0.8).contains(&compression_ratio) {
             1.0
         } else if compression_ratio < 0.5 {
             compression_ratio / 0.5
@@ -687,6 +685,12 @@ pub struct TrainingDataset {
     pub samples: Vec<(Array1<f32>, Array1<f32>)>,
 }
 
+impl Default for TrainingDataset {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrainingDataset {
     pub fn new() -> Self {
         Self {
@@ -730,6 +734,12 @@ pub struct TrainingBatch {
 #[derive(Debug, Clone)]
 pub struct CalibrationDataset {
     pub contexts: Vec<Array1<f32>>,
+}
+
+impl Default for CalibrationDataset {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CalibrationDataset {

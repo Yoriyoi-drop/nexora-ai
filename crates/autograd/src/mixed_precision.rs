@@ -2,8 +2,10 @@ use ndarray::ArrayD;
 
 /// Numeric data type / precision
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum DType {
     F32,
+    #[default]
     F16,
     BF16,
 }
@@ -26,11 +28,6 @@ impl DType {
     }
 }
 
-impl Default for DType {
-    fn default() -> Self {
-        DType::F16
-    }
-}
 
 impl std::fmt::Display for DType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -296,7 +293,7 @@ impl AmpOptimizer {
             .inner
             .parameters
             .iter()
-            .any(|p| p.grad().map_or(false, |g| LossScaler::has_overflow(&g)));
+            .any(|p| p.grad().is_some_and(|g| LossScaler::has_overflow(&g)));
 
         if has_overflow {
             self.loss_scaler.update(true);
@@ -339,7 +336,6 @@ impl AmpOptimizer {
     /// Only needed when compute_dtype != F32 and before each forward pass.
     pub fn cast_model_to_compute_dtype(&self) {
         if !self.compute_dtype.is_half() {
-            return;
         }
         // Parameters are kept in FP32 by inner optimizer;
         // we convert to half implicitly via data storage when needed.

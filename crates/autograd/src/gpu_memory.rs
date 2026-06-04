@@ -44,7 +44,7 @@ pub struct PooledBuffer {
 }
 
 impl PooledBuffer {
-    pub fn as_entire_binding(&self) -> wgpu::BindingResource {
+    pub fn as_entire_binding(&self) -> wgpu::BindingResource<'_> {
         self.buffer.as_entire_binding()
     }
 }

@@ -170,7 +170,7 @@ fn analyze_weight_statistics(
         flat_weights.iter().filter(|&&w| w.abs() < 1e-8).count() as f32 / flat_weights.len() as f32;
 
     // Rank estimation using SVD
-    let (rank_estimate, singular_values) = estimate_weight_rank(&weights)?;
+    let (rank_estimate, singular_values) = estimate_weight_rank(weights)?;
 
     Ok(WeightStatistics {
         mean,
@@ -193,8 +193,8 @@ fn analyze_activation_statistics(
 
     // Generate random inputs and compute activations
     for _ in 0..sample_size {
-        let input = generate_random_input(&weights.shape())?;
-        let activation = compute_layer_activation(&weights, &input)?;
+        let input = generate_random_input(weights.shape())?;
+        let activation = compute_layer_activation(weights, &input)?;
         activations.push(activation);
     }
 
@@ -238,7 +238,7 @@ fn analyze_gradient_statistics(
 
     // Approximate gradients using finite differences
     for _ in 0..sample_size {
-        let gradient = approximate_layer_gradient(&weights)?;
+        let gradient = approximate_layer_gradient(weights)?;
         gradients.push(gradient);
     }
 

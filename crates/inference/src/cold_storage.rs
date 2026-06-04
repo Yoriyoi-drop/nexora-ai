@@ -132,7 +132,7 @@ impl ColdStorage {
         candidates.sort_by(|a, b| a.2.cmp(&b.2));
         let mut freed = 0u64;
         let mut evicted = 0;
-        for (path, size, _) in candidates {
+        for (path, _size, _) in candidates {
             if self.total_bytes <= target_bytes && self.num_files <= target_files { break; }
             if let Some(s) = self.file_sizes.remove(&path) { self.total_bytes = self.total_bytes.saturating_sub(s); freed += s; }
             self.num_files -= 1;

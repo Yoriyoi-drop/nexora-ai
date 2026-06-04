@@ -64,7 +64,7 @@ async fn register_causal_lm(
     let mini_tok = MiniTokenizer::new(vocab_size);
     model.load_tokenizer(mini_tok).await;
 
-    let params = serde_json::json!({
+    let _params = serde_json::json!({
         "transformer_config": {
             "vocab_size": transformer_config.vocab_size,
             "hidden_size": transformer_config.hidden_size,

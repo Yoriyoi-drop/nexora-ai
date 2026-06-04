@@ -511,7 +511,7 @@ impl CoTEngine {
                 .requirements
                 .iter()
                 .enumerate()
-                .map(|(i, r)| {
+                .map(|(i, _r)| {
                     format!(
                         "ReqComponent_{}(depends on: {:?})",
                         i,
@@ -781,7 +781,7 @@ impl CoTEngine {
     /// property-specific edge cases using structural reasoning
     async fn identify_edge_cases(&self, task: &CodingTask) -> SACAResult<Vec<String>> {
         let desc_lower = task.description.to_lowercase();
-        let all_text = {
+        let _all_text = {
             let mut t = task.description.clone();
             for req in &task.requirements {
                 t.push_str(" ");
@@ -941,7 +941,7 @@ impl CoTEngine {
     /// Extracts implicit assumptions from code structure, constraints, and requirements
     async fn identify_assumptions(&self, task: &CodingTask) -> SACAResult<Vec<String>> {
         let desc_lower = task.description.to_lowercase();
-        let all_text = {
+        let _all_text = {
             let mut t = task.description.clone();
             for req in &task.requirements {
                 t.push_str(" ");
@@ -1105,7 +1105,7 @@ impl CoTEngine {
     /// Evaluates complexity, failure modes, and domain-specific hazards
     async fn assess_risks(&self, task: &CodingTask) -> SACAResult<Vec<String>> {
         let desc_lower = task.description.to_lowercase();
-        let all_text = {
+        let _all_text = {
             let mut t = task.description.clone();
             for req in &task.requirements {
                 t.push_str(" ");

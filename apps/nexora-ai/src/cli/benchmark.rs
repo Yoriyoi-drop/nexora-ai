@@ -15,7 +15,6 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use crate::NexoraAI;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -483,7 +482,7 @@ impl BenchmarkRunner {
         let mut handles = Vec::with_capacity(n);
         for prompt in &prompts {
             let nexora = self.nexora.clone();
-            let p = (*prompt);
+            let p = *prompt;
             handles.push(tokio::spawn(async move {
                 nexora.generate_text(&p, 30, 0.7).await
             }));
@@ -1243,17 +1242,18 @@ impl BaselineRunner {
             };
         }
 
+        let tr = training.as_ref().expect("training is Some after None check above");
         LossCurveBaseline {
             steps: (0..self.train_steps).step_by(5).collect(),
-            losses: vec![training.as_ref().unwrap().final_loss; self.train_steps / 5],
+            losses: vec![tr.final_loss; self.train_steps / 5],
             val_losses: vec![],
             learning_rates: vec![],
             loss_description: format!(
                 "Training baseline: {} steps, final loss={:.6}, best loss={:.6}, perplexity={:.2}",
                 self.train_steps,
-                training.as_ref().unwrap().final_loss,
-                training.as_ref().unwrap().best_loss,
-                training.as_ref().unwrap().final_perplexity,
+                tr.final_loss,
+                tr.best_loss,
+                tr.final_perplexity,
             ),
         }
     }

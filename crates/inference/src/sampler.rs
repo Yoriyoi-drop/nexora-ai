@@ -1,7 +1,7 @@
 use rand::Rng;
 use rand::SeedableRng;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 pub use nexora_transformer::model::GPU_FALLBACK_COUNT;
 

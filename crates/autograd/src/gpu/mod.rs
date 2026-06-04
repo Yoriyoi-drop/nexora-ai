@@ -1,8 +1,6 @@
 pub mod gpu_types;
 pub use gpu_types::*;
 
-pub mod gpu_context;
-
 pub mod gpu_tensor;
 pub use gpu_tensor::*;
 
@@ -20,6 +18,20 @@ pub use gpu_watchdog::*;
 
 pub mod gpu_observability;
 pub use gpu_observability::*;
+
+pub mod wgsl;
+
+pub mod context;
+
+pub mod allocator;
+
+pub mod device;
+
+pub mod stream;
+
+pub mod metrics;
+
+pub mod utils;
 
 #[cfg(feature = "cuda")]
 pub mod cuda;

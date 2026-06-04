@@ -81,7 +81,7 @@ impl ActiveStandbyScheduler {
         let model_ids = NxrModelId::all();
         let num_total = config.num_total.min(model_ids.len());
 
-        let mut models: Vec<ModelState> = model_ids
+        let models: Vec<ModelState> = model_ids
             .iter()
             .take(num_total)
             .enumerate()

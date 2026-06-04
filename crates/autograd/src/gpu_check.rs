@@ -59,7 +59,7 @@ pub fn has_nan_or_inf_gpu(
         return false;
     }
 
-    let flag_workgroups = ((n + 63) / 64).max(1);
+    let flag_workgroups = n.div_ceil(64).max(1);
     let flag_size = (flag_workgroups * 4) as u64;
     let flag_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("nan_flag_buf"),
@@ -105,7 +105,7 @@ pub fn has_nan_or_inf_gpu(
         let mut reduce_round = 0;
 
         while remaining > 1 {
-            let dst_workgroups = ((remaining + 63) / 64).max(1);
+            let dst_workgroups = remaining.div_ceil(64).max(1);
             let dst_size = (dst_workgroups * 4).max(4) as u64;
             let dst_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("nan_reduce_buf_{}", reduce_round)),
@@ -251,7 +251,7 @@ pub fn has_nan_or_inf_gpu(
         let flag = data[0] != 0;
         drop(data);
         result_buf.unmap();
-        return flag;
+        flag
     }
 }
 

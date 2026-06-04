@@ -42,7 +42,7 @@ pub fn analyze_attention_patterns(
     let mut cross_layer_correlations = HashMap::new();
 
     // Analyze each layer's attention patterns
-    for (_layer_idx, weights) in attention_weights.iter().enumerate() {
+    for weights in attention_weights.iter() {
         let pattern = analyze_layer_attention(weights, config)?;
         layer_patterns.push(pattern);
     }
@@ -156,7 +156,7 @@ fn analyze_layer_attention(
     let sparsity = compute_attention_sparsity(weights, config.attention_threshold)?;
 
     // Compute head importance (assuming multi-head attention)
-    let num_heads = shape.get(0).unwrap_or(&1);
+    let num_heads = shape.first().unwrap_or(&1);
     let mut head_importance = Vec::new();
 
     for head_idx in 0..*num_heads {

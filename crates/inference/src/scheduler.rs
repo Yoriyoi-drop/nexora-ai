@@ -2,9 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{watch, Mutex, Notify, RwLock};
+use tokio::sync::{watch, Notify, RwLock};
 use tokio::task::JoinHandle;
-use tracing::debug;
 use uuid::Uuid;
 
 use crate::batching::{Batch, BatchCollector, BatchKey};

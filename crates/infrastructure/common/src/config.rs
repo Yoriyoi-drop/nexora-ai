@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Global configuration for the application
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct GlobalConfig {
     /// Task classification keywords
     pub task_keywords: TaskKeywords,
@@ -116,14 +117,6 @@ impl Default for TaskAnalysisConfig {
     }
 }
 
-impl Default for GlobalConfig {
-    fn default() -> Self {
-        Self {
-            task_keywords: TaskKeywords::default(),
-            task_analysis: TaskAnalysisConfig::default(),
-        }
-    }
-}
 
 impl GlobalConfig {
     /// Get global configuration instance

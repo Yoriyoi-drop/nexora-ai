@@ -440,7 +440,7 @@ impl Adam {
 
                 if self.weight_decay > 0.0 {
                     let decay = p.data().mapv(|x| x * self.lr * self.weight_decay);
-                    update = update + &decay;
+                    update += &decay;
                 }
 
                 p.subtract_from_data(&update);
@@ -561,7 +561,7 @@ impl Adam {
                 ],
             });
 
-            let wg = (numel as u32 + 255) / 256;
+            let wg = (numel as u32).div_ceil(256);
             ctx.dispatch(pipeline, &bg, (wg, 1, 1));
         }
 
@@ -588,32 +588,32 @@ impl Adam {
         tensors.push((
             "opt.step".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.step as f32])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         tensors.push((
             "opt.lr".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.lr])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         tensors.push((
             "opt.beta1".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.beta1])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         tensors.push((
             "opt.beta2".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.beta2])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         tensors.push((
             "opt.eps".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.eps])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         tensors.push((
             "opt.weight_decay".to_string(),
             ArrayD::from_shape_vec(vec![1], vec![self.weight_decay])
-                .unwrap_or_else(|e| ArrayD::zeros(vec![1])),
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
         ));
         for (i, arr) in self.m.iter().enumerate() {
             tensors.push((format!("opt.m.{}", i), arr.clone()));

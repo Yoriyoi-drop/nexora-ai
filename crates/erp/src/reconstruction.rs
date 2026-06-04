@@ -69,7 +69,7 @@ impl ContextReconstructor {
         let context_embedding = self.compute_context_embedding(input, layer.layer_idx);
 
         // Compute gate scores untuk setiap neuron/resonance group
-        for (_i, resonance_rep) in layer.resonance_representations.iter().enumerate() {
+        for resonance_rep in layer.resonance_representations.iter() {
             let gate_score = self
                 .gate_network
                 .compute_gate_score(&context_embedding, resonance_rep);
@@ -208,7 +208,7 @@ impl ContextReconstructor {
         let mut embedding = Array1::zeros(64); // Fixed embedding size
 
         // Hash input ke embedding space
-        for (_i, &value) in input.iter().enumerate() {
+        for &value in input.iter() {
             let hash_idx = (value.abs() * 1000.0) as usize % embedding.len();
             embedding[hash_idx] += value;
         }

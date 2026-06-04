@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuError;
-use tracing::error;
 
 /// Physical device where tensor data resides
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

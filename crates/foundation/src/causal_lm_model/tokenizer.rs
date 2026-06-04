@@ -114,7 +114,7 @@ impl MiniTokenizer {
         let mut token_texts = graphemes;
         let mut next: Vec<usize> = (1..n).chain(std::iter::once(usize::MAX)).collect();
         let mut head = 0usize;
-        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain((0..n - 1)).collect();
+        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain(0..n - 1 ).collect();
         let mut active = n;
         if !self.merges.is_empty() {
             loop {

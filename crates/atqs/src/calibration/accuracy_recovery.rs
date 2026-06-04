@@ -515,7 +515,7 @@ fn analyze_quantization_sensitivity(
         // Gunakan calibration data activation sebagai proxy
         let weight_norm = weights.iter().map(|w| w * w).sum::<f32>().sqrt();
         let activation_magnitude =
-            estimate_activation_magnitude(&weights, validation_data, layer_idx)?;
+            estimate_activation_magnitude(weights, validation_data, layer_idx)?;
 
         // Sensitivity = gradient-weighted activation norm (AWQ approximation)
         let sensitivity = (activation_magnitude * weight_norm / 1000.0).clamp(0.0, 1.0);
@@ -552,7 +552,7 @@ fn apply_adaptive_quantization(
             };
 
             // Per-channel quantization (finer granularity)
-            apply_per_channel_quantization_to_layer(model, layer_idx, bits, &weights)?;
+            apply_per_channel_quantization_to_layer(model, layer_idx, bits, weights)?;
         }
     }
 
@@ -835,7 +835,7 @@ fn forward_pass_single(
 
     for layer in layers.iter() {
         let weights = layer.get_weights();
-        output = apply_layer_operation(&weights, &output)?;
+        output = apply_layer_operation(weights, &output)?;
     }
 
     Ok(output)
@@ -851,7 +851,7 @@ fn forward_pass_to_layer(
 
     for (layer_idx, layer) in layers.iter().enumerate() {
         let weights = layer.get_weights();
-        output = apply_layer_operation(&weights, &output)?;
+        output = apply_layer_operation(weights, &output)?;
 
         if layer_idx == target_layer {
             break;

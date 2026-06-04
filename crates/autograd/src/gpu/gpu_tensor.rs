@@ -118,7 +118,7 @@ impl GpuTensor {
     /// The underlying buffer will have `(numel() + 3) / 4 * 4` bytes.
     pub fn from_cpu_i8_packed(shape: Vec<usize>, packed_data: &[u32]) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
-        let expected_packed = (shape.iter().product::<usize>() + 3) / 4;
+        let expected_packed = shape.iter().product::<usize>().div_ceil(4);
         if packed_data.len() < expected_packed {
             return Err(GpuError::Buffer(format!(
                 "from_cpu_i8_packed: expected at least {} packed u32s for shape {:?}, got {}",
@@ -164,7 +164,7 @@ impl GpuTensor {
                 packed_bytes.len()
             )));
         }
-        let u32_count = (num_bytes + 3) / 4;
+        let u32_count = num_bytes.div_ceil(4);
         let byte_size = u32_count as u64 * 4;
         let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("GpuTensor::from_cpu_q4_packed"),
@@ -283,7 +283,7 @@ impl GpuTensor {
         let byte_size = (numel * esize) as u64;
 
         // Align to 4 bytes for u32 fill compatibility
-        let aligned_size = ((byte_size + 3) / 4) * 4;
+        let aligned_size = byte_size.div_ceil(4) * 4;
 
         let buffer = ctx
             .alloc_buffer(

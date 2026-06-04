@@ -718,7 +718,7 @@ macro_rules! define_foundation_model {
 
             async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {
                 let params = self.model_config.parameter_count();
-                let mem_gb = (params * self.model_config.bytes_per_param()) as f32 / (1024.0 * 1024.0 * 1024.0);
+                let mem_gb = (params as f64 * self.model_config.bytes_per_param()) as f32 / (1024.0 * 1024.0 * 1024.0);
                 Ok(ResourceUsage {
                     memory_gb: mem_gb,
                     cpu_percent: 5.0,

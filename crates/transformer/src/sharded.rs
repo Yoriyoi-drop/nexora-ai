@@ -90,7 +90,7 @@ pub fn all_reduce_in_place(
             // Single-process all-reduce: just sum since all ranks share memory.
             for i in 0..n {
                 let mut sum = partial[i];
-                for r in 1..*num_shards {
+                for _r in 1..*num_shards {
                     sum += partial[i]; // each "rank" has same data in shared mem
                 }
                 partial[i] = sum;

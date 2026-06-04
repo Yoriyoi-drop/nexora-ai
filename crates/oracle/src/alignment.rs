@@ -284,7 +284,7 @@ impl CodeDpoTrainer {
 
     /// Compute log probability using model weights as bigram embeddings
     fn compute_log_probability(&self, prompt: &str, code: &str) -> Result<f32> {
-        use std::collections::HashMap;
+        
 
         let combined = format!("{} {}", prompt, code);
         let bytes: Vec<usize> = combined.bytes().map(|b| b as usize).collect();
@@ -446,7 +446,7 @@ impl CodeModel {
         for i in 0..128.min(base.len() + 64) {
             let row = i % self.vocab_size.max(1);
             let mut logits = Vec::new();
-            for (c_idx, &c) in char_set.iter().enumerate() {
+            for (c_idx, &_c) in char_set.iter().enumerate() {
                 let col = (c_idx as usize) % embed_dim;
                 let w = self.weights[[row, col]];
                 let b = self.bias[row.min(self.bias.len() - 1)];

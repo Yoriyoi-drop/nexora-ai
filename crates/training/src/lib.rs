@@ -748,7 +748,7 @@ fn train_batch_gpu(
     stop_flag: &Arc<AtomicBool>,
     input_buffer: &GpuTensor,
     target_buffer: &GpuTensor,
-    staging: &mut GpuStagingPool,
+    _staging: &mut GpuStagingPool,
 ) -> Option<f32> {
     use std::sync::atomic::Ordering;
     let batch_start = std::time::Instant::now();

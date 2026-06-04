@@ -123,7 +123,7 @@ impl KVCache {
             }
         }
         let mut store = self.store.write().await;
-        let mut entry = store.entries.remove(&hash)?;
+        let entry = store.entries.remove(&hash)?;
         if entry.created_at.elapsed() > self.ttl {
             store
                 .lru_order
@@ -244,7 +244,7 @@ impl KVCache {
 
     pub async fn evict_expired(&self) -> usize {
         let mut store = self.store.write().await;
-        let before = store.entries.len();
+        let _before = store.entries.len();
         let evicted_entries: Vec<u64> = store
             .entries
             .iter()

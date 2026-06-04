@@ -2,7 +2,7 @@
 //!
 //! Provides coordination functionality for multi-agent systems
 
-use super::agent_types::{AgentError, AgentResult, CommunicationChannel, TaskRoutingRule};
+use super::agent_types::{AgentResult, CommunicationChannel, TaskRoutingRule};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -25,7 +25,7 @@ pub struct GpuPageTable {
 
 impl GpuPageTable {
     pub fn new(
-        ctx: &GpuContext,
+        _ctx: &GpuContext,
         max_pages: usize,
         page_size: usize,
         num_heads: usize,
@@ -39,7 +39,7 @@ impl GpuPageTable {
         let page_table = GpuTensor::zeros(&[max_pages])?;
 
         // Free list initialized with sequential page indices
-        let mut free_indices: Vec<f32> = (0..max_pages).map(|i| i as f32).collect();
+        let free_indices: Vec<f32> = (0..max_pages).map(|i| i as f32).collect();
         let free_list = GpuTensor::from_cpu(
             &ndarray::ArrayD::from_shape_vec(vec![max_pages], free_indices)
                 .map_err(|_| GpuError::Buffer("shape error".into()))?,
@@ -222,7 +222,7 @@ pub fn dispatch_gather_pages(
         });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups((total_elements + 255) / 256, 1, 1);
+        cpass.dispatch_workgroups(total_elements.div_ceil(256), 1, 1);
     });
     Ok(())
 }
@@ -281,7 +281,7 @@ pub fn dispatch_scatter_pages(
         });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, &bind_group, &[]);
-        cpass.dispatch_workgroups((total_elements + 255) / 256, 1, 1);
+        cpass.dispatch_workgroups(total_elements.div_ceil(256), 1, 1);
     });
     Ok(())
 }

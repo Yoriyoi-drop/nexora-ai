@@ -1,7 +1,6 @@
 //! Utility functions for SPARO (Structured Preference Alignment and Reward Optimization)
 
 use std::collections::HashMap;
-use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 
 /// Utility functions for alignment algorithms

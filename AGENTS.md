@@ -2,7 +2,7 @@
 
 ## Workspace
 
-21-member Cargo workspace (resolver = "2"). Root `Cargo.lock` is gitignored — lockfile is NOT committed.
+21-member Cargo workspace (resolver = "2"). Root `Cargo.lock` is committed (not in `.gitignore`).
 
 ## Binaries
 

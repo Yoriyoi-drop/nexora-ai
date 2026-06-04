@@ -377,8 +377,8 @@ pub fn layer_norm_2d(
     {
         let in_storage = input.storage();
         if let Storage::Gpu(gpu_in) = &in_storage {
-            let has_gpu_weight = weight.map_or(true, |w| matches!(w.storage(), Storage::Gpu(_)));
-            let has_gpu_bias = bias.map_or(true, |b| matches!(b.storage(), Storage::Gpu(_)));
+            let has_gpu_weight = weight.is_none_or(|w| matches!(w.storage(), Storage::Gpu(_)));
+            let has_gpu_bias = bias.is_none_or(|b| matches!(b.storage(), Storage::Gpu(_)));
             if has_gpu_weight && has_gpu_bias {
                 if let (Some(w), Some(b)) = (weight, bias) {
                     if let (Storage::Gpu(gpu_w), Storage::Gpu(gpu_b)) = (&w.storage(), &b.storage())
@@ -564,8 +564,8 @@ pub fn layer_norm_2d(
     };
 
     let requires_grad = input.requires_grad()
-        || weight.map_or(false, |w| w.requires_grad())
-        || bias.map_or(false, |b| b.requires_grad());
+        || weight.is_some_and(|w| w.requires_grad())
+        || bias.is_some_and(|b| b.requires_grad());
 
     if !requires_grad {
         return Tensor::new(result);

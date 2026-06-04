@@ -517,7 +517,7 @@ pub fn compute_svd_truncated(
                     outer_product[[r, c]] = u_normalized[r] * v[c];
                 }
             }
-            working_matrix = working_matrix - &(outer_product * sigma);
+            working_matrix -= &(outer_product * sigma);
         } else {
             for r in 0..m {
                 u[[r, i]] = rand::random::<f32>() * 0.01;

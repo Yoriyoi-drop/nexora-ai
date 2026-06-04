@@ -27,6 +27,7 @@ pub struct ATQSConfig {
 
 /// Calibration configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CalibrationConfig {
     pub lora: LoRACalibrationConfig,
     pub accuracy_recovery: AccuracyRecoveryConfig,
@@ -63,6 +64,7 @@ pub struct CalibrationOptimizerConfig {
 
 /// Compression configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CompressionConfig {
     pub adaptive_rank: AdaptiveRankConfig,
     pub quantum_sparse: QuantumSparseConfig,
@@ -96,6 +98,7 @@ pub struct SparseAugmentationConfig {
 
 /// Profiling configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ProfilingConfig {
     pub entanglement: EntanglementProfilerConfig,
     pub layer_analysis: LayerAnalyzerConfig,
@@ -128,6 +131,7 @@ pub struct SensitivityMapperConfig {
 
 /// Core configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CoreConfig {
     pub attention: AttentionConfig,
     pub tensor_ops: TensorOpsConfig,
@@ -246,15 +250,6 @@ impl Default for ATQSConfig {
     }
 }
 
-impl Default for CalibrationConfig {
-    fn default() -> Self {
-        Self {
-            lora: LoRACalibrationConfig::default(),
-            accuracy_recovery: AccuracyRecoveryConfig::default(),
-            optimizer: CalibrationOptimizerConfig::default(),
-        }
-    }
-}
 
 impl Default for LoRACalibrationConfig {
     fn default() -> Self {
@@ -290,15 +285,6 @@ impl Default for CalibrationOptimizerConfig {
     }
 }
 
-impl Default for CompressionConfig {
-    fn default() -> Self {
-        Self {
-            adaptive_rank: AdaptiveRankConfig::default(),
-            quantum_sparse: QuantumSparseConfig::default(),
-            sparse_augmentation: SparseAugmentationConfig::default(),
-        }
-    }
-}
 
 impl Default for AdaptiveRankConfig {
     fn default() -> Self {
@@ -331,15 +317,6 @@ impl Default for SparseAugmentationConfig {
     }
 }
 
-impl Default for ProfilingConfig {
-    fn default() -> Self {
-        Self {
-            entanglement: EntanglementProfilerConfig::default(),
-            layer_analysis: LayerAnalyzerConfig::default(),
-            sensitivity_mapping: SensitivityMapperConfig::default(),
-        }
-    }
-}
 
 impl Default for EntanglementProfilerConfig {
     fn default() -> Self {
@@ -371,15 +348,6 @@ impl Default for SensitivityMapperConfig {
     }
 }
 
-impl Default for CoreConfig {
-    fn default() -> Self {
-        Self {
-            attention: AttentionConfig::default(),
-            tensor_ops: TensorOpsConfig::default(),
-            quantum_networks: QuantumNetworksConfig::default(),
-        }
-    }
-}
 
 impl Default for AttentionConfig {
     fn default() -> Self {
@@ -424,15 +392,12 @@ impl Default for QuantumNetworksConfig {
 
 /// Compression levels for ATQS
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CompressionLevel {
     Low,
+    #[default]
     Medium,
     High,
     Ultra,
 }
 
-impl Default for CompressionLevel {
-    fn default() -> Self {
-        CompressionLevel::Medium
-    }
-}

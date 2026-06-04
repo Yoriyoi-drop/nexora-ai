@@ -153,7 +153,7 @@ pub fn compute_hessian_trace_approximation(
             act.clone()
         };
         // H_ii = Σ x_i² for each input dimension
-        hessian_diag = hessian_diag + &act_clipped.mapv(|x| x * x);
+        hessian_diag += &act_clipped.mapv(|x| x * x);
     }
 
     let result: Array1<f32> = hessian_diag.mapv(|x: f32| x / n.max(1) as f32);

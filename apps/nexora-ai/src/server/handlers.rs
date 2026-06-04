@@ -6,8 +6,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use axum::http::{HeaderMap, Request};
-use axum::middleware::Next;
+use axum::http::HeaderMap;
 use futures::stream::{self, Stream};
 use nexora_monitoring::MetricsCollector;
 use serde_json::{json, Value};
@@ -500,7 +499,7 @@ pub async fn get_config() -> Json<Value> {
 
 pub async fn update_config(
     headers: HeaderMap,
-    Extension(nexora): Extension<Arc<NexoraAI>>,
+    Extension(_nexora): Extension<Arc<NexoraAI>>,
     api_key: Option<Extension<crate::server::router::ApiKey>>,
     Json(payload): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {

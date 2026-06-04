@@ -1223,7 +1223,7 @@ impl OracleBackbone {
             // Process per-batch to avoid O((batch*seq)²) memory for the causal mask
             let scale = 1.0 / (head_dim as f32).sqrt();
             let scale_t = Tensor::from_slice(&[scale], &[1, 1]);
-            let mut attn_proj = Tensor::zeros(&[n, d_model], false);
+            let attn_proj = Tensor::zeros(&[n, d_model], false);
             for bi in 0..batch_size {
                 let start = bi * seq_len;
                 let end = start + seq_len;

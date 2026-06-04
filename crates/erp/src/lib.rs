@@ -105,11 +105,11 @@ impl ERPEngine {
         // Check cache first
         let context_hash = self.cache.hash_context(input);
         if let Some(cached_pattern) = self.cache.get(context_hash) {
-            return Ok(self.reconstructor.reconstruct_with_gates(
+            return self.reconstructor.reconstruct_with_gates(
                 compressed_layers,
                 input,
                 &cached_pattern.gates,
-            )?);
+            );
         }
 
         // Compute gates and cache

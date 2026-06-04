@@ -1,11 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use ndarray::Array1;
 use nexora_tokenizer::BpeTokenizer;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::degradation::DegradationLevel;
 use crate::paged_provider::PagedKVCacheProvider;

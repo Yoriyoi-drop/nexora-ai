@@ -328,7 +328,7 @@ pub fn cpu_flash_attention(
     pool.profile.record_flash();
 
     let scale = (head_dim as f32).sqrt().recip();
-    let actual_chunk = chunk_size.min(seq_len).max(1);
+    let _actual_chunk = chunk_size.min(seq_len).max(1);
     let mut output = vec![0.0f32; seq_len * head_dim];
 
     // Process one query position at a time to keep scores small
@@ -446,7 +446,7 @@ fn apply_chunked_causal_mask(
     scores: &Tensor,
     _seq_len: usize,
     chunk_start: usize,
-    chunk_end: usize,
+    _chunk_end: usize,
 ) -> Tensor {
     let data = scores.data();
     let shape = data.shape();
@@ -527,7 +527,7 @@ pub fn sliding_window_attention(
     let mut output = vec![0.0f32; seq_len * head_dim];
 
     for i in 0..seq_len {
-        let window_start = if i > window_size { i - window_size } else { 0 };
+        let window_start = i.saturating_sub(window_size);
 
         let mut attended: Vec<usize> = Vec::new();
         for j in window_start..=i {
@@ -617,7 +617,7 @@ fn f32_to_f16_raw(x: f32) -> u16 {
         } else if new_exp <= 0 {
             sign as u16
         } else {
-            let result = sign | ((new_exp as u32) << 10) | ((mant >> 13) as u32);
+            let result = sign | ((new_exp as u32) << 10) | (mant >> 13);
             result as u16
         }
     }

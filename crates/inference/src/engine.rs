@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
-use tracing::{debug, error, info, info_span, warn, Instrument};
+use tracing::{debug, error, info, info_span, warn};
 use uuid::Uuid;
 
 use crate::continuous_batching::ContinuousBatchingConfig;
@@ -479,7 +479,7 @@ impl InferenceEngine {
             .as_ref()
             .ok_or_else(|| InferenceError::InternalError("No streaming engine".to_string()))?;
 
-        let (stream_id, mut rx) = se.write().await.create_stream().await?;
+        let (stream_id, rx) = se.write().await.create_stream().await?;
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let use_gpu = self.config.use_gpu;
@@ -886,7 +886,7 @@ impl InferenceEngine {
 
             // Build responses
             let mut results = Vec::with_capacity(sequences.len());
-            for mut seq in sequences {
+            for seq in sequences {
                 let text: String = seq
                     .generated
                     .iter()

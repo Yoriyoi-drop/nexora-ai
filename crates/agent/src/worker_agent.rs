@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +11,7 @@ use crate::{
     AgentStatus, Result,
 };
 use crate::inference_agent::InferenceEngine;
-use crate::planner_agent::{PlanStep, StepStatus, StepType, PlanStatus};
+use crate::planner_agent::{PlanStep, StepType};
 
 /// Helper: pre-allocate prompt string with known capacity to reduce heap churn.
 fn build_prompt(prefix: &str, description: &str) -> String {

@@ -174,7 +174,7 @@ impl UserStore for InMemoryUserStore {
         self.users_by_id.write().await.insert(id.clone(), user);
         self.users_by_email.write().await.insert(email, id);
         self.api_key_to_user.write().await.insert(api_key, lookup_id.clone());
-        Ok(self.users_by_id.read().await.get(&lookup_id).cloned().unwrap())
+        Ok(self.users_by_id.read().await.get(&lookup_id).cloned().expect("user was just inserted above"))
     }
 
     async fn get_user_by_id(&self, id: &str) -> Option<User> {

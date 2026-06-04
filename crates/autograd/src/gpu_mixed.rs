@@ -10,7 +10,9 @@
 use crate::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Default)]
 pub enum GpuDType {
+    #[default]
     F32,
     F16,
     BF16,
@@ -33,11 +35,6 @@ impl GpuDType {
     }
 }
 
-impl Default for GpuDType {
-    fn default() -> Self {
-        GpuDType::F32
-    }
-}
 
 // ─── GpuLossScaler ─────────────────────────────────────────────────────────────
 
@@ -301,7 +298,7 @@ pub fn dispatch_f32_to_f16(
         ],
     });
 
-    let wg = (numel as u32 + 255) / 256;
+    let wg = (numel as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f32_to_f16");
 
     Ok(GpuTensor {
@@ -347,7 +344,7 @@ pub fn dispatch_f16_to_f32(
         ],
     });
 
-    let wg = (numel as u32 + 255) / 256;
+    let wg = (numel as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f16_to_f32");
 
     Ok(GpuTensor {
@@ -382,7 +379,7 @@ pub fn dispatch_scale_inplace(
         ],
     });
 
-    let wg = (numel as u32 + 255) / 256;
+    let wg = (numel as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "scale");
 
     Ok(())
@@ -412,7 +409,7 @@ pub fn dispatch_unscale_inplace(
         ],
     });
 
-    let wg = (numel as u32 + 255) / 256;
+    let wg = (numel as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "unscale");
 
     Ok(())
@@ -461,7 +458,7 @@ pub fn dispatch_f32_to_f16_packed(
 ) -> Result<GpuTensor, GpuError> {
     let numel = input.numel();
     let shape = input.shape();
-    let packed_size = (numel + 1) / 2;
+    let packed_size = numel.div_ceil(2);
     let out_bytes = packed_size as u64 * 4;
 
     let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
@@ -488,7 +485,7 @@ pub fn dispatch_f32_to_f16_packed(
         ],
     });
 
-    let wg = (packed_size as u32 + 255) / 256;
+    let wg = (packed_size as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f32_to_f16_packed");
 
     Ok(GpuTensor {
@@ -534,7 +531,7 @@ pub fn dispatch_f16_packed_to_f32(
         ],
     });
 
-    let wg = (numel as u32 + 255) / 256;
+    let wg = (numel as u32).div_ceil(256);
     dispatch_with_reusable_encoder(ctx, pipeline, &bind_group, (wg, 1, 1), "f16_packed_to_f32");
 
     Ok(GpuTensor {

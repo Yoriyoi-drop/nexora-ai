@@ -140,7 +140,7 @@ impl ModelLayer for LayerInfo {
                     // Create attention weights (simplified)
                     let mut attention_weights = vec![0.0; seq_len];
                     for (i, &val) in input_vec.iter().enumerate() {
-                        attention_weights[i] = (val as f32).tanh();
+                        attention_weights[i] = val.tanh();
                     }
 
                     // Normalize attention weights
@@ -246,6 +246,12 @@ pub struct CalibrationBatch {
     pub targets: Vec<ArrayD<f32>>,
 }
 
+impl Default for CalibrationBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CalibrationBatch {
     pub fn new() -> Self {
         Self {
@@ -265,7 +271,9 @@ impl CalibrationBatch {
 
 /// Recovery method enumeration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum RecoveryMethod {
+    #[default]
     KnowledgeDistillation,
     PostTrainingQuantization,
     LayerwiseFinetuning,
@@ -273,11 +281,6 @@ pub enum RecoveryMethod {
     Hybrid,
 }
 
-impl Default for RecoveryMethod {
-    fn default() -> Self {
-        Self::KnowledgeDistillation
-    }
-}
 
 /// Accuracy recovery configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,18 +438,15 @@ pub trait ModelLayer: Send + Sync {
 
 /// Error severity enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ErrorSeverity {
     Info = 0,
+    #[default]
     Warning = 1,
     Error = 2,
     Critical = 3,
 }
 
-impl Default for ErrorSeverity {
-    fn default() -> Self {
-        Self::Warning
-    }
-}
 
 /// Layer sensitivity information
 #[derive(Debug, Clone, Serialize, Deserialize)]

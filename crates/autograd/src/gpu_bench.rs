@@ -44,7 +44,7 @@ pub fn benchmark_gradient_clip(
     // Benchmark: legacy batched clip (N scalars readback)
     let legacy_start = Instant::now();
     for _ in 0..ITERS {
-        let _ = crate::gpu_grad_clip::clip_gradients_batched(&ctx, &grad_refs, 10.0);
+        let _ = crate::gpu_grad_clip::clip_gradients_batched(ctx, &grad_refs, 10.0);
     }
     let legacy_elapsed = legacy_start.elapsed().as_secs_f64() / ITERS as f64 * 1_000_000.0;
 

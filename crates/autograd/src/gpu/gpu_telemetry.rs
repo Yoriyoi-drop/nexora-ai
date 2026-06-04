@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use once_cell::sync::Lazy;
 
@@ -40,6 +40,12 @@ pub struct GpuTelemetry {
     window_error_count: AtomicU64,
     window_total_ops: AtomicU64,
     window_start: Mutex<Instant>,
+}
+
+impl Default for GpuTelemetry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GpuTelemetry {

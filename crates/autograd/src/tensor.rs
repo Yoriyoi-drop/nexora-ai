@@ -325,7 +325,8 @@ impl Tensor {
             Device::Gpu(_device_id) => match crate::gpu::GpuTensor::from_cpu(&cpu_data) {
                 Ok(gpu_tensor) => {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    let t = Tensor(Arc::new(RwLock::new(TensorInner {
+                    
+                    Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
                         storage: Storage::Gpu(gpu_tensor),
                         device: Device::Gpu(0),
@@ -333,8 +334,7 @@ impl Tensor {
                         grad,
                         requires_grad,
                         grad_fn_idx,
-                    })));
-                    t
+                    })))
                 }
                 Err(e) => {
                     error!("GPU transfer failed: {e}, falling back to CPU");
@@ -380,7 +380,7 @@ impl Tensor {
                 [r * theta.cos(), r * theta.sin()]
             })
             .collect();
-        let data = if len % 2 == 0 {
+        let data = if len.is_multiple_of(2) {
             data
         } else {
             let u: f32 = rng.gen::<f32>().max(1e-38);
@@ -406,8 +406,8 @@ impl Tensor {
     pub fn zeros(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::zeros(shape.to_vec());
         #[cfg(feature = "gpu")]
-        if is_gpu_auto_create() {
-            if crate::gpu::GpuContext::global().is_ok() {
+        if is_gpu_auto_create()
+            && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     let t = Tensor(Arc::new(RwLock::new(TensorInner {
@@ -422,7 +422,6 @@ impl Tensor {
                     return t;
                 }
             }
-        }
         let t = Self::new(arr);
         t.set_requires_grad(requires_grad);
         t
@@ -431,8 +430,8 @@ impl Tensor {
     pub fn ones(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::ones(shape.to_vec());
         #[cfg(feature = "gpu")]
-        if is_gpu_auto_create() {
-            if crate::gpu::GpuContext::global().is_ok() {
+        if is_gpu_auto_create()
+            && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     let t = Tensor(Arc::new(RwLock::new(TensorInner {
@@ -447,7 +446,6 @@ impl Tensor {
                     return t;
                 }
             }
-        }
         let t = Self::new(arr);
         t.set_requires_grad(requires_grad);
         t
@@ -464,8 +462,8 @@ impl Tensor {
             ArrayD::zeros(vec![0])
         });
         #[cfg(feature = "gpu")]
-        if is_gpu_auto_create() {
-            if crate::gpu::GpuContext::global().is_ok() {
+        if is_gpu_auto_create()
+            && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     return Tensor(Arc::new(RwLock::new(TensorInner {
@@ -479,7 +477,6 @@ impl Tensor {
                     })));
                 }
             }
-        }
         Self::new(arr)
     }
 

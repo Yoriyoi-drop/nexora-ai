@@ -1,4 +1,4 @@
-use crate::canvas::{GraphNode, NeuralGraph};
+use crate::canvas::NeuralGraph;
 use crate::{DLResult, DeepLearningError, NodeType};
 use nexora_autograd::{Tensor, TensorOps};
 use std::collections::HashMap;

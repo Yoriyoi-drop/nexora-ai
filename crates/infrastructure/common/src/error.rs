@@ -617,7 +617,7 @@ impl ErrorRecoveryManager {
                 max_attempts,
                 base_delay,
             } => {
-                let mut last_error = error.clone();
+                let last_error = error.clone();
                 for attempt in 1..=*max_attempts {
                     let delay = last_error.retry_delay(attempt - 1);
                     tokio::time::sleep(delay).await;
@@ -643,7 +643,7 @@ impl ErrorRecoveryManager {
                         state.last_failure = Instant::now();
                         if attempt < *max_attempts {
                             let backoff =
-                                base_delay.as_millis() as u64 * (2u64.pow(attempt as u32 - 1));
+                                base_delay.as_millis() as u64 * (2u64.pow(attempt - 1));
                             tokio::time::sleep(Duration::from_millis(backoff.min(30_000))).await;
                         }
                     }
@@ -829,6 +829,12 @@ pub struct ErrorStatistics {
     pub errors_by_severity: HashMap<ErrorSeverity, usize>,
     pub errors_by_component: HashMap<String, usize>,
     pub recent_errors: Vec<NexoraError>,
+}
+
+impl Default for ErrorStatistics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ErrorStatistics {

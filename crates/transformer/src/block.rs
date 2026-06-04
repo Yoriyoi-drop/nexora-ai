@@ -46,7 +46,9 @@ impl TransformerBlock {
 
     pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize, intermediate_size: usize, expert_intermediate_size: usize) {
         self.attention.init_random(hidden_size, num_heads, num_kv_heads, head_dim);
-        self.ffn.init_random(hidden_size, intermediate_size);
+        if self.experts.is_none() {
+            self.ffn.init_random(hidden_size, intermediate_size);
+        }
         if let Some(experts) = &mut self.experts {
             for e in experts.iter_mut() {
                 e.init_random(hidden_size, expert_intermediate_size);

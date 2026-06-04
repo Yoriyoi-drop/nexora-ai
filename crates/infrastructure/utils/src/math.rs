@@ -20,7 +20,7 @@ impl MathUtils {
         } else {
             numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let len = numbers.len();
-            if len % 2 == 0 {
+            if len.is_multiple_of(2) {
                 Some((numbers[len / 2 - 1] + numbers[len / 2]) / 2.0)
             } else {
                 Some(numbers[len / 2])
@@ -82,7 +82,7 @@ impl MathUtils {
 
     /// Calculate percentile
     pub fn percentile(numbers: &mut [f64], percentile: f64) -> Option<f64> {
-        if numbers.is_empty() || percentile < 0.0 || percentile > 100.0 {
+        if numbers.is_empty() || !(0.0..=100.0).contains(&percentile) {
             None
         } else {
             numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -211,12 +211,12 @@ impl MathUtils {
             false
         } else if n <= 3 {
             true
-        } else if n % 2 == 0 || n % 3 == 0 {
+        } else if n.is_multiple_of(2) || n.is_multiple_of(3) {
             false
         } else {
             let mut i = 5;
             while i * i <= n {
-                if n % i == 0 || n % (i + 2) == 0 {
+                if n.is_multiple_of(i) || n.is_multiple_of(i + 2) {
                     return false;
                 }
                 i += 6;
@@ -250,12 +250,12 @@ impl MathUtils {
 
     /// Check if number is even
     pub fn is_even(n: u64) -> bool {
-        n % 2 == 0
+        n.is_multiple_of(2)
     }
 
     /// Check if number is odd
     pub fn is_odd(n: u64) -> bool {
-        n % 2 != 0
+        !n.is_multiple_of(2)
     }
 
     /// Convert degrees to radians

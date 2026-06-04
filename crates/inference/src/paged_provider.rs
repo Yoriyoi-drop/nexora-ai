@@ -199,7 +199,7 @@ impl PagedKVCacheProvider {
             Ok(c) => c,
             _ => return,
         };
-        let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
+        let _kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
 
         // For each layer, read existing tokens from paged cache and upload to GPU
         let guard = match self.cache.lock() {
@@ -256,7 +256,7 @@ impl PagedKVCacheProvider {
             return;
         }
 
-        let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
+        let _kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
         for layer in 0..self.gpu_entries.len().min(self.num_layers) {
             for pos in self.total_tokens..gpu_seq_len {
                 let (k_vec, v_vec) = match self.gpu_entries[layer].read_token_cpu(pos) {

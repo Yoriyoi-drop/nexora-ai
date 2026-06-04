@@ -67,8 +67,10 @@ impl RemoteClient {
         if let Some((name, val)) = &auth_header {
             if let Ok(hv) = reqwest::header::HeaderValue::from_str(val) {
                 let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(reqwest::header::HeaderName::from_str(name).unwrap(), hv);
-                client_builder = client_builder.default_headers(headers);
+                if let Ok(header_name) = reqwest::header::HeaderName::from_str(name) {
+                    headers.insert(header_name, hv);
+                    client_builder = client_builder.default_headers(headers);
+                }
             }
         }
         Self {
@@ -82,7 +84,9 @@ impl RemoteClient {
     fn add_auth_header(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if let Some((name, val)) = &self.auth_header {
             if let Ok(hv) = reqwest::header::HeaderValue::from_str(val) {
-                return req.header(reqwest::header::HeaderName::from_str(name).unwrap(), hv);
+                if let Ok(header_name) = reqwest::header::HeaderName::from_str(name) {
+                    return req.header(header_name, hv);
+                }
             }
         }
         req
@@ -106,7 +110,9 @@ impl RemoteClient {
                 .timeout(Duration::from_millis(timeout_ms));
             if let Some((name, val)) = auth {
                 if let Ok(hv) = reqwest::header::HeaderValue::from_str(&val) {
-                    req = req.header(reqwest::header::HeaderName::from_str(&name).unwrap(), hv);
+                    if let Ok(header_name) = reqwest::header::HeaderName::from_str(&name) {
+                        req = req.header(header_name, hv);
+                    }
                 }
             }
             match req.send().await

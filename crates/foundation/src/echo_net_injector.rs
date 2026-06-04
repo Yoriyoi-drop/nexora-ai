@@ -110,7 +110,7 @@ impl LayerInjector for EchoNetInjector {
         let seq_len = self.buffer.len();
         let mut amplitude_data = Vec::with_capacity(seq_len * self.hidden_size);
         let mut phase_data = Vec::with_capacity(seq_len * self.hidden_size);
-        let mut frequency_data = vec![0.0_f32; seq_len * self.hidden_size];
+        let frequency_data = vec![0.0_f32; seq_len * self.hidden_size];
 
         for tp in &self.buffer {
             amplitude_data.extend_from_slice(tp.hidden.as_slice().ok_or_else(|| {

@@ -474,8 +474,7 @@ impl ValidationUtils {
         for c in clean_number.chars().rev() {
             let mut digit = c
                 .to_digit(10)
-                .ok_or_else(|| anyhow::anyhow!("Invalid digit in credit card number"))?
-                as u32;
+                .ok_or_else(|| anyhow::anyhow!("Invalid digit in credit card number"))?;
 
             if double {
                 digit *= 2;

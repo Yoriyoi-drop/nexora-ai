@@ -255,7 +255,7 @@ pub fn gelu_backward(
         .map_err(|e| GpuError::Device(format!("gelu_backward tanh: {e}")))?;
 
     let t_sq = ctx.mul(&t, &t)?;
-    let one = GpuTensor::ones(&shape)
+    let one = GpuTensor::ones(shape)
         .map_err(|e| GpuError::Conversion(format!("gelu_backward one: {e}")))?;
     let sech2 = ctx.sub(&one, &t_sq)?;
 
@@ -342,7 +342,7 @@ pub fn sum_backward(
     orig_shape: &[usize],
     grad: &GpuTensor,
 ) -> Result<GpuTensor, GpuError> {
-    let numel: usize = orig_shape.iter().product();
+    let _numel: usize = orig_shape.iter().product();
     let grad_scalar = grad
         .to_cpu_first_element()
         .map_err(|e| GpuError::Device(format!("sum_backward grad readback: {e}")))?;

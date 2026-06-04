@@ -29,7 +29,7 @@ pub fn validate_tensor_shape(shape: &[usize]) -> ValidationResult<()> {
         });
     }
 
-    if shape.iter().any(|&dim| dim == 0) {
+    if shape.contains(&0) {
         return Err(ValidationError {
             message: "Tensor dimensions cannot be zero".to_string(),
         });

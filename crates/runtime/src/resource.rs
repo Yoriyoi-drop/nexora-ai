@@ -5,7 +5,6 @@
 
 use crate::vram_budget::{VramBudget, VramPressure, VramReservation};
 use crate::{InferenceError, Result};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 

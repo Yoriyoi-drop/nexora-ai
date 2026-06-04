@@ -124,19 +124,16 @@ pub enum GpuErrorKind {
 
 /// The active GPU compute backend.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum GpuBackend {
     /// WebGPU (wgpu) — default on all platforms.
+    #[default]
     Wgpu,
     /// Native CUDA — requires `cuda` feature + NVIDIA GPU + CUDA toolkit.
     #[cfg(feature = "cuda")]
     Cuda,
 }
 
-impl Default for GpuBackend {
-    fn default() -> Self {
-        Self::Wgpu
-    }
-}
 
 /// Counting semaphore for limiting concurrent GPU readback operations.
 /// Prevents OOM when CPU submits readbacks faster than GPU processes them.

@@ -731,7 +731,7 @@ impl GpuContext {
     ) -> Result<(GpuTensor, Vec<f32>, GpuTensor), SedcError> {
         let shape = b.shape();
         let r = shape[0];
-        let n = shape[1];
+        let _n = shape[1];
 
         // B·B^T (r × r) on GPU
         let bt = self.transpose(b).map_err(SedcError::Gpu)?;
@@ -909,7 +909,7 @@ impl GpuContext {
         let numel = u32::try_from(d)
             .map_err(|_| GpuError::Conversion(format!("d={d} exceeds u32 range")))?;
 
-        for b in 0..bits {
+        for _b in 0..bits {
             // Compute τ_b = η · Std(r_{b-1})
             // Download r to CPU for std — small overhead for control
             let r_cpu = r_gpu.to_cpu()?;
@@ -1088,19 +1088,19 @@ impl GpuContext {
         w: &GpuTensor,
         w_next: &GpuTensor,
         k: usize,
-        lambda: f32,
+        _lambda: f32,
     ) -> Result<(GpuTensor, GpuTensor, GpuTensor), SedcError> {
         let shape = w.shape();
         let m = shape[0];
         let n = shape[1];
-        let m_next = w_next.shape()[0];
+        let _m_next = w_next.shape()[0];
         let k_actual = k.min(m).min(n);
 
         // Solve via SVD of W, then project
         let (u, v, _qt, s, _) = self.randomized_svd_gpu(w, k_actual, 5, 1)?;
 
         // Truncate to k_actual
-        let s_arr = ndarray::Array1::from_vec(s.iter().take(k_actual).copied().collect());
+        let _s_arr = ndarray::Array1::from_vec(s.iter().take(k_actual).copied().collect());
         let u_cpu = u.to_cpu().map_err(SedcError::Gpu)?;
         let u_trunc = GpuTensor::from_cpu(
             &u_cpu
@@ -1493,7 +1493,7 @@ impl SedcCompressor {
 
         // Compute compressed params
         let compressed_params = k_final * (m + n);
-        let ratio = if compressed_params > 0 {
+        let _ratio = if compressed_params > 0 {
             (m * n) as f32 / compressed_params as f32
         } else {
             1.0
@@ -1692,7 +1692,7 @@ impl SedcCompressor {
             layer_count += 1;
         }
 
-        let num_items = compressed_weights.len().max(1);
+        let _num_items = compressed_weights.len().max(1);
         let report = ModelCompressionReport {
             layers: compressed_weights
                 .iter()
@@ -1757,7 +1757,7 @@ impl SedcCompressor {
         let mut prev_error: Option<ndarray::Array2<f32>> = None;
         let mut prev_v: Option<ndarray::Array2<f32>> = None;
 
-        for (i, cw) in compressed.iter().enumerate() {
+        for cw in compressed.iter() {
             let w_orig = &weights[cw.layer];
             if cw.rank >= cw.shape.0.min(cw.shape.1) || prev_error.is_none() {
                 // No compression applied or no previous error → pass through

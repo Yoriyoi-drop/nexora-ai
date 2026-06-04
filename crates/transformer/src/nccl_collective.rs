@@ -13,7 +13,6 @@
 //! nccl.all_reduce(&mut buf)?;
 //! ```
 
-use std::sync::Arc;
 
 use crate::TransformerResult;
 

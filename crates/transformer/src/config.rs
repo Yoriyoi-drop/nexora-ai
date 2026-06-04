@@ -186,11 +186,10 @@ impl TransformerConfig {
             let norms = 2 * self.hidden_size;
             q + k + v + o + norms
         };
-        // MoE: expert FFNs + optional shared experts
+        // MoE: routed expert FFNs (shared_expert belum diimplementasi — gak dihitung)
         let per_layer_ffn = if self.is_moe() {
             let expert_ffn = 3 * self.hidden_size * self.expert_intermediate_size;
-            let shared = self.shared_expert * (3 * self.hidden_size * self.expert_intermediate_size);
-            shared + self.num_experts * expert_ffn
+            self.num_experts * expert_ffn
         } else {
             3 * self.hidden_size * self.intermediate_size
         };
@@ -226,11 +225,8 @@ impl TransformerConfig {
 
     /// Bytes per parameter based on quantization format.
     /// F16/BF16 = 2B, Q8 = 1B, Q6 = 0.75, Q5 = 0.625, Q4 = 0.5.
-    /// Falls back to 4 (FP32) if quantization is somehow invalid.
-    pub fn bytes_per_param(&self) -> usize {
-        let bits = self.quantization.bits_per_element();
-        let bytes = bits / 8;
-        if bytes == 0 { 1 } else { bytes }
+    pub fn bytes_per_param(&self) -> f64 {
+        self.quantization.bits_per_element() as f64 / 8.0
     }
 
     pub fn preset(tier: ModelTier) -> Self {

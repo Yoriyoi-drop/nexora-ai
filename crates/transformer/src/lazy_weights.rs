@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use ndarray::{Array1, Array2, ArrayD};
 use lru::LruCache;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::block::TransformerBlock;
 use crate::config::TransformerConfig;
-use crate::safetensors::io::{SafetensorsHeader, TensorEntry};
+use crate::safetensors::io::SafetensorsHeader;
 use crate::{TransformerError, TransformerResult};
 
 /// On-disk block weights loaded on demand.
@@ -253,7 +253,7 @@ pub fn load_lazy_into_causal_lm(
     config: TransformerConfig,
     loader: &LazyWeightLoader,
 ) -> TransformerResult<super::model::CausalLM> {
-    use crate::rms_norm::RMSNorm;
+    
     use crate::rope::RoPE;
 
     let mut model = super::model::CausalLM::new_empty(config.clone());

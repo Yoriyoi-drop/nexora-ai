@@ -178,7 +178,7 @@ impl TemporalGatingHierarchy {
         input_gpu: &nexora_autograd::gpu::GpuTensor,
         ctx: &nexora_autograd::gpu::GpuContext,
     ) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::GpuTensor;
+        
 
         let wt_gpu = ctx.transpose(weights_gpu).ok()?;
         ctx.matmul(input_gpu, &wt_gpu).ok()

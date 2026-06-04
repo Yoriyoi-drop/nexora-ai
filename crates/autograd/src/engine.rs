@@ -29,9 +29,7 @@ pub(crate) fn backward_engine(output: &Tensor) {
 
                 for inp in &inputs {
                     let inp_id = inp.id();
-                    if !grad_map.contains_key(&inp_id) {
-                        grad_map.insert(inp_id, inp.clone());
-                    }
+                    grad_map.entry(inp_id).or_insert_with(|| inp.clone());
                     queue.push_back(inp_id);
                 }
             }
@@ -247,7 +245,7 @@ pub(crate) fn backward_engine(output: &Tensor) {
                                     #[cfg(any(feature = "gpu", feature = "cuda"))]
                                     {
                                         let storage = match crate::gpu::GpuContext::global() {
-                                            Ok(ctx) => match crate::gpu::GpuTensor::from_cpu(&g) {
+                                            Ok(_ctx) => match crate::gpu::GpuTensor::from_cpu(&g) {
                                                 Ok(g_gpu) => Storage::Gpu(g_gpu),
                                                 Err(_) => Storage::Cpu(Arc::new(g)),
                                             },

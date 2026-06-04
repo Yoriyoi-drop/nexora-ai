@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ndarray::{ArrayD, IxDyn};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use super::super::broadcast;
 use super::super::tensor::Tensor;
@@ -638,7 +638,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
         vec![a.clone(), b.clone()],
         vec![a_bc.clone(), b_bc.clone(), result.clone()],
         Box::new(|grad, saved| {
-            let a_bc = &saved[0];
+            let _a_bc = &saved[0];
             let b_bc = &saved[1];
             let result_val = &saved[2];
             let da = grad.clone() / b_bc;

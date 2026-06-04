@@ -237,6 +237,12 @@ pub struct MetricData {
     pub unit: String,
 }
 
+impl Default for ERPMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ERPMonitor {
     pub fn new() -> Self {
         Self {
@@ -450,7 +456,7 @@ pub mod utils {
 
     /// Compute quantile dari array
     pub fn quantile(arr: &Array1<f32>, q: f32) -> f32 {
-        if q < 0.0 || q > 1.0 {
+        if !(0.0..=1.0).contains(&q) {
             return f32::NAN;
         }
 

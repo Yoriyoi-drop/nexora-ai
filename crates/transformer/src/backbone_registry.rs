@@ -124,7 +124,7 @@ pub fn get_loaded_tiers() -> Vec<ModelTier> {
 pub fn tier_vram_estimate_mb(tier: ModelTier) -> u64 {
     let params = tier_parameter_count(tier);
     let cfg = TransformerConfig::preset(tier);
-    ((params as f64 * cfg.bytes_per_param() as f64) / (1024.0 * 1024.0)).ceil() as u64
+    ((params as f64 * cfg.bytes_per_param()) / (1024.0 * 1024.0)).ceil() as u64
 }
 
 /// Get the number of registered backbones.

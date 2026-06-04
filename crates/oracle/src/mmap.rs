@@ -72,7 +72,7 @@ impl MemoryMappedOracle {
             MmapError::IoError(format!("Failed to open {}: {}", path.display(), e))
         })?;
 
-        let file_size = file.metadata().map_err(|e| {
+        let _file_size = file.metadata().map_err(|e| {
             MmapError::IoError(format!("Failed to get metadata: {}", e))
         })?.len();
 

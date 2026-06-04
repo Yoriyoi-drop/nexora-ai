@@ -6,7 +6,6 @@ use uuid::Uuid;
 use crate::types::{DataSample, SampleStats, SourceInfo};
 use arrow::array::{Array, LargeStringArray, StringArray};
 use arrow::ipc::reader::FileReader;
-use arrow::record_batch::RecordBatch;
 
 /// Check magic bytes to help diagnose mislabeled files.
 /// Returns a description of the detected format, or None if unrecognized.

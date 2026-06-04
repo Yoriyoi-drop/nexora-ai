@@ -39,7 +39,7 @@ pub trait LayerInjector: std::fmt::Debug + Send {
         layer_idx: usize,
         h: &mut nexora_autograd::gpu::GpuTensor,
         pos: usize,
-        ctx: &nexora_autograd::gpu::GpuContext,
+        _ctx: &nexora_autograd::gpu::GpuContext,
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
         let h_cpu = h.to_cpu()?;
         let dims = h_cpu.shape().to_vec();
@@ -471,7 +471,7 @@ impl CausalLM {
         } else {
             None
         };
-        let mut blocks: Vec<TransformerBlock> = (0..config.num_layers)
+        let blocks: Vec<TransformerBlock> = (0..config.num_layers)
             .map(|_| TransformerBlock::new(
                 config.hidden_size,
                 nh_local,
@@ -1256,7 +1256,7 @@ impl CausalLM {
     #[cfg(feature = "gpu")]
     pub fn preupload_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
+        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         if self.gpu_weights.get().is_some() {
             return Ok(());
@@ -1347,15 +1347,23 @@ impl CausalLM {
             let wo = mk_gpu(block.attention.wo.as_ref().ok_or_else(|| {
                 GpuError::Unsupported("attention.wo not available".into())
             })?)?;
-            let w1 = mk_gpu(block.ffn.w1.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("ffn.w1 not available".into())
-            })?)?;
-            let w2 = mk_gpu(block.ffn.w2.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("ffn.w2 not available".into())
-            })?)?;
-            let w3 = mk_gpu(block.ffn.w3.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("ffn.w3 not available".into())
-            })?)?;
+            // MoE blocks: upload first expert's weights sebagai pengganti dense FFN weights
+            let ffn_err = |name: &str| GpuError::Unsupported(format!("{name} not available (MoE expert used instead)"));
+            let (ffn_w1, ffn_w2, ffn_w3): (&Array2<f32>, &Array2<f32>, &Array2<f32>) =
+                if let Some(experts) = &block.experts {
+                    let e = &experts[0];
+                    (e.w1.as_ref().ok_or_else(|| ffn_err("expert[0].w1"))?,
+                     e.w2.as_ref().ok_or_else(|| ffn_err("expert[0].w2"))?,
+                     e.w3.as_ref().ok_or_else(|| ffn_err("expert[0].w3"))?)
+                } else {
+                    (block.ffn.w1.as_ref().ok_or_else(|| ffn_err("ffn.w1"))?,
+                     block.ffn.w2.as_ref().ok_or_else(|| ffn_err("ffn.w2"))?,
+                     block.ffn.w3.as_ref().ok_or_else(|| ffn_err("ffn.w3"))?)
+                };
+
+            let w1 = mk_gpu(ffn_w1)?;
+            let w2 = mk_gpu(ffn_w2)?;
+            let w3 = mk_gpu(ffn_w3)?;
 
             let mk_scale_zp = |arr: &Array2<f32>| -> Result<_, GpuError> {
                 let (p, sc, zp) = Self::quantize_weight(arr);
@@ -1402,25 +1410,19 @@ impl CausalLM {
                 (None, None, None)
             };
             let (w1_i8, w1_scales, w1_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.ffn.w1.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("ffn.w1 not available".into())
-                })?)?;
+                let (t, s, z) = mk_scale_zp(ffn_w1)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
             };
             let (w2_i8, w2_scales, w2_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.ffn.w2.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("ffn.w2 not available".into())
-                })?)?;
+                let (t, s, z) = mk_scale_zp(ffn_w2)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
             };
             let (w3_i8, w3_scales, w3_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.ffn.w3.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("ffn.w3 not available".into())
-                })?)?;
+                let (t, s, z) = mk_scale_zp(ffn_w3)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
@@ -2240,12 +2242,12 @@ impl CausalLM {
         (output, cpu_cache)
     }
 
-    pub fn memory_bytes(&self) -> usize {
-        self.parameter_count() * self.config.bytes_per_param()
+    pub fn memory_bytes(&self) -> f64 {
+        self.parameter_count() as f64 * self.config.bytes_per_param()
     }
 
     /// Bytes per parameter based on this model's config quantization format.
-    pub fn bytes_per_param(&self) -> usize {
+    pub fn bytes_per_param(&self) -> f64 {
         self.config.bytes_per_param()
     }
 
@@ -2432,15 +2434,15 @@ impl CausalLM {
         batch_tokens: &[u32],
         ctx: &nexora_autograd::gpu::GpuContext,
         gpu_caches: &mut [Vec<super::gqa::GpuKVCacheEntry>],
-        f16_temps: &Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>,
+        _f16_temps: &Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>,
         gw: &GpuWeights,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_autograd::gpu::GpuTensor;
 
         let batch_size = batch_tokens.len();
         let hidden_size = self.config.hidden_size;
-        let num_layers = self.config.num_layers;
+        let _num_layers = self.config.num_layers;
         let n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
         let vocab_size = self.config.vocab_size;
@@ -2668,15 +2670,15 @@ impl CausalLM {
 
         let ctx = GpuContext::global()?;
         let batch_size = batch_tokens.len();
-        let hidden_size = self.config.hidden_size;
+        let _hidden_size = self.config.hidden_size;
         let num_layers = self.config.num_layers;
         let n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
         let max_seq = self.config.max_seq_len;
         let vocab_size = self.config.vocab_size;
-        let n_heads = self.config.num_heads;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let half = head_dim / 2;
+        let _n_heads = self.config.num_heads;
+        let _scale = 1.0 / (head_dim as f32).sqrt();
+        let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
@@ -2834,7 +2836,7 @@ impl CausalLM {
                                 Err(_) => break Err(wgpu::BufferAsyncError),
                             }
                         };
-                        let map_result = map_result.map_err(|e| {
+                        let _map_result = map_result.map_err(|e| {
                             nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                         })?;
                         let out: Vec<f32> = {
@@ -2911,21 +2913,21 @@ impl CausalLM {
         gpu_caches: &mut [Vec<super::gqa::GpuKVCacheEntry>],
         needs_logits: &[bool],
     ) -> Result<Vec<Option<Array1<f32>>>, nexora_autograd::gpu::GpuError> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        
+        use nexora_autograd::gpu::GpuContext;
 
         self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = batch_tokens.len();
-        let hidden_size = self.config.hidden_size;
+        let _hidden_size = self.config.hidden_size;
         let num_layers = self.config.num_layers;
-        let n_kv_heads = self.config.num_kv_heads;
+        let _n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
         let vocab_size = self.config.vocab_size;
-        let n_heads = self.config.num_heads;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let half = head_dim / 2;
+        let _n_heads = self.config.num_heads;
+        let _scale = 1.0 / (head_dim as f32).sqrt();
+        let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
@@ -2983,21 +2985,21 @@ impl CausalLM {
         top_ps: &[f32],
         seeds: &[u64],
     ) -> Result<Vec<u32>, nexora_autograd::gpu::GpuError> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        
+        use nexora_autograd::gpu::GpuContext;
 
         self.preupload_weights_gpu()?;
 
         let ctx = GpuContext::global()?;
         let batch_size = batch_tokens.len();
-        let hidden_size = self.config.hidden_size;
+        let _hidden_size = self.config.hidden_size;
         let num_layers = self.config.num_layers;
-        let n_kv_heads = self.config.num_kv_heads;
+        let _n_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.head_dim();
-        let vocab_size = self.config.vocab_size;
-        let n_heads = self.config.num_heads;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-        let half = head_dim / 2;
+        let _vocab_size = self.config.vocab_size;
+        let _n_heads = self.config.num_heads;
+        let _scale = 1.0 / (head_dim as f32).sqrt();
+        let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
@@ -3097,7 +3099,7 @@ impl CausalLM {
             )
         })?;
 
-        let f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
+        let _f16_temps = self.prepare_f16_temps(gw, &ctx, num_layers)?;
 
         // ── 0b. Build flat token array + per-sequence offsets + position IDs ──
         let mut flat_tokens: Vec<u32> = Vec::new();
@@ -3182,8 +3184,8 @@ impl CausalLM {
         )?;
 
         // ── 2. Forward through all blocks ──
-        let q_dim = n_heads * head_dim;
-        let kv_dim_total = n_kv_heads * head_dim;
+        let _q_dim = n_heads * head_dim;
+        let _kv_dim_total = n_kv_heads * head_dim;
 
         let collective = self.collective.as_ref();
 
@@ -3426,7 +3428,7 @@ impl CausalLM {
     /// Readback ALL weights from CPU (or GPU if CPU weights dropped).
     /// Returns (name, ArrayD) pairs for safetensors save or training init.
     pub fn readback_weights(&self) -> crate::TransformerResult<Vec<(String, ndarray::ArrayD<f32>)>> {
-        use ndarray::{Array1, Array2, ArrayD};
+        use ndarray::ArrayD;
         let mut tensors: Vec<(String, ArrayD<f32>)> =
             Vec::with_capacity(3 + 9 * self.blocks.len() + 3 * self.config.num_experts * self.blocks.len());
 
@@ -3789,7 +3791,8 @@ mod tests {
     fn test_memory_bytes() {
         let model = small_model();
         let bytes = model.memory_bytes();
-        assert_eq!(bytes, model.parameter_count() * model.bytes_per_param());
+        let expected = model.parameter_count() as f64 * model.bytes_per_param();
+        assert!((bytes - expected).abs() < 1.0);
     }
 
     #[test]

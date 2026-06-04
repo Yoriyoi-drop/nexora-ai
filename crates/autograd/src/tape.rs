@@ -6,9 +6,9 @@ use super::Tensor;
 use crate::gpu::{GpuContext, GpuTensor};
 
 thread_local! {
-    pub(crate) static TAPE: RefCell<AutogradTape> = RefCell::new(AutogradTape {
+    pub(crate) static TAPE: RefCell<AutogradTape> = const { RefCell::new(AutogradTape {
         nodes: Vec::new(),
-    });
+    }) };
 }
 
 #[cfg(feature = "gpu")]
@@ -160,5 +160,5 @@ pub(crate) fn with_tape<F, R>(f: F) -> R
 where
     F: FnOnce(&AutogradTape) -> R,
 {
-    TAPE.with(|tape| f(&*tape.borrow()))
+    TAPE.with(|tape| f(&tape.borrow()))
 }

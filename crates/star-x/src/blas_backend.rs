@@ -46,8 +46,8 @@ pub enum BlasBackend {
 }
 
 /// CBLAS row-major / transpose constants (from cblas.h)
-const CBLAS_ROWMajor: i32 = 101;
-const CBLAS_NoTrans: i32 = 111;
+const CBLAS_ROWMAJOR: i32 = 101;
+const CBLAS_NO_TRANS: i32 = 111;
 
 /// High-performance BLAS operations abstraction
 #[derive(Debug)]
@@ -533,9 +533,9 @@ impl BlasOperations {
         // dimensions verified by the caller (gemm_cblas_ffi).
         unsafe {
             func(
-                CBLAS_ROWMajor,
-                CBLAS_NoTrans,
-                CBLAS_NoTrans,
+                CBLAS_ROWMAJOR,
+                CBLAS_NO_TRANS,
+                CBLAS_NO_TRANS,
                 m_i32,
                 n_i32,
                 k_i32,
@@ -899,7 +899,7 @@ impl BlasOperations {
         b: &nexora_autograd::gpu::GpuTensor,
         ctx: &nexora_autograd::gpu::GpuContext,
     ) -> DLResult<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::GpuContext;
+        
 
         let b_t = ctx
             .transpose(b)

@@ -513,7 +513,7 @@ impl FileUtils {
         // Check if buffer contains mostly printable ASCII
         let printable_count = buffer[..bytes_read]
             .iter()
-            .filter(|&&b| b >= 32 && b <= 126 || b == b'\n' || b == b'\r' || b == b'\t')
+            .filter(|&&b| (32..=126).contains(&b) || b == b'\n' || b == b'\r' || b == b'\t')
             .count();
 
         let ratio = printable_count as f64 / bytes_read as f64;
@@ -556,7 +556,7 @@ impl FileUtils {
             if let Ok(checksum) = Self::calculate_checksum(&file) {
                 checksum_map
                     .entry(checksum)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(file);
             }
         }

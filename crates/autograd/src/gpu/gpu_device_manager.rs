@@ -26,7 +26,7 @@ pub struct GpuDeviceManager {
 
 impl GpuDeviceManager {
     pub fn init() -> Result<&'static Self, GpuError> {
-        GPU_DEVICES.get_or_try_init(|| Self::new_blocking())
+        GPU_DEVICES.get_or_try_init(Self::new_blocking)
     }
 
     pub fn global() -> Result<&'static Self, GpuError> {
@@ -107,7 +107,7 @@ impl GpuDeviceManager {
             });
         for grad in grads {
             cb.copy_buffer_to_buffer(
-                &out_tensor.buffer(),
+                out_tensor.buffer(),
                 0,
                 grad.buffer(),
                 0,

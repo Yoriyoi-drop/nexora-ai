@@ -37,8 +37,10 @@ pub fn warn_storage_only() {
 /// Unified quantization format — maps directly to safetensors dtype strings
 /// and model config. Covers all formats requested in the 10-year plan.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum QFormat {
     /// 16-bit half-precision float (2 bytes per element)
+    #[default]
     F16,
     /// 16-bit brain float (2 bytes per element, wider exponent range)
     BF16,
@@ -94,11 +96,6 @@ impl QFormat {
     }
 }
 
-impl Default for QFormat {
-    fn default() -> Self {
-        QFormat::F16
-    }
-}
 
 // ─── Backward-compat alias ─────────────────────────────────────────────────
 
@@ -310,7 +307,7 @@ pub fn quantize_f32_to_int4_packed(weights: &Array2<f32>) -> (Vec<u8>, f32) {
     let max_val = elements.iter().copied().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-10);
     let scale = max_val / 7.0;
     let n = elements.len();
-    let packed_len = (n + 1) / 2;
+    let packed_len = n.div_ceil(2);
     let mut packed = vec![0u8; packed_len];
     for i in 0..n {
         let q = (elements[i] / scale).round().clamp(-8.0, 7.0) as i8;
@@ -350,8 +347,8 @@ pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) 
         return (Vec::new(), Vec::new());
     }
     let gs = group_size.max(1);
-    let num_groups = (n + gs - 1) / gs;
-    let mut packed = vec![0u8; (n + 1) / 2];
+    let num_groups = n.div_ceil(gs);
+    let mut packed = vec![0u8; n.div_ceil(2)];
     let mut scales = Vec::with_capacity(num_groups);
     let flat: Vec<f32> = weights.iter().copied().collect();
     for g in 0..num_groups {
@@ -365,7 +362,7 @@ pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) 
             let q = (flat[i] / scale).round().clamp(-8.0, 7.0) as i8;
             let nibble = (q as u8) & 0x0F;
             let offset = i - start;
-            if offset % 2 == 0 {
+            if offset.is_multiple_of(2) {
                 packed[(start + offset) / 2] = (nibble << 4) | (packed[(start + offset) / 2] & 0x0F);
             } else {
                 packed[(start + offset) / 2] = (packed[(start + offset) / 2] & 0xF0) | nibble;
@@ -397,7 +394,7 @@ pub fn dequantize_int4_groupwise_to_f32(data: &[u8], scales: &[f32], group_size:
 /// Each value occupies 6 bits: bits [5:0] of a conceptual 24-bit sequence.
 fn pack_6bit(values: &[i8], max_bit: u8) -> Vec<u8> {
     let n = values.len();
-    let packed_len = (n * max_bit as usize + 7) / 8;
+    let packed_len = (n * max_bit as usize).div_ceil(8);
     let mut packed = vec![0u8; packed_len];
     let mut bit_pos = 0;
     for &v in values {
@@ -449,7 +446,7 @@ pub fn quantize_f32_to_nbit_groupwise(weights: &Array2<f32>, group_size: usize, 
         return (Vec::new(), Vec::new());
     }
     let gs = group_size.max(1);
-    let num_groups = (n + gs - 1) / gs;
+    let num_groups = n.div_ceil(gs);
     let max_quant = (1i32 << (bits - 1)) - 1; // symmetric range: e.g. 15 for 5-bit, 31 for 6-bit
     let mut quantized = Vec::with_capacity(n);
     let mut scales = Vec::with_capacity(num_groups);

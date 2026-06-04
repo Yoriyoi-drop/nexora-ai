@@ -584,7 +584,7 @@ impl TextProcessor {
 
     /// Count syllables in a word (very simplified)
     fn count_word_syllables(word: &str) -> usize {
-        let vowels = vec!['a', 'e', 'i', 'o', 'u', 'y'];
+        let vowels = ['a', 'e', 'i', 'o', 'u', 'y'];
         let mut syllable_count = 0;
         let chars: Vec<char> = word.chars().collect();
 

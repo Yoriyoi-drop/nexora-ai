@@ -440,7 +440,7 @@ impl FixGenerator {
 
         for line in lines {
             let trimmed = line.trim();
-            let mut fixed = line.to_string();
+            let fixed = line.to_string();
 
             // Fix common pattern: cloning to resolve borrow conflicts
             // Detect: value used here after move → add .clone()
@@ -528,7 +528,7 @@ impl FixGenerator {
         // Close the panic! macro parens properly
         // This is a best-effort replacement
         let mut depth: i32 = 0;
-        let mut chars: Vec<char> = result.chars().collect();
+        let chars: Vec<char> = result.chars().collect();
         let mut i = 0;
         while i < chars.len() {
             if chars[i] == '('
@@ -775,7 +775,7 @@ impl FixGenerator {
     }
 
     /// Add bounds checking for array access with line-specific targeting
-    fn add_bounds_checking(&self, code: &str, line_number: usize) -> Option<String> {
+    fn add_bounds_checking(&self, code: &str, _line_number: usize) -> Option<String> {
         let lines: Vec<&str> = code.lines().collect();
         let mut fixed_lines: Vec<String> = Vec::new();
 

@@ -414,7 +414,7 @@ impl SwiGLU {
         &self,
         x: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_autograd::gpu::GpuContext;
         let ctx = GpuContext::global()?;
         self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {

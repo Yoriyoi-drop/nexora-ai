@@ -81,7 +81,7 @@ pub fn profile_layer_entanglement(
     let weights = layer.get_weights();
 
     // Create iPEPS representation from layer weights
-    let ipeps_network = create_ipeps_from_weights(&weights, config.virtual_dim)?;
+    let ipeps_network = create_ipeps_from_weights(weights, config.virtual_dim)?;
 
     // Apply TRG coarse-graining
     let coarse_ipeps = apply_trg_coarse_graining(&ipeps_network, config.trg_iterations)?;
@@ -575,7 +575,7 @@ fn qr_decomposition(
         for j in 0..i {
             let r_ji = q.column(j).dot(&v);
             r[[j, i]] = r_ji;
-            v = v - &q.column(j).mapv(|x| x * r_ji);
+            v -= &q.column(j).mapv(|x| x * r_ji);
         }
 
         let norm = v.mapv(|x| x * x).sum().sqrt();
@@ -610,7 +610,7 @@ fn thin_svd(
         let mut vec = Array::from_iter((0..m).map(|_| rand::random::<f32>() * 2.0 - 1.0));
         let vec_norm = vec.mapv(|x| x * x).sum().sqrt();
         if vec_norm > 1e-10 {
-            vec = vec / vec_norm;
+            vec /= vec_norm;
         }
 
         // Power iteration (20 iterations)
@@ -618,7 +618,7 @@ fn thin_svd(
             vec = aat.dot(&vec);
             let norm = vec.mapv(|x| x * x).sum().sqrt();
             if norm > 1e-10 {
-                vec = vec / norm;
+                vec /= norm;
             }
         }
 
@@ -629,11 +629,11 @@ fn thin_svd(
         // Orthogonalize against previous eigenvectors (Gram-Schmidt)
         for j in 0..k {
             let proj = u.column(j).dot(&vec);
-            vec = vec - &u.column(j).mapv(|x| x * proj);
+            vec -= &u.column(j).mapv(|x| x * proj);
         }
         let vec_norm = vec.mapv(|x| x * x).sum().sqrt();
         if vec_norm > 1e-10 {
-            vec = vec / vec_norm;
+            vec /= vec_norm;
         }
 
         for (idx, val) in u.column_mut(k).iter_mut().enumerate() {

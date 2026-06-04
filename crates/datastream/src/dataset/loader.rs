@@ -93,7 +93,7 @@ impl StreamingLoader {
 
         // --- 2. Scan shards ---
         let scanner = ShardScanner::new();
-        let mut shard_paths = scanner.scan(&base_path);
+        let shard_paths = scanner.scan(&base_path);
         if shard_paths.is_empty() {
             return Err(LoaderError::NoShards(
                 base_path.to_string_lossy().to_string(),
@@ -215,7 +215,7 @@ impl StreamingLoader {
         let batch_size = self.config.batch_size;
         let semaphore = Arc::new(Semaphore::new(num_workers));
         let start_shard = self.current_shard_idx;
-        let start_offset = self.current_sample_offset;
+        let _start_offset = self.current_sample_offset;
 
         let mut shards = self.shard_paths.clone();
         // Shuffle shards for better mixing each epoch.
@@ -405,7 +405,7 @@ impl StreamingLoader {
 
 async fn load_shard_integrated(
     shard: &ShardPath,
-    batch_size: usize,
+    _batch_size: usize,
     cache_dir: Option<&Path>,
 ) -> Result<Vec<DataSample>, LoaderError> {
     let source = SourceInfo {
@@ -508,7 +508,7 @@ async fn load_shard_integrated(
 /// without accumulating the entire shard in memory.
 async fn load_shard_streaming(
     shard: &ShardPath,
-    batch_size: usize,
+    _batch_size: usize,
     cache_dir: Option<&Path>,
     tx: &mpsc::Sender<Vec<DataSample>>,
 ) -> Result<(), LoaderError> {

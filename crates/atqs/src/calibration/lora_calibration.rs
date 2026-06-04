@@ -93,7 +93,7 @@ fn create_lora_adapters(
             let layer = &layers[layer_idx];
             let weights = layer.get_weights();
 
-            let adapter = create_layer_adapter(layer_idx, &weights, config)?;
+            let adapter = create_layer_adapter(layer_idx, weights, config)?;
             adapters.push(adapter);
         }
     }
@@ -342,7 +342,7 @@ fn apply_layer_with_lora(
     let weights = layer.get_weights();
 
     // Apply standard layer operation
-    let standard_output = apply_layer_operation(&weights, input)?;
+    let standard_output = apply_layer_operation(weights, input)?;
 
     // Add LoRA update
     Ok(standard_output + lora_update)
@@ -518,7 +518,7 @@ fn forward_pass_single(
 
     for layer in layers.iter() {
         let weights = layer.get_weights();
-        output = apply_layer_operation(&weights, &output)?;
+        output = apply_layer_operation(weights, &output)?;
     }
 
     Ok(output)

@@ -325,7 +325,7 @@ impl FoundationModel for BasicFoundationModel {
                 vec![]
             };
 
-            let output_shape = if weight_shape.len() >= 1 {
+            let output_shape = if !weight_shape.is_empty() {
                 vec![weight_shape[0]]
             } else {
                 vec![]
@@ -570,14 +570,13 @@ impl FoundationModel for BasicFoundationModel {
         // Extract attention weights from parameters
         // Look for parameters that match attention layer naming patterns
         for (param_name, param_array) in &self.parameters {
-            if param_name.contains("attention")
+            if (param_name.contains("attention")
                 || param_name.contains("attn")
                 || param_name.contains("query")
                 || param_name.contains("key")
                 || param_name.contains("value")
-                || param_name.contains("softmax")
-            {
-                if param_array.ndim() >= 2 {
+                || param_name.contains("softmax"))
+                && param_array.ndim() >= 2 {
                     let rows = param_array.shape()[0];
                     let cols = param_array.shape()[1];
                     let mut matrix = Array::zeros((rows, cols));
@@ -599,7 +598,6 @@ impl FoundationModel for BasicFoundationModel {
                     }
                     attention_weights.push(matrix.into_dyn());
                 }
-            }
         }
 
         attention_weights

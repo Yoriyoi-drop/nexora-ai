@@ -218,7 +218,7 @@ fn compute_gradient_norm(layer: &dyn crate::ModelLayer) -> Result<f32, crate::AT
 
         // Compute approximate gradient (simplified)
         let gradient =
-            (compute_layer_output(&perturbed_weights)? - compute_layer_output(&weights)?) / epsilon;
+            (compute_layer_output(&perturbed_weights)? - compute_layer_output(weights)?) / epsilon;
         gradient_norm += gradient * gradient;
     }
 
@@ -234,8 +234,8 @@ fn compute_output_variance(layer: &dyn crate::ModelLayer) -> Result<f32, crate::
 
     // Test with random inputs
     for _ in 0..10 {
-        let input = generate_random_input(&weights.shape())?;
-        let output = apply_layer_weights(&weights, &input)?;
+        let input = generate_random_input(weights.shape())?;
+        let output = apply_layer_weights(weights, &input)?;
         outputs.push(output);
     }
 

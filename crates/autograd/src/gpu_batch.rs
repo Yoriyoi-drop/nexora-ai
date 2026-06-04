@@ -144,7 +144,7 @@ impl GpuContext {
                 resource: t.buffer().as_entire_binding(),
             }],
         });
-        batch.dispatch(&pipeline.pipeline, &bg, ((numel + 255) / 256, 1, 1));
+        batch.dispatch(&pipeline.pipeline, &bg, (numel.div_ceil(256), 1, 1));
         Ok(())
     }
 

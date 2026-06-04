@@ -226,14 +226,14 @@ impl ResonanceClusterer {
             let mut v = Array1::from_iter((0..n).map(|_| rand::random::<f32>() * 2.0 - 1.0));
             let v_norm = v.mapv(|x| x * x).sum().sqrt();
             if v_norm > 1e-10 {
-                v = v / v_norm;
+                v /= v_norm;
             }
 
             for _ in 0..30 {
                 v = shifted.dot(&v);
                 let norm = v.mapv(|x| x * x).sum().sqrt();
                 if norm > 1e-10 {
-                    v = v / norm;
+                    v /= norm;
                 }
             }
 
@@ -601,7 +601,7 @@ impl ResonanceClusterer {
         for (node, community) in communities.iter().enumerate() {
             community_map
                 .entry(*community)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(node);
         }
 

@@ -340,7 +340,7 @@ impl CpuReadback {
         });
         readback_with_timeout(&ctx.device, &rx)?;
         let mapped = slice.get_mapped_range();
-        let result: Vec<f32> = bytemuck::cast_slice(&*mapped).to_vec();
+        let result: Vec<f32> = bytemuck::cast_slice(&mapped).to_vec();
         drop(mapped);
         self.staging.unmap();
         Ok(result)
@@ -362,7 +362,7 @@ pub struct GpuBatchBuffer {
 
 impl GpuBatchBuffer {
     pub fn new(
-        ctx: &GpuContext,
+        _ctx: &GpuContext,
         batch_shape: &[usize],
         target_shape: &[usize],
     ) -> Result<Self, GpuError> {

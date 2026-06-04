@@ -75,7 +75,7 @@ impl GpuContext {
         self.queue
             .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
 
-        for (i, g) in grad_tensors.iter().enumerate() {
+        for g in grad_tensors.iter() {
             let numel = g.numel() as u32;
             let bg = self.get_or_create_bind_group_shared(
                 &pipeline.bind_group_layout,
@@ -99,7 +99,7 @@ impl GpuContext {
                 ],
                 "gradient_clip_bg",
             );
-            let wg_count = (numel + 255) / 256;
+            let wg_count = numel.div_ceil(256);
             self.dispatch(pipeline, &bg, (wg_count, 1, 1));
         }
 
@@ -131,7 +131,7 @@ impl GpuContext {
 
         let (norm_val, scale_factor, clipped) = {
             let mapped = slice.get_mapped_range();
-            let data: &[f32] = bytemuck::cast_slice(&*mapped);
+            let data: &[f32] = bytemuck::cast_slice(&mapped);
             (data[0], data[2], data[3] as u32 != 0)
         };
         staging.buffer.unmap();

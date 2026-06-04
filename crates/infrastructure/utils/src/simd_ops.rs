@@ -553,7 +553,7 @@ impl SimdTextOps {
     }
 
     fn has_whitespace_fallback(text: &[u8]) -> bool {
-        text.iter().any(|&c| c == b' ')
+        text.contains(&b' ')
     }
 }
 

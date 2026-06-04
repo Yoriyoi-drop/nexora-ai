@@ -74,7 +74,7 @@ impl ResonanceMapper {
         let mut signatures = Vec::new();
         let mut neuron_id = 0;
 
-        for (_layer_idx, layer_weights) in weights.iter().enumerate() {
+        for layer_weights in weights.iter() {
             let (output_dim, _input_dim) = layer_weights.dim();
 
             for i in 0..output_dim {

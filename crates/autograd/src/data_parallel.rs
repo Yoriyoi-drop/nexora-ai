@@ -199,7 +199,7 @@ pub fn gpu_allreduce_gradients(
             label: Some("dp_allreduce_copy_back"),
         });
     for g in grad_tensors {
-        cb.copy_buffer_to_buffer(&out_tensor.buffer(), 0, g.buffer(), 0, (numel * 4) as u64);
+        cb.copy_buffer_to_buffer(out_tensor.buffer(), 0, g.buffer(), 0, (numel * 4) as u64);
     }
     ctx.queue.submit(Some(cb.finish()));
 
@@ -335,9 +335,9 @@ fn storage_scale(s: &Storage, scale: f32) -> Storage {
         Storage::Cpu(arr) => Storage::Cpu(Arc::new(arr.as_ref() * scale)),
         #[cfg(feature = "gpu")]
         Storage::Gpu(t) => {
-            let mut copy = t.clone();
+            let copy = t.clone();
             if let Ok(ctx) = GpuContext::global() {
-                let _ = ctx.scale_inplace(&mut copy, scale);
+                let _ = ctx.scale_inplace(&copy, scale);
             }
             Storage::Gpu(copy)
         }

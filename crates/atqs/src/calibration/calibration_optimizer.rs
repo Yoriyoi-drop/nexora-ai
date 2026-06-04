@@ -132,7 +132,7 @@ pub fn optimize_calibration(
         optimization_history: history,
         best_parameters,
         total_training_time: 0.0, // Would be measured
-        convergence_achieved: state.convergence_metrics.loss_trend.len() > 0,
+        convergence_achieved: !state.convergence_metrics.loss_trend.is_empty(),
     })
 }
 
@@ -316,7 +316,7 @@ fn compute_layer_gradients(
     let weights = layer.get_weights();
 
     // Compute weight gradients using finite differences
-    let weight_gradients = compute_weight_gradients(model, layer_idx, &weights, batch)?;
+    let weight_gradients = compute_weight_gradients(model, layer_idx, weights, batch)?;
     layer_gradients.insert("weights".to_string(), weight_gradients);
 
     // Compute bias gradients if applicable
@@ -668,7 +668,7 @@ fn forward_pass_single(
 
     for layer in layers.iter() {
         let weights = layer.get_weights();
-        output = apply_layer_operation(&weights, &output)?;
+        output = apply_layer_operation(weights, &output)?;
     }
 
     Ok(output)
@@ -684,7 +684,7 @@ fn forward_pass_to_layer(
 
     for (layer_idx, layer) in layers.iter().enumerate() {
         let weights = layer.get_weights();
-        output = apply_layer_operation(&weights, &output)?;
+        output = apply_layer_operation(weights, &output)?;
 
         if layer_idx == target_layer {
             break;
@@ -936,7 +936,7 @@ impl CalibrationOptimizer for AdaGradOptimizer {
         apply_parameter_update(model, layer_idx, param_type, &update)?;
 
         // Log optimization metrics
-        if state.step % 100 == 0 {
+        if state.step.is_multiple_of(100) {
             let grad_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt();
             let accumulated_norm = accumulated.iter().map(|x| x * x).sum::<f32>().sqrt();
             tracing::debug!(
@@ -1021,7 +1021,7 @@ impl CalibrationOptimizer for RMSPropOptimizer {
         apply_parameter_update(model, layer_idx, param_type, &update)?;
 
         // Log optimization metrics
-        if state.step % 100 == 0 {
+        if state.step.is_multiple_of(100) {
             let grad_norm = gradient.iter().map(|x| x * x).sum::<f32>().sqrt();
             let rms_norm = squared_grads.iter().map(|x| x * x).sum::<f32>().sqrt();
             tracing::debug!(

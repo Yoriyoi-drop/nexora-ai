@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderName, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{get, post},
     Extension, Json, Router,
 };
 use serde::Serialize;
@@ -53,7 +53,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         Some(Arc::new(crate::auth::AuthSystem::new("nexora-jwt-secret-change-me")))
     };
     #[cfg(not(feature = "server-auth"))]
-    let auth_system: Option<Arc<crate::auth::AuthSystem>> = None;
+    let _auth_system: Option<Arc<crate::auth::AuthSystem>> = None;
 
     let mut app = Router::new()
         .route("/health", get(health_check))

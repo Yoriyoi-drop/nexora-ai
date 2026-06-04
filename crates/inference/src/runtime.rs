@@ -5,7 +5,6 @@
 use chrono::{DateTime, Utc};
 use procfs::process::Process as ProcProcess;
 use std::collections::HashMap;
-use std::fs;
 use std::sync::Arc;
 use sysinfo::System;
 use tokio::sync::{Mutex, RwLock};
@@ -528,7 +527,7 @@ impl InferenceRuntime {
         interval_requests: u64,
         interval_tokens: u64,
     ) -> Result<()> {
-        let mut metrics = self.performance_metrics.write().await;
+        let _metrics = self.performance_metrics.write().await;
 
         // Store interval-based metrics (could be stored in a separate history)
         let interval_throughput = if interval_requests > 0 {

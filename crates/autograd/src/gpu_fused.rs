@@ -249,7 +249,7 @@ impl GpuContext {
 
         // New shader uses workgroup_size(256, 1, 1) - dispatch based on total elements
         let total_elements = m * n;
-        let wg_x = (total_elements + 255) / 256;
+        let wg_x = total_elements.div_ceil(256);
         self.dispatch(pipeline, &bg, (wg_x, 1, 1));
 
         let out_buf = out.buffer;
@@ -331,8 +331,8 @@ impl GpuContext {
         let tile_size = self
             .caps
             .adaptive_fused_tile_size(m as usize, n as usize, k as usize);
-        let wgx = (n + tile_size - 1) / tile_size; // cols → x
-        let wgy = (m + tile_size - 1) / tile_size; // rows → y
+        let wgx = n.div_ceil(tile_size); // cols → x
+        let wgy = m.div_ceil(tile_size); // rows → y
         let elapsed = self.dispatch_profiled(pipeline, &bg, (wgx, wgy, 1));
 
         Ok((
@@ -367,7 +367,7 @@ impl GpuContext {
     ) -> Result<GpuTensor, GpuError> {
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let (m, k, n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
+        let (_m, _k, _n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
 
         self.fused_matmul_bias_gelu_routed(a, b, bias, false)
     }
@@ -389,7 +389,7 @@ impl GpuContext {
         // Small: matmul+bias then activation (better occupancy than fused tile-8).
         // Huge: split to avoid fused-kernel register pressure.
         // Mid (512–1024): single fused dispatch.
-        if !force_fused && (max_dim < 512 || max_dim > 1024) {
+        if !force_fused && !(512..=1024).contains(&max_dim) {
             let mut mat = self.fused_matmul_bias(a, b, bias)?;
             self.gelu_inplace(&mut mat)?;
             return Ok(mat);
@@ -406,7 +406,7 @@ impl GpuContext {
     ) -> Result<(GpuTensor, std::time::Duration), GpuError> {
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let (m, k, n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
+        let (_m, _k, _n) = (a_shape[0] as u32, a_shape[1] as u32, b_shape[1] as u32);
 
         let start = std::time::Instant::now();
         let out = self.fused_matmul_bias_gelu_routed(a, b, bias, false)?;

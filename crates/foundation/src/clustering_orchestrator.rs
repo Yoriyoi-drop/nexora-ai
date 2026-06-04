@@ -10,7 +10,6 @@
 //! Quality Scorer: silhouette, davies-bouldin, cluster stability
 //! Cross-Level Mapper: hubungkan cluster neuron ↔ cluster layer → strategi kompresi
 
-use rand::Rng;
 use rayon::prelude::*;
 
 /// Unified clustering request — semua komponen pakai format ini

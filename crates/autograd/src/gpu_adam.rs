@@ -153,8 +153,8 @@ impl GpuAdam {
                 &format!("adam_bg_{}", i),
             );
 
-            let wg = (numel as u32 + 255) / 256;
-            ctx.dispatch(&pipeline, &bind_group, (wg, 1, 1));
+            let wg = (numel as u32).div_ceil(256);
+            ctx.dispatch(pipeline, &bind_group, (wg, 1, 1));
         }
 
         Ok(())

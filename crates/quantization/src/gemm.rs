@@ -16,20 +16,17 @@
 
 /// Compute mode for quantized matmul.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum QuantComputeMode {
     /// Old behavior — dequantize all weights to FP32 first (high VRAM).
     DequantFallback,
     /// Compute directly from Q4 packed weights (4× VRAM savings vs FP32).
+    #[default]
     Int4Direct,
     /// Compute directly from INT8 weights (2× VRAM savings vs FP32).
     Int8Direct,
 }
 
-impl Default for QuantComputeMode {
-    fn default() -> Self {
-        Self::Int4Direct
-    }
-}
 
 /// Pack two Q4 values (0–15 each) into one byte.
 /// `low` = first value (lower nibble), `high` = second value (upper nibble).
@@ -72,7 +69,7 @@ pub fn matmul_int4(
     for i in 0..m {
         for j in 0..n {
             let mut sum = 0.0f32;
-            let mut b_idx = j; // column-major packed access
+            let _b_idx = j; // column-major packed access
             for g in 0..groups {
                 let g_start = g * group_size;
                 let g_end = (g_start + group_size).min(k_aligned);

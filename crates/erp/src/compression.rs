@@ -325,7 +325,7 @@ impl SuperpositionCompressor {
                     let current = reconstructed.row(i).to_owned();
                     reconstructed
                         .row_mut(i)
-                        .assign(&(current + &full_residual.row(i)));
+                        .assign(&(current + full_residual.row(i)));
                 }
                 ResidualRepresentation::LowRankResidual(low_rank) => {
                     // Simplified reconstruction dari low-rank
@@ -337,7 +337,7 @@ impl SuperpositionCompressor {
                     let current = reconstructed.row(i).to_owned();
                     reconstructed
                         .row_mut(i)
-                        .assign(&(current + &sparse.residual.row(i)));
+                        .assign(&(current + sparse.residual.row(i)));
                 }
             }
         }

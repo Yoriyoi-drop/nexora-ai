@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use nexora_runtime::cluster::{ClusterConfig, NodeInfo, NodeLoad, NodeRegistry};
+use nexora_runtime::cluster::{NodeInfo, NodeLoad, NodeRegistry};
 
 use crate::{GeneratedToken, InferenceError, InferenceRequest, InferenceResponse};
 
@@ -46,7 +46,7 @@ impl DistributedRouter {
     }
 
     fn register_load_fn(registry: &Arc<NodeRegistry>) {
-        let reg = Arc::clone(registry);
+        let _reg = Arc::clone(registry);
         registry.set_dynamic_load_fn(Some(Arc::new(move || {
             use crate::inference_trait::{
                 KV_CACHE_EXTERNAL_FRAG, KV_CACHE_INTERNAL_FRAG, KV_CACHE_TOTAL_BLOCKS,
@@ -54,8 +54,8 @@ impl DistributedRouter {
             };
             use std::sync::atomic::Ordering;
 
-            let used = KV_CACHE_USED_BLOCKS.load(Ordering::Relaxed);
-            let total = KV_CACHE_TOTAL_BLOCKS.load(Ordering::Relaxed);
+            let _used = KV_CACHE_USED_BLOCKS.load(Ordering::Relaxed);
+            let _total = KV_CACHE_TOTAL_BLOCKS.load(Ordering::Relaxed);
             let int_frag = KV_CACHE_INTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0;
             let ext_frag = KV_CACHE_EXTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0;
 

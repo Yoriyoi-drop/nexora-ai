@@ -104,7 +104,7 @@ impl VramBudget {
     }
 
     /// Auto-configure limits based on model size and expert count.
-    pub fn auto_configure(&mut self, model_params: usize, num_experts: usize, bits_per_weight: usize) {
+    pub fn auto_configure(&mut self, model_params: usize, _num_experts: usize, bits_per_weight: usize) {
         let bytes_per_param = bits_per_weight as f64 / 8.0;
         let model_weight_bytes = (model_params as f64 * bytes_per_param) as u64;
         // Dense weights always resident

@@ -35,7 +35,7 @@ impl GpuOptimizerState {
     /// Create GPU-resident optimizer state from CPU state
     pub fn from_cpu(
         cpu_state: &OptimizerState,
-        ctx: &GpuContext,
+        _ctx: &GpuContext,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let m = cpu_state
             .m
@@ -83,8 +83,8 @@ impl GpuOptimizerState {
             }
         }
         OptimizerState {
-            m: self.m.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
-            v: self.v.iter().map(|t| gpu_tensor_to_vec(t)).collect(),
+            m: self.m.iter().map(gpu_tensor_to_vec).collect(),
+            v: self.v.iter().map(gpu_tensor_to_vec).collect(),
             step: self.step,
         }
     }
@@ -92,7 +92,7 @@ impl GpuOptimizerState {
     /// Create GPU-resident optimizer state directly from Adam optimizer
     pub fn from_adam_gpu(
         adam: &Adam,
-        ctx: &GpuContext,
+        _ctx: &GpuContext,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let m = adam
             .m
@@ -271,7 +271,7 @@ impl GpuCheckpoint {
             model_params: self
                 .model_params
                 .iter()
-                .map(|t| gpu_tensor_to_vec(t))
+                .map(gpu_tensor_to_vec)
                 .collect(),
             model_shapes: self.model_shapes.clone(),
             optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
@@ -401,6 +401,12 @@ pub struct TrainingMetrics {
     pub learning_rates: Vec<f32>,
     pub grad_norms: Vec<f32>,
     pub throughputs: Vec<f32>, // tokens/second
+}
+
+impl Default for TrainingMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TrainingMetrics {
@@ -620,7 +626,7 @@ impl TrainingLoop {
             .record(self.step, loss, lr, grad_norm, throughput);
 
         // Logging
-        if self.step % self.config.log_interval == 0 {
+        if self.step.is_multiple_of(self.config.log_interval) {
             let avg = self
                 .metrics
                 .avg_loss(self.config.log_interval)
@@ -637,7 +643,7 @@ impl TrainingLoop {
         }
 
         // Save checkpoint
-        if self.step % self.config.save_interval == 0 {
+        if self.step.is_multiple_of(self.config.save_interval) {
             if let Some(ref dir) = self.config.checkpoint_dir {
                 let path = dir.join(format!("checkpoint-{}.json", self.step));
                 tracing::info!("  Saving checkpoint to {:?}", path);

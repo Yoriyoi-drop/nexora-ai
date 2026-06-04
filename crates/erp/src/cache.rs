@@ -33,7 +33,7 @@ impl InferenceCache {
             cache_size,
             cache: LruCache::new(
                 std::num::NonZeroUsize::new(cache_size)
-                    .unwrap_or_else(|| std::num::NonZeroUsize::MIN),
+                    .unwrap_or(std::num::NonZeroUsize::MIN),
             ),
             cache_stats: CacheStats::default(),
             hash_function: ContextHasher::new(),
@@ -166,6 +166,12 @@ pub struct ContextHasher {
     bucket_size: usize,
 }
 
+impl Default for ContextHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ContextHasher {
     pub fn new() -> Self {
         Self {
@@ -221,7 +227,7 @@ impl ContextHasher {
 
         for hash in hashes {
             combined ^= Wrapping(hash.0);
-            combined = combined * Wrapping(0x100000001b3); // FNV prime
+            combined *= Wrapping(0x100000001b3); // FNV prime
         }
 
         ContextHash(combined.0)
@@ -268,7 +274,7 @@ impl HybridCache {
         Self {
             lru_cache: LruCache::new(
                 std::num::NonZeroUsize::new(max_size)
-                    .unwrap_or_else(|| std::num::NonZeroUsize::MIN),
+                    .unwrap_or(std::num::NonZeroUsize::MIN),
             ),
             lfu_tracker: HashMap::new(),
             max_size,
@@ -300,7 +306,7 @@ impl HybridCache {
 
     /// Hybrid eviction strategy
     fn hybrid_eviction(&mut self) {
-        if self.lru_cache.len() == 0 {
+        if self.lru_cache.is_empty() {
             return;
         }
 
@@ -507,7 +513,7 @@ impl PatternCache {
         }
         self.pattern_clusters
             .entry(cluster.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(context_hash);
         self.cluster_cache.insert(cluster, gates);
     }

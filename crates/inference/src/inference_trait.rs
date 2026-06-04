@@ -234,7 +234,7 @@ pub fn observability_snapshot() -> ObservabilitySnapshot {
     let busy_ns = gpu_obs::GPU_BUSY_NS.load(Ordering::Relaxed);
     #[cfg(not(feature = "gpu"))]
     let busy_ns = 0u64;
-    let idle_ns = 0u64; // not separately tracked
+    let _idle_ns = 0u64; // not separately tracked
     let gpu_total_ns = busy_ns;
 
     #[cfg(feature = "gpu")]
