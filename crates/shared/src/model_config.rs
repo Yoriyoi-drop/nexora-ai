@@ -648,27 +648,28 @@ impl NxrModelConfig {
                 config.architecture.hidden_size = 8192;
                 config.architecture.num_layers = 64;
                 config.architecture.num_attention_heads = 64;
+                config.architecture.num_kv_heads = Some(1);
                 config.architecture.max_sequence_length = 10_000_000;
                 config.architecture.model_type = ModelType::MixtureOfExperts;
                 config.architecture.moe_config = Some(MoeConfig {
-                    num_experts: 324,
-                    num_experts_per_token: 32,
+                    num_experts: 256,
+                    num_experts_per_token: 8,
                     capacity_factor: 1.1,
                     load_balancing_loss_coef: 0.01,
                     routing_method: RoutingMethod::TopK,
                     expert_domains: Some(ExpertDomainConfig {
-                        shared_count: 128,
-                        tier_specific_count: 64,
-                        shared_bias: 0.7,
-                        min_shared_in_topk: 16,
+                        shared_count: 1,
+                        tier_specific_count: 32,
+                        shared_bias: 0.3,
+                        min_shared_in_topk: 1,
                         domain_counts: vec![
-                            ("math".into(), 20), ("language".into(), 24),
-                            ("logic".into(), 12), ("science".into(), 16),
-                            ("code".into(), 20), ("factual".into(), 16),
-                            ("reasoning".into(), 12), ("general".into(), 8),
-                            ("adv_reasoning".into(), 16), ("multimodal".into(), 16),
-                            ("metalearning".into(), 8), ("deep_code".into(), 12),
-                            ("sci_discovery".into(), 12),
+                            ("math".into(), 16), ("language".into(), 20),
+                            ("logic".into(), 10), ("science".into(), 14),
+                            ("code".into(), 16), ("factual".into(), 14),
+                            ("reasoning".into(), 10), ("general".into(), 8),
+                            ("adv_reasoning".into(), 14), ("multimodal".into(), 14),
+                            ("metalearning".into(), 8), ("deep_code".into(), 10),
+                            ("sci_discovery".into(), 10),
                         ],
                     }),
                 });
@@ -734,26 +735,27 @@ impl NxrModelConfig {
                 config.architecture.hidden_size = 6144;
                 config.architecture.num_layers = 48;
                 config.architecture.num_attention_heads = 48;
+                config.architecture.num_kv_heads = Some(1);
                 config.architecture.max_sequence_length = 2_000_000;
                 config.architecture.model_type = ModelType::MixtureOfExperts;
                 config.architecture.moe_config = Some(MoeConfig {
-                    num_experts: 324,
-                    num_experts_per_token: 32,
+                    num_experts: 256,
+                    num_experts_per_token: 8,
                     capacity_factor: 1.1,
                     load_balancing_loss_coef: 0.01,
                     routing_method: RoutingMethod::TopK,
                     expert_domains: Some(ExpertDomainConfig {
-                        shared_count: 128,
-                        tier_specific_count: 48,
-                        shared_bias: 0.7,
-                        min_shared_in_topk: 16,
+                        shared_count: 1,
+                        tier_specific_count: 32,
+                        shared_bias: 0.3,
+                        min_shared_in_topk: 1,
                         domain_counts: vec![
-                            ("math".into(), 20), ("language".into(), 24),
-                            ("logic".into(), 12), ("science".into(), 16),
-                            ("code".into(), 20), ("factual".into(), 16),
-                            ("reasoning".into(), 12), ("general".into(), 8),
-                            ("code_review".into(), 16), ("emotional".into(), 12),
-                            ("task_planning".into(), 12), ("system_design".into(), 8),
+                            ("math".into(), 16), ("language".into(), 20),
+                            ("logic".into(), 10), ("science".into(), 14),
+                            ("code".into(), 16), ("factual".into(), 14),
+                            ("reasoning".into(), 10), ("general".into(), 8),
+                            ("code_review".into(), 14), ("emotional".into(), 10),
+                            ("task_planning".into(), 10), ("system_design".into(), 8),
                         ],
                     }),
                 });

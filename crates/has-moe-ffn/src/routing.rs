@@ -30,8 +30,8 @@ impl Default for RouterConfig {
     fn default() -> Self {
         Self {
             hidden_size: 768,
-            num_experts: 324,
-            top_k: 32,
+            num_experts: 256,
+            top_k: 8,
             capacity_factor: 1.1,
             z_loss_coefficient: 1e-4,
             importance_loss_coefficient: 0.01,

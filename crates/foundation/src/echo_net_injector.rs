@@ -65,6 +65,10 @@ impl EchoNetInjector {
 }
 
 impl LayerInjector for EchoNetInjector {
+    fn reset(&mut self) {
+        self.buffer.clear();
+    }
+
     fn after_layer(
         &mut self,
         _layer_idx: usize,

@@ -41,6 +41,10 @@ pub struct SwiGLU {
 
 impl Clone for SwiGLU {
     fn clone(&self) -> Self {
+        tracing::warn!(
+            "Cloning SwiGLU — copies 3 weight matrices (~{:.1}M params). Use Arc<SwiGLU> for shared ownership.",
+            self.w1.as_ref().map_or(0, |w| w.len()) as f64 / 1_000_000.0 * 3.0
+        );
         Self {
             w1: self.w1.clone(),
             w2: self.w2.clone(),

@@ -893,4 +893,140 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
         }
         Ok(())
     }
+
+    // ── INT4 Matmul ──────────────────────────────────────────────────
+
+    /// INT4 matmul: `C[M, N] = A[M, K] @ B_int4[K/2, N]` with per-group scales.
+    ///
+    /// Q4 packing: 2 values per byte (low nibble = k even, high nibble = k odd).
+    /// B layout: `[(K/2), N]` row-major, indices `(k/2) * N + n`.
+    /// Scales: `[groups, N]` — one scale per group_size elements per column.
+    /// Dequant: `val = (q4 - 8) * scale` (symmetric, center at 0).
+    pub fn matmul_int4(
+        &self,
+        a: &CudaTensor,
+        b_packed: &CudaTensor,
+        scales: &CudaTensor,
+        m: usize,
+        n: usize,
+        k: usize,
+        group_size: usize,
+    ) -> Result<CudaTensor, String> {
+        let a_shape = a.shape();
+        let b_shape = b_packed.shape();
+        let s_shape = scales.shape();
+
+        if a_shape != &vec![m, k] {
+            return Err(format!(
+                "CUDA matmul_int4: A shape mismatch, expected [M={m}, K={k}], got {:?}",
+                a_shape
+            ));
+        }
+        if b_shape.len() != 2 || b_shape[0] != k / 2 || b_shape[1] != n {
+            return Err(format!(
+                "CUDA matmul_int4: B shape mismatch, expected [{}, {}], got {:?}",
+                k / 2,
+                n,
+                b_shape
+            ));
+        }
+        let groups = k.div_ceil(group_size);
+        if s_shape != &vec![groups, n] {
+            return Err(format!(
+                "CUDA matmul_int4: scales shape mismatch, expected [{groups}, {n}], got {:?}",
+                s_shape
+            ));
+        }
+
+        let num_groups = groups as i32;
+        let m_i32 = m as i32;
+        let n_i32 = n as i32;
+        let k_i32 = k as i32;
+        let gs_i32 = group_size as i32;
+
+        let numel = m * n;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(numel)
+            .map_err(|e| format!("CUDA matmul_int4 alloc: {e}"))?;
+
+        // 1 thread per output element: grid(M, ceil(N/256)), block(256)
+        let block_size: u32 = 256;
+        let grid_x = m_i32 as u32;
+        let grid_y = ((n_i32 as u32) + block_size - 1) / block_size;
+
+        let kernel_name = "matmul_int4";
+        let source = format!(
+            r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, const unsigned char* __restrict__ b_packed,
+    const float* __restrict__ scales, int M, int N, int K, int groups, int group_size) {{
+
+    int row = blockIdx.x;
+    if (row >= M) return;
+
+    int tid = threadIdx.x;
+    int cols_per_thread = (N + blockDim.x - 1) / blockDim.x;
+
+    for (int tj = 0; tj < cols_per_thread; tj++) {{
+        int col = tid + tj * blockDim.x;
+        if (col >= N) break;
+
+        float sum = 0.0f;
+        for (int g = 0; g < groups; g++) {{
+            int g_start = g * group_size;
+            int g_end = min(g_start + group_size, K);
+            float scale = scales[g * N + col];
+
+            for (int kk = g_start; kk < g_end; kk += 2) {{
+                float a0 = a[row * K + kk];
+                float a1 = a[row * K + kk + 1];
+
+                int packed_idx = (kk / 2) * N + col;
+                unsigned char packed = b_packed[packed_idx];
+
+                int b0 = (packed >> 0) & 0x0F;
+                int b1 = (packed >> 4) & 0x0F;
+                float b0f = (b0 - 8.0f) * scale;
+                float b1f = (b1 - 8.0f) * scale;
+
+                sum += a0 * b0f + a1 * b1f;
+            }}
+        }}
+        out[row * N + col] = sum;
+    }}
+}}
+"#
+        );
+
+        let func = self.get_or_compile_kernel(kernel_name, &source)?;
+
+        let cfg = LaunchConfig {
+            grid: (grid_x, grid_y, 1),
+            block: block_size,
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b_packed.buffer());
+            builder.arg(scales.buffer());
+            builder.arg(&m_i32);
+            builder.arg(&n_i32);
+            builder.arg(&k_i32);
+            builder.arg(&num_groups);
+            builder.arg(&gs_i32);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA matmul_int4 launch: {e}"))?;
+        }
+
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
+    }
 }

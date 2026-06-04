@@ -41,8 +41,8 @@ pub struct HasMoeFFNConfig {
 impl Default for HasMoeFFNConfig {
     fn default() -> Self {
         Self {
-            num_experts: 324,
-            top_k: 32,
+            num_experts: 256,
+            top_k: 8,
             hidden_size: 768,
             intermediate_size: 3072,
             use_dropout: true,
@@ -373,6 +373,24 @@ impl HasMoeFFN {
         }
     }
 
+    /// Quantize all expert weights to Q4 for 4× VRAM savings on GPU.
+    ///
+    /// Call after `init_random()` or after loading FP32 checkpoints.
+    /// After quantizing, call `drop_cpu_fp32_keep_q4_all()` to free CPU FP32 memory.
+    pub fn quantize_experts_to_q4(&mut self, group_size: usize) {
+        for expert in &mut self.experts {
+            expert.quantize_to_q4(group_size);
+        }
+    }
+
+    /// Drop FP32 weights from all experts, retaining Q4 data for GPU forward.
+    /// Call after `quantize_experts_to_q4()` if CPU memory is constrained.
+    pub fn drop_cpu_fp32_keep_q4_all(&mut self) {
+        for expert in &mut self.experts {
+            expert.drop_cpu_fp32_keep_q4();
+        }
+    }
+
     /// Get configuration
     pub fn config(&self) -> &HasMoeFFNConfig {
         &self.config
@@ -461,11 +479,11 @@ mod tests {
     }
 
     #[test]
-    fn test_default_uses_324_experts() {
+    fn test_default_uses_256_experts() {
         let moe = HasMoeFFN::default();
         let cfg = moe.config();
-        assert_eq!(cfg.num_experts, 324);
-        assert_eq!(cfg.top_k, 32);
+        assert_eq!(cfg.num_experts, 256);
+        assert_eq!(cfg.top_k, 8);
         assert_eq!(cfg.hidden_size, 768);
     }
 

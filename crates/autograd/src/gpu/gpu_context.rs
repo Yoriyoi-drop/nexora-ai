@@ -506,6 +506,7 @@ impl GpuContext {
         self.compile_matmul_tiled(tile)?;
         self.compile_matmul_int8_tiled(tile)?;
         self.compile_matmul_int8_weight(tile)?;
+        self.compile_matmul_int4_weight(tile)?;
         self.compile_matmul_f16_tiled(tile)?;
         self.compile_elementwise()?;
         self.compile_reduce(ReduceOp::Sum)?;
@@ -2615,6 +2616,27 @@ impl GpuContext {
     //  PHASE 1.2b: INT8 WEIGHT MATMUL
     // ═══════════════════════════════════════════════════════════════════════════
 
+    fn compile_matmul_int4_weight(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_int4_weight") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_INT4_WEIGHT_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_int4_weight",
+            &[
+                storage_binding(0, true),   // binding 0: A (f32 activations)
+                storage_binding(1, true),   // binding 1: B (packed u32 Q4 weights)
+                storage_binding(2, false),  // binding 2: C (f32 output, read_write)
+                uniform_binding(3),         // binding 3: Uniforms { M, K, N, GroupSize, Tile }
+                storage_binding(4, true),   // binding 4: scales (f32 per-group per-column)
+            ],
+            wgsl,
+            "matmul_int4_weight_main",
+        )
+    }
+
     fn compile_matmul_int8_weight(&mut self, tile: u32) -> Result<(), GpuError> {
         if self.pipelines.contains_key("matmul_int8_weight") {
             return Ok(());
@@ -2746,6 +2768,118 @@ impl GpuContext {
 
         Ok(GpuTensor {
             shape: vec![a_shape[0], b_shape[0]],
+            buffer: c_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
+    /// INT4 quantized matmul: A (f32 activations [M, K]) × packed Q4 B ([K/2, N]) → C (f32 [M, N]).
+    ///
+    /// Q4 packing: 2 values per byte (low nibble = even K, high nibble = odd K).
+    /// `b_packed` must have shape `[K/2, N]` and dtype `U8`.
+    /// `scales` must have shape `[groups, N]` where groups = ceil(K / group_size).
+    /// Dequant: `val = (q4 - 8) * scale` (symmetric, center at 0).
+    pub fn matmul_int4_weight(
+        &self,
+        a: &GpuTensor,
+        b_packed: &GpuTensor,
+        scales: &GpuTensor,
+        group_size: usize,
+    ) -> Result<GpuTensor, GpuError> {
+        if b_packed.dtype() != GpuDtype::I8 {
+            return Err(GpuError::Dtype(format!(
+                "matmul_int4_weight expects I8 for B (packed Q4), got {:?}",
+                b_packed.dtype()
+            )));
+        }
+        let a_shape = a.shape();
+        let b_shape = b_packed.shape();
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+        // A[M, K] × B[K/2, N] — K from A must be twice the first dim of B
+        if a_shape[1] != b_shape[0] * 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+        let groups = k.div_ceil(group_size);
+
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let gs_u32 = u32::try_from(group_size)
+            .map_err(|_| GpuError::Unsupported("group_size overflow".into()))?;
+
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul_int4_weight output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let dims_buf = self.alloc_or_create_buffer(
+            20, // M + K + N + GroupSize + Tile = 5 × u32
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let dims_data: [u32; 5] = [m_u32, k_u32, n_u32, gs_u32, tile_u32];
+        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+
+        let pipeline = self
+            .pipelines
+            .get("matmul_int4_weight")
+            .ok_or_else(|| GpuError::Pipeline("matmul_int4_weight not compiled".into()))?;
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("matmul_int4_weight_bind_group"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b_packed.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dims_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: scales.buffer().as_entire_binding(),
+                },
+            ],
+        });
+
+        let wgx = (m_u32 + tile_u32 - 1) / tile_u32;
+        let wgy = (n_u32 + tile_u32 - 1) / tile_u32;
+        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+
+        Ok(GpuTensor {
+            shape: vec![a_shape[0], b_shape[1]],
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
@@ -5307,6 +5441,92 @@ fn matmul_int8_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
         workgroupBarrier();
 
         // ── Accumulate C[row][col] += sum_k A[row][k] * dequant(W[col][k]) ──
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < uniforms.M && col < uniforms.N) {
+        c[row * uniforms.N + col] = sum;
+    }
+}
+"#;
+
+const MATMUL_INT4_WEIGHT_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+
+// A = f32 activations [M, K]; B = packed Q4 weights [(K/2), N] as u32 (4 packed bytes per u32);
+// C = f32 output [M, N]; scales [groups, N] — per-group per-column
+@group(0) @binding(0) var<storage, read> a: array<f32>;
+@group(0) @binding(1) var<storage, read> b_packed: array<u32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Uniforms {
+    M: u32,
+    K: u32,
+    N: u32,
+    GroupSize: u32,
+    Tile: u32,
+};
+
+@group(0) @binding(3) var<uniform> uniforms: Uniforms;
+@group(0) @binding(4) var<storage, read> scales: array<f32>;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn extract_q4_from_byte(packed: u32, byte_idx: u32, high_nibble: u32) -> f32 {
+    let shift = byte_idx * 8u;
+    let byte = (packed >> shift) & 0xFFu;
+    let nibble = select(byte & 0x0Fu, (byte >> 4u) & 0x0Fu, high_nibble != 0u);
+    return f32(nibble) - 8.0;
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_int4_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
+                           @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (uniforms.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        // ── Load tile of A (f32 activation) ──
+        let a_global_row = row;
+        let a_global_col = t * TILE_SIZE + lid.y;
+        if (a_global_row < uniforms.M && a_global_col < uniforms.K) {
+            tile_a[lid.x][lid.y] = a[a_global_row * uniforms.K + a_global_col];
+        } else {
+            tile_a[lid.x][lid.y] = 0.0;
+        }
+
+        // ── Load tile of B (packed Q4 weight) ──
+        // Flat layout: b_packed[pair_idx * N + col] where pair_idx = k/2
+        // 4 packed bytes per u32, each byte has 2 Q4 values (low/high nibble)
+        let b_j = col;
+        let b_k = t * TILE_SIZE + lid.x;
+        if (b_j < uniforms.N && b_k < uniforms.K) {
+            let pair_idx = b_k / 2u;
+            let q4_in_pair = b_k % 2u;
+            let byte_idx = pair_idx * uniforms.N + b_j;
+            let u32_idx = byte_idx / 4u;
+            let byte_in_u32 = byte_idx % 4u;
+
+            let packed_val = b_packed[u32_idx];
+            let q4_val = extract_q4_from_byte(packed_val, byte_in_u32, q4_in_pair);
+
+            let group = b_k / uniforms.GroupSize;
+            let scale = scales[group * uniforms.N + b_j];
+            tile_b[lid.x][lid.y] = q4_val * scale;
+        } else {
+            tile_b[lid.x][lid.y] = 0.0;
+        }
+
+        workgroupBarrier();
+
         for (var i = 0u; i < TILE_SIZE; i++) {
             sum += tile_a[lid.x][i] * tile_b[i][lid.y];
         }

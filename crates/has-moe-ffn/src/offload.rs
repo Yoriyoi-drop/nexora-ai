@@ -1,6 +1,6 @@
 //! Expert Offloading System — VRAM-efficient MoE for 200B+ models.
 //!
-//! With 324 experts and top-32, only ~10% of experts are active per forward.
+//! With 256 experts and top-8 (DeepSeek V4 Pro fine-grained MoE), only ~3.1% of experts are active per forward.
 //! This module swaps idle experts between CPU (pinned memory) and GPU,
 //! keeping only recently used experts GPU-resident.
 //!
@@ -185,7 +185,7 @@ impl Default for OffloadConfig {
 /// ```
 pub struct ExpertOffloader {
     config: OffloadConfig,
-    /// All 324 experts on CPU (pinned memory)
+    /// All 256 experts on CPU (pinned memory)
     cpu_pool: Vec<ExpertWeights>,
     /// Subset resident on GPU (indexed by expert_id)
     gpu_resident: HashMap<usize, GpuExpert>,
@@ -471,15 +471,15 @@ mod tests {
 
     #[test]
     fn test_offloader_create() {
-        let weights: Vec<ExpertWeights> = (0..324).map(|_| dummy_weights(4, 2)).collect();
+        let weights: Vec<ExpertWeights> = (0..256).map(|_| dummy_weights(4, 2)).collect();
         let offloader = ExpertOffloader::new(OffloadConfig::default(), weights);
-        assert_eq!(offloader.cpu_pool.len(), 324);
+        assert_eq!(offloader.cpu_pool.len(), 256);
         assert!(offloader.lru.capacity() >= 64);
     }
 
     #[test]
     fn test_prepare_loads_experts() {
-        let weights: Vec<ExpertWeights> = (0..324).map(|_| dummy_weights(128, 64)).collect();
+        let weights: Vec<ExpertWeights> = (0..256).map(|_| dummy_weights(128, 64)).collect();
         let mut offloader = ExpertOffloader::new(OffloadConfig::default(), weights);
         let top: Vec<usize> = (0..32).collect();
         let batch = offloader.prepare(&top);

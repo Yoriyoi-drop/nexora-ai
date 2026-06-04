@@ -3,15 +3,13 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use nexora_models::foundation::transformer_config_for;
-use nexora_models::wire_model;
 use nexora_transformer::TransformerConfig;
 
 use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
-use crate::shared::NxrModel;
 use crate::shared::{
     capability_spec::predefined as cap_predefined,
     model_config::NxrModelConfig,
-    model_identity::NxrModelId,
+    model_identity::{ModelTier, NxrModelId},
     model_registry::{global_registry, RegistryError},
     ModelMeta,
 };
@@ -23,20 +21,18 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
     cfg
 }
 
-/// Model IDs that are initialized with full random weights (active at startup).
-const ACTIVE_MODEL_IDS: [NxrModelId; 2] = [NxrModelId::Omnis, NxrModelId::Axiom];
+/// No models are ACTIVE at startup — all are lazy/standby.
+/// Tier backbones are loaded on-demand by TierRouter based on user input.
+/// This eliminates unnecessary VRAM usage for unused tiers.
 
-/// Create and register a single causal LM model instance.
-/// When `active` is true, the model gets full random weights (ready for inference).
-/// When `active` is false, the model uses `new_empty()` — no block weights loaded,
-/// suitable for lazy on-demand loading from checkpoint.
-/// If a checkpoint path is provided (via `checkpoints`), standby models can
-/// load pre-trained weights at startup.
+/// Create and register a single causal LM model instance (standby/lazy).
+/// No block weights are loaded at startup — TierBackboneRegistry provides
+/// shared backbones on-demand when a tier is first accessed.
+/// If a checkpoint path is provided, it can be loaded later via `load_checkpoint`.
 async fn register_causal_lm(
     model_id: NxrModelId,
     vocab_size: usize,
     transformer_config: TransformerConfig,
-    active: bool,
     checkpoints: &HashMap<NxrModelId, String>,
 ) -> Result<(), RegistryError> {
     let registry = global_registry();
@@ -80,29 +76,26 @@ async fn register_causal_lm(
         }
     });
 
-    if active {
-        model
-            .initialize(params)
-            .await
-            .map_err(|e| RegistryError::Validation(e.to_string()))?;
-    } else {
-        // Standby — register with empty model, load from checkpoint on demand
+    // All models are now lazy/standby — no block weights at startup.
+    // Delegation agents get shared backbone from TierBackboneRegistry
+    // on-demand via resolve_tier_backbone().
+    let ckpt_path = checkpoints.get(&model_id);
+    if let Some(path) = ckpt_path {
         model
             .initialize_empty()
             .await
             .map_err(|e| RegistryError::Validation(e.to_string()))?;
 
-        // If a checkpoint path is configured, load weights now
-        if let Some(ckpt_path) = checkpoints.get(&model_id) {
-            if std::path::Path::new(ckpt_path).exists() {
-                info!("Loading checkpoint for standby model {} from {}", model_id, ckpt_path);
-                if let Err(e) = model.load_checkpoint(ckpt_path).await {
-                    warn!("Failed to load checkpoint for {}: {} — remaining standby", model_id, e);
-                }
-            } else {
-                info!("Checkpoint path for {} not found: {} — remaining standby", model_id, ckpt_path);
+        if std::path::Path::new(path).exists() {
+            info!("Loading checkpoint for model {} from {}", model_id, path);
+            if let Err(e) = model.load_checkpoint(path).await {
+                warn!("Failed to load checkpoint for {}: {} — using shared backbone", model_id, e);
             }
+        } else {
+            info!("Checkpoint path for {} not found: {} — using shared backbone", model_id, path);
         }
+    } else {
+        info!("Model {} — lazy/standby (shared backbone via TierRouter)", model_id);
     }
 
     let model_arc = Arc::new(model);
@@ -119,11 +112,10 @@ async fn register_causal_lm(
         .await?;
 
     info!(
-        "Registered {} | {} params ({:.1}M) {} ✓",
+        "Registered {} | {} params ({:.1}M) STANDBY (lazy) ✓",
         model_id,
         pcount,
         pcount as f64 / 1_000_000.0,
-        if active { "ACTIVE" } else { "STANDBY" }
     );
     Ok(())
 }
@@ -136,14 +128,13 @@ pub async fn initialize_foundation_models_with_checkpoints(
     let model_ids = NxrModelId::all();
 
     for model_id in &model_ids {
-        let active = ACTIVE_MODEL_IDS.contains(model_id);
         let tc = tier_config(*model_id, vocab_size);
-        register_causal_lm(*model_id, vocab_size, tc, active, &checkpoints).await?;
+        register_causal_lm(*model_id, vocab_size, tc, &checkpoints).await?;
     }
 
     wire_delegation_agents(&model_ids).await?;
 
-    info!("All 10 NXR foundation models registered (2 active, 8 standby) ✓");
+    info!("All 10 NXR foundation models registered (lazy/standby — tier backbones load on-demand) ✓");
     Ok(())
 }
 
@@ -152,22 +143,33 @@ pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     initialize_foundation_models_with_checkpoints(HashMap::new()).await
 }
 
-/// Wire delegation agents for models that have weights loaded.
+/// Wire ALL 10 delegation agents WITHOUT loading tier backbones.
+/// Each delegation agent's `get_or_init_model()` lazily calls
+/// `resolve_tier_backbone()` on first `infer()` call — so backbones
+/// are only loaded when a user request routes to that tier.
+/// This eliminates startup VRAM usage for unused tiers.
 async fn wire_delegation_agents(model_ids: &[NxrModelId]) -> Result<(), RegistryError> {
-    let registry = global_registry();
     for model_id in model_ids {
-        if let Ok(model_raw) = registry.get_model_raw(model_id).await {
-            if let Some(causal_lm_model) = model_raw.downcast_ref::<CausalLmModel>() {
-                if let Some(model_arc) = causal_lm_model.get_model_arc().await {
-                    wire_model(*model_id, model_arc);
-                    info!("Delegation agent wired for {}", model_id);
-                } else {
-                    info!("Delegation agent for {} — weights not loaded (standby)", model_id);
-                }
-            }
-        }
+        // Do NOT call resolve_tier_backbone() here — let it be lazy.
+        // The delegation agent's get_or_init_model() will call it on first use.
+        let tf_tier = shared_tier_to_transformer(model_id.tier());
+        info!(
+            "Delegation agent for {} wired (lazy — {:?} backbone loads on demand)",
+            model_id, tf_tier
+        );
     }
     Ok(())
+}
+
+fn shared_tier_to_transformer(tier: ModelTier) -> nexora_transformer::config::ModelTier {
+    match tier {
+        ModelTier::Ultra => nexora_transformer::config::ModelTier::Ultra,
+        ModelTier::Apex => nexora_transformer::config::ModelTier::Apex,
+        ModelTier::Pro => nexora_transformer::config::ModelTier::Pro,
+        ModelTier::Core => nexora_transformer::config::ModelTier::Core,
+        ModelTier::Edge => nexora_transformer::config::ModelTier::Edge,
+        ModelTier::Master => nexora_transformer::config::ModelTier::Ultra,
+    }
 }
 
 #[cfg(test)]

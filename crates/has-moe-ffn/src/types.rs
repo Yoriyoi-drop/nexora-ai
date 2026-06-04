@@ -53,9 +53,9 @@ pub struct DomainRoutingConfig {
 impl Default for DomainRoutingConfig {
     fn default() -> Self {
         Self {
-            shared_bias: 0.7,
-            min_shared_experts: 16,
-            tier_quota: 8,
+            shared_bias: 0.3,
+            min_shared_experts: 1,
+            tier_quota: 4,
             use_domain_bias: true,
         }
     }

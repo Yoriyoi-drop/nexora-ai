@@ -149,7 +149,7 @@ impl ContextAgent {
                 .await?;
 
             if !data.is_null() {
-                context_data.insert(format!("{:?}", source), data.clone());
+                context_data.insert(format!("{:?}", source), data);
                 contributions.insert(source.clone(), size as f64);
                 total_size += size;
             }
@@ -209,10 +209,8 @@ impl ContextAgent {
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
                 );
-                Ok((
-                    session_data.clone(),
-                    self.estimate_token_count(&session_data),
-                ))
+                let tokens = self.estimate_token_count(&session_data);
+                Ok((session_data, tokens))
             }
 
             ContextSource::UserMemory => {
@@ -231,7 +229,8 @@ impl ContextAgent {
                         Ok(results) => {
                             let converted_results = self.convert_layers_to_memory_results(results);
                             let memory_data = self.convert_memory_results(&converted_results);
-                            Ok((memory_data.clone(), self.estimate_token_count(&memory_data)))
+                            let memory_tokens = self.estimate_token_count(&memory_data);
+                            Ok((memory_data, memory_tokens))
                         }
                         Err(e) => {
                             warn!("Failed to query user memory: {}", e);
@@ -258,7 +257,8 @@ impl ContextAgent {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
                         let memory_data = self.convert_memory_results(&converted_results);
-                        Ok((memory_data.clone(), self.estimate_token_count(&memory_data)))
+                        let memory_tokens = self.estimate_token_count(&memory_data);
+                        Ok((memory_data, memory_tokens))
                     }
                     Err(e) => {
                         warn!("Failed to query episodic memory: {}", e);
@@ -282,7 +282,8 @@ impl ContextAgent {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
                         let memory_data = self.convert_memory_results(&converted_results);
-                        Ok((memory_data.clone(), self.estimate_token_count(&memory_data)))
+                        let memory_tokens = self.estimate_token_count(&memory_data);
+                        Ok((memory_data, memory_tokens))
                     }
                     Err(e) => {
                         warn!("Failed to query semantic memory: {}", e);
@@ -306,7 +307,8 @@ impl ContextAgent {
                     Ok(results) => {
                         let converted_results = self.convert_layers_to_memory_results(results);
                         let memory_data = self.convert_memory_results(&converted_results);
-                        Ok((memory_data.clone(), self.estimate_token_count(&memory_data)))
+                        let memory_tokens = self.estimate_token_count(&memory_data);
+                        Ok((memory_data, memory_tokens))
                     }
                     Err(e) => {
                         warn!("Failed to query working memory: {}", e);

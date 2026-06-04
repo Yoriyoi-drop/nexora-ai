@@ -134,8 +134,8 @@ fn test_moe_config_access() {
     let config = HasMoeFFNConfig::default();
     let moe = HasMoeFFN::new(config);
     let cfg = moe.config();
-    assert_eq!(cfg.num_experts, 324);
-    assert_eq!(cfg.top_k, 32);
+    assert_eq!(cfg.num_experts, 256);
+    assert_eq!(cfg.top_k, 8);
     assert_eq!(cfg.hidden_size, 768);
     // router/expert weights start uninitialized
 }

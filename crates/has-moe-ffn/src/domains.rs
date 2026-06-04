@@ -1,8 +1,8 @@
 //! Expert Domains — shared + tier-specific expert pools for NXR MoE.
 //!
-//! 324 experts divided into:
-//! - 128 **Shared** (math, language, logic, science, code, factual, reasoning, general)
-//! - 64 **Ultra** (adv. reasoning, multimodal, metalearning, deep_code, scientific_discovery)
+//! 256 experts divided into (DeepSeek V4 Pro fine-grained MoE):
+//! - 96 **Shared** (math, language, logic, science, code, factual, reasoning, general)
+//! - 48 **Ultra** (adv. reasoning, multimodal, metalearning, deep_code, scientific_discovery)
 //! - 48 **Apex** (code_review, emotional, task_planning, system_design)
 //! - 32 **Pro** (creative, security, data_analysis)
 //! - 28 **Core** (temporal, retrieval, summarization)
@@ -147,7 +147,7 @@ pub struct DomainCount {
     pub count: usize,
 }
 
-/// Expert pool configuration: partitions 324 experts by domain.
+/// Expert pool configuration: partitions 256 experts by domain (DSv4 fine-grained MoE).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpertPoolConfig {
     /// List of (domain, count) pairs. Sum must equal total experts.
@@ -167,37 +167,37 @@ impl Default for ExpertPoolConfig {
 }
 
 impl ExpertPoolConfig {
-    /// Full 324-expert pool: shared + all tiers.
+    /// Full 256-expert pool (DSv4 fine-grained MoE): shared + all tiers.
     pub fn shared_ultra_apex_pro_core_edge() -> Self {
         Self {
             domain_counts: vec![
-                // Shared (128)
-                DomainCount { domain: ExpertDomain::Math, count: 20 },
-                DomainCount { domain: ExpertDomain::Language, count: 24 },
-                DomainCount { domain: ExpertDomain::Logic, count: 12 },
-                DomainCount { domain: ExpertDomain::Science, count: 16 },
-                DomainCount { domain: ExpertDomain::Code, count: 20 },
-                DomainCount { domain: ExpertDomain::Factual, count: 16 },
-                DomainCount { domain: ExpertDomain::Reasoning, count: 12 },
-                DomainCount { domain: ExpertDomain::General, count: 8 },
-                // Ultra (64)
-                DomainCount { domain: ExpertDomain::AdvReasoning, count: 16 },
-                DomainCount { domain: ExpertDomain::MultiModal, count: 16 },
-                DomainCount { domain: ExpertDomain::MetaLearning, count: 8 },
-                DomainCount { domain: ExpertDomain::DeepCode, count: 12 },
-                DomainCount { domain: ExpertDomain::ScientificDiscovery, count: 12 },
-                // Apex (48)
-                DomainCount { domain: ExpertDomain::CodeReview, count: 16 },
-                DomainCount { domain: ExpertDomain::Emotional, count: 12 },
-                DomainCount { domain: ExpertDomain::TaskPlanning, count: 12 },
-                DomainCount { domain: ExpertDomain::SystemDesign, count: 8 },
-                // Pro (32)
-                DomainCount { domain: ExpertDomain::Creative, count: 12 },
-                DomainCount { domain: ExpertDomain::Security, count: 10 },
+                // Shared (96)
+                DomainCount { domain: ExpertDomain::Math, count: 14 },
+                DomainCount { domain: ExpertDomain::Language, count: 18 },
+                DomainCount { domain: ExpertDomain::Logic, count: 10 },
+                DomainCount { domain: ExpertDomain::Science, count: 12 },
+                DomainCount { domain: ExpertDomain::Code, count: 14 },
+                DomainCount { domain: ExpertDomain::Factual, count: 12 },
+                DomainCount { domain: ExpertDomain::Reasoning, count: 10 },
+                DomainCount { domain: ExpertDomain::General, count: 6 },
+                // Ultra (48)
+                DomainCount { domain: ExpertDomain::AdvReasoning, count: 12 },
+                DomainCount { domain: ExpertDomain::MultiModal, count: 12 },
+                DomainCount { domain: ExpertDomain::MetaLearning, count: 6 },
+                DomainCount { domain: ExpertDomain::DeepCode, count: 10 },
+                DomainCount { domain: ExpertDomain::ScientificDiscovery, count: 8 },
+                // Apex (36)
+                DomainCount { domain: ExpertDomain::CodeReview, count: 12 },
+                DomainCount { domain: ExpertDomain::Emotional, count: 8 },
+                DomainCount { domain: ExpertDomain::TaskPlanning, count: 10 },
+                DomainCount { domain: ExpertDomain::SystemDesign, count: 6 },
+                // Pro (28)
+                DomainCount { domain: ExpertDomain::Creative, count: 10 },
+                DomainCount { domain: ExpertDomain::Security, count: 8 },
                 DomainCount { domain: ExpertDomain::DataAnalysis, count: 10 },
-                // Core (28)
-                DomainCount { domain: ExpertDomain::Temporal, count: 10 },
-                DomainCount { domain: ExpertDomain::Retrieval, count: 10 },
+                // Core (24)
+                DomainCount { domain: ExpertDomain::Temporal, count: 8 },
+                DomainCount { domain: ExpertDomain::Retrieval, count: 8 },
                 DomainCount { domain: ExpertDomain::Summarization, count: 8 },
                 // Edge (24)
                 DomainCount { domain: ExpertDomain::FastPath, count: 8 },
@@ -205,9 +205,9 @@ impl ExpertPoolConfig {
                 DomainCount { domain: ExpertDomain::Extraction, count: 6 },
                 DomainCount { domain: ExpertDomain::Translation, count: 4 },
             ],
-            total_experts: 324,
-            shared_bias: 0.7,
-            shared_slots: 22,
+            total_experts: 256,
+            shared_bias: 0.3,
+            shared_slots: 8,
         }
     }
 
@@ -331,7 +331,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pool_total_324() {
+    fn test_pool_total_256() {
         let pool = ExpertPoolConfig::default();
         assert!(pool.validate().is_ok());
     }
@@ -340,38 +340,38 @@ mod tests {
     fn test_assignments_count() {
         let pool = ExpertPoolConfig::default();
         let assignments = pool.build_assignments();
-        assert_eq!(assignments.len(), 324);
+        assert_eq!(assignments.len(), 256);
     }
 
     #[test]
     fn test_domain_for_expert() {
         let pool = ExpertPoolConfig::default();
-        // First 20 experts should be Math
+        // First 14 experts should be Math
         assert_eq!(pool.domain_for_expert(0), Some(ExpertDomain::Math));
-        assert_eq!(pool.domain_for_expert(19), Some(ExpertDomain::Math));
-        // Next 24 should be Language
-        assert_eq!(pool.domain_for_expert(20), Some(ExpertDomain::Language));
-        assert_eq!(pool.domain_for_expert(43), Some(ExpertDomain::Language));
+        assert_eq!(pool.domain_for_expert(13), Some(ExpertDomain::Math));
+        // Next 18 should be Language
+        assert_eq!(pool.domain_for_expert(14), Some(ExpertDomain::Language));
+        assert_eq!(pool.domain_for_expert(31), Some(ExpertDomain::Language));
     }
 
     #[test]
     fn test_shared_expert_count() {
         let pool = ExpertPoolConfig::default();
         let shared = pool.shared_experts();
-        assert_eq!(shared.len(), 128);
+        assert_eq!(shared.len(), 96);
     }
 
     #[test]
     fn test_tier_experts() {
         let pool = ExpertPoolConfig::default();
         let ultra = pool.tier_experts("ultra");
-        assert_eq!(ultra.len(), 64);
+        assert_eq!(ultra.len(), 48);
         let apex = pool.tier_experts("apex");
-        assert_eq!(apex.len(), 48);
+        assert_eq!(apex.len(), 36);
         let pro = pool.tier_experts("pro");
-        assert_eq!(pro.len(), 32);
+        assert_eq!(pro.len(), 28);
         let core = pool.tier_experts("core");
-        assert_eq!(core.len(), 28);
+        assert_eq!(core.len(), 24);
         let edge = pool.tier_experts("edge");
         assert_eq!(edge.len(), 24);
     }
@@ -381,7 +381,7 @@ mod tests {
         let pool = ExpertPoolConfig::default();
         let (start, end) = pool.expert_range(ExpertDomain::Math).unwrap();
         assert_eq!(start, 0);
-        assert_eq!(end, 20);
+        assert_eq!(end, 14);
     }
 
     #[test]

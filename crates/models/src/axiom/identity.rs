@@ -63,7 +63,7 @@ pub struct LogicCapability {
 }
 
 /// Logic Support Level
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum LogicSupportLevel {
     /// No support
     None,
@@ -122,7 +122,7 @@ pub struct MathCapability {
 }
 
 /// Math Proficiency
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum MathProficiency {
     /// No proficiency
     None,
@@ -141,7 +141,7 @@ pub enum MathProficiency {
 }
 
 /// Complexity Level
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ComplexityLevel {
     /// Simple complexity
     Simple,
@@ -261,7 +261,7 @@ pub struct InteractiveProofCapability {
 }
 
 /// Proof Method
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ProofMethod {
     /// Direct proof
     Direct,
@@ -282,7 +282,7 @@ pub enum ProofMethod {
 }
 
 /// Proof Style
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ProofStyle {
     /// Formal style
     Formal,
@@ -301,7 +301,7 @@ pub enum ProofStyle {
 }
 
 /// Verification Method
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum VerificationMethod {
     /// Automated verification
     Automated,
@@ -318,7 +318,7 @@ pub enum VerificationMethod {
 }
 
 /// Search Algorithm
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum SearchAlgorithm {
     /// Breadth-first search
     BreadthFirst,
@@ -339,7 +339,7 @@ pub enum SearchAlgorithm {
 }
 
 /// Transformation Type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum TransformationType {
     /// Normalization
     Normalization,
@@ -358,7 +358,7 @@ pub enum TransformationType {
 }
 
 /// Interaction Mode
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum InteractionMode {
     /// Socratic dialogue
     Socratic,
@@ -375,7 +375,7 @@ pub enum InteractionMode {
 }
 
 /// Reasoning Domain
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ReasoningDomain {
     /// Mathematical logic
     MathematicalLogic,
@@ -1044,40 +1044,34 @@ impl AxiomIdentity {
             "propositional" => Some(
                 self.logical_capabilities
                     .propositional_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
             "first_order" => Some(
                 self.logical_capabilities
                     .first_order_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
             "higher_order" => Some(
                 self.logical_capabilities
                     .higher_order_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
-            "modal" => Some(self.logical_capabilities.modal_logic.support_level.clone()),
+            "modal" => Some(self.logical_capabilities.modal_logic.support_level),
             "temporal" => Some(
                 self.logical_capabilities
                     .temporal_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
             "intuitionistic" => Some(
                 self.logical_capabilities
                     .intuitionistic_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
-            "fuzzy" => Some(self.logical_capabilities.fuzzy_logic.support_level.clone()),
+            "fuzzy" => Some(self.logical_capabilities.fuzzy_logic.support_level),
             "description" => Some(
                 self.logical_capabilities
                     .description_logic
-                    .support_level
-                    .clone(),
+                    .support_level,
             ),
             _ => None,
         }
@@ -1089,42 +1083,36 @@ impl AxiomIdentity {
             "arithmetic" => Some(
                 self.mathematical_capabilities
                     .arithmetic
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
-            "algebra" => Some(self.mathematical_capabilities.algebra.proficiency.clone()),
-            "geometry" => Some(self.mathematical_capabilities.geometry.proficiency.clone()),
-            "calculus" => Some(self.mathematical_capabilities.calculus.proficiency.clone()),
+            "algebra" => Some(self.mathematical_capabilities.algebra.proficiency),
+            "geometry" => Some(self.mathematical_capabilities.geometry.proficiency),
+            "calculus" => Some(self.mathematical_capabilities.calculus.proficiency),
             "statistics" => Some(
                 self.mathematical_capabilities
                     .statistics
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
             "number_theory" => Some(
                 self.mathematical_capabilities
                     .number_theory
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
             "combinatorics" => Some(
                 self.mathematical_capabilities
                     .combinatorics
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
             "graph_theory" => Some(
                 self.mathematical_capabilities
                     .graph_theory
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
-            "topology" => Some(self.mathematical_capabilities.topology.proficiency.clone()),
+            "topology" => Some(self.mathematical_capabilities.topology.proficiency),
             "abstract_algebra" => Some(
                 self.mathematical_capabilities
                     .abstract_algebra
-                    .proficiency
-                    .clone(),
+                    .proficiency,
             ),
             _ => None,
         }
@@ -1446,51 +1434,45 @@ impl AxiomIdentity {
                     "propositional".to_string(),
                     self.logical_capabilities
                         .propositional_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
                 (
                     "first_order".to_string(),
                     self.logical_capabilities
                         .first_order_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
                 (
                     "higher_order".to_string(),
                     self.logical_capabilities
                         .higher_order_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
                 (
                     "modal".to_string(),
-                    self.logical_capabilities.modal_logic.support_level.clone(),
+                    self.logical_capabilities.modal_logic.support_level,
                 ),
                 (
                     "temporal".to_string(),
                     self.logical_capabilities
                         .temporal_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
                 (
                     "intuitionistic".to_string(),
                     self.logical_capabilities
                         .intuitionistic_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
                 (
                     "fuzzy".to_string(),
-                    self.logical_capabilities.fuzzy_logic.support_level.clone(),
+                    self.logical_capabilities.fuzzy_logic.support_level,
                 ),
                 (
                     "description".to_string(),
                     self.logical_capabilities
                         .description_logic
-                        .support_level
-                        .clone(),
+                        .support_level,
                 ),
             ]),
             mathematical_proficiencies: HashMap::from([
@@ -1498,59 +1480,53 @@ impl AxiomIdentity {
                     "arithmetic".to_string(),
                     self.mathematical_capabilities
                         .arithmetic
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
                 (
                     "algebra".to_string(),
-                    self.mathematical_capabilities.algebra.proficiency.clone(),
+                    self.mathematical_capabilities.algebra.proficiency,
                 ),
                 (
                     "geometry".to_string(),
-                    self.mathematical_capabilities.geometry.proficiency.clone(),
+                    self.mathematical_capabilities.geometry.proficiency,
                 ),
                 (
                     "calculus".to_string(),
-                    self.mathematical_capabilities.calculus.proficiency.clone(),
+                    self.mathematical_capabilities.calculus.proficiency,
                 ),
                 (
                     "statistics".to_string(),
                     self.mathematical_capabilities
                         .statistics
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
                 (
                     "number_theory".to_string(),
                     self.mathematical_capabilities
                         .number_theory
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
                 (
                     "combinatorics".to_string(),
                     self.mathematical_capabilities
                         .combinatorics
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
                 (
                     "graph_theory".to_string(),
                     self.mathematical_capabilities
                         .graph_theory
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
                 (
                     "topology".to_string(),
-                    self.mathematical_capabilities.topology.proficiency.clone(),
+                    self.mathematical_capabilities.topology.proficiency,
                 ),
                 (
                     "abstract_algebra".to_string(),
                     self.mathematical_capabilities
                         .abstract_algebra
-                        .proficiency
-                        .clone(),
+                        .proficiency,
                 ),
             ]),
             specialization_domains: self.specialization_domains.clone(),

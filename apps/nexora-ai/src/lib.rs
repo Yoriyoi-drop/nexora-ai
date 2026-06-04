@@ -35,6 +35,9 @@ use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 // --- Model delegation agents ---
 use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis};
 
+// --- Tier Router ---
+use crate::core::tier_router::{TierRouter, TierRouterConfig};
+
 /// Route a prompt through the active model's delegation agent.
 /// Each agent classifies the input, applies domain-specific framing,
 /// and generates a response using its internal CausalLM (shared with the registry).
@@ -236,10 +239,13 @@ pub struct NexoraAI {
     /// Foundation model registry (all registered NXR models)
     registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
 
-    /// Active model ID currently in use
+    /// Tier Router — classifies user input → (tier, model), manages VRAM/LRU
+    tier_router: Arc<TierRouter>,
+
+    /// Active model ID currently in use (default: Omnis, used as fallback)
     active_model_id: NxrModelId,
 
-    /// Inference engine (primary path — wraps CausalLM + BpeTokenizer + scheduler)
+    /// Inference engine (primary streaming path — wraps CausalLM + BpeTokenizer + scheduler)
     inference_engine: Arc<nexora_inference::InferenceEngineStruct>,
 
     /// System configuration
@@ -317,14 +323,26 @@ impl NexoraAI {
 
         let registry = global_registry();
 
-        let active_model_id = config.models.active_model.unwrap_or(NxrModelId::Omnis);
+        // Step 2: Initialize Tier Router — classifies input → (tier, model) on each request
+        let tier_config = TierRouterConfig {
+            max_tiers_in_vram: config.core.max_tiers_in_vram,
+            vram_budget_mb: config.core.vram_budget_mb,
+            eviction_threshold: config.core.eviction_threshold,
+        };
+        let tier_router = Arc::new(TierRouter::new(tier_config));
+        info!("TierRouter initialized (max {} tiers in VRAM, {} MB budget)", 
+            tier_router.config().max_tiers_in_vram,
+            tier_router.config().vram_budget_mb);
+
+        // Fallback active model ID for inference engine (default: Swift/Edge for lightweight streaming)
+        let active_model_id = config.models.active_model.unwrap_or(NxrModelId::Swift);
         info!(
-            "Active model: {} ({})",
+            "Inference engine default model: {} ({}) — Edge tier for lightweight streaming",
             active_model_id,
             active_model_id.fullname()
         );
 
-        // Step 2: Initialize system monitoring and shared state
+        // Step 3: Initialize system monitoring and shared state
         let mut system = sysinfo::System::new_all();
         system.refresh_all();
 
@@ -350,7 +368,7 @@ impl NexoraAI {
             "history": { "steps": [], "losses": [], "lrs": [], "val_losses": [] }
         })));
 
-        // Step 3: Initialize inference engine (primary generation path)
+        // Step 4: Initialize inference engine (primary streaming path — Edge tier)
         let engine_config = nexora_inference::InferenceConfig {
             default_model_id: active_model_id.to_string(),
             max_concurrent_requests: 4,
@@ -379,7 +397,7 @@ impl NexoraAI {
                 NexoraError::system(format!("Failed to initialize inference engine: {}", e))
             })?,
         );
-        info!("Inference engine ready (model: {})", active_model_id);
+        info!("Inference engine ready (model: {}) — Edge/Swift streaming backend", active_model_id);
 
         // Step 4: Initialize multi-agent system — wire engine, start, spawn 7 agents
         let agent_config = nexora_agent::agent_manager::AgentManagerConfig::default();
@@ -442,6 +460,7 @@ impl NexoraAI {
 
         Ok(Self {
             registry: registry.clone(),
+            tier_router,
             active_model_id,
             inference_engine,
             config,
@@ -463,6 +482,11 @@ impl NexoraAI {
         self.active_model_id
     }
 
+    /// Get the TierRouter for observability and direct access
+    pub fn tier_router(&self) -> &Arc<TierRouter> {
+        &self.tier_router
+    }
+
     /// Get system information
     pub async fn get_system_info(&self) -> NexoraResult<SystemInfo> {
         self.system_monitor
@@ -482,6 +506,14 @@ impl NexoraAI {
     /// Get performance metrics
     pub async fn get_performance_metrics(&self) -> NexoraResult<serde_json::Value> {
         let system_info = self.get_system_info().await?;
+        let loaded_tiers: Vec<String> = self.tier_router.loaded_tiers()
+            .iter()
+            .map(|t| format!("{:?}", t))
+            .collect();
+        let hit_counts: Vec<serde_json::Value> = self.tier_router.hit_counts()
+            .iter()
+            .map(|(t, c)| serde_json::json!({ "tier": format!("{:?}", t), "hits": c }))
+            .collect();
         Ok(serde_json::json!({
             "cpu_usage": system_info.cpu_usage,
             "memory_usage": system_info.memory_usage,
@@ -490,7 +522,10 @@ impl NexoraAI {
             "timestamp": system_info.last_updated,
             "request_count": self.request_count.load(Ordering::Relaxed),
             "uptime_seconds": (Utc::now() - self.start_time).num_seconds(),
-            "active_model": format!("{}", self.active_model_id),
+            "inference_engine_model": format!("{}", self.active_model_id),
+            "loaded_tiers": loaded_tiers,
+            "vram_used_mb": self.tier_router.total_vram_used_mb(),
+            "tier_hit_counts": hit_counts,
         }))
     }
 
@@ -556,7 +591,9 @@ impl NexoraAI {
             .map_err(|e| NexoraError::model(format!("Streaming inference failed: {}", e)))
     }
 
-    /// Generate text using foundation model inference
+    /// Generate text using TierRouter → delegation agent (lazy tier loading).
+    /// TierRouter classifies input intent, selects the best model/tier,
+    /// and ensures the tier backbone is loaded before delegation.
     pub async fn generate_text(
         &self,
         prompt: &str,
@@ -579,17 +616,37 @@ impl NexoraAI {
             ));
         }
 
+        // Route user input → (model, tier, intent)
+        let route = self.tier_router.route(prompt);
         info!(
-            "Generating text via {} model delegation agent: prompt={} chars",
-            self.active_model_id,
-            prompt.len(),
+            "TierRouter routed: intent={:?} → model={} tier={:?} (confidence={})",
+            route.intent, route.model_id, route.tier, route.confidence
         );
 
-        let result = delegate_for_model(self.active_model_id, prompt).await;
+        // Ensure tier backbone is loaded (lazy — resolve_tier_backbone)
+        if let Err(e) = nexora_transformer::resolve_tier_backbone(route.tier) {
+            warn!("Failed to load tier {:?} backbone: {}, using default", route.tier, e);
+        }
+        self.tier_router.mark_tier_used(route.tier);
+
+        // Evict stale tiers if VRAM budget exceeded
+        let vram_used = self.tier_router.total_vram_used_mb();
+        if self.tier_router.should_evict(vram_used) {
+            if let Some(evict_tier) = self.tier_router.lru_eviction_candidate() {
+                if evict_tier != route.tier {
+                    info!("Evicting tier {:?} to free VRAM ({} MB used / {} MB budget)", 
+                        evict_tier, vram_used, self.tier_router.config().vram_budget_mb);
+                    let _ = nexora_transformer::unload_tier_backbone(evict_tier);
+                }
+            }
+        }
+
+        let result = delegate_for_model(route.model_id, prompt).await;
         Ok(result)
     }
 
-    /// Chat conversation using inference engine
+    /// Chat conversation using TierRouter → delegation agent (lazy tier loading).
+    /// Each message is classified by TierRouter to select the optimal model/tier.
     pub async fn chat(
         &self,
         message: &str,
@@ -602,20 +659,32 @@ impl NexoraAI {
             ));
         }
 
+        // Route user input → (model, tier, intent)
+        let route = self.tier_router.route(message);
         info!(
-            "Chat via inference engine ({} model): {} chars, conversation_id: {:?}",
-            self.active_model_id,
-            message.len(),
-            conversation_id
+            "TierRouter routed chat: intent={:?} → model={} tier={:?} (confidence={}), conversation_id={:?}",
+            route.intent, route.model_id, route.tier, route.confidence, conversation_id
         );
 
-        info!(
-            "Chat via {} model delegation agent: {} chars",
-            self.active_model_id,
-            message.len(),
-        );
+        // Ensure tier backbone is loaded (lazy)
+        if let Err(e) = nexora_transformer::resolve_tier_backbone(route.tier) {
+            warn!("Failed to load tier {:?} backbone: {}, using default", route.tier, e);
+        }
+        self.tier_router.mark_tier_used(route.tier);
 
-        let result = delegate_for_model(self.active_model_id, message).await;
+        // Evict stale tiers if VRAM budget exceeded
+        let vram_used = self.tier_router.total_vram_used_mb();
+        if self.tier_router.should_evict(vram_used) {
+            if let Some(evict_tier) = self.tier_router.lru_eviction_candidate() {
+                if evict_tier != route.tier {
+                    info!("Evicting tier {:?} to free VRAM ({} MB used / {} MB budget)", 
+                        evict_tier, vram_used, self.tier_router.config().vram_budget_mb);
+                    let _ = nexora_transformer::unload_tier_backbone(evict_tier);
+                }
+            }
+        }
+
+        let result = delegate_for_model(route.model_id, message).await;
         Ok(result)
     }
 

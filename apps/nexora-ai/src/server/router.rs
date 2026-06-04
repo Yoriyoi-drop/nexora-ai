@@ -80,6 +80,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/api/plans/:plan_id", get(get_plan))
         .route("/api/plans/dispatch", post(dispatch_plan))
         .route("/api/generate/agent", post(generate_via_agent))
+        .route("/api/tiers", get(tier_status))
         .route("/", get(index))
         .route("/static/*path", get(static_files))
         .layer(Extension(nexora));

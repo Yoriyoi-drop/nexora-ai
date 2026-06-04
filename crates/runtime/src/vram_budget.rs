@@ -258,8 +258,8 @@ mod tests {
     #[test]
     fn test_auto_configure() {
         let mut budget = VramBudget::new(24_000_000_000);
-        // 200B model at Q4 ≈ 25GB storage, expert count = 324
-        budget.auto_configure(200_000_000_000, 324, 4);
+        // 200B model at Q4 ≈ 25GB storage, expert count = 256
+        budget.auto_configure(200_000_000_000, 256, 4);
         assert!(budget.breakdown.model_weights_bytes > 0);
         assert!(budget.eviction_threshold > 0);
     }

@@ -20,6 +20,7 @@ fn tiny_model() -> CausalLM {
         num_experts: 0,
         top_k_experts: 0,
         expert_intermediate_size: 0,
+        shared_expert: 0,
         quantization: QFormat::F16,
         use_half_precision: true,
     })

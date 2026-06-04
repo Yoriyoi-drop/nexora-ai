@@ -702,6 +702,30 @@ fn validate_admin(
     }
 }
 
+/// GET /api/tiers — show loaded tiers, VRAM usage, hit counts
+pub async fn tier_status(
+    Extension(nexora): Extension<Arc<NexoraAI>>,
+) -> Json<Value> {
+    let loaded_tiers: Vec<String> = nexora.tier_router().loaded_tiers()
+        .iter()
+        .map(|t| format!("{:?}", t))
+        .collect();
+    let hit_counts: Vec<Value> = nexora.tier_router().hit_counts()
+        .iter()
+        .map(|(t, c)| json!({ "tier": format!("{:?}", t), "hits": c }))
+        .collect();
+
+    Json(json!({
+        "loaded_tiers": loaded_tiers,
+        "vram_used_mb": nexora.tier_router().total_vram_used_mb(),
+        "vram_budget_mb": nexora.tier_router().config().vram_budget_mb,
+        "eviction_threshold": nexora.tier_router().config().eviction_threshold,
+        "max_tiers_in_vram": nexora.tier_router().config().max_tiers_in_vram,
+        "tier_hit_counts": hit_counts,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+}
+
 pub async fn index() -> Html<&'static str> {
     Html(include_str!("../../static/index.html"))
 }

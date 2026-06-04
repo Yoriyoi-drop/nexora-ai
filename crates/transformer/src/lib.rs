@@ -16,7 +16,7 @@ pub mod safetensors;
 pub mod swiglu;
 pub mod trainable;
 
-pub use backbone_registry::{resolve_tier_backbone, resolve_tier_backbone_with_config, clear_all_backbones, has_tier_backbone, tier_parameter_count};
+pub use backbone_registry::{resolve_tier_backbone, resolve_tier_backbone_with_config, clear_all_backbones, has_tier_backbone, tier_parameter_count, unload_tier_backbone, get_loaded_tiers, tier_vram_estimate_mb};
 pub use config::TransformerConfig;
 pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};
 #[cfg(feature = "gpu")]

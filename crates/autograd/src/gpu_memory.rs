@@ -19,10 +19,7 @@ const SIZE_BUCKETS: &[u64] = &[
     1 << 31,                // 2GB
     (1 << 30) + (1 << 30),  // 4GB
     1 << 33,                // 8GB
-    1 << 34,                // 16GB
-    1 << 35,                // 32GB
-    1 << 36,                // 64GB
-    (1 << 36) + (1 << 34),  // 80GB
+    1 << 34,                // 16GB — max, enough for 24–48 GB GPUs
 ];
 
 pub fn bucket_for(size: u64) -> usize {

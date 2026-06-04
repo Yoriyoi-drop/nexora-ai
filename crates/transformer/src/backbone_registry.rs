@@ -11,9 +11,8 @@ use crate::TransformerResult;
 /// menggunakan satu instance `Arc<CausalLM>` yang sama. Weight di-load sekali,
 /// semua model di tier itu pakai bersama.
 ///
-/// Core tier: dimensi identik dengan Pro (hidden=3200, layers=32, heads=32),
-/// tapi dense (no MoE). Disimpan sebagai entri terpisah di registry.
-/// Pro dan Core tetap bisa share KV cache runtime karena dimensi sama.
+/// Core tier: dimensi sendiri (hidden=2048, layers=20, heads=16, dense/no MoE).
+/// Disimpan sebagai entri terpisah di registry.
 static REGISTRY: OnceLock<RwLock<HashMap<ModelTier, Arc<CausalLM>>>> = OnceLock::new();
 
 fn registry() -> &'static RwLock<HashMap<ModelTier, Arc<CausalLM>>> {
@@ -43,14 +42,8 @@ pub fn resolve_tier_backbone(tier: ModelTier) -> TransformerResult<Arc<CausalLM>
     // Slow path: create backbone baru
     let config = match tier {
         ModelTier::Core => {
-            // Core: pakai dimensi Pro (hidden=3200, layers=32, heads=32)
-            // tapi dense (num_experts=0), dan context window 500K
-            let mut c = TransformerConfig::preset(ModelTier::Pro);
-            c.num_experts = 0;
-            c.top_k_experts = 0;
-            c.expert_intermediate_size = 0;
-            c.max_seq_len = 500_000;
-            c
+            // Core: dedicated preset — hidden=2048, layers=20, heads=16, dense (no MoE)
+            TransformerConfig::preset(ModelTier::Core)
         }
         _ => TransformerConfig::preset(tier),
     };
@@ -105,6 +98,35 @@ where
     Ok(model)
 }
 
+/// Unload a specific tier's backbone from the registry — frees VRAM.
+pub fn unload_tier_backbone(tier: ModelTier) -> TransformerResult<()> {
+    let mut reg = registry().write().map_err(|e| {
+        crate::TransformerError::Implementation(format!(
+            "TierBackboneRegistry lock poisoned: {}",
+            e
+        ))
+    })?;
+    if reg.remove(&tier).is_some() {
+        tracing::info!("Unloaded tier {:?} backbone", tier);
+    }
+    Ok(())
+}
+
+/// List all currently loaded tier backbones.
+pub fn get_loaded_tiers() -> Vec<ModelTier> {
+    registry()
+        .read()
+        .map(|r| r.keys().copied().collect())
+        .unwrap_or_default()
+}
+
+/// Estimate VRAM usage (in MB) for a loaded tier backbone at its configured quantization.
+pub fn tier_vram_estimate_mb(tier: ModelTier) -> u64 {
+    let params = tier_parameter_count(tier);
+    let cfg = TransformerConfig::preset(tier);
+    ((params as f64 * cfg.bytes_per_param() as f64) / (1024.0 * 1024.0)).ceil() as u64
+}
+
 /// Get the number of registered backbones.
 pub fn registered_tier_count() -> usize {
     registry().read().map(|r| r.len()).unwrap_or(0)
@@ -120,16 +142,7 @@ pub fn has_tier_backbone(tier: ModelTier) -> bool {
 
 /// Parameter count for a tier's backbone.
 pub fn tier_parameter_count(tier: ModelTier) -> usize {
-    match tier {
-        ModelTier::Core => {
-            let mut c = TransformerConfig::preset(ModelTier::Pro);
-            c.num_experts = 0;
-            c.top_k_experts = 0;
-            c.expert_intermediate_size = 0;
-            c.parameter_count()
-        }
-        _ => TransformerConfig::preset(tier).parameter_count(),
-    }
+    TransformerConfig::preset(tier).parameter_count()
 }
 
 #[cfg(test)]
@@ -156,6 +169,7 @@ mod tests {
             quantization: QFormat::Q8 { group_size: 128 },
             use_half_precision: false,
             shard: ShardConfig::default(),
+            shared_expert: 0,
             use_domain_experts: false,
         }
     }

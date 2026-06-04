@@ -33,73 +33,88 @@ use nexora_shared::{
 use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
 
+fn ident_to_transformer_tier(tier: &str) -> nexora_transformer::config::ModelTier {
+    use nexora_transformer::config::ModelTier;
+    match tier {
+        "Ultra" => ModelTier::Ultra,
+        "Apex" => ModelTier::Apex,
+        "Pro" => ModelTier::Pro,
+        "Core" => ModelTier::Core,
+        "Edge" => ModelTier::Edge,
+        _ => ModelTier::Ultra,
+    }
+}
+
 /// Source-of-truth dev config — must match `crates/foundation/src/init.rs::tier_config()`.
 /// These sizes are used for local dev/testing. Production uses `TransformerConfig::preset()`.
 pub fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
     let vocab_size = 50257;
-    let shared_q8 = QFormat::Q8 { group_size: 128 };
+    let shared_q4 = QFormat::Q4 { group_size: 128 };
     match model_id {
-        // Flagship
+        // Flagship — Ultra-tier with small MoE
         NxrModelId::Omnis => TransformerConfig {
             vocab_size,
             hidden_size: 512,
             num_heads: 8,
-            num_kv_heads: 4,
+            num_kv_heads: 1,
             num_layers: 16,
             max_seq_len: 2048,
             intermediate_size: 2048,
             norm_eps: 1e-6,
             rope_theta: 10000.0,
             use_cache: true,
-            num_experts: 0,
-            top_k_experts: 0,
-            expert_intermediate_size: 0,
-            use_domain_experts: false,
-            quantization: shared_q8,
-            use_half_precision: false,
+            num_experts: 8,
+            top_k_experts: 2,
+            expert_intermediate_size: 512,
+            use_domain_experts: true,
+            shared_expert: 4,
+            quantization: shared_q4,
+            use_half_precision: true,
             shard: Default::default(),
         },
-        // High
+        // High — Ultra-tier with small MoE
         NxrModelId::Axiom => TransformerConfig {
             vocab_size,
             hidden_size: 384,
             num_heads: 8,
-            num_kv_heads: 4,
+            num_kv_heads: 1,
             num_layers: 10,
             max_seq_len: 1024,
             intermediate_size: 1536,
             norm_eps: 1e-6,
             rope_theta: 10000.0,
             use_cache: true,
-            num_experts: 0,
-            top_k_experts: 0,
-            expert_intermediate_size: 0,
-            use_domain_experts: false,
-            quantization: shared_q8,
-            use_half_precision: false,
+            num_experts: 8,
+            top_k_experts: 2,
+            expert_intermediate_size: 384,
+            use_domain_experts: true,
+            shared_expert: 4,
+            quantization: shared_q4,
+            use_half_precision: true,
             shard: Default::default(),
         },
-        // Mid
+        // Mid — with small MoE
         NxrModelId::Genesis | NxrModelId::Nexum => TransformerConfig {
             vocab_size,
             hidden_size: 256,
             num_heads: 8,
-            num_kv_heads: 4,
+            num_kv_heads: 1,
             num_layers: 6,
             max_seq_len: 1024,
             intermediate_size: 1024,
             norm_eps: 1e-6,
             rope_theta: 10000.0,
             use_cache: true,
-            num_experts: 0,
-            top_k_experts: 0,
-            expert_intermediate_size: 0,
+            num_experts: 4,
+            top_k_experts: 1,
+            expert_intermediate_size: 256,
             use_domain_experts: false,
-            quantization: shared_q8,
-            use_half_precision: false,
+            shared_expert: 2,
+            quantization: shared_q4,
+            use_half_precision: true,
             shard: Default::default(),
         },
-        // Low
+        // Low — dense, no MoE
         NxrModelId::Cipher
         | NxrModelId::Vortex
         | NxrModelId::Aether
@@ -109,7 +124,7 @@ pub fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
             vocab_size,
             hidden_size: 128,
             num_heads: 4,
-            num_kv_heads: 2,
+            num_kv_heads: 1,
             num_layers: 3,
             max_seq_len: 512,
             intermediate_size: 512,
@@ -120,8 +135,9 @@ pub fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
             top_k_experts: 0,
             expert_intermediate_size: 0,
             use_domain_experts: false,
-            quantization: shared_q8,
-            use_half_precision: false,
+            shared_expert: 0,
+            quantization: shared_q4,
+            use_half_precision: true,
             shard: Default::default(),
         },
     }
@@ -277,7 +293,17 @@ macro_rules! define_foundation_model {
                     e.into_inner()
                 });
                 if guard.is_none() {
-                    *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
+                    let tier = ident_to_transformer_tier(stringify!($tier));
+                    match nexora_transformer::resolve_tier_backbone(tier) {
+                        Ok(backbone) => {
+                            *guard = Some(backbone);
+                            tracing::info!(target: stringify!($name), "Using shared tier backbone (get_or_init_model)");
+                        }
+                        Err(_) => {
+                            *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
+                            tracing::info!(target: stringify!($name), "No shared backbone available, created standalone model");
+                        }
+                    }
                 }
                 guard
             }
@@ -692,7 +718,7 @@ macro_rules! define_foundation_model {
 
             async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {
                 let params = self.model_config.parameter_count();
-                let mem_gb = (params * 4) as f32 / (1024.0 * 1024.0 * 1024.0);
+                let mem_gb = (params * self.model_config.bytes_per_param()) as f32 / (1024.0 * 1024.0 * 1024.0);
                 Ok(ResourceUsage {
                     memory_gb: mem_gb,
                     cpu_percent: 5.0,

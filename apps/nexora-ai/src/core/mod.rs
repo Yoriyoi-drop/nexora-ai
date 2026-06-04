@@ -6,6 +6,7 @@ pub mod chat;
 pub mod generation;
 pub mod processing;
 pub mod system;
+pub mod tier_router;
 pub mod types;
 
 // Re-export core types for backward compatibility

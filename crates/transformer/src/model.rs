@@ -3,6 +3,7 @@ use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use ndarray::{Array1, Array2};
+use nexora_quantization::QFormat;
 use rand::Rng;
 use tracing::{info, warn};
 
@@ -16,12 +17,17 @@ use crate::{TransformerError, TransformerResult};
 
 /// Hook for injecting processing between transformer layers.
 pub trait LayerInjector: std::fmt::Debug + Send {
+    /// Called after a layer's forward pass.
     fn after_layer(
         &mut self,
         layer_idx: usize,
         h: &mut Array2<f32>,
         pos: usize,
     ) -> TransformerResult<()>;
+
+    /// Reset runtime state (ring buffers, caches) for a new sequence.
+    /// Default is a no-op — override if the injector maintains per-sequence state.
+    fn reset(&mut self) {}
 
     /// GPU-native injector: receives a mutable `GpuTensor` instead of CPU array.
     /// Default implementation falls back to CPU: reads GPU tensor, calls `after_layer`,
@@ -378,13 +384,10 @@ impl CausalLM {
                 block
             })
             .collect();
-
         let norm = super::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps);
-
         let lm_head = Some(Array2::from_shape_fn((config.vocab_size, config.hidden_size), |_| {
             rng.gen::<f32>() * 2.0 * scale - scale
         }));
-
         let rope = RoPE::new(head_dim, config.max_seq_len, config.rope_theta);
         let (cos_full, sin_full) = rope.precompute_freqs_cis();
         let half = head_dim / 2;
@@ -407,6 +410,9 @@ impl CausalLM {
             None
         };
 
+        let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..});
+        let hp = config.use_half_precision;
+
         Self {
             config,
             token_embedding,
@@ -427,8 +433,8 @@ impl CausalLM {
                     false
                 }
             },
-            quantize_weights: false,
-            use_half_precision: false,
+            quantize_weights: qw,
+            use_half_precision: hp,
             weight_notifier: super::observer::WeightNotifier::new(),
             lazy_loader: None,
             unload_blocks_after_forward: false,
@@ -465,21 +471,22 @@ impl CausalLM {
         } else {
             None
         };
+        let mut blocks: Vec<TransformerBlock> = (0..config.num_layers)
+            .map(|_| TransformerBlock::new(
+                config.hidden_size,
+                nh_local,
+                nkv_local,
+                head_dim,
+                int_local,
+                config.norm_eps,
+                config.num_experts,
+                exp_int_local,
+            ))
+            .collect();
         Self {
             config: config.clone(),
             token_embedding: None,
-            blocks: (0..config.num_layers)
-                .map(|_| TransformerBlock::new(
-                    config.hidden_size,
-                    nh_local,
-                    nkv_local,
-                    head_dim,
-                    int_local,
-                    config.norm_eps,
-                    config.num_experts,
-                    exp_int_local,
-                ))
-                .collect(),
+            blocks,
             norm: super::rms_norm::RMSNorm::new(config.hidden_size, config.norm_eps),
             lm_head: None,
             rope,
@@ -491,8 +498,8 @@ impl CausalLM {
                 .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
             injectors: Vec::new(),
             keep_on_gpu: false,
-            quantize_weights: false,
-            use_half_precision: false,
+            quantize_weights: matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..}),
+            use_half_precision: config.use_half_precision,
             weight_notifier: super::observer::WeightNotifier::new(),
             lazy_loader: None,
             unload_blocks_after_forward: false,
@@ -721,6 +728,12 @@ impl CausalLM {
     }
 
     pub fn reset_cache(&self) -> CpuKVCache {
+        // Reset all injectors for a new sequence (fork-on-write for ring buffers)
+        for (_, injector) in &self.injectors {
+            if let Ok(mut guard) = injector.lock() {
+                guard.reset();
+            }
+        }
         CpuKVCache::new(self.config.num_layers)
     }
 
@@ -1081,25 +1094,61 @@ impl CausalLM {
             let wk_shape = wk.shape().to_vec();
             let wv_shape = wv.shape().to_vec();
             let wo_shape = wo.shape().to_vec();
-            let wq_t = ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?;
-            let wk_t = ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?;
-            let wv_t = ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?;
-            let wo_t = ctx.transpose(&wo).map_err(|e| crate::TransformerError::Implementation(format!("{}wo t: {e}", p)))?;
+
+            let use_f16 = model.use_half_precision && !model.quantize_weights;
+            let (wq_t, wk_t, wv_t, wo_t, wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
+                let wq_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wq f16: {e}", p)))?;
+                let wk_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wk f16: {e}", p)))?;
+                let wv_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wv f16: {e}", p)))?;
+                let wo_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wo).map_err(|e| crate::TransformerError::Implementation(format!("{}wo t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wo f16: {e}", p)))?;
+                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                (d.clone(), d.clone(), d.clone(), d.clone(), Some(wq_f16), Some(wk_f16), Some(wv_f16), Some(wo_f16))
+            } else {
+                let wq_t = ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?;
+                let wk_t = ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?;
+                let wv_t = ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?;
+                let wo_t = ctx.transpose(&wo).map_err(|e| crate::TransformerError::Implementation(format!("{}wo t: {e}", p)))?;
+                (wq_t, wk_t, wv_t, wo_t, None, None, None, None)
+            };
+            let att_wq_f16 = wq_f16.clone();
+            let att_wk_f16 = wk_f16.clone();
+            let att_wv_f16 = wv_f16.clone();
+            let att_wo_f16 = wo_f16.clone();
             let _ = block.attention.gpu_weights.set(super::gqa::GqaGpuWeights {
-                wq_t: wq_t.clone(), wk_t: wk_t.clone(), wv_t: wv_t.clone(), wo_t: wo_t.clone(),
-                wq_f16: None, wk_f16: None, wv_f16: None, wo_f16: None,
+                wq_t: Some(wq_t.clone()), wk_t: Some(wk_t.clone()), wv_t: Some(wv_t.clone()), wo_t: Some(wo_t.clone()),
+                wq_f16: att_wq_f16, wk_f16: att_wk_f16, wv_f16: att_wv_f16, wo_f16: att_wo_f16,
                 wq_shape, wk_shape, wv_shape, wo_shape,
+                is_f16: use_f16,
             });
 
             let w1 = to_gpu(get_arr(&format!("{}ffn.w1", p))?)?;
             let w2 = to_gpu(get_arr(&format!("{}ffn.w2", p))?)?;
             let w3 = to_gpu(get_arr(&format!("{}ffn.w3", p))?)?;
-            let w1_t = ctx.transpose(&w1).map_err(|e| crate::TransformerError::Implementation(format!("{}w1 t: {e}", p)))?;
-            let w2_t = ctx.transpose(&w2).map_err(|e| crate::TransformerError::Implementation(format!("{}w2 t: {e}", p)))?;
-            let w3_t = ctx.transpose(&w3).map_err(|e| crate::TransformerError::Implementation(format!("{}w3 t: {e}", p)))?;
+            let (w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16) = if use_f16 {
+                let w1_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w1).map_err(|e| crate::TransformerError::Implementation(format!("{}w1 t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w1 f16: {e}", p)))?;
+                let w2_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w2).map_err(|e| crate::TransformerError::Implementation(format!("{}w2 t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w2 f16: {e}", p)))?;
+                let w3_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w3).map_err(|e| crate::TransformerError::Implementation(format!("{}w3 t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w3 f16: {e}", p)))?;
+                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                (d.clone(), d.clone(), d.clone(), Some(w1_f16), Some(w2_f16), Some(w3_f16))
+            } else {
+                let w1_t = ctx.transpose(&w1).map_err(|e| crate::TransformerError::Implementation(format!("{}w1 t: {e}", p)))?;
+                let w2_t = ctx.transpose(&w2).map_err(|e| crate::TransformerError::Implementation(format!("{}w2 t: {e}", p)))?;
+                let w3_t = ctx.transpose(&w3).map_err(|e| crate::TransformerError::Implementation(format!("{}w3 t: {e}", p)))?;
+                (w1_t, w2_t, w3_t, None, None, None)
+            };
+            let ffn_w1_f16 = w1_f16.clone();
+            let ffn_w2_f16 = w2_f16.clone();
+            let ffn_w3_f16 = w3_f16.clone();
             let _ = block.ffn.gpu_weights.set(super::swiglu::SwigluGpuWeights {
                 w1_t: w1_t.clone(), w2_t: w2_t.clone(), w3_t: w3_t.clone(),
-                w1_f16: None, w2_f16: None, w3_f16: None,
+                w1_f16: ffn_w1_f16, w2_f16: ffn_w2_f16, w3_f16: ffn_w3_f16,
             });
 
             block_weights.push(BlockGpuWeights {
@@ -1113,8 +1162,8 @@ impl CausalLM {
                 w1_scales: None, w2_scales: None, w3_scales: None,
                 wq_zero_points: None, wk_zero_points: None, wv_zero_points: None, wo_zero_points: None,
                 w1_zero_points: None, w2_zero_points: None, w3_zero_points: None,
-                wq_f16: None, wk_f16: None, wv_f16: None, wo_f16: None,
-                w1_f16: None, w2_f16: None, w3_f16: None,
+                wq_f16, wk_f16, wv_f16, wo_f16,
+                w1_f16, w2_f16, w3_f16,
             });
         }
 
@@ -2192,7 +2241,12 @@ impl CausalLM {
     }
 
     pub fn memory_bytes(&self) -> usize {
-        self.parameter_count() * 4
+        self.parameter_count() * self.config.bytes_per_param()
+    }
+
+    /// Bytes per parameter based on this model's config quantization format.
+    pub fn bytes_per_param(&self) -> usize {
+        self.config.bytes_per_param()
     }
 
     /// GPU forward pass: returns logits on CPU.
@@ -3581,6 +3635,7 @@ mod tests {
             quantization: QFormat::F16,
             use_half_precision: true,
             shard: Default::default(),
+            shared_expert: 0,
             use_domain_experts: false,
         }
     }
@@ -3734,7 +3789,7 @@ mod tests {
     fn test_memory_bytes() {
         let model = small_model();
         let bytes = model.memory_bytes();
-        assert_eq!(bytes, model.parameter_count() * 4);
+        assert_eq!(bytes, model.parameter_count() * model.bytes_per_param());
     }
 
     #[test]

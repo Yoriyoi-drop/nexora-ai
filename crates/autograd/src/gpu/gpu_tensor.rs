@@ -27,6 +27,19 @@ pub enum GpuDtype {
     I8,
 }
 
+impl GpuDtype {
+    /// Bytes per element for this dtype.
+    /// F32=4, F16=2, Bf16=2, I8=1 (packed 4 int8 per u32, but logically 1 byte per element).
+    pub fn byte_size(&self) -> usize {
+        match self {
+            GpuDtype::F32 => 4,
+            GpuDtype::F16 => 2,
+            GpuDtype::Bf16 => 2,
+            GpuDtype::I8 => 1,
+        }
+    }
+}
+
 // SAFETY:
 // `GpuTensor` contains:
 // - `shape: Vec<usize>` — trivially `Send + Sync`
@@ -136,6 +149,40 @@ impl GpuTensor {
         })
     }
 
+    /// Create a GpuTensor from packed Q4 bytes.
+    ///
+    /// `packed_bytes` is the output of `quantize_fp32_to_q4`: each byte holds
+    /// 2 Q4 values (low nibble = even K, high nibble = odd K).
+    /// Shape is the original weight matrix shape `[K, N]` (inner × outer).
+    /// Buffer stores 4 bytes per u32, matching the WGSL `array<u32>` binding.
+    pub fn from_cpu_q4_packed(shape: Vec<usize>, packed_bytes: &[u8]) -> Result<Self, GpuError> {
+        let ctx = Self::ctx()?;
+        let num_bytes = shape[0] * shape[1] / 2; // K/2 bytes per column
+        if packed_bytes.len() < num_bytes {
+            return Err(GpuError::Buffer(format!(
+                "from_cpu_q4_packed: expected {num_bytes} bytes for shape {shape:?}, got {}",
+                packed_bytes.len()
+            )));
+        }
+        let u32_count = (num_bytes + 3) / 4;
+        let byte_size = u32_count as u64 * 4;
+        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GpuTensor::from_cpu_q4_packed"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        ctx.queue.write_buffer(&buffer, 0, packed_bytes);
+        Ok(Self {
+            shape,
+            buffer,
+            dtype: GpuDtype::I8,
+            device_id: 0,
+        })
+    }
+
     /// Create a GpuTensor from a flat f32 slice + shape.
     /// Avoids the ndarray ArrayD allocation required by `from_cpu`.
     pub fn from_slice(shape: Vec<usize>, data: &[f32]) -> Result<Self, GpuError> {
@@ -180,11 +227,12 @@ impl GpuTensor {
     }
 
     /// Non-blocking GPU→CPU readback via channel. Hasil siap ketika GPU selesai.
+    /// Uses dtype-aware byte sizing for F16/Bf16/I8 support.
     pub fn to_cpu_async(
         &self,
         ctx: &GpuContext,
     ) -> Result<crate::gpu_async::AsyncReadback<Vec<f32>>, GpuError> {
-        let byte_size = (self.numel() * 4) as u64;
+        let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
         ctx.readback_f32_async(&self.buffer, byte_size)
     }
 
@@ -223,13 +271,23 @@ impl GpuTensor {
     }
 
     pub fn zeros(shape: &[usize]) -> Result<Self, GpuError> {
+        Self::zeros_dtype(shape, GpuDtype::F32)
+    }
+
+    /// Create a zero-filled GPU tensor with the specified dtype.
+    /// F16 tensors use 2× less VRAM than F32.
+    pub fn zeros_dtype(shape: &[usize], dtype: GpuDtype) -> Result<Self, GpuError> {
         let ctx = Self::ctx()?;
         let numel: usize = shape.iter().product();
-        let byte_size = (numel * 4) as u64;
+        let esize = dtype.byte_size();
+        let byte_size = (numel * esize) as u64;
+
+        // Align to 4 bytes for u32 fill compatibility
+        let aligned_size = ((byte_size + 3) / 4) * 4;
 
         let buffer = ctx
             .alloc_buffer(
-                byte_size,
+                aligned_size,
                 wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
@@ -239,15 +297,16 @@ impl GpuTensor {
         let tmp = Self {
             shape: shape.to_vec(),
             buffer: buffer.clone(),
-            dtype: GpuDtype::F32,
+            dtype,
             device_id: 0,
         };
+        // Zero-fill via u32 (works for any dtype since 0 in any format is 0u32)
         ctx.fill_zero_u32(&tmp)?;
 
         Ok(Self {
             shape: shape.to_vec(),
             buffer,
-            dtype: GpuDtype::F32,
+            dtype,
             device_id: 0,
         })
     }
@@ -255,6 +314,14 @@ impl GpuTensor {
     /// Create a GPU tensor filled with 1.0 — avoids CPU round-trip
     pub fn ones(shape: &[usize]) -> Result<Self, GpuError> {
         let t = Self::zeros(shape)?;
+        let ctx = Self::ctx()?;
+        ctx.fill_constant(&t, 1.0)?;
+        Ok(t)
+    }
+
+    /// Create a GPU tensor filled with 1.0, with specified dtype.
+    pub fn ones_dtype(shape: &[usize], dtype: GpuDtype) -> Result<Self, GpuError> {
+        let t = Self::zeros_dtype(shape, dtype)?;
         let ctx = Self::ctx()?;
         ctx.fill_constant(&t, 1.0)?;
         Ok(t)
@@ -328,7 +395,7 @@ impl GpuTensor {
     pub fn to_cpu(&self) -> Result<ArrayD<f32>, GpuError> {
         let ctx = Self::ctx()?;
         ctx.flush();
-        let byte_size = (self.numel() * 4) as u64;
+        let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
 
         let (data, staging) = self.readback_inner(0, byte_size)?;
 
@@ -345,6 +412,7 @@ impl GpuTensor {
     /// Read back a slice of raw bytes from the buffer at a given offset.
     /// Useful for reading individual token positions from KV cache buffers
     /// without reading the full tensor (avoids large PCIe transfers).
+    /// `size` should be calculated with self.dtype.byte_size().
     pub fn to_cpu_raw_bytes_slice(&self, offset: u64, size: u64) -> Result<Vec<u8>, GpuError> {
         let ctx = Self::ctx()?;
         ctx.flush();
@@ -357,7 +425,7 @@ impl GpuTensor {
     pub fn to_cpu_raw_bytes(&self) -> Result<Vec<u8>, GpuError> {
         let ctx = Self::ctx()?;
         ctx.flush();
-        let byte_size = (self.numel() * 4) as u64;
+        let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
 
         let (data, staging) = self.readback_inner(0, byte_size)?;
         Self::return_staging(ctx, staging, byte_size, true);
@@ -381,7 +449,7 @@ impl GpuTensor {
     pub fn to_cpu_checksum(&self) -> Result<f64, GpuError> {
         let ctx = Self::ctx()?;
         ctx.flush();
-        let byte_size = (self.numel() * 4) as u64;
+        let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
 
         let (data, staging) = self.readback_inner(0, byte_size)?;
         let f32_data: &[f32] = bytemuck::cast_slice(&data);

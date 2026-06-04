@@ -11,6 +11,7 @@ ndarray.workspace = true
 rand.workspace = true
 tracing.workspace = true
 nexora-autograd = { path = "../autograd", optional = true }
+nexora-quantization = { path = "../quantization" }
 
 [features]
 default = ["gpu"]

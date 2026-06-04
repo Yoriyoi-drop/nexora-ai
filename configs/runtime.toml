@@ -20,3 +20,8 @@ gpu_device_ids = [0]
 enable_metrics = true
 metrics_port = 9090
 health_check_interval_seconds = 30
+
+[core]
+max_tiers_in_vram = 1
+vram_budget_mb = 24000
+eviction_threshold = 0.85

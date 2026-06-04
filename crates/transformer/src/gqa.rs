@@ -24,10 +24,16 @@ pub(crate) struct GqaGpuTemps {
 
 #[derive(Debug)]
 pub(crate) struct GqaGpuWeights {
-    pub wq_t: nexora_autograd::gpu::GpuTensor,
-    pub wk_t: nexora_autograd::gpu::GpuTensor,
-    pub wv_t: nexora_autograd::gpu::GpuTensor,
-    pub wo_t: nexora_autograd::gpu::GpuTensor,
+    /// F32 transposed weights — always present (needed for f32 matmul and readback).
+    /// When `use_half_precision` is active, these are None and only f16 packed weights
+    /// are stored on GPU (2× less VRAM). The f16→f32 upconversion happens ephemerally
+    /// per forward pass via `GqaGpuTemps` (dropped after each forward).
+    pub wq_t: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wk_t: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wv_t: Option<nexora_autograd::gpu::GpuTensor>,
+    pub wo_t: Option<nexora_autograd::gpu::GpuTensor>,
+    /// F16 packed weights — present only when `use_half_precision` is active.
+    /// Each stores 2× less VRAM than f32.
     pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
@@ -36,6 +42,8 @@ pub(crate) struct GqaGpuWeights {
     pub wk_shape: Vec<usize>,
     pub wv_shape: Vec<usize>,
     pub wo_shape: Vec<usize>,
+    /// Whether this entry stores f16 packed weights (instead of f32).
+    pub is_f16: bool,
 }
 
 /// GPU-resident KV cache entry.
@@ -92,8 +100,8 @@ impl GpuKVCacheEntry {
             })
         } else {
             Ok(Self {
-                k: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
-                v: GpuTensor::zeros(&[max_seq, kv_heads, head_dim])?,
+                k: GpuTensor::zeros_dtype(&[max_seq, kv_heads, head_dim], GpuDtype::F32)?,
+                v: GpuTensor::zeros_dtype(&[max_seq, kv_heads, head_dim], GpuDtype::F32)?,
                 seq_len: 0,
                 capacity: max_seq,
                 kv_heads,
@@ -565,7 +573,7 @@ impl GpuKVCache {
         let entries = if let Ok(ctx) = nexora_autograd::gpu::GpuContext::global() {
             (0..num_layers)
                 .filter_map(|_| {
-                    GpuKVCacheEntry::new(&ctx, num_kv_heads, head_dim, max_seq_len, false).ok()
+                    GpuKVCacheEntry::new(&ctx, num_kv_heads, head_dim, max_seq_len, true).ok()
                 })
                 .collect()
         } else {
@@ -691,6 +699,13 @@ pub struct GQA {
 #[cfg(not(feature = "gpu"))]
 impl Clone for GQA {
     fn clone(&self) -> Self {
+        tracing::warn!(
+            "Cloning GQA — copies all weight matrices (~{:.1}M params). Use Arc<GQA> for shared ownership.",
+            (self.num_heads + self.num_kv_heads * 2 + self.num_heads) as f64
+                * self.head_dim as f64
+                * self.head_dim as f64
+                / 1_000_000.0
+        );
         Self {
             num_heads: self.num_heads,
             num_kv_heads: self.num_kv_heads,
@@ -713,6 +728,13 @@ impl Clone for GQA {
 #[cfg(feature = "gpu")]
 impl Clone for GQA {
     fn clone(&self) -> Self {
+        tracing::warn!(
+            "Cloning GQA — copies all weight matrices (~{:.1}M params). Use Arc<GQA> for shared ownership.",
+            (self.num_heads + self.num_kv_heads * 2 + self.num_heads) as f64
+                * self.head_dim as f64
+                * self.head_dim as f64
+                / 1_000_000.0
+        );
         Self {
             num_heads: self.num_heads,
             num_kv_heads: self.num_kv_heads,
@@ -959,24 +981,18 @@ impl GQA {
         } else {
             (None, None, None, None)
         };
-        let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
-            // F16 mode: store valid f32 transposed weights for readback scenarios
-            // that don't support F16 (e.g., safetensors checkpoint save).
-            // We keep both f32 and f16 copies — the f32 copy is needed for
-            // readback_weights() which must return f32 arrays.
+        // F16 mode: only store f16 packed weights (2× less VRAM). Skip f32 upload.
+        // f32→f16 upconversion happens ephemerally per forward pass via gqa_upconvert_f16.
+        // F32 mode: store f32 transposed weights as before.
+        let (wq_t, wk_t, wv_t, wo_t) = if !use_f16 {
             (
-                ctx.transpose(&wq)?,
-                ctx.transpose(&wk)?,
-                ctx.transpose(&wv)?,
-                ctx.transpose(&wo)?,
+                Some(ctx.transpose(&wq)?),
+                Some(ctx.transpose(&wk)?),
+                Some(ctx.transpose(&wv)?),
+                Some(ctx.transpose(&wo)?),
             )
         } else {
-            (
-                ctx.transpose(&wq)?,
-                ctx.transpose(&wk)?,
-                ctx.transpose(&wv)?,
-                ctx.transpose(&wo)?,
-            )
+            (None, None, None, None)
         };
         self.gpu_weights
             .set(GqaGpuWeights {
@@ -986,6 +1002,7 @@ impl GQA {
                 wk_shape: wk_shape.to_vec(),
                 wv_shape: wv_shape.to_vec(),
                 wo_shape: wo_shape.to_vec(),
+                is_f16: use_f16,
             })
             .map_err(|_| GpuError::Unsupported("already set".into()))?;
         Ok(())
@@ -1021,26 +1038,43 @@ impl GQA {
         let wk_shape = &gw.wk_shape;
         let wv_shape = &gw.wv_shape;
         let wo_shape = &gw.wo_shape;
-        // If F16 weights exist, read via F16→f32 conversion on GPU
+        // Read via f16 path (preferred, 2× less VRAM) or f32 path.
+        // When use_half_precision is active, only f16 packed weights exist on GPU.
         let wq = if let Some(ref f16) = gw.wq_f16 {
             read_f16(f16, wq_shape)?
+        } else if let Some(ref f32_t) = gw.wq_t {
+            read_f32(f32_t, wq_shape)?
         } else {
-            read_f32(&gw.wq_t, wq_shape)?
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                "GQA weights not available on GPU".into()
+            ));
         };
         let wk = if let Some(ref f16) = gw.wk_f16 {
             read_f16(f16, wk_shape)?
+        } else if let Some(ref f32_t) = gw.wk_t {
+            read_f32(f32_t, wk_shape)?
         } else {
-            read_f32(&gw.wk_t, wk_shape)?
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                "GQA weights not available on GPU".into()
+            ));
         };
         let wv = if let Some(ref f16) = gw.wv_f16 {
             read_f16(f16, wv_shape)?
+        } else if let Some(ref f32_t) = gw.wv_t {
+            read_f32(f32_t, wv_shape)?
         } else {
-            read_f32(&gw.wv_t, wv_shape)?
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                "GQA weights not available on GPU".into()
+            ));
         };
         let wo = if let Some(ref f16) = gw.wo_f16 {
             read_f16(f16, wo_shape)?
+        } else if let Some(ref f32_t) = gw.wo_t {
+            read_f32(f32_t, wo_shape)?
         } else {
-            read_f32(&gw.wo_t, wo_shape)?
+            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+                "GQA weights not available on GPU".into()
+            ));
         };
         Ok((wq, wk, wv, wo))
     }
@@ -1549,20 +1583,17 @@ impl GQA {
         } else {
             (None, None, None, None)
         };
-        // F16 mode: f32 transposed QKV+O weights ga dipake —
-        // forward_gpu upconvert f16→f32 temp per-call.
-        // `zeros(&[1])` DUMMY older (4 bytes per weight, total ~16 bytes),
-        // BUKAN 4 matriks perhatian ukuran penuh. VRAM hemat: (4 × hidden × dim) bytes.
-        let (wq_t, wk_t, wv_t, wo_t) = if use_f16 {
-            let d = GpuTensor::zeros(&[1])?;
-            (d.clone(), d.clone(), d.clone(), d)
-        } else {
+        // F16 mode: skip f32 upload entirely — f16 packed weights stored only (2× less VRAM).
+        // The f16→f32 upconversion happens ephemerally per forward pass (dropped after forward).
+        let (wq_t, wk_t, wv_t, wo_t) = if !use_f16 {
             (
-                ctx.transpose(&wq)?,
-                ctx.transpose(&wk)?,
-                ctx.transpose(&wv)?,
-                ctx.transpose(&wo)?,
+                Some(ctx.transpose(&wq)?),
+                Some(ctx.transpose(&wk)?),
+                Some(ctx.transpose(&wv)?),
+                Some(ctx.transpose(&wo)?),
             )
+        } else {
+            (None, None, None, None)
         };
         let wq_shape = wq.shape().to_vec();
         let wk_shape = wk.shape().to_vec();
@@ -1581,6 +1612,7 @@ impl GQA {
             wk_shape,
             wv_shape,
             wo_shape,
+            is_f16: use_f16,
         });
         Ok(())
     }
@@ -1637,10 +1669,18 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
+        })?;
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
+        })?;
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
+        })?;
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
+        })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -1788,10 +1828,18 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
+        })?;
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
+        })?;
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
+        })?;
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
+        })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -1861,10 +1909,18 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
+        })?;
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
+        })?;
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
+        })?;
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
+        })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -1948,10 +2004,18 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).unwrap_or(&cached.wq_t);
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).unwrap_or(&cached.wk_t);
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).unwrap_or(&cached.wv_t);
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).unwrap_or(&cached.wo_t);
+        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
+        })?;
+        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
+        })?;
+        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
+        })?;
+        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
+        })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
