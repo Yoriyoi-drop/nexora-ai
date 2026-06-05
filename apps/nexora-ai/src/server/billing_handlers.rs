@@ -1,12 +1,20 @@
-use axum::{Extension, Json};
+use axum::{
+    body::Bytes,
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
+};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::billing::{BillingPlan, TierName};
 use crate::NexoraAI;
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Serialize)]
 pub struct PlanResponse {
@@ -126,11 +134,11 @@ pub async fn get_subscription(
     }
 }
 
-/// Map plan name to Stripe Price ID (can be configured via config, or use defaults)
+/// Map plan name to Stripe Price ID (must be a real Stripe Price ID like price_XXXXXXX)
 fn stripe_price_id(plan_name: &str) -> Option<&'static str> {
     match plan_name {
-        "pro" => Some("price_pro_monthly"),
-        "enterprise" => Some("price_enterprise_monthly"),
+        "pro" => Some("price_1PRO_MONTHLY_PLACEHOLDER"),
+        "enterprise" => Some("price_1ENT_MONTHLY_PLACEHOLDER"),
         _ => None,
     }
 }
@@ -246,23 +254,12 @@ pub async fn subscribe(
             Ok(url) => Some(url),
             Err(e) => {
                 warn!("Stripe checkout failed: {}", e);
-                // Fallback: return a mock checkout URL for dev/testing
-                Some(format!(
-                    "https://checkout.stripe.com/pay/test_plan_{}",
-                    plan_name
-                ))
+                None
             }
         }
     } else {
-        // No Stripe key configured — return mock checkout for dev
-        info!(
-            "No stripe_secret_key configured; returning mock checkout for plan '{}'",
-            plan_name
-        );
-        Some(format!(
-            "https://checkout.stripe.com/pay/test_plan_{}",
-            plan_name
-        ))
+        warn!("No stripe_secret_key configured; cannot create checkout");
+        None
     };
     drop(config);
 
@@ -277,9 +274,59 @@ pub async fn subscribe(
 }
 
 pub async fn stripe_webhook(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
-    Json(payload): Json<Value>,
+    body: Bytes,
 ) -> Json<Value> {
+    let config = nexora.billing.config.read().await;
+    let webhook_secret = config.stripe_webhook_secret.clone();
+    drop(config);
+
+    if let Some(ref secret) = webhook_secret {
+        let sig_header = headers
+            .get("stripe-signature")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        match sig_header {
+            Some(sig) => {
+                let mut expected = HmacSha256::new_from_slice(secret.as_bytes())
+                    .expect("HMAC key length valid");
+                expected.update(&body);
+                let expected_sig = hex::encode(expected.finalize().into_bytes());
+
+                let parts: Vec<&str> = sig.split(',').collect();
+                let sig_valid = parts.iter().any(|p| {
+                    if let Some(v1) = p.strip_prefix("v1=") {
+                        // Constant-time comparison
+                        use subtle::ConstantTimeEq;
+                        expected_sig.as_bytes().ct_eq(v1.as_bytes()).into()
+                    } else {
+                        false
+                    }
+                });
+
+                if !sig_valid {
+                    warn!("Stripe webhook signature verification failed");
+                    return Json(json!({
+                        "success": false,
+                        "error": "Invalid webhook signature"
+                    }));
+                }
+            }
+            None => {
+                warn!("Stripe webhook missing Stripe-Signature header");
+                return Json(json!({
+                    "success": false,
+                    "error": "Missing Stripe-Signature header"
+                }));
+            }
+        }
+    } else {
+        info!("No stripe_webhook_secret configured; skipping signature verification");
+    }
+
+    let payload: Value = serde_json::from_slice(&body).unwrap_or_default();
     let event_type = payload
         .get("type")
         .and_then(|v| v.as_str())

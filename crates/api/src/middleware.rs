@@ -894,8 +894,8 @@ pub async fn create_default_middleware_stack() -> MiddlewareStack {
     rate_limit_mw.init_default_limit().await;
     stack.add_middleware(Arc::new(rate_limit_mw));
     stack.add_middleware(Arc::new(CorsMiddleware::new()));
-    warn!("Authentication is DISABLED by default. Set up API keys and enable auth for production.");
-    stack.add_middleware(Arc::new(AuthMiddleware::new(false))); // Auth disabled by default
+    warn!("Authentication is ENABLED by default. Configure API keys in ServerConfig to authenticate.");
+    stack.add_middleware(Arc::new(AuthMiddleware::new(true))); // Auth enabled by default
     stack.add_middleware(Arc::new(CompressionMiddleware::new(true, 1024)));
 
     stack

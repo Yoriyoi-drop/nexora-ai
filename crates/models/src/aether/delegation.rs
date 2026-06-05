@@ -1,4 +1,5 @@
 use crate::aether::classifier;
+use crate::classifier_util;
 use crate::foundation::NxrAetherModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
@@ -75,10 +76,11 @@ pub async fn delegate(prompt: &str) -> String {
     });
     let mm_summary = mm_result.processing_summary;
 
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     let framed = format!(
         "[Empathetic response | detected emotion: {dominant} | multimodal: {mm_summary}]\n\
          Consider the emotional context and psychological aspects.\n\
-         User input: {prompt}\n\
+         User input: {sanitized_prompt}\n\
          Response (empathetic, emotionally aware):"
     );
     crate::foundation::call_model(foundation(), &framed, 512, 0.8).await.unwrap_or_else(|e| {

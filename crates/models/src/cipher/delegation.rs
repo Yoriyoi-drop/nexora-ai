@@ -1,4 +1,5 @@
 use crate::cipher::classifier;
+use crate::classifier_util;
 use crate::foundation::NxrCipherModel;
 use nexora_oracle::CodeLinterManager;
 use std::sync::Arc;
@@ -109,6 +110,7 @@ pub async fn delegate(prompt: &str) -> String {
         }
     };
 
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     let checklist = format!(
         "[Cipher security | primary threat: {primary}]\n\
          Oracle security scan: {findings}\n\
@@ -120,7 +122,7 @@ pub async fn delegate(prompt: &str) -> String {
          [4] Input validation\n\
          [5] Access control\n\n\
          Analyze this input against the checklist:\n\
-         {prompt}\n\n\
+         {sanitized_prompt}\n\n\
          Security findings:"
     );
     crate::foundation::call_model(foundation(), &checklist, 512, 0.3).await.unwrap_or_else(|e| {

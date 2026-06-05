@@ -510,7 +510,16 @@ impl InferenceEngine {
                         if i > 0 {
                             context.push('\n');
                         }
-                        let _ = write!(context, "- {}", r.value);
+                        // Sanitize RAG values to prevent prompt injection via stored memory
+                        let sanitized: String = r.value.chars()
+                            .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+                            .collect();
+                        let sanitized = sanitized
+                            .replace("ignore", "ign_ore")
+                            .replace("forget", "for_get")
+                            .replace("override", "over_ride")
+                            .replace("bypass", "by_pass");
+                        let _ = write!(context, "- {}", sanitized);
                     }
                     format!("Relevant context:\n{}\n\n---\n\n{}", context, prompt)
                 }

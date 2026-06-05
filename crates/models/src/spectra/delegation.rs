@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrSpectraModel;
 use crate::spectra::classifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
@@ -81,11 +82,12 @@ pub async fn delegate(prompt: &str) -> String {
 
     let temps = [base_temp - 0.1, base_temp, base_temp + 0.2];
     let mut results: Vec<(String, f64)> = Vec::new();
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     for &t in &temps {
         let creative_prompt = format!(
             "[Spectra creative | style: {primary} | multimodal: {mm_summary} | temperature={t:.1}]\n\
              {framing}\n\n\
-             Generate original content for: {prompt}"
+             Generate original content for: {sanitized_prompt}"
         );
         if let Ok(text) = crate::foundation::call_model(foundation(), &creative_prompt, 256, t).await {
             let score = unique_word_ratio(&text);

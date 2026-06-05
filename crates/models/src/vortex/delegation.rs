@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrVortexModel;
 use crate::vortex::analyzer;
 use nexora_oracle::CodeLinterManager;
@@ -90,12 +91,13 @@ pub async fn delegate(prompt: &str) -> String {
 
     let verification = run_linters(prompt, lang);
 
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     let framed = format!(
         "[Vortex code review | focus: {primary} | language: {lang}]\n\
          Automated code analysis results:\n\
          {verification}\n\n\
          Based on the above analysis, provide a detailed code review:\n\
-         ```\n{prompt}\n```\n\n\
+         ```\n{sanitized_prompt}\n```\n\n\
          Code review:"
     );
     crate::foundation::call_model(foundation(), &framed, 512, 0.4).await.unwrap_or_else(|e| {

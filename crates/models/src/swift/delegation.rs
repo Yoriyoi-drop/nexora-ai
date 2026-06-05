@@ -80,17 +80,18 @@ pub async fn delegate(prompt: &str) -> String {
         }
     };
 
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     let framed = if let Some(route) = expert_route {
         format!(
             "[Swift task | type: {primary} | moe_route: {route}]\n\
              Process this input efficiently:\n\
-             {prompt}"
+             {sanitized_prompt}"
         )
     } else {
         format!(
             "[Swift task | type: {primary}]\n\
              Process this input efficiently:\n\
-             {prompt}"
+             {sanitized_prompt}"
         )
     };
     crate::foundation::call_model(foundation(), &framed, max_tokens, temperature).await.unwrap_or_else(|e| {

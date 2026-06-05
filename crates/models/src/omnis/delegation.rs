@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrOmnisModel;
 use crate::omnis::router;
 use std::sync::Arc;
@@ -54,10 +55,11 @@ pub async fn delegate(prompt: &str) -> String {
 
     let secondary = domains.get(1).filter(|(_, p)| *p > 0.3).map(|(d, _)| d.as_str());
 
+    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
     let framed = format!(
         "[Omnis reasoning | domain: {primary}]\n\
          {system}\n\n\
-         User input: {prompt}\n\
+         User input: {sanitized_prompt}\n\
          Response:"
     );
 
@@ -71,7 +73,7 @@ pub async fn delegate(prompt: &str) -> String {
         let sec_framed = format!(
             "[Omnis reasoning | domain: {sec_domain}]\n\
              {sec_system}\n\n\
-             User input: {prompt}\n\
+             User input: {sanitized_prompt}\n\
              Response:"
         );
         let sec_result = crate::foundation::call_model(foundation(), &sec_framed, 512, 0.7).await.unwrap_or_else(|e| {

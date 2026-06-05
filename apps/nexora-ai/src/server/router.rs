@@ -49,8 +49,10 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     // Initialize global auth system for JWT / user auth (server-auth feature gate)
     #[cfg(feature = "server-auth")]
     let auth_system: Option<Arc<crate::auth::AuthSystem>> = {
-        let auth = crate::api::client::init_global_auth("nexora-jwt-secret-change-me");
-        Some(Arc::new(crate::auth::AuthSystem::new("nexora-jwt-secret-change-me")))
+        let jwt_secret = std::env::var("NEXORA_JWT_SECRET")
+            .expect("NEXORA_JWT_SECRET must be set when server-auth feature is enabled");
+        let auth = crate::api::client::init_global_auth(&jwt_secret);
+        Some(Arc::new(crate::auth::AuthSystem::new(&jwt_secret)))
     };
     #[cfg(not(feature = "server-auth"))]
     let _auth_system: Option<Arc<crate::auth::AuthSystem>> = None;
@@ -227,7 +229,10 @@ impl RateLimiter {
     pub fn check(&self, client_ip: &str) -> bool {
         let mut inner = match self.inner.lock() {
             Ok(g) => g,
-            Err(_) => return true, // allow on lock poison
+            Err(poisoned) => {
+                warn!("Rate limiter lock poisoned - recovering and blocking request");
+                poisoned.into_inner()
+            }
         };
         let now = Instant::now();
         let window = inner.windows.entry(client_ip.to_string()).or_default();
@@ -300,17 +305,17 @@ async fn rate_limit_layer(
     Ok(next.run(req).await)
 }
 
-/// Axum middleware for request logging
+/// Axum middleware for request logging (path only, no query string to avoid leaking tokens)
 async fn request_logging_layer(
     req: Request,
     next: Next,
 ) -> Result<Response, axum::response::Response> {
     let method = req.method().clone();
-    let uri = req.uri().clone();
-    info!("{} {}", method, uri.path());
+    let path = req.uri().path().to_string();
+    debug!("{} {}", method, path);
     let response = next.run(req).await;
     let status = response.status();
-    info!("{} {} -> {}", method, uri.path(), status);
+    debug!("{} {} -> {}", method, path, status);
     Ok(response)
 }
 
@@ -326,19 +331,27 @@ fn config_has_auth_system() -> bool {
 }
 
 fn add_cors_layer(mut app: Router, config: &ServerConfig) -> Result<Router> {
-    let is_wildcard = config.cors_origins.iter().any(|o| o == "*");
+    let has_wildcard = config.cors_origins.iter().any(|o| o == "*");
+    if has_wildcard {
+        tracing::warn!(
+            "CORS wildcard '*' configured. Allowing only the configured origins list."
+        );
+    }
 
-    let cors = if is_wildcard {
+    let explicit_origins: Vec<_> = config
+        .cors_origins
+        .iter()
+        .filter(|o| *o != "*")
+        .filter_map(|o| o.parse().ok())
+        .collect();
+
+    let cors = if explicit_origins.is_empty() {
+        // No CORS origins configured: only allow same-origin requests
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods(tower_http::cors::Any)
             .allow_headers(tower_http::cors::Any)
     } else {
-        let origins: Vec<_> = config
-            .cors_origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
         let methods: Vec<Method> = vec!["GET", "POST", "PUT", "DELETE"]
             .into_iter()
             .filter_map(|m| m.parse().ok())
@@ -348,7 +361,7 @@ fn add_cors_layer(mut app: Router, config: &ServerConfig) -> Result<Router> {
             .filter_map(|h| h.parse().ok())
             .collect();
         CorsLayer::new()
-            .allow_origin(origins)
+            .allow_origin(explicit_origins)
             .allow_methods(methods)
             .allow_headers(headers)
     };

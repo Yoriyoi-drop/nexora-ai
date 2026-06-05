@@ -306,6 +306,15 @@ pub enum ToolIsolationError {
     CommandDenied(String),
 }
 
+/// Allowed commands when using Shell/Terminal tool kind.
+/// Blocks arbitrary command execution via `/bin/sh -c`.
+const ALLOWED_SHELL_COMMANDS: &[&str] = &[
+    "ls", "cat", "echo", "pwd", "cd", "mkdir", "cp", "mv", "rm", "grep",
+    "find", "head", "tail", "sort", "wc", "diff", "which", "chmod",
+    "ps", "top", "df", "du", "date", "env", "whoami", "id", "uname",
+    "git", "cargo", "rustc", "python3", "node", "npm", "npx",
+];
+
 /// Spawn the tool command in a real subprocess.
 async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionResult {
     let start = std::time::Instant::now();
@@ -327,6 +336,27 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
             }
         }
     };
+
+    // Whitelist validation for shell commands: block arbitrary command execution
+    if request.tool_kind == ToolKind::Shell || request.tool_kind == ToolKind::Terminal {
+        let first_arg = request.args.first().map(|a| a.as_str()).unwrap_or("");
+        // -c "cmd" pattern: validate the command itself
+        if first_arg == "-c" {
+            if let Some(cmd_str) = request.args.get(1) {
+                let cmd_name = cmd_str.split_whitespace().next().unwrap_or("");
+                if !ALLOWED_SHELL_COMMANDS.contains(&cmd_name) {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!("Command '{}' is not in the allowed shell commands list", cmd_name),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_command".to_string()],
+                    };
+                }
+            }
+        }
+    }
 
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(&request.args).env_clear().kill_on_drop(true);

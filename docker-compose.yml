@@ -6,8 +6,8 @@ services:
     image: qdrant/qdrant:latest
     container_name: nexora-qdrant
     ports:
-      - "6333:6333"  # HTTP API
-      - "6334:6334"  # gRPC API
+      - "127.0.0.1:6333:6333"  # HTTP API
+      - "127.0.0.1:6334:6334"  # gRPC API
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
@@ -22,7 +22,7 @@ services:
     image: redis:7-alpine
     container_name: nexora-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
@@ -35,7 +35,7 @@ services:
     image: mongo:7
     container_name: nexora-mongodb
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
@@ -52,7 +52,7 @@ services:
     image: postgres:16-alpine
     container_name: nexora-postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./crates/database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -69,7 +69,7 @@ services:
     image: pgbouncer/pgbouncer:latest
     container_name: nexora-pgbouncer
     ports:
-      - "6432:6432"
+      - "127.0.0.1:6432:6432"
     environment:
       - DATABASES_HOST=postgres
       - DATABASES_PORT=${POSTGRES_PORT:-5432}
@@ -90,7 +90,7 @@ services:
     image: prom/prometheus:latest
     container_name: nexora-prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./crates/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -107,7 +107,7 @@ services:
     image: grafana/grafana:latest
     container_name: nexora-grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./crates/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
@@ -126,7 +126,7 @@ services:
     image: influxdb:2
     container_name: nexora-influxdb
     ports:
-      - "8086:8086"
+      - "127.0.0.1:8086:8086"
     volumes:
       - influxdb_data:/var/lib/influxdb2
     environment:
@@ -145,8 +145,8 @@ services:
     image: minio/minio:latest
     container_name: nexora-minio
     ports:
-      - "9000:9000"
-      - "9001:9001"  # MinIO Console
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"  # MinIO Console
     volumes:
       - minio_data:/data
     environment:
@@ -177,12 +177,12 @@ services:
       mc mb minio/training-data --ignore-existing
       mc mb minio/eval-artifacts --ignore-existing
       mc mb minio/corpus --ignore-existing
-      mc policy set download minio/checkpoints
-      mc policy set download minio/tokenizers
-      mc policy set download minio/training-data
-      mc policy set download minio/eval-artifacts
-      mc policy set download minio/corpus
-      echo 'MinIO buckets created successfully'
+      mc anonymous set private minio/checkpoints
+      mc anonymous set private minio/tokenizers
+      mc anonymous set private minio/training-data
+      mc anonymous set private minio/eval-artifacts
+      mc anonymous set private minio/corpus
+      echo 'MinIO buckets created successfully (private)'
       "
     networks:
       - nexora_network

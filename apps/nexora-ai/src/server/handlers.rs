@@ -994,7 +994,7 @@ pub async fn update_config(
             error!("Configuration update failed: {}", e);
             Ok(Json(json!({
                 "success": false,
-                "message": format!("Configuration update failed: {}", e),
+                "message": "Configuration update failed. Check server logs for details.",
                 "timestamp": chrono::Utc::now().to_rfc3339()
             })))
         }
@@ -1156,19 +1156,10 @@ fn validate_admin(
         return Ok(());
     }
 
-    #[cfg(not(feature = "server-auth"))]
-    {
-        tracing::warn!("No NEXORA_ADMIN_KEY and no server-auth feature; config changes allowed without auth");
-        return Ok(());
-    }
-
-    #[cfg(feature = "server-auth")]
-    {
-        Err((
-            StatusCode::FORBIDDEN,
-            Json(json!({"error": "Forbidden: admin authentication required"})),
-        ))
-    }
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(json!({"error": "Forbidden: admin authentication required. Set NEXORA_ADMIN_KEY env var or use API key."})),
+    ))
 }
 
 pub async fn index() -> Html<&'static str> {

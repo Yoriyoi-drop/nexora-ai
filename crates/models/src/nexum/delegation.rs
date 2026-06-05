@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrNexumModel;
 use crate::nexum::classifier;
 use nexora_oracle::linters::CodeLinterManager;
@@ -75,7 +76,8 @@ pub async fn delegate(prompt: &str) -> String {
     let strategy = classifier::decomposition_strategy(primary);
 
     if primary == "simple" {
-        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+        return crate::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -102,7 +104,8 @@ pub async fn delegate(prompt: &str) -> String {
     };
 
     if subtasks.len() <= 1 {
-        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+        return crate::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -112,10 +115,11 @@ pub async fn delegate(prompt: &str) -> String {
     let mut results: Vec<(String, f32)> = Vec::new();
 
     for (i, task) in subtasks.iter().enumerate() {
+        let sanitized_task = classifier_util::sanitize_prompt(task);
         let sub_prompt = format!(
             "[Nexum subtask {i} | complexity: {primary}]\n\
              {strategy}\n\n\
-             {task}"
+             {sanitized_task}"
         );
         match crate::foundation::call_model(foundation(), &sub_prompt, 256, 0.6).await {
             Ok(r) => {
@@ -131,7 +135,8 @@ pub async fn delegate(prompt: &str) -> String {
     }
 
     if results.is_empty() {
-        return crate::foundation::call_model(foundation(), prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+        return crate::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });

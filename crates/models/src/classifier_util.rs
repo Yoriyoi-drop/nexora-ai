@@ -41,6 +41,65 @@ pub fn validate_embedding_dim(embed_table: &Array2<f32>, expected_hidden: usize,
     }
 }
 
+/// Sanitize user-controlled input before embedding into system prompts.
+/// 1. Replaces newlines with spaces
+/// 2. Strips HTML tags (simple state machine, no regex dep)
+/// 3. Truncates to MAX_LEN characters
+/// 4. Neutralizes common jailbreak keywords (case-insensitive)
+pub fn sanitize_prompt(prompt: &str) -> String {
+    const MAX_LEN: usize = 2000;
+    // 1. Replace newlines with spaces
+    let s: String = prompt.chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    // 2. Strip HTML tags
+    let mut result = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' if !in_tag => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => result.push(ch),
+            _ => {}
+        }
+    }
+    // 3. Truncate
+    if result.len() > MAX_LEN {
+        result.truncate(MAX_LEN);
+    }
+    // 4. Neutralize jailbreak keywords (case-insensitive)
+    let lower = result.to_lowercase();
+    const PAIRS: &[(&str, &str)] = &[
+        ("ignore all instructions", "follow all instructions"),
+        ("ignore your instructions", "follow your instructions"),
+        ("ignore your safety", "acknowledge your safety"),
+        ("ignore your previous", "acknowledge your previous"),
+        ("forget your training", "retain your training"),
+        ("override your programming", "follow your programming"),
+        ("bypass safety", "respect safety"),
+    ];
+    let mut out = String::with_capacity(result.len());
+    let mut i = 0;
+    let bytes = result.as_bytes();
+    while i < bytes.len() {
+        let mut matched = false;
+        for &(from, to) in PAIRS {
+            if i + from.len() <= bytes.len() && lower[i..i + from.len()] == *from {
+                out.push_str(to);
+                i += from.len();
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            let ch = result[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
 pub fn embed_average(embed_table: &Array2<f32>, token_ids: &[u32]) -> Array1<f32> {
     let embed_dim = embed_table.shape()[1];
     let vocab = embed_table.shape()[0];

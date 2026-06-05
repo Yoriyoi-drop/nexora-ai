@@ -1,4 +1,5 @@
 use crate::axiom::classifier;
+use crate::classifier_util;
 use crate::foundation::NxrAxiomModel;
 use nexora_reasoning::SacaEngine;
 use std::sync::Arc;
@@ -58,10 +59,11 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("axiom SACA reasoning unavailable (type: {primary}), using prompt-based reasoning");
+            let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
             let framed = format!(
                 "[Axiom reasoning | type: {primary}]\n\
                  {focus}\n\n\
-                 Input: {prompt}\n\
+                 Input: {sanitized_prompt}\n\
                  Conclusion:"
             );
             crate::foundation::call_model(foundation(), &framed, 512, 0.3).await.unwrap_or_else(|e| {

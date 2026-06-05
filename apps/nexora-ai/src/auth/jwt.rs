@@ -1,4 +1,4 @@
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -41,10 +41,12 @@ impl JwtManager {
     }
 
     pub fn validate_token(&self, token: &str) -> Result<Claims, String> {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.secret.as_bytes()),
-            &Validation::default(),
+            &validation,
         )
         .map_err(|e| e.to_string())?;
         Ok(token_data.claims)

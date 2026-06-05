@@ -26,7 +26,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 8080,
-            enable_tls: false,
+            enable_tls: true,
             cert_path: None,
             key_path: None,
             max_connections: 1000,

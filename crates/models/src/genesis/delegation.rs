@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrGenesisModel;
 use crate::genesis::classifier;
 use nexora_reasoning::SacaEngine;
@@ -61,7 +62,8 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("genesis SACA reasoning unavailable, using direct generation");
-            crate::foundation::call_model(foundation(), prompt, 256, 0.8).await.unwrap_or_else(|e| {
+            let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+            crate::foundation::call_model(foundation(), &sanitized_prompt, 256, 0.8).await.unwrap_or_else(|e| {
                 format!("[genesis inference error: {}]", e)
             })
         }
@@ -86,12 +88,13 @@ pub async fn delegate(prompt: &str) -> String {
                     current = r.conclusion;
                 }
                 _ => {
+                    let sanitized_current = classifier_util::sanitize_prompt(&current);
                     let improved = crate::foundation::call_model(
                         foundation(),
                         &format!(
                             "[Genesis refinement | focus: {weakest}]\n\
                              {refocus}\n\n\
-                             Original:\n{current}\n\n\
+                             Original:\n{sanitized_current}\n\n\
                              Refined version:"
                         ),
                         256,

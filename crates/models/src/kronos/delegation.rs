@@ -1,3 +1,4 @@
+use crate::classifier_util;
 use crate::foundation::NxrKronosModel;
 use crate::kronos::classifier;
 use nexora_reasoning::SacaEngine;
@@ -60,10 +61,11 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("kronos SACA reasoning unavailable (mode: {primary}), using prompt-based reasoning");
+            let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
             let framed = format!(
                 "[Kronos temporal | mode: {primary} | current time: {now}]\n\
                  {framing}\n\n\
-                 Input: {prompt}\n\
+                 Input: {sanitized_prompt}\n\
                  Temporal analysis and response:"
             );
             crate::foundation::call_model(foundation(), &framed, 512, 0.5).await.unwrap_or_else(|e| {
