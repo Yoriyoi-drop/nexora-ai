@@ -1,9 +1,4 @@
-use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
-
 use nexora_foundation::shared::model_identity::NxrModelId;
-use nexora_transformer::config::ModelTier;
-use nexora_transformer::tier_vram_estimate_mb as compute_tier_vram;
 
 // ── Intent Classification ─────────────────────────────────────────────────
 
@@ -145,60 +140,6 @@ impl IntentKind {
             IntentKind::Reasoning | IntentKind::Factual | IntentKind::General => NxrModelId::Omnis,
         }
     }
-
-    fn target_tier(&self) -> ModelTier {
-        match self {
-            IntentKind::CodeReview | IntentKind::CodeGenerate | IntentKind::Emotion => {
-                ModelTier::Apex
-            }
-            IntentKind::Creative | IntentKind::Security => ModelTier::Pro,
-            IntentKind::Strategy => ModelTier::Ultra,
-            IntentKind::QuickQuery => ModelTier::Edge,
-            IntentKind::Knowledge => ModelTier::Core,
-            IntentKind::Reasoning | IntentKind::Factual | IntentKind::General => ModelTier::Ultra,
-        }
-    }
-}
-
-// ── LRU Tracking (global, shared via static) ──────────────────────────────
-
-/// LRU list: most recently used at the end. Max 5 tiers.
-static TIER_LRU: OnceLock<Mutex<Vec<(ModelTier, Instant)>>> = OnceLock::new();
-static TIER_HIT_COUNT: OnceLock<Mutex<Vec<(ModelTier, u64)>>> = OnceLock::new();
-
-fn tier_lru() -> &'static Mutex<Vec<(ModelTier, Instant)>> {
-    TIER_LRU.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-fn tier_hit_count() -> &'static Mutex<Vec<(ModelTier, u64)>> {
-    TIER_HIT_COUNT.get_or_init(|| {
-        Mutex::new(vec![
-            (ModelTier::Ultra, 0),
-            (ModelTier::Apex, 0),
-            (ModelTier::Pro, 0),
-            (ModelTier::Core, 0),
-            (ModelTier::Edge, 0),
-        ])
-    })
-}
-
-// ── Config ────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct TierRouterConfig {
-    pub max_tiers_in_vram: usize,
-    pub vram_budget_mb: u64,
-    pub eviction_threshold: f32,
-}
-
-impl Default for TierRouterConfig {
-    fn default() -> Self {
-        Self {
-            max_tiers_in_vram: 1,
-            vram_budget_mb: 24000,
-            eviction_threshold: 0.85,
-        }
-    }
 }
 
 // ── Result ────────────────────────────────────────────────────────────────
@@ -206,85 +147,157 @@ impl Default for TierRouterConfig {
 #[derive(Debug, Clone)]
 pub struct RouteResult {
     pub model_id: NxrModelId,
-    pub tier: ModelTier,
     pub intent: IntentKind,
     pub confidence: f32,
 }
 
-// ── TierRouter ────────────────────────────────────────────────────────────
+// ── IntentRouter (formerly TierRouter) ─────────────────────────────────────
 
+/// IntentRouter — simple intent classifier tanpa tier / VRAM tracking.
+/// Hanya mapping: prompt → IntentKind → NxrModelId.
+/// Satu shared backbone CausalLM dipakai semua model.
 #[derive(Clone)]
-pub struct TierRouter {
-    config: TierRouterConfig,
-}
+pub struct IntentRouter;
 
-impl TierRouter {
-    pub fn new(config: TierRouterConfig) -> Self {
-        Self { config }
+impl IntentRouter {
+    pub fn new() -> Self {
+        Self
     }
 
     pub fn route(&self, prompt: &str) -> RouteResult {
         let intent = IntentKind::classify(prompt);
         RouteResult {
             model_id: intent.target_model(),
-            tier: intent.target_tier(),
             intent,
             confidence: 0.85,
         }
     }
 
-    pub fn mark_tier_used(&self, tier: ModelTier) {
-        if let Ok(mut lru) = tier_lru().lock() {
-            lru.retain(|(t, _)| *t != tier);
-            lru.push((tier, Instant::now()));
+    /// Deteksi apakah prompt ini butuh multi-model debate
+    pub fn requires_debate(&self, prompt: &str, intent: IntentKind) -> bool {
+        let lower = prompt.to_lowercase();
+
+        // Explicit debate keywords — selalu trigger debate
+        let debate_keywords = [
+            "debat", "diskusi", "musyawarah", "forum",
+            "berunding", "brainstorm", "berdiskusi",
+        ];
+        if debate_keywords.iter().any(|k| lower.contains(k)) {
+            return true;
         }
-        if let Ok(mut hits) = tier_hit_count().lock() {
-            for (t, count) in hits.iter_mut() {
-                if *t == tier {
-                    *count += 1;
-                    break;
-                }
+
+        // Comparison & evaluation keywords
+        let compare_keywords = [
+            "bandingkan", "perbedaan", "persamaan", "vs ",
+            "versus", "kelebihan", "kekurangan", "pro kontra",
+            "compare", "contrast", "difference", "similarity",
+            "pro and cons", "trade-off", "alternatif",
+        ];
+        if compare_keywords.iter().any(|k| lower.contains(k)) {
+            return true;
+        }
+
+        // Complex analysis keywords
+        let analysis_keywords = [
+            "analisis", "evaluasi", "kaji", "telaah",
+            "review mendalam", "komprehensif",
+            "multi-perspektif", "berbagai sudut pandang",
+            "menurut para ahli", "expert opinion",
+            "dampak", "implikasi", "rekomendasi",
+        ];
+        if analysis_keywords.iter().any(|k| lower.contains(k)) {
+            return true;
+        }
+
+        // Decision-making keywords
+        let decision_keywords = [
+            "keputusan", "decision", "strategi", "strategy",
+            "rencana", "planning", "solusi terbaik",
+            "best approach", "recommendation",
+        ];
+        if decision_keywords.iter().any(|k| lower.contains(k)) {
+            return true;
+        }
+
+        // Uncertainty markers — prompt butuh multiple perspectives
+        let uncertainty_keywords = [
+            "mungkin", "maybe", "perhaps", "tidak yakin",
+            "uncertain", "ambiguous", "kompleks", "complex",
+            "sulit", "difficult", "challenging", "kontroversial",
+            "controversial", "berpotensi", "potential risk",
+        ];
+        if uncertainty_keywords.iter().any(|k| lower.contains(k)) {
+            return true;
+        }
+
+        // Intent-based: Strategy, Reasoning, Security selalu butuh debate
+        matches!(
+            intent,
+            IntentKind::Strategy
+                | IntentKind::Reasoning
+                | IntentKind::Security
+        )
+    }
+
+    /// Suggest model participants for debate berdasarkan intent
+    pub fn suggest_participants(&self, prompt: &str, primary: NxrModelId, intent: IntentKind) -> Vec<NxrModelId> {
+        let lower = prompt.to_lowercase();
+        let mut extra: Vec<NxrModelId> = Vec::new();
+
+        // Code review + security overlap
+        if lower.contains("security") || lower.contains("vulnerability")
+            || lower.contains("xss") || lower.contains("injection")
+        {
+            extra.push(NxrModelId::Cipher);
+        }
+
+        // Code + creative overlap
+        if lower.contains("ui") || lower.contains("design") || lower.contains("frontend")
+            || lower.contains("interface") || lower.contains("ux")
+        {
+            extra.push(NxrModelId::Spectra);
+        }
+
+        // Complex reasoning + knowledge
+        if lower.contains("sejarah") || lower.contains("data") || lower.contains("penelitian")
+            || lower.contains("research") || lower.contains("historical")
+        {
+            extra.push(NxrModelId::Kronos);
+        }
+
+        // Human-centric + emotion
+        if lower.contains("orang") || lower.contains("masyarakat") || lower.contains("social")
+            || lower.contains("people") || lower.contains("human") || lower.contains("etika")
+        {
+            extra.push(NxrModelId::Aether);
+        }
+
+        // Self-improvement / iterative
+        if lower.contains("improve") || lower.contains("optimasi") || lower.contains("refactor")
+            || lower.contains("iteration") || lower.contains("iterasi")
+        {
+            extra.push(NxrModelId::Genesis);
+        }
+
+        // Multi-agent coordination
+        if lower.contains("orchestrasi") || lower.contains("workflow") || lower.contains("pipeline")
+            || lower.contains("multi-step") || lower.contains("complex task")
+        {
+            extra.push(NxrModelId::Nexum);
+        }
+
+        use crate::core::debate::suggest_participants_for_intent;
+        let mut all = suggest_participants_for_intent(&intent, primary);
+        for m in extra {
+            if !all.contains(&m) {
+                all.push(m);
             }
         }
-    }
-
-    pub fn lru_eviction_candidate(&self) -> Option<ModelTier> {
-        let lru = tier_lru().lock().ok()?;
-        lru.first().map(|(t, _)| *t)
-    }
-
-    pub fn should_evict(&self, current_vram_mb: u64) -> bool {
-        current_vram_mb as f32 > self.config.vram_budget_mb as f32 * self.config.eviction_threshold
-    }
-
-    pub fn loaded_tiers(&self) -> Vec<ModelTier> {
-        tier_lru()
-            .lock()
-            .map(|lru| lru.iter().map(|(t, _)| *t).collect())
-            .unwrap_or_default()
-    }
-
-    pub fn hit_counts(&self) -> Vec<(ModelTier, u64)> {
-        tier_hit_count()
-            .lock()
-            .map(|h| h.clone())
-            .unwrap_or_default()
-    }
-
-    pub fn config(&self) -> &TierRouterConfig {
-        &self.config
-    }
-
-    /// VRAM estimasi per tier (dalam MB, sesuai konfigurasi model)
-    pub fn vram_estimate_mb(&self, tier: ModelTier) -> u64 {
-        compute_tier_vram(tier)
-    }
-
-    /// Total VRAM semua tier yang sedang terload
-    pub fn total_vram_used_mb(&self) -> u64 {
-        self.loaded_tiers()
-            .iter()
-            .map(|t| self.vram_estimate_mb(*t))
-            .sum()
+        all
     }
 }
+
+// ── Backward compat alias ──────────────────────────────────────────────────
+
+pub type TierRouter = IntentRouter;
+pub type TierRouterConfig = ();

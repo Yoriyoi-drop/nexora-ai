@@ -1,6 +1,7 @@
 use rand::Rng;
 use rand::SeedableRng;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tracing::{error, warn};
 
 pub use nexora_transformer::model::GPU_FALLBACK_COUNT;
@@ -59,6 +60,14 @@ pub struct Sampler {
     total_attempts: u64,
     fallback_attempts: u64,
     gpu_degraded_warned: bool,
+    /// Exponential backoff: skip GPU attempts until this instant.
+    backoff_until: Option<Instant>,
+    /// Backoff multiplier (doubles each failure).
+    backoff_multiplier: f64,
+    /// Maximum backoff duration.
+    max_backoff: Duration,
+    /// Current backoff duration (doubles each failure).
+    current_backoff: Duration,
 }
 
 impl Sampler {
@@ -79,6 +88,10 @@ impl Sampler {
             total_attempts: 0,
             fallback_attempts: 0,
             gpu_degraded_warned: false,
+            backoff_until: None,
+            backoff_multiplier: 2.0,
+            max_backoff: Duration::from_secs(60),
+            current_backoff: Duration::from_millis(100),
         }
     }
 
@@ -99,6 +112,10 @@ impl Sampler {
             total_attempts: 0,
             fallback_attempts: 0,
             gpu_degraded_warned: false,
+            backoff_until: None,
+            backoff_multiplier: 2.0,
+            max_backoff: Duration::from_secs(60),
+            current_backoff: Duration::from_millis(100),
         }
     }
 
@@ -127,13 +144,15 @@ impl Sampler {
         }
     }
 
-    /// Reset GPU fallback counters.
+    /// Reset GPU fallback counters and backoff state.
     pub fn reset_gpu_circuit_breaker(&mut self) {
         self.total_attempts = 0;
         self.fallback_attempts = 0;
         self.gpu_fallback_count.store(0, Ordering::Relaxed);
         self.gpu_attempts.store(0, Ordering::Relaxed);
-        warn!("GPU fallback counters have been reset");
+        self.backoff_until = None;
+        self.current_backoff = Duration::from_millis(100);
+        warn!("GPU fallback counters and backoff have been reset");
     }
 
     /// Returns true if the GPU fallback rate exceeds the threshold (degraded but not disabled).
@@ -209,19 +228,51 @@ impl Sampler {
     #[cfg(feature = "gpu")]
     pub fn sample_gpu(&mut self, logits: &[f32]) -> Result<usize> {
         self.total_attempts += 1;
+
+        // Check exponential backoff: if we're in cooldown, skip GPU entirely.
+        if let Some(until) = self.backoff_until {
+            if Instant::now() < until {
+                tracing::debug!(
+                    "GPU in backoff until {:?}, skipping to CPU",
+                    until
+                );
+                self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                return if self.allow_gpu_fallback {
+                    self.sample_cpu(logits)
+                } else {
+                    Err(InferenceError::DecodingError(
+                        "GPU in backoff and fallback disabled".into(),
+                    ))
+                };
+            }
+        }
+
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
         match self.sample_gpu_impl(logits) {
-            Ok(token) => Ok(token),
+            Ok(token) => {
+                // Success — reset backoff
+                self.backoff_until = None;
+                self.current_backoff = Duration::from_millis(100);
+                Ok(token)
+            }
             Err(e) => {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
+                // Set exponential backoff
+                let wait = std::cmp::min(
+                    self.current_backoff * 2,
+                    self.max_backoff,
+                );
+                self.current_backoff = wait;
+                self.backoff_until = Some(Instant::now() + wait);
+                tracing::warn!(
+                    "GPU sampling failed: {}, backoff for {:?} (fallback count: {})",
+                    e,
+                    wait,
+                    self.gpu_fallback_count.load(Ordering::Relaxed),
+                );
                 self.check_gpu_health_and_alert();
                 if self.allow_gpu_fallback {
-                    warn!(
-                        "GPU sampling failed: {}, falling back to CPU (fallback count: {})",
-                        e,
-                        self.gpu_fallback_count.load(Ordering::Relaxed)
-                    );
                     self.sample_cpu(logits)
                 } else {
                     error!(

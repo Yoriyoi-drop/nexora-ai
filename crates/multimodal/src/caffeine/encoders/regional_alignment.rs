@@ -279,7 +279,7 @@ impl SpatialAttention {
         Ok(ArrayD::from_shape_vec(shape, attended)?)
     }
 
-    /// Multi-head attention computation
+    /// Multi-head attention computation with softmax(QK^T/sqrt(d))V
     fn multi_head_attention(
         &self,
         input: &[f32],
@@ -288,20 +288,49 @@ impl SpatialAttention {
         head_dim: usize,
     ) -> Result<Vec<f32>> {
         let mut output = vec![0.0f32; num_regions * embed_dim];
+        let scale = 1.0 / (head_dim as f32).sqrt();
 
         for head in 0..self.num_heads {
             let start_dim = head * head_dim;
             let end_dim = std::cmp::min((head + 1) * head_dim, embed_dim);
+            let hd = end_dim - start_dim;
 
             for i in 0..num_regions {
-                for d in start_dim..end_dim {
-                    let input_idx = i * embed_dim + d;
-                    let output_idx = i * embed_dim + d;
+                let mut scores = vec![0.0f32; num_regions];
+                for j in 0..num_regions {
+                    let mut s = 0.0f32;
+                    for d in 0..hd {
+                        let idx_i = i * embed_dim + start_dim + d;
+                        let idx_j = j * embed_dim + start_dim + d;
+                        if idx_i < input.len() && idx_j < input.len() {
+                            s += input[idx_i] * input[idx_j];
+                        }
+                    }
+                    scores[j] = s * scale;
+                }
+                let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let mut sum_exp = 0.0f32;
+                for s in &mut scores {
+                    *s = (*s - max_s).exp();
+                    sum_exp += *s;
+                }
+                if sum_exp > 0.0 {
+                    for s in &mut scores {
+                        *s /= sum_exp;
+                    }
+                }
 
-                    if input_idx < input.len() {
-                        // Simplified attention computation
-                        let attention_weight = (i as f32 * 0.1).cos();
-                        output[output_idx] = input[input_idx] * attention_weight;
+                for d in 0..hd {
+                    let mut attn_out = 0.0f32;
+                    for j in 0..num_regions {
+                        let idx_v = j * embed_dim + start_dim + d;
+                        if idx_v < input.len() {
+                            attn_out += scores[j] * input[idx_v];
+                        }
+                    }
+                    let output_idx = i * embed_dim + start_dim + d;
+                    if output_idx < output.len() {
+                        output[output_idx] = attn_out;
                     }
                 }
             }

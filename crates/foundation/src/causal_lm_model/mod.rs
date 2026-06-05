@@ -15,7 +15,6 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use nexora_training::{Trainer, TrainerConfig};
-use nexora_transformer::config::ModelTier as TfModelTier;
 use nexora_transformer::{CausalLM, TransformerConfig};
 
 use crate::echo_net_injector::EchoNetInjector;
@@ -26,17 +25,6 @@ use crate::shared::{
     ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
     NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
 };
-
-fn shared_tier_to_transformer(tier: ModelTier) -> TfModelTier {
-    match tier {
-        ModelTier::Ultra => TfModelTier::Ultra,
-        ModelTier::Apex => TfModelTier::Apex,
-        ModelTier::Pro => TfModelTier::Pro,
-        ModelTier::Core => TfModelTier::Core,
-        ModelTier::Edge => TfModelTier::Edge,
-        ModelTier::Master => TfModelTier::Ultra,
-    }
-}
 
 pub struct CausalLmModel {
     meta: ModelMeta,
@@ -117,22 +105,20 @@ impl CausalLmModel {
     pub async fn load_model(&self) -> NxrModelResult<()> {
         let model_id = self.meta.id;
 
-        // Resolve dari tier backbone registry — models dalam tier yang sama
-        // (misal Ultra: Omnis, Axiom, Genesis) share Arc<CausalLM>.
-        // Weight di-load sekali untuk seluruh tier.
-        let tf_tier = shared_tier_to_transformer(self.meta.tier);
-        let backbone = match nexora_transformer::resolve_tier_backbone(tf_tier) {
+        // Resolve dari SingleBackboneRegistry — SEMUA model share Arc<CausalLM> yang sama.
+        // Weight di-load sekali untuk semua 10 model crates.
+        let backbone = match nexora_transformer::resolve_single_backbone() {
             Ok(b) => {
                 info!(
-                    "Using shared tier backbone for {:?} (tier: {:?})",
-                    model_id, self.meta.tier
+                    "Using shared single backbone for {:?}",
+                    model_id
                 );
                 b
             }
             Err(e) => {
                 let tc = self.transformer_config.read().await;
                 warn!(
-                    "Tier backbone resolve failed ({}), creating independent model",
+                    "Single backbone resolve failed ({}), creating independent model",
                     e
                 );
                 Arc::new(CausalLM::new((*tc).clone()))

@@ -1,6 +1,5 @@
 use crate::foundation::NxrSpectraModel;
 use crate::spectra::classifier;
-use crate::spectra::classifier::StyleClassifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
 use nexora_multimodal::MultimodalResult;
@@ -28,7 +27,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                StyleClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }

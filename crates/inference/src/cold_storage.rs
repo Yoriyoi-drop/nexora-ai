@@ -204,12 +204,14 @@ fn deserialize_compressed_entries(bytes: &[u8]) -> Option<Vec<KVCacheEntry>> {
         let v_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
         let v_compressed = bytes.get(pos..pos+v_len)?.to_vec(); pos += v_len;
         let ks_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize;
+        pos += 4;
         let mut k_scales = Vec::with_capacity(ks_len);
         for _ in 0..ks_len {
             k_scales.push(f32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?));
             pos += 4;
         }
         let vs_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize;
+        pos += 4;
         let mut v_scales = Vec::with_capacity(vs_len);
         for _ in 0..vs_len {
             v_scales.push(f32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?));

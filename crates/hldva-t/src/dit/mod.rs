@@ -200,6 +200,25 @@ impl DiTModel {
         &self.parameters
     }
 
+    /// Collect all trainable parameter tensors from transformer blocks and other layers.
+    /// Used to register with the optimizer for gradient-based training.
+    pub fn collect_parameters(&self) -> Vec<Tensor> {
+        let mut params = Vec::new();
+        for block in &self.transformer_blocks {
+            params.push(block.self_attention.q_projection().weight().clone());
+            params.push(block.self_attention.k_projection().weight().clone());
+            params.push(block.self_attention.v_projection().weight().clone());
+            params.push(block.self_attention.out_projection().weight().clone());
+            params.push(block.cross_attention.q_projection().weight().clone());
+            params.push(block.cross_attention.k_projection().weight().clone());
+            params.push(block.cross_attention.v_projection().weight().clone());
+            params.push(block.cross_attention.out_projection().weight().clone());
+            params.push(block.feed_forward.linear1().weight().clone());
+            params.push(block.feed_forward.linear2().weight().clone());
+        }
+        params
+    }
+
     /// Get configuration
     pub fn config(&self) -> &DiTConfig {
         &self.config

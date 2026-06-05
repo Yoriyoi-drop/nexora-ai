@@ -17,7 +17,8 @@ pub struct BillingSystem {
 
 impl BillingSystem {
     pub fn new(config: crate::config::billing::BillingConfig) -> Self {
-        let usage_tracker = UsageTracker::new();
+        let usage_tracker = Arc::new(UsageTracker::new());
+        usage_tracker.spawn_eviction_task();
         let enforcer = QuotaEnforcer::new(usage_tracker);
         Self {
             enforcer: Arc::new(enforcer),

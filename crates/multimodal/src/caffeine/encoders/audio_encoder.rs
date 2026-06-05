@@ -42,7 +42,7 @@ impl AudioMLP {
     }
 }
 
-/// Simple DFT-based FFT for spectrogram computation.
+/// Cooley-Tukey FFT O(n log n) for spectrogram computation.
 struct FFT {
     n_fft: usize,
 }
@@ -54,18 +54,50 @@ impl FFT {
 
     fn compute(&self, window: &[f32]) -> Vec<f32> {
         let n = window.len();
-        let mut magnitudes = vec![0.0f32; self.n_fft];
-        for k in 0..self.n_fft {
-            let mut real = 0.0f32;
-            let mut imag = 0.0f32;
-            for (i, &sample) in window.iter().enumerate() {
-                let angle = -2.0 * std::f32::consts::PI * k as f32 * i as f32 / n as f32;
-                real += sample * angle.cos();
-                imag += sample * angle.sin();
-            }
-            magnitudes[k] = (real * real + imag * imag).sqrt();
+        if n <= 1 {
+            return vec![window.first().copied().unwrap_or(0.0)];
+        }
+
+        let (mut real, mut imag) = self.fft_inner(window);
+        let mut magnitudes = vec![0.0f32; self.n_fft.min(real.len())];
+        for k in 0..magnitudes.len() {
+            magnitudes[k] = (real[k] * real[k] + imag[k] * imag[k]).sqrt();
         }
         magnitudes
+    }
+
+    fn fft_inner(&self, data: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        let n = data.len();
+        if n <= 1 {
+            return (data.to_vec(), vec![0.0f32; n]);
+        }
+
+        let n2 = n / 2;
+        let even: Vec<f32> = data.iter().step_by(2).copied().collect();
+        let odd: Vec<f32> = data.iter().skip(1).step_by(2).copied().collect();
+
+        let (even_real, even_imag) = self.fft_inner(&even);
+        let (odd_real, odd_imag) = self.fft_inner(&odd);
+
+        let mut real = vec![0.0f32; n];
+        let mut imag = vec![0.0f32; n];
+
+        for k in 0..n2 {
+            let angle = -2.0 * std::f32::consts::PI * k as f32 / n as f32;
+            let cos = angle.cos();
+            let sin = angle.sin();
+
+            let t_real = odd_real[k] * cos - odd_imag[k] * sin;
+            let t_imag = odd_real[k] * sin + odd_imag[k] * cos;
+
+            real[k] = even_real[k] + t_real;
+            imag[k] = even_imag[k] + t_imag;
+
+            real[k + n2] = even_real[k] - t_real;
+            imag[k + n2] = even_imag[k] - t_imag;
+        }
+
+        (real, imag)
     }
 }
 

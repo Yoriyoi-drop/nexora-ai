@@ -1,6 +1,5 @@
 use crate::foundation::NxrKronosModel;
 use crate::kronos::classifier;
-use crate::kronos::classifier::TemporalClassifier;
 use nexora_reasoning::SacaEngine;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -25,7 +24,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                TemporalClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }

@@ -14,6 +14,7 @@ use crate::kv_cache::KVCache;
 use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
 use crate::paged_provider::PagedKVCacheProvider;
 use std::sync::Mutex as StdMutex;
+use std::sync::RwLock as StdRwLock;
 use crate::prefix_cache::PrefixCache;
 use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
@@ -112,7 +113,7 @@ pub struct InferenceEngine {
     tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
-    shared_paged: Option<Arc<StdMutex<PagedKVCache>>>,
+    shared_paged: Option<Arc<StdRwLock<PagedKVCache>>>,
     request_tx: mpsc::Sender<InferenceRequest>,
     request_rx: Arc<Mutex<Option<mpsc::Receiver<InferenceRequest>>>>,
     active_requests: Arc<RwLock<HashMap<Uuid, tokio::task::JoinHandle<()>>>>,
@@ -252,7 +253,7 @@ impl InferenceEngine {
     fn maybe_init_paged_cache(
         config: &InferenceConfig,
         model: Option<&Arc<CausalLM>>,
-    ) -> Option<Arc<StdMutex<PagedKVCache>>> {
+    ) -> Option<Arc<StdRwLock<PagedKVCache>>> {
         if !config.use_paged_cache {
             return None;
         }
@@ -290,10 +291,10 @@ impl InferenceEngine {
                 "Initializing PagedKVCache: block_size={}, max_blocks={}, layers={}, q4={}",
                 block_size, max_blocks, c.num_layers, config.paged_cache_q4
             );
-            Some(Arc::new(StdMutex::new(PagedKVCache::new(pc_config))))
+            Some(Arc::new(StdRwLock::new(PagedKVCache::new(pc_config))))
         } else {
             warn!("Paged cache requested but model not loaded yet — deferred to first cache creation");
-            Some(Arc::new(StdMutex::new(PagedKVCache::new(PagedCacheConfig {
+            Some(Arc::new(StdRwLock::new(PagedKVCache::new(PagedCacheConfig {
                 block_size: 16,
                 max_blocks: 64,
                 max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
@@ -325,7 +326,7 @@ impl InferenceEngine {
     fn make_kv_provider(
         model: &CausalLM,
         use_gpu_cache: bool,
-        shared_paged: &Option<Arc<StdMutex<PagedKVCache>>>,
+        shared_paged: &Option<Arc<StdRwLock<PagedKVCache>>>,
     ) -> Box<dyn KVCacheProvider> {
         // Paged cache takes priority: block-based, copy-on-write, prefix sharing
         if let Some(ref paged) = shared_paged {
@@ -1293,23 +1294,29 @@ impl InferenceEngine {
     }
 
     pub async fn evict_stale_sessions(&self) -> usize {
-        let mut sessions = self.session_manager.write().await;
-        let before = sessions.len();
-        let now = chrono::Utc::now();
-        let timeout = chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
-        sessions.retain(|_, s| (now - s.created_at()) < timeout);
-        let evicted = before - sessions.len();
-        if evicted > 0 {
-            info!("Evicted {} stale sessions", evicted);
-        }
+        // Scope 1: session_manager lock only — dropped before acquiring active_requests
+        let evicted = {
+            let mut sessions = self.session_manager.write().await;
+            let before = sessions.len();
+            let now = chrono::Utc::now();
+            let timeout = chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
+            sessions.retain(|_, s| (now - s.created_at()) < timeout);
+            let evicted = before - sessions.len();
+            if evicted > 0 {
+                info!("Evicted {} stale sessions", evicted);
+            }
+            evicted
+        }; // session_manager write lock DROPPED here
 
-        // Also clean up finished active request handles to prevent unbounded growth
-        let mut active = self.active_requests.write().await;
-        let before_active = active.len();
-        active.retain(|_, h| !h.is_finished());
-        let cleaned = before_active - active.len();
-        if cleaned > 0 {
-            debug!("Cleaned {} finished active request handles", cleaned);
+        // Scope 2: active_requests lock only — no lock ordering conflict
+        {
+            let mut active = self.active_requests.write().await;
+            let before_active = active.len();
+            active.retain(|_, h| !h.is_finished());
+            let cleaned = before_active - active.len();
+            if cleaned > 0 {
+                debug!("Cleaned {} finished active request handles", cleaned);
+            }
         }
 
         evicted
@@ -1781,7 +1788,7 @@ struct InferenceEngineHandle {
     use_gpu: bool,
     #[cfg(feature = "gpu")]
     use_gpu_cache: bool,
-    shared_paged: Option<Arc<StdMutex<PagedKVCache>>>,
+    shared_paged: Option<Arc<StdRwLock<PagedKVCache>>>,
     prefix_cache: Arc<PrefixCache>,
     batch_semaphore: Arc<Semaphore>,
     generation_timeout: Duration,

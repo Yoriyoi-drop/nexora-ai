@@ -1,5 +1,4 @@
 use crate::aether::classifier;
-use crate::aether::classifier::EmotionClassifier;
 use crate::foundation::NxrAetherModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::MultiModalInputs;
@@ -27,7 +26,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                classifier::EmotionClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }
@@ -43,8 +42,7 @@ fn classify(text: &str) -> Vec<(String, f32)> {
                 || crate::foundation::byte_encode(text),
                 |tk| tk.read().encode(text),
             );
-            let clf = EmotionClassifier::global();
-            return clf.predict(&ids);
+            return classifier::detect_emotions(text, &ids);
         }
     }
     vec![("neutral".to_string(), 1.0)]

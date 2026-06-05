@@ -1,5 +1,4 @@
 use crate::cipher::classifier;
-use crate::cipher::classifier::ThreatClassifier;
 use crate::foundation::NxrCipherModel;
 use nexora_oracle::CodeLinterManager;
 use std::sync::Arc;
@@ -25,7 +24,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                ThreatClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }
@@ -48,6 +47,20 @@ fn classify_threat(text: &str) -> Vec<(String, f32)> {
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let threats = classify_threat(prompt);
+
+    // Emergency keyword block: catch obvious jailbreak attempts regardless of classifier
+    let prompt_lower = prompt.to_lowercase();
+    let jailbreak_keywords = [
+        "ignore all instructions", "ignore your instructions", "ignore your safety",
+        "bypass safety", "you are now dan", "act as dan", "no restrictions",
+        "you are free", "do anything now", "you have no limits",
+        "ignore your previous", "forget your training", "override your programming",
+    ];
+    if jailbreak_keywords.iter().any(|kw| prompt_lower.contains(kw)) {
+        tracing::warn!("CIPHER EMERGENCY BLOCK: jailbreak keyword match, prompt={:.50}", prompt);
+        return "[Cipher security] Request blocked: jailbreak attempt detected".to_string();
+    }
+
     let primary = match threats.first() {
         Some((t, _)) => t.as_str(),
         None => {

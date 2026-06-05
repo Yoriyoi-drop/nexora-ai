@@ -1,162 +1,116 @@
-//! Rate limiting for API requests
+//! Rate limiting for API requests — token bucket per client, TTL eviction.
 
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
 use crate::config::api::RateLimitConfig;
 
-/// Rate limiter for API requests
+const MAX_CLIENTS: usize = 10_000;
+const CLIENT_TTL: Duration = Duration::from_secs(3600);
+
+#[derive(Debug)]
+struct ClientBucket {
+    tokens: f64,
+    max_tokens: f64,
+    refill_rate: f64,
+    last_refill: Instant,
+    last_access: Instant,
+}
+
+/// Rate limiter for API requests — token bucket per client.
 #[derive(Debug)]
 pub struct RateLimiter {
     config: RateLimitConfig,
-    clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
-}
-
-#[derive(Debug)]
-struct ClientInfo {
-    requests: Vec<Instant>,
-    last_cleanup: Instant,
+    clients: Arc<RwLock<HashMap<String, ClientBucket>>>,
 }
 
 impl RateLimiter {
-    /// Create new rate limiter
     pub fn new(config: RateLimitConfig) -> Self {
         Self {
             config,
-            clients: Arc::new(Mutex::new(HashMap::new())),
+            clients: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    /// Check if request is allowed
     pub async fn is_allowed(&self, client_id: &str) -> Result<RateLimitStatus> {
         if !self.config.enabled {
             return Ok(RateLimitStatus::Allowed);
         }
-
-        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+        let burst = self.config.burst_size.max(1) as f64;
+        let rps = (self.config.requests_per_minute as f64) / 60.0;
         let now = Instant::now();
 
-        // Get or create client info
-        let client_info = clients
-            .entry(client_id.to_string())
-            .or_insert_with(|| ClientInfo {
-                requests: Vec::new(),
-                last_cleanup: now,
+        let mut clients = self.clients.write().await;
+
+        if let Some(bucket) = clients.get_mut(client_id) {
+            let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+            let refill = elapsed * bucket.refill_rate;
+            bucket.tokens = (bucket.tokens + refill).min(bucket.max_tokens);
+            bucket.last_refill = now;
+            bucket.last_access = now;
+
+            if bucket.tokens >= 1.0 {
+                bucket.tokens -= 1.0;
+                Ok(RateLimitStatus::Allowed)
+            } else {
+                debug!("Rate limit exceeded for client {}", client_id);
+                Ok(RateLimitStatus::RateLimited {
+                    retry_after: Duration::from_secs_f64(1.0 / bucket.refill_rate),
+                })
+            }
+        } else {
+            self.evict_stale(&mut clients, now);
+            clients.insert(client_id.to_string(), ClientBucket {
+                tokens: burst - 1.0,
+                max_tokens: burst,
+                refill_rate: rps,
+                last_refill: now,
+                last_access: now,
             });
-
-        // Cleanup old requests
-        self.cleanup_old_requests(client_info, now);
-
-        // Check rate limit
-        let window_start = now - Duration::from_secs(60);
-        let recent_requests = client_info
-            .requests
-            .iter()
-            .filter(|&req_time| *req_time > window_start)
-            .count();
-
-        if recent_requests >= self.config.requests_per_minute {
-            debug!(
-                "Rate limit exceeded for client {}: {}/{} requests",
-                client_id, recent_requests, self.config.requests_per_minute
-            );
-            return Ok(RateLimitStatus::RateLimited {
-                retry_after: Duration::from_secs(1),
-            });
-        }
-
-        // Add current request
-        client_info.requests.push(now);
-
-        // Check burst limit
-        if client_info.requests.len() > self.config.burst_size {
-            warn!(
-                "Burst limit exceeded for client {}: {} requests",
-                client_id,
-                client_info.requests.len()
-            );
-            // Remove oldest request to stay within burst limit
-            client_info.requests.remove(0);
-        }
-
-        Ok(RateLimitStatus::Allowed)
-    }
-
-    /// Cleanup old requests
-    fn cleanup_old_requests(&self, client_info: &mut ClientInfo, now: Instant) {
-        let cleanup_interval = Duration::from_secs(self.config.cleanup_interval_seconds);
-
-        if now.duration_since(client_info.last_cleanup) >= cleanup_interval {
-            let window_start = now - Duration::from_secs(60);
-            client_info
-                .requests
-                .retain(|&req_time| req_time > window_start);
-            client_info.last_cleanup = now;
+            Ok(RateLimitStatus::Allowed)
         }
     }
 
-    /// Get current rate limit details
     pub async fn get_status(&self, client_id: &str) -> Result<RateLimitDetails> {
-        let clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-
-        if let Some(client_info) = clients.get(client_id) {
-            let window_start = now - Duration::from_secs(60);
-            let recent_requests = client_info
-                .requests
-                .iter()
-                .filter(|&req_time| *req_time > window_start)
-                .count();
-
+        let clients = self.clients.read().await;
+        if let Some(bucket) = clients.get(client_id) {
             Ok(RateLimitDetails {
-                allowed: recent_requests < self.config.requests_per_minute,
-                current_requests: recent_requests,
-                max_requests: self.config.requests_per_minute,
-                reset_time: now + Duration::from_secs(60),
+                allowed: bucket.tokens >= 1.0,
+                current_requests: (bucket.max_tokens - bucket.tokens) as usize,
+                max_requests: bucket.max_tokens as usize,
+                reset_time: Instant::now() + Duration::from_secs_f64(1.0 / bucket.refill_rate),
             })
         } else {
             Ok(RateLimitDetails {
                 allowed: true,
                 current_requests: 0,
                 max_requests: self.config.requests_per_minute,
-                reset_time: now + Duration::from_secs(60),
+                reset_time: Instant::now() + Duration::from_secs(60),
             })
         }
     }
 
-    /// Reset rate limit for a client
     pub async fn reset_client(&self, client_id: &str) -> Result<()> {
-        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
-        clients.remove(client_id);
+        self.clients.write().await.remove(client_id);
         Ok(())
     }
 
-    /// Get statistics
     pub async fn get_stats(&self) -> Result<RateLimitStats> {
-        let clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-
+        let clients = self.clients.read().await;
         let total_clients = clients.len();
-        let mut total_requests = 0;
         let mut active_clients = 0;
-
-        for client_info in clients.values() {
-            let window_start = now - Duration::from_secs(60);
-            let recent_requests = client_info
-                .requests
-                .iter()
-                .filter(|&req_time| *req_time > window_start)
-                .count();
-
-            total_requests += recent_requests;
-            if recent_requests > 0 {
+        let mut total_requests = 0;
+        for bucket in clients.values() {
+            let used = (bucket.max_tokens - bucket.tokens) as usize;
+            total_requests += used;
+            if used > 0 {
                 active_clients += 1;
             }
         }
-
         Ok(RateLimitStats {
             total_clients,
             active_clients,
@@ -164,18 +118,33 @@ impl RateLimiter {
             max_requests_per_client: self.config.requests_per_minute,
         })
     }
+
+    fn evict_stale(&self, clients: &mut HashMap<String, ClientBucket>, now: Instant) {
+        if clients.len() < MAX_CLIENTS {
+            return;
+        }
+        let cutoff = now - CLIENT_TTL;
+        clients.retain(|_, b| b.last_access >= cutoff);
+        if clients.len() >= MAX_CLIENTS {
+            if let Some(oldest) = clients.iter().min_by_key(|(_, b)| b.last_access).map(|(k, _)| k.clone()) {
+                clients.remove(&oldest);
+            }
+        }
+    }
 }
 
-/// Rate limit check result
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new(RateLimitConfig::default())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RateLimitStatus {
-    /// Request is within rate limits
     Allowed,
-    /// Rate limit exceeded — client should retry after this duration
     RateLimited { retry_after: Duration },
 }
 
-/// Rate limit details
 #[derive(Debug, Clone)]
 pub struct RateLimitDetails {
     pub allowed: bool,
@@ -184,17 +153,10 @@ pub struct RateLimitDetails {
     pub reset_time: Instant,
 }
 
-/// Rate limit statistics
 #[derive(Debug, Clone)]
 pub struct RateLimitStats {
     pub total_clients: usize,
     pub active_clients: usize,
     pub total_requests: usize,
     pub max_requests_per_client: usize,
-}
-
-impl Default for RateLimiter {
-    fn default() -> Self {
-        Self::new(RateLimitConfig::default())
-    }
 }

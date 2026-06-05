@@ -1,71 +1,16 @@
-use crate::classifier_util;
-use ndarray::{Array1, Array2};
+use crate::classifier_util::GenericClassifier;
+use ndarray::Array2;
 use std::sync::OnceLock;
 
 pub const TASK_TYPES: [&str; 5] = [
-    "qa",
-    "summarize",
-    "translate",
-    "generate",
-    "analyze",
+    "qa", "summarize", "translate", "generate", "analyze",
 ];
-
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<TaskClassifier> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{TASK_TYPES.len()}>> = OnceLock::new();
 
-pub struct TaskClassifier {
-    embed_table: Array2<f32>,
-    w1: Array2<f32>,
-    b1: Array1<f32>,
-    w2: Array2<f32>,
-    b2: Array1<f32>,
-}
-
-impl TaskClassifier {
-    pub fn global() -> &'static Self {
-        CLASSIFIER.get_or_init(|| Self {
-            embed_table: Array2::zeros((1, 1)),
-            w1: Array2::zeros((1, 1)),
-            b1: Array1::zeros(1),
-            w2: Array2::zeros((1, 1)),
-            b2: Array1::zeros(1),
-        })
-    }
-
-    pub fn init(embed_table: Array2<f32>) {
-        let hidden_size = embed_table.shape()[1];
-        let _ = CLASSIFIER.set(Self {
-            w1: classifier_util::xavier_init(hidden_size, HIDDEN),
-            b1: Array1::zeros(HIDDEN),
-            w2: classifier_util::xavier_init(HIDDEN, TASK_TYPES.len()),
-            b2: Array1::zeros(TASK_TYPES.len()),
-            embed_table,
-        });
-    }
-
-    pub fn is_initialized(&self) -> bool {
-        self.embed_table.shape()[0] > 1
-    }
-
-    pub fn predict(&self, token_ids: &[u32]) -> Vec<(String, f32)> {
-        if token_ids.is_empty() || !self.is_initialized() {
-            return vec![("qa".to_string(), 1.0)];
-        }
-
-        let avg = classifier_util::embed_average(&self.embed_table, token_ids);
-        let h = classifier_util::gelu(&(avg.dot(&self.w1) + &self.b1));
-        let logits = h.dot(&self.w2) + &self.b2;
-        let probs = classifier_util::softmax(&logits);
-
-        let mut results: Vec<_> = TASK_TYPES
-            .iter()
-            .zip(probs.iter())
-            .map(|(c, p)| ((*c).to_string(), *p))
-            .collect();
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        results
-    }
+pub fn init_classifier(embed_table: Array2<f32>) {
+    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
 }
 
 pub fn task_params(task_type: &str) -> (usize, f32) {
@@ -80,72 +25,40 @@ pub fn task_params(task_type: &str) -> (usize, f32) {
 }
 
 pub fn detect_task_type(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
-    let classifier = CLASSIFIER.get().unwrap_or_else(TaskClassifier::global);
-    if token_ids.is_empty() || !classifier.is_initialized() {
-        return vec![("qa".to_string(), 1.0)];
-    }
-    classifier.predict(token_ids)
+    let clf = match CLASSIFIER.get() {
+        Some(c) => c,
+        None => return vec![(TASK_TYPES[0].to_string(), 1.0)],
+    };
+    clf.predict_sorted(token_ids, &TASK_TYPES, TASK_TYPES[0])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn uninit() -> TaskClassifier {
-        TaskClassifier {
-            embed_table: Array2::zeros((1, 1)),
-            w1: Array2::zeros((1, 1)),
-            b1: Array1::zeros(1),
-            w2: Array2::zeros((1, 1)),
-            b2: Array1::zeros(1),
-        }
-    }
-
-    fn init_cls(hidden: usize) -> TaskClassifier {
-        TaskClassifier {
-            embed_table: Array2::zeros((10, hidden)),
-            w1: classifier_util::xavier_init(hidden, HIDDEN),
-            b1: Array1::zeros(HIDDEN),
-            w2: classifier_util::xavier_init(HIDDEN, TASK_TYPES.len()),
-            b2: Array1::zeros(TASK_TYPES.len()),
-        }
-    }
-
-    #[test]
-    fn test_global_not_initialized() {
-        assert!(!TaskClassifier::global().is_initialized());
-    }
-
-    #[test]
-    fn test_uninit_not_initialized() {
-        assert!(!uninit().is_initialized());
-    }
-
-    #[test]
-    fn test_init_initialized() {
-        assert!(init_cls(128).is_initialized());
-    }
-
-    #[test]
-    fn test_predict_default_on_uninit() {
-        assert_eq!(uninit().predict(&[1])[0].0, "qa");
-    }
-
-    #[test]
-    fn test_predict_empty_ids() {
-        assert_eq!(init_cls(128).predict(&[])[0].0, "qa");
-    }
-
-    #[test]
-    fn test_predict_returns_all_types() {
-        let r = init_cls(128).predict(&[0, 1]);
-        assert_eq!(r.len(), TASK_TYPES.len());
-        let sum: f32 = r.iter().map(|(_, p)| p).sum();
-        assert!((sum - 1.0).abs() < 1e-5);
+    fn init_cls(hidden: usize) -> GenericClassifier<5> {
+        GenericClassifier::new(Array2::zeros((10, hidden)), HIDDEN)
     }
 
     #[test]
     fn test_detect_default_on_uninit() {
-        assert_eq!(detect_task_type("x", &[])[0].0, "qa");
+        let r = detect_task_type("x", &[]);
+        assert_eq!(r[0].0, "qa");
+    }
+
+    #[test]
+    fn test_predict_empty_ids() {
+        let cls = init_cls(128);
+        let r = cls.predict(&[], &TASK_TYPES, "qa");
+        assert_eq!(r[0].0, "qa");
+    }
+
+    #[test]
+    fn test_predict_returns_all_types() {
+        let cls = init_cls(128);
+        let r = cls.predict(&[0, 1], &TASK_TYPES, "qa");
+        assert_eq!(r.len(), TASK_TYPES.len());
+        let sum: f32 = r.iter().map(|(_, p)| p).sum();
+        assert!((sum - 1.0).abs() < 1e-5);
     }
 }

@@ -36,6 +36,7 @@ pub struct Caffeine {
     // Integration with existing modules
     atqs_compression: Option<nexora_atqs::compression::adaptive_rank::CompressionEngine>,
     has_moe_router: Option<nexora_has_moe_ffn::routing::Router>,
+    has_moe_experts: Option<Vec<nexora_has_moe_ffn::experts::Expert>>,
 
     // #4 Multimodal Cache
     cache: Option<std::sync::Arc<std::sync::Mutex<crate::caffeine::cache::MultiModalCache>>>,
@@ -194,6 +195,27 @@ impl Caffeine {
             None
         };
 
+        // Initialize real HAS-MoE-FFN experts with Xavier init
+        let has_moe_experts = if config.enable_has_moe_routing {
+            let n_experts = config
+                .has_moe_config
+                .as_ref()
+                .map(|c| c.num_experts)
+                .unwrap_or(8);
+            let hidden = config.model_dim;
+            let intermediate = config.hidden_dim;
+            let mut experts = Vec::with_capacity(n_experts);
+            for _ in 0..n_experts {
+                let mut expert =
+                    nexora_has_moe_ffn::experts::Expert::new(hidden, intermediate, true, 0.1);
+                expert.init_random();
+                experts.push(expert);
+            }
+            Some(experts)
+        } else {
+            None
+        };
+
         let cache_config = crate::caffeine::cache::CacheConfig {
             max_ram_bytes: config.cache_max_ram_bytes,
             max_ssd_bytes: config.cache_max_ssd_bytes,
@@ -225,6 +247,7 @@ impl Caffeine {
             action_head,
             atqs_compression,
             has_moe_router,
+            has_moe_experts,
             cache: None,
             cache_config,
             streaming_video,
@@ -460,32 +483,32 @@ impl Caffeine {
             return Ok(());
         }
 
-        // Select best routing decisions for this modality
-        let expert_assignments =
+        // Select expert + confidence for each token using real MoE routing
+        let assignments =
             self.select_experts_for_modality(&modality_tokens, &routing_decisions, modality_name)?;
 
-        // Apply expert-specific transformations
-        for ((token_idx, original_token), expert_id) in
-            modality_tokens.iter().zip(expert_assignments.iter())
+        // Apply real has-moe-ffn expert forward, weighted by routing confidence
+        for ((token_idx, original_token), (expert_id, confidence)) in
+            modality_tokens.iter().zip(assignments.iter())
         {
             let transformed_token =
-                self.apply_expert_transformation(original_token, *expert_id, modality_name)?;
+                self.apply_expert_transformation(original_token, *expert_id, *confidence)?;
             routed_tokens[*token_idx] = Some(transformed_token);
         }
 
         Ok(())
     }
 
-    /// Select appropriate experts for a modality group
+    /// Select appropriate experts for a modality group.
+    /// Returns Vec<(expert_id, confidence)> using real MoE routing confidence.
     fn select_experts_for_modality(
         &self,
         tokens: &[(usize, &crate::caffeine::types::UnifiedToken)],
         routing_decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-        modality_name: &str,
-    ) -> crate::caffeine::error::Result<Vec<usize>> {
+        _modality_name: &str,
+    ) -> crate::caffeine::error::Result<Vec<(usize, f32)>> {
         let mut expert_assignments = Vec::with_capacity(tokens.len());
 
-        // Sort routing decisions by confidence
         let mut sorted_decisions = routing_decisions.to_vec();
         sorted_decisions.sort_by(|a, b| {
             b.confidence
@@ -493,193 +516,83 @@ impl Caffeine {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        for (_token_idx, token) in tokens {
-            // Select expert based on token characteristics and modality
-            let selected_expert =
-                self.select_optimal_expert(token, &sorted_decisions, modality_name)?;
-            expert_assignments.push(selected_expert);
+        for (_token_idx, _token) in tokens {
+            let best = sorted_decisions.first().cloned().unwrap_or(nexora_has_moe_ffn::types::RoutingDecision {
+                expert_id: 0,
+                confidence: 1.0,
+                domain: None,
+            });
+            expert_assignments.push((best.expert_id, best.confidence));
         }
 
         Ok(expert_assignments)
     }
 
-    /// Select optimal expert for a specific token
-    fn select_optimal_expert(
-        &self,
-        token: &crate::caffeine::types::UnifiedToken,
-        available_decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-        modality_name: &str,
-    ) -> crate::caffeine::error::Result<usize> {
-        // Expert selection logic based on modality and token characteristics
-        let expert_id = match modality_name {
-            "text" => self.select_text_expert(token, available_decisions),
-            "image" => self.select_image_expert(token, available_decisions),
-            "audio" => self.select_audio_expert(token, available_decisions),
-            "video" => self.select_video_expert(token, available_decisions),
-            "action" => self.select_action_expert(token, available_decisions),
-            _ => available_decisions
-                .first()
-                .map(|d| d.expert_id)
-                .unwrap_or(0),
-        };
-
-        Ok(expert_id)
-    }
-
-    /// Apply expert-specific transformation to a token
+    /// Apply real has-moe-ffn Expert forward pass to a token's embedding,
+    /// weighted by the routing confidence. Blends expert output with original
+    /// embedding: `result = (1 - blend) * original + blend * expert_output`
+    /// where `blend = confidence * 0.5`.
     fn apply_expert_transformation(
         &self,
         token: &crate::caffeine::types::UnifiedToken,
         expert_id: usize,
-        modality_name: &str,
+        confidence: f32,
     ) -> crate::caffeine::error::Result<crate::caffeine::types::UnifiedToken> {
-        // Apply expert-specific processing based on modality
-        let transformed_embedding = match modality_name {
-            "text" => self.apply_text_expert_transformation(&token.embedding, expert_id),
-            "image" => self.apply_image_expert_transformation(&token.embedding, expert_id),
-            "audio" => self.apply_audio_expert_transformation(&token.embedding, expert_id),
-            "video" => self.apply_video_expert_transformation(&token.embedding, expert_id),
-            "action" => self.apply_action_expert_transformation(&token.embedding, expert_id),
-            _ => token.embedding.clone(),
-        };
+        let has_moe_experts = self.has_moe_experts.as_ref().ok_or_else(|| {
+            crate::caffeine::error::CaffeineError::HasMoeRouting(
+                "MoE experts not initialized — enable has_moe_routing in config".into(),
+            )
+        })?;
+
+        let expert_idx = expert_id % has_moe_experts.len();
+        let expert = &has_moe_experts[expert_idx];
+
+        // Real expert forward: [hidden] → GELU(fc1(x) + b1) → fc2 + b2 → [hidden]
+        let expert_output = expert.forward(&token.embedding);
+
+        // Blend original with expert output: stronger confidence = more expert influence
+        let blend = (confidence * 0.5).clamp(0.0, 0.8);
+        let blended: Vec<f32> = token
+            .embedding
+            .iter()
+            .zip(expert_output.iter())
+            .map(|(e, o)| e * (1.0 - blend) + o * blend)
+            .collect();
 
         Ok(crate::caffeine::types::UnifiedToken {
-            embedding: transformed_embedding,
+            embedding: blended,
             ..token.clone()
         })
     }
 
-    /// Default routing when no specific decisions are available
+    /// Default routing when no specific decisions are available.
+    /// Uses the first expert with equal blending weight.
     fn apply_default_routing(
         &self,
         tokens: Vec<crate::caffeine::types::UnifiedToken>,
     ) -> crate::caffeine::error::Result<Vec<crate::caffeine::types::UnifiedToken>> {
-        // Apply basic processing to all tokens
-        let processed_tokens: Vec<crate::caffeine::types::UnifiedToken> = tokens
-            .into_iter()
-            .map(|token| {
-                let processed_embedding = self.apply_basic_transformation(&token.embedding);
-                crate::caffeine::types::UnifiedToken {
-                    embedding: processed_embedding,
-                    ..token
-                }
-            })
-            .collect();
-
-        Ok(processed_tokens)
-    }
-
-    // Expert selection methods for different modalities
-    fn select_text_expert(
-        &self,
-        _token: &crate::caffeine::types::UnifiedToken,
-        decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-    ) -> usize {
-        // Prefer experts with high confidence for text processing
-        decisions
-            .iter()
-            .filter(|d| d.confidence > 0.7)
-            .map(|d| d.expert_id)
-            .next()
-            .unwrap_or(0)
-    }
-
-    fn select_image_expert(
-        &self,
-        _token: &crate::caffeine::types::UnifiedToken,
-        decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-    ) -> usize {
-        // Prefer experts specialized in visual processing
-        decisions
-            .iter()
-            .filter(|d| d.confidence > 0.6)
-            .map(|d| d.expert_id)
-            .next()
-            .unwrap_or(1)
-    }
-
-    fn select_audio_expert(
-        &self,
-        _token: &crate::caffeine::types::UnifiedToken,
-        decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-    ) -> usize {
-        decisions
-            .iter()
-            .filter(|d| d.confidence > 0.5)
-            .map(|d| d.expert_id)
-            .next()
-            .unwrap_or(2)
-    }
-
-    fn select_video_expert(
-        &self,
-        _token: &crate::caffeine::types::UnifiedToken,
-        decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-    ) -> usize {
-        decisions
-            .iter()
-            .filter(|d| d.confidence > 0.6)
-            .map(|d| d.expert_id)
-            .next()
-            .unwrap_or(3)
-    }
-
-    fn select_action_expert(
-        &self,
-        _token: &crate::caffeine::types::UnifiedToken,
-        decisions: &[nexora_has_moe_ffn::types::RoutingDecision],
-    ) -> usize {
-        decisions
-            .iter()
-            .filter(|d| d.confidence > 0.7)
-            .map(|d| d.expert_id)
-            .next()
-            .unwrap_or(4)
-    }
-
-    // Expert transformation methods
-    fn apply_text_expert_transformation(&self, embedding: &[f32], expert_id: usize) -> Vec<f32> {
-        // Apply text-specific expert transformation
-        embedding
-            .iter()
-            .map(|&x| x * (1.0 + expert_id as f32 * 0.1))
-            .collect()
-    }
-
-    fn apply_image_expert_transformation(&self, embedding: &[f32], expert_id: usize) -> Vec<f32> {
-        // Apply image-specific expert transformation
-        embedding
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| x * (1.0 + (i % 3) as f32 * 0.05 + expert_id as f32 * 0.08))
-            .collect()
-    }
-
-    fn apply_audio_expert_transformation(&self, embedding: &[f32], expert_id: usize) -> Vec<f32> {
-        embedding
-            .iter()
-            .map(|&x| x * (1.0 + expert_id as f32 * 0.12))
-            .collect()
-    }
-
-    fn apply_video_expert_transformation(&self, embedding: &[f32], expert_id: usize) -> Vec<f32> {
-        embedding
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| x * (1.0 + (i % 4) as f32 * 0.03 + expert_id as f32 * 0.09))
-            .collect()
-    }
-
-    fn apply_action_expert_transformation(&self, embedding: &[f32], expert_id: usize) -> Vec<f32> {
-        embedding
-            .iter()
-            .map(|&x| x * (1.0 + expert_id as f32 * 0.15))
-            .collect()
-    }
-
-    fn apply_basic_transformation(&self, embedding: &[f32]) -> Vec<f32> {
-        // Basic transformation for default routing
-        embedding.iter().map(|&x| x * 0.95).collect()
+        if let Some(experts) = &self.has_moe_experts {
+            let processed_tokens: Vec<crate::caffeine::types::UnifiedToken> = tokens
+                .into_iter()
+                .map(|token| {
+                    let expert_idx = 0.min(experts.len() - 1);
+                    let output = experts[expert_idx].forward(&token.embedding);
+                    let blended: Vec<f32> = token
+                        .embedding
+                        .iter()
+                        .zip(output.iter())
+                        .map(|(e, o)| e * 0.7 + o * 0.3)
+                        .collect();
+                    crate::caffeine::types::UnifiedToken {
+                        embedding: blended,
+                        ..token
+                    }
+                })
+                .collect();
+            Ok(processed_tokens)
+        } else {
+            Ok(tokens)
+        }
     }
 
     /// Get configuration

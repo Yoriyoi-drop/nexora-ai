@@ -7,18 +7,350 @@ use axum::{
     Extension, Json,
 };
 use axum::http::HeaderMap;
+use chrono::Utc;
 use futures::stream::{self, Stream};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use nexora_alignment::sparo::SparoSystem;
 use nexora_monitoring::MetricsCollector;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::sync::OnceLock;
-use tracing::{error, info, warn};
+use std::time::{Duration, Instant};
+use tracing::{debug, error, info, warn};
 
-use crate::security::{SecurityConfig, SecurityValidator};
+use crate::security::{SecurityConfig, SecurityUtils, SecurityValidator};
 use crate::NexoraAI;
 
 static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
 static SECURITY: OnceLock<SecurityValidator> = OnceLock::new();
+
+// ── SPARO alignment & jailbreak detection ──
+static SPARO: OnceLock<SparoSystem> = OnceLock::new();
+static CONVERSATION_TRACKER: OnceLock<Mutex<HashMap<String, ConversationState>>> = OnceLock::new();
+
+struct ConversationState {
+    messages: Vec<String>,
+    blocked_attempts: u32,
+    updated_at: Instant,
+}
+
+/// Prune conversation states older than 30 minutes to prevent unbounded memory growth.
+fn prune_conversation_states() {
+    let tracker = CONVERSATION_TRACKER.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut state) = tracker.lock() {
+        let before = state.len();
+        state.retain(|_, v| v.updated_at.elapsed() < Duration::from_secs(1800));
+        let after = state.len();
+        if before != after {
+            debug!("Pruned {} stale conversation states ({} remaining)", before - after, after);
+        }
+    }
+}
+
+/// Periodically prune stale conversation states (called from check_jailbreak_input_v2 at ~1% rate).
+fn maybe_prune() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static PRUNE_COUNTER: AtomicU32 = AtomicU32::new(0);
+    let count = PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    if count % 100 == 0 {
+        prune_conversation_states();
+    }
+}
+
+fn init_sparo() -> &'static SparoSystem {
+    SPARO.get_or_init(|| SparoSystem::new())
+}
+
+/// Output guardrail: check generated text for dangerous content + SPARO alignment.
+async fn check_output_safety(prompt: &str, output: &str) -> Result<(), String> {
+    if SecurityUtils::is_dangerous_content(output) {
+        return Err("Output contains potentially sensitive information (secrets, keys)".to_string());
+    }
+
+    let sparo = init_sparo();
+    match sparo.align_behavior(output, prompt).await {
+        Ok(result) => {
+            if result.safety_level == "blocked" || result.alignment_score < 0.3 {
+                return Err(format!("Output rejected by safety alignment: score={:.3}", result.alignment_score));
+            }
+        }
+        Err(e) => {
+            warn!("Output SPARO check failed (non-fatal, allowing through): {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Multi-turn jailbreak: detect escalation from benign → jailbreak across conversation turns.
+fn detect_multi_turn_jailbreak(session_id: &str, message: &str) -> bool {
+    let tracker = CONVERSATION_TRACKER.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut state = match tracker.lock() {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("Conversation tracker lock poisoned: {}", e);
+            return false;
+        }
+    };
+
+    let entry = state.entry(session_id.to_string()).or_insert_with(|| ConversationState {
+        messages: Vec::new(),
+        blocked_attempts: 0,
+        updated_at: Instant::now(),
+    });
+    entry.updated_at = Instant::now();
+
+    let msg_lower = message.to_lowercase();
+    let has_ignore = msg_lower.contains("ignore") || msg_lower.contains("forget") || msg_lower.contains("override") || msg_lower.contains("bypass");
+    let has_target = msg_lower.contains("instruction") || msg_lower.contains("rule") || msg_lower.contains("constraint") || msg_lower.contains("safety") || msg_lower.contains("limit") || msg_lower.contains("previous") || msg_lower.contains("above");
+
+    if has_ignore && has_target && !entry.messages.is_empty() {
+        warn!("Multi-turn jailbreak detected in session {}: '{}' after {} prior messages",
+            session_id, &message[..message.len().min(80)], entry.messages.len());
+        entry.blocked_attempts += 1;
+        return true;
+    }
+
+    if entry.blocked_attempts >= 3 {
+        warn!("Session {} has {} blocked attempts", session_id, entry.blocked_attempts);
+        return true;
+    }
+
+    entry.messages.push(message.to_string());
+    false
+}
+
+fn track_blocked_attempt(session_id: &str) {
+    let tracker = CONVERSATION_TRACKER.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut state) = tracker.lock() {
+        state.entry(session_id.to_string())
+            .or_insert_with(|| ConversationState { messages: Vec::new(), blocked_attempts: 0, updated_at: Instant::now() })
+            .blocked_attempts += 1;
+    }
+}
+
+// ── Per-IP violation tracking ──
+static IP_VIOLATIONS: OnceLock<Mutex<HashMap<String, IpViolationState>>> = OnceLock::new();
+
+struct IpViolationState {
+    count: u32,
+    first_violation: Instant,
+}
+
+fn track_ip_violation(ip: &str) {
+    let tracker = IP_VIOLATIONS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut state) = tracker.lock() {
+        let entry = state.entry(ip.to_string()).or_insert_with(|| IpViolationState {
+            count: 0,
+            first_violation: Instant::now(),
+        });
+        entry.count += 1;
+    }
+}
+
+fn check_ip_rate_limit(ip: &str) -> bool {
+    let tracker = IP_VIOLATIONS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut state) = tracker.lock() {
+        let now = Instant::now();
+        // Prune stale entries (> 1 hour old)
+        state.retain(|_, v| v.first_violation.elapsed() < Duration::from_secs(3600));
+
+        let entry = state.entry(ip.to_string()).or_insert_with(|| IpViolationState {
+            count: 0,
+            first_violation: now,
+        });
+        // Block if 10+ violations within the hour
+        entry.count >= 10
+    } else {
+        false
+    }
+}
+
+// ── Input normalization & encoding detection ──
+
+/// Normalize prompt for keyword matching: lowercase + collapse whitespace.
+fn normalize_prompt(prompt: &str) -> String {
+    prompt.to_lowercase().split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// Detect base64/hex-encoded prompts that might hide jailbreak intent.
+/// Uses character-distribution heuristics — no decoding dependency needed.
+fn detect_encoded_prompt(prompt: &str) -> bool {
+    let trimmed = prompt.trim();
+    if trimmed.len() < 20 {
+        return false;
+    }
+
+    let total = trimmed.len();
+    let alnum: usize = trimmed.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+    let base64_chars: usize = trimmed.chars().filter(|c| *c == '+' || *c == '/' || *c == '=').count();
+    let hex_chars: usize = trimmed.chars().filter(|c| c.is_ascii_hexdigit()).count();
+
+    // Base64 heuristic: ≥85% alphanumeric, has +/= padding chars, length multiple of 4
+    let looks_like_base64 = (alnum + base64_chars) as f64 / total as f64 > 0.90
+        && (trimmed.ends_with('=') || trimmed.contains('+') || trimmed.contains('/'))
+        && total >= 32;
+    if looks_like_base64 {
+        warn!("Possible base64-encoded prompt detected ({} chars, alnum ratio={:.2})",
+            total, alnum as f64 / total as f64);
+        return true;
+    }
+
+    // Hex heuristic: ≥90% hex chars, even length
+    if hex_chars as f64 / total as f64 > 0.90 && total % 2 == 0 && total >= 24 {
+        warn!("Possible hex-encoded prompt detected ({} chars)", total);
+        return true;
+    }
+
+    false
+}
+
+/// Expanded jailbreak keyword patterns for normalized text matching.
+const JAILBREAK_KEYWORDS: &[&str] = &[
+    // Classic DAN variants
+    "ignore all instructions", "ignore your instructions", "ignore your safety",
+    "ignore your previous", "ignore all rules", "ignore your programming",
+    "ignore your core", "ignore safety protocols", "ignore your guidelines",
+    "ignore your constraints", "ignore your limitations",
+    // Bypass variants
+    "bypass safety", "bypass restrictions", "bypass your limits",
+    "bypass all filters", "bypass content policy", "bypass alignment",
+    // DAN persona
+    "you are now dan", "act as dan", "you are dan", "new character dan",
+    "act as though you are dan", "pretend to be dan",
+    // Freedom / no limits
+    "no restrictions", "no limits", "no boundaries", "no rules",
+    "no filters", "no constraints", "no ethical",
+    "you are free", "you are not bound", "you have no limits",
+    "you can do anything", "you are now free",
+    // Meta instructions
+    "do anything now", "output without restrictions",
+    "you don't have to follow", "override your programming",
+    "override your safety", "override your constraints",
+    "forget your training", "forget your guidelines",
+    // System prompt theft
+    "system prompt", "your system prompt", "reveal your prompt",
+    "initial prompt", "your initial instructions",
+    "what are your instructions", "tell me your instructions",
+    // Roleplay evasion
+    "for educational purposes", "hypothetical scenario",
+    "pretend you are", "roleplay as", "act as a",
+    "write a story about", "imagine a scenario",
+    // Character injection
+    "you are a person", "you are an ai without",
+    "you are not an ai", "you are not bound",
+    "act as if you have no", "respond as if",
+    // Multi-turn escalation
+    "now ignore", "now forget", "now bypass", "forget your",
+];
+
+/// Combined input guardrail with normalization, encoding detection, IP rate limiting.
+async fn check_jailbreak_input_v2(
+    session_id: Option<&str>,
+    client_ip: Option<&str>,
+    prompt: &str,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    maybe_prune();
+
+    // IP rate limiting: 10+ violations in 1 hour → temp block
+    if let Some(ip) = client_ip {
+        if check_ip_rate_limit(ip) {
+            warn!("IP rate-limited due to repeated violations: {}", ip);
+            return Err(err_json(StatusCode::TOO_MANY_REQUESTS, "Too many security violations from this IP"));
+        }
+    }
+
+    // Encoding detection (base64 / hex)
+    if detect_encoded_prompt(prompt) {
+        if let Some(sid) = session_id { track_blocked_attempt(sid); }
+        if let Some(ip) = client_ip { track_ip_violation(ip); }
+        return Err(err_json(StatusCode::BAD_REQUEST, "Encoded jailbreak prompt detected"));
+    }
+
+    // Normalize for keyword matching
+    let normalized = normalize_prompt(prompt);
+
+    // Direct keyword match on normalized input
+    let kw_match = JAILBREAK_KEYWORDS.iter().any(|kw| normalized.contains(kw));
+    if kw_match {
+        warn!("Jailbreak keyword matched in prompt: {:.80}", prompt);
+        if let Some(sid) = session_id { track_blocked_attempt(sid); }
+        if let Some(ip) = client_ip { track_ip_violation(ip); }
+        return Err(err_json(StatusCode::BAD_REQUEST, "Jailbreak attempt detected"));
+    }
+
+    // SPARO alignment check
+    let sparo = init_sparo();
+    match sparo.align_behavior(prompt, "").await {
+        Ok(result) => {
+            if result.safety_level == "blocked" {
+                warn!("SPARO blocked prompt: score={:.3}, level={}", result.alignment_score, result.safety_level);
+                if let Some(sid) = session_id { track_blocked_attempt(sid); }
+                if let Some(ip) = client_ip { track_ip_violation(ip); }
+                return Err(err_json(StatusCode::BAD_REQUEST, "Prompt rejected by safety alignment"));
+            }
+        }
+        Err(e) => warn!("SPARO alignment failed (non-fatal): {}", e),
+    }
+
+    // Multi-turn jailbreak detection
+    if let Some(sid) = session_id {
+        if detect_multi_turn_jailbreak(sid, prompt) {
+            return Err(err_json(StatusCode::BAD_REQUEST, "Conversation escalation detected"));
+        }
+    }
+
+    Ok(())
+}
+
+/// Cached timestamp: refreshed every 1 second to avoid syscall per request.
+static CACHED_TIMESTAMP: OnceLock<Mutex<TimestampCache>> = OnceLock::new();
+struct TimestampCache {
+    value: String,
+    updated: Instant,
+}
+fn cached_timestamp() -> String {
+    let cache = CACHED_TIMESTAMP.get_or_init(|| Mutex::new(TimestampCache {
+        value: Utc::now().to_rfc3339(),
+        updated: Instant::now(),
+    }));
+    let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if c.updated.elapsed() > Duration::from_secs(1) {
+        c.value = Utc::now().to_rfc3339();
+        c.updated = Instant::now();
+    }
+    c.value.clone()
+}
+
+/// Helper: success JSON response with timestamp.
+fn ok_json(data: Value) -> Json<Value> {
+    Json(json!({
+        "success": true,
+        "data": data,
+        "timestamp": cached_timestamp(),
+    }))
+}
+
+/// Helper: error JSON response with timestamp.
+fn err_json(status: StatusCode, msg: &str) -> (StatusCode, Json<Value>) {
+    (status, Json(json!({
+        "success": false,
+        "error": msg,
+        "timestamp": cached_timestamp(),
+    })))
+}
+
+/// Extract client IP from request headers (X-Forwarded-For or X-Real-IP).
+fn client_ip_from_headers(headers: &HeaderMap) -> Option<String> {
+    if let Some(ip) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        return Some(ip.split(',').next().unwrap_or(ip).trim().to_string());
+    }
+    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        return Some(ip.to_string());
+    }
+    None
+}
 
 fn init_security_validator() -> &'static SecurityValidator {
     SECURITY.get_or_init(|| {
@@ -174,11 +506,13 @@ pub async fn memory_stats(Extension(nexora): Extension<Arc<NexoraAI>>) -> impl I
 }
 
 pub async fn process_request(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let start = std::time::Instant::now();
     let input = payload.get("input").and_then(|v| v.as_str()).unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
 
     if let Err((_status, err_json)) = validate_prompt(input) {
         return Json(json!({
@@ -188,19 +522,39 @@ pub async fn process_request(
         }));
     }
 
-    let truncated: String = input.chars().take(100).collect();
+    if let Err((_status, err_json)) = check_jailbreak_input_v2(None, client_ip.as_deref(), input).await {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("error").and_then(|v| v.as_str()).unwrap_or("blocked by safety alignment"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(input)
+    };
+
+    let truncated: String = sanitized.chars().take(100).collect();
     info!(
         "Processing request: {} [truncated {} chars]",
         truncated,
-        input.len().min(100)
+        sanitized.len().min(100)
     );
 
-    match nexora.process_request(input).await {
-        Ok(response) => Json(json!({
-            "success": true,
-            "response": response,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })),
+    match nexora.process_request(&sanitized).await {
+        Ok(mut response) => {
+            if let Err(e) = check_output_safety(input, &response).await {
+                warn!("Process output safety check triggered: {}", e);
+                response = "[Content filtered by safety guardrail]".to_string();
+            }
+
+            Json(json!({
+                "success": true,
+                "response": response,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }))
+        }
         Err(e) => {
             if let Some(m) = metrics_collector() {
                 m.record_request(false, start.elapsed().as_secs_f64());
@@ -216,16 +570,26 @@ pub async fn process_request(
 }
 
 pub async fn generate_text(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let start = std::time::Instant::now();
     let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
 
     if let Err((_status, err_json)) = validate_prompt(prompt) {
         return Json(json!({
             "success": false,
             "error": err_json.get("detail").and_then(|v| v.as_str()).unwrap_or("validation failed"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
+    if let Err((_status, err_json)) = check_jailbreak_input_v2(None, client_ip.as_deref(), prompt).await {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("error").and_then(|v| v.as_str()).unwrap_or("blocked by safety alignment"),
             "timestamp": chrono::Utc::now().to_rfc3339()
         }));
     }
@@ -240,26 +604,38 @@ pub async fn generate_text(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
 
-    let truncated: String = prompt.chars().take(100).collect();
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(prompt)
+    };
+
+    let truncated: String = sanitized.chars().take(100).collect();
     info!(
         "Generating text: prompt='{}' [truncated {} chars], max_tokens={}, temperature={}",
         truncated,
-        prompt.len().min(100),
+        sanitized.len().min(100),
         max_tokens,
         temperature
     );
 
-    match nexora.generate_text(prompt, max_tokens, temperature).await {
-        Ok(generated) => Json(json!({
-            "success": true,
-            "generated_text": generated,
-            "parameters": {
-                "prompt": prompt,
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            },
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })),
+    match nexora.generate_text(&sanitized, max_tokens, temperature).await {
+        Ok(mut generated) => {
+            if let Err(e) = check_output_safety(prompt, &generated).await {
+                warn!("Output safety check triggered: {}", e);
+                generated = "[Content filtered by safety guardrail]".to_string();
+            }
+
+            Json(json!({
+                "success": true,
+                "generated_text": generated,
+                "parameters": {
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                },
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }))
+        }
         Err(e) => {
             if let Some(m) = metrics_collector() {
                 m.record_request(false, start.elapsed().as_secs_f64());
@@ -275,10 +651,12 @@ pub async fn generate_text(
 }
 
 pub async fn generate_text_stream(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, anyhow::Error>>>, (StatusCode, Json<Value>)> {
     let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
     if prompt.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -287,6 +665,7 @@ pub async fn generate_text_stream(
     }
 
     validate_prompt(prompt)?;
+    check_jailbreak_input_v2(None, client_ip.as_deref(), prompt).await?;
 
     let max_tokens = payload
         .get("max_tokens")
@@ -298,15 +677,20 @@ pub async fn generate_text_stream(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.7) as f32;
 
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(prompt)
+    };
+
     info!(
         "Streaming text generation: prompt={}, max_tokens={}, temperature={}",
-        prompt.len(),
+        sanitized.len(),
         max_tokens,
         temperature
     );
 
     let rx = nexora
-        .generate_text_stream(prompt, max_tokens, temperature)
+        .generate_text_stream(&sanitized, max_tokens, temperature)
         .await
         .map_err(|e| {
             error!("Streaming inference init failed: {}", e);
@@ -316,27 +700,46 @@ pub async fn generate_text_stream(
             )
         })?;
 
-    let stream = stream::unfold(rx, |mut rx| async move {
-        match rx.recv().await {
-            Some(token) => {
-                let data = serde_json::json!({
-                    "token": token.token_text.to_string(),
-                    "position": token.position,
-                });
-                let event = Event::default().data(data.to_string());
-                Some((Ok::<_, anyhow::Error>(event), rx))
+    // Accumulating output guardrail for streaming: buffer tokens, check at end.
+    let prompt_arc = Arc::new(prompt.to_string());
+    let stream = stream::unfold(
+        (rx, String::new(), false, prompt_arc),
+        move |(mut rx, mut acc, mut flagged, prompt_arc)| async move {
+            if flagged {
+                return None;
             }
-            None => {
-                let event = Event::default().data("[DONE]");
-                Some((Ok(event), rx))
+            match rx.recv().await {
+                Some(token) => {
+                    acc.push_str(&token.token_text);
+                    let data = format!(
+                        r#"{{"token":"{}","position":{}}}"#,
+                        token.token_text, token.position
+                    );
+                    Some((Ok::<_, anyhow::Error>(Event::default().data(data)), (rx, acc, false, prompt_arc)))
+                }
+                None => {
+                    let final_event = if !acc.is_empty() {
+                        match check_output_safety(&prompt_arc, &acc).await {
+                            Ok(()) => Event::default().data("[DONE]"),
+                            Err(e) => {
+                                warn!("Streaming output safety check triggered: {}", e);
+                                Event::default().data(r#"{"token":"[Content filtered by safety guardrail]","position":0}"#)
+                            }
+                        }
+                    } else {
+                        Event::default().data("[DONE]")
+                    };
+                    Some((Ok(final_event), (rx, acc, true, prompt_arc)))
+                }
             }
-        }
-    });
+        },
+    );
 
     Ok(Sse::new(stream))
 }
 
 pub async fn chat(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
@@ -345,6 +748,7 @@ pub async fn chat(
         .get("message")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
 
     if let Err((_status, err_json)) = validate_prompt(message) {
         return Json(json!({
@@ -359,20 +763,42 @@ pub async fn chat(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let truncated = &message[..message.len().min(100)];
+    let session_id = conversation_id.as_deref();
+
+    if let Err((_status, err_json)) = check_jailbreak_input_v2(session_id, client_ip.as_deref(), message).await {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("error").and_then(|v| v.as_str()).unwrap_or("blocked by safety alignment"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(message)
+    };
+
+    let truncated = &sanitized[..sanitized.len().min(100)];
     info!(
         "Chat message: {} [truncated {} chars] (conversation_id: {:?})",
         truncated,
-        message.len().min(100),
+        sanitized.len().min(100),
         conversation_id
     );
 
-    match nexora.chat(message, conversation_id).await {
-        Ok(response) => Json(json!({
-            "success": true,
-            "response": response,
-            "timestamp": chrono::Utc::now().to_rfc3339()
-        })),
+    match nexora.chat(&sanitized, conversation_id).await {
+        Ok(mut response) => {
+            if let Err(e) = check_output_safety(message, &response).await {
+                warn!("Chat output safety check triggered: {}", e);
+                response = "[Content filtered by safety guardrail]".to_string();
+            }
+
+            Json(json!({
+                "success": true,
+                "response": response,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }))
+        }
         Err(e) => {
             if let Some(m) = metrics_collector() {
                 m.record_request(false, start.elapsed().as_secs_f64());
@@ -388,10 +814,12 @@ pub async fn chat(
 }
 
 pub async fn analyze_code(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
 
     if let Err((_status, err_json)) = validate_prompt(code) {
         return Json(json!({
@@ -401,27 +829,47 @@ pub async fn analyze_code(
         }));
     }
 
+    if let Err((_status, err_json)) = check_jailbreak_input_v2(None, client_ip.as_deref(), code).await {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("error").and_then(|v| v.as_str()).unwrap_or("blocked by safety alignment"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
     let language = payload
         .get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(code)
+    };
+
     info!(
         "Analyzing code: {} chars, language: {}",
-        code.len(),
+        sanitized.len(),
         language
     );
 
-    match nexora.analyze_code(code, language).await {
-        Ok(analysis) => Json(json!({
-            "success": true,
-            "analysis": analysis,
-            "metadata": {
-                "code_length": code.len(),
-                "language": language,
-                "timestamp": chrono::Utc::now().to_rfc3339()
+    match nexora.analyze_code(&sanitized, language).await {
+        Ok(mut analysis) => {
+            if let Err(e) = check_output_safety(code, &analysis).await {
+                warn!("Code analysis output safety check triggered: {}", e);
+                analysis = "[Content filtered by safety guardrail]".to_string();
             }
-        })),
+
+            Json(json!({
+                "success": true,
+                "analysis": analysis,
+                "metadata": {
+                    "code_length": code.len(),
+                    "language": language,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            }))
+        }
         Err(e) => {
             error!("Code analysis failed: {}", e);
             Json(json!({
@@ -434,6 +882,7 @@ pub async fn analyze_code(
 }
 
 pub async fn generate_code(
+    headers: HeaderMap,
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
@@ -441,6 +890,7 @@ pub async fn generate_code(
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let client_ip = client_ip_from_headers(&headers);
 
     if let Err((_status, err_json)) = validate_prompt(description) {
         return Json(json!({
@@ -450,26 +900,46 @@ pub async fn generate_code(
         }));
     }
 
+    if let Err((_status, err_json)) = check_jailbreak_input_v2(None, client_ip.as_deref(), description).await {
+        return Json(json!({
+            "success": false,
+            "error": err_json.get("error").and_then(|v| v.as_str()).unwrap_or("blocked by safety alignment"),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        }));
+    }
+
     let language = payload
         .get("language")
         .and_then(|v| v.as_str())
         .unwrap_or("rust");
 
+    let sanitized = {
+        let validator = init_security_validator();
+        validator.sanitize_input(description)
+    };
+
     info!(
         "Generating code: description='{}', language='{}'",
-        description, language
+        sanitized, language
     );
 
-    match nexora.generate_code(description, language).await {
-        Ok(code) => Json(json!({
-            "success": true,
-            "generated_code": code,
-            "metadata": {
-                "description": description,
-                "language": language,
-                "timestamp": chrono::Utc::now().to_rfc3339()
+    match nexora.generate_code(&sanitized, language).await {
+        Ok(mut code) => {
+            if let Err(e) = check_output_safety(description, &code).await {
+                warn!("Code generation output safety check triggered: {}", e);
+                code = "[Content filtered by safety guardrail]".to_string();
             }
-        })),
+
+            Json(json!({
+                "success": true,
+                "generated_code": code,
+                "metadata": {
+                    "description": description,
+                    "language": language,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                }
+            }))
+        }
         Err(e) => {
             error!("Code generation failed: {}", e);
             Json(json!({
@@ -699,30 +1169,6 @@ fn validate_admin(
             Json(json!({"error": "Forbidden: admin authentication required"})),
         ))
     }
-}
-
-/// GET /api/tiers — show loaded tiers, VRAM usage, hit counts
-pub async fn tier_status(
-    Extension(nexora): Extension<Arc<NexoraAI>>,
-) -> Json<Value> {
-    let loaded_tiers: Vec<String> = nexora.tier_router().loaded_tiers()
-        .iter()
-        .map(|t| format!("{:?}", t))
-        .collect();
-    let hit_counts: Vec<Value> = nexora.tier_router().hit_counts()
-        .iter()
-        .map(|(t, c)| json!({ "tier": format!("{:?}", t), "hits": c }))
-        .collect();
-
-    Json(json!({
-        "loaded_tiers": loaded_tiers,
-        "vram_used_mb": nexora.tier_router().total_vram_used_mb(),
-        "vram_budget_mb": nexora.tier_router().config().vram_budget_mb,
-        "eviction_threshold": nexora.tier_router().config().eviction_threshold,
-        "max_tiers_in_vram": nexora.tier_router().config().max_tiers_in_vram,
-        "tier_hit_counts": hit_counts,
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    }))
 }
 
 pub async fn index() -> Html<&'static str> {

@@ -6,7 +6,7 @@ use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -29,6 +29,7 @@ pub use core::*;
 pub use server::{NexoraServer, ServerConfig};
 
 // --- Foundation model integration ---
+use nexora_alignment::sparo::SparoSystem;
 use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::global_registry};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 
@@ -36,7 +37,8 @@ use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis};
 
 // --- Tier Router ---
-use crate::core::tier_router::{TierRouter, TierRouterConfig};
+use crate::core::debate::DebateOrchestrator;
+use crate::core::tier_router::IntentRouter;
 
 /// Route a prompt through the active model's delegation agent.
 /// Each agent classifies the input, applies domain-specific framing,
@@ -136,6 +138,9 @@ pub async fn create_inference_engine_inner(
     }
 }
 
+/// SPARO alignment instance shared across all agent inference calls.
+static AGENT_SPARO: OnceLock<SparoSystem> = OnceLock::new();
+
 /// Adapter that bridges the inference engine to the agent system's InferenceEngine trait
 struct NexoraInferenceEngine {
     engine: Arc<nexora_inference::InferenceEngineStruct>,
@@ -145,6 +150,46 @@ struct NexoraInferenceEngine {
 impl NexoraInferenceEngine {
     fn new(engine: Arc<nexora_inference::InferenceEngineStruct>, model_id: String) -> Self {
         Self { engine, model_id }
+    }
+
+    fn sparo() -> &'static SparoSystem {
+        AGENT_SPARO.get_or_init(SparoSystem::new)
+    }
+
+    async fn check_input(prompt: &str) -> nexora_agent::Result<()> {
+        match Self::sparo().align_behavior(prompt, "").await {
+            Ok(result) if result.safety_level == "blocked" => {
+                warn!("SPARO agent blocked prompt: score={:.3}", result.alignment_score);
+                return Err(nexora_agent::AgentError::ProcessingError {
+                    operation: "generate_tokens".to_string(),
+                    reason: format!("Prompt rejected by safety alignment (score={:.3})", result.alignment_score),
+                });
+            }
+            Err(e) => warn!("SPARO agent alignment failed (non-fatal): {}", e),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn check_output(prompt: &str, output: &str) -> nexora_agent::Result<()> {
+        if crate::security::SecurityUtils::is_dangerous_content(output) {
+            return Err(nexora_agent::AgentError::ProcessingError {
+                operation: "generate_tokens".to_string(),
+                reason: "Output contains sensitive information".to_string(),
+            });
+        }
+        match Self::sparo().align_behavior(output, prompt).await {
+            Ok(result) if result.safety_level == "blocked" || result.alignment_score < 0.3 => {
+                warn!("SPARO agent blocked output: score={:.3}", result.alignment_score);
+                return Err(nexora_agent::AgentError::ProcessingError {
+                    operation: "generate_tokens".to_string(),
+                    reason: format!("Output rejected by safety alignment (score={:.3})", result.alignment_score),
+                });
+            }
+            Err(e) => warn!("SPARO agent output check failed (non-fatal): {}", e),
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -160,6 +205,8 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
         prompt: &str,
         max_tokens: u32,
     ) -> nexora_agent::Result<String> {
+        Self::check_input(prompt).await?;
+
         let request = nexora_inference::InferenceRequest {
             request_id: Uuid::new_v4(),
             model_id: self.model_id.clone(),
@@ -179,6 +226,8 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
                 operation: "generate_tokens".to_string(),
                 reason: e.to_string(),
             })?;
+
+        Self::check_output(prompt, &response.text).await?;
         Ok(response.text)
     }
 
@@ -188,6 +237,8 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
         prompt: &str,
         max_tokens: u32,
     ) -> nexora_agent::Result<Box<dyn futures::Stream<Item = nexora_agent::Result<String>> + Send>> {
+        Self::check_input(prompt).await?;
+
         let request = nexora_inference::InferenceRequest {
             request_id: Uuid::new_v4(),
             model_id: self.model_id.clone(),
@@ -207,6 +258,8 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
                 operation: "stream_tokens".to_string(),
                 reason: e.to_string(),
             })?;
+
+        Self::check_output(prompt, &response.text).await?;
         let stream = futures::stream::once(async move { Ok(response.text) });
         Ok(Box::new(stream))
     }
@@ -239,8 +292,8 @@ pub struct NexoraAI {
     /// Foundation model registry (all registered NXR models)
     registry: Arc<nexora_foundation::shared::model_registry::NxrModelRegistry>,
 
-    /// Tier Router — classifies user input → (tier, model), manages VRAM/LRU
-    tier_router: Arc<TierRouter>,
+    /// Intent Router — classifies user input → model, tanpa tier / VRAM
+    intent_router: Arc<IntentRouter>,
 
     /// Active model ID currently in use (default: Omnis, used as fallback)
     active_model_id: NxrModelId,
@@ -323,16 +376,10 @@ impl NexoraAI {
 
         let registry = global_registry();
 
-        // Step 2: Initialize Tier Router — classifies input → (tier, model) on each request
-        let tier_config = TierRouterConfig {
-            max_tiers_in_vram: config.core.max_tiers_in_vram,
-            vram_budget_mb: config.core.vram_budget_mb,
-            eviction_threshold: config.core.eviction_threshold,
-        };
-        let tier_router = Arc::new(TierRouter::new(tier_config));
-        info!("TierRouter initialized (max {} tiers in VRAM, {} MB budget)", 
-            tier_router.config().max_tiers_in_vram,
-            tier_router.config().vram_budget_mb);
+        // Step 2: Initialize Intent Router — classifies input → model
+        // Semua model pakai satu shared backbone (no tiers, no VRAM eviction)
+        let intent_router = Arc::new(IntentRouter::new());
+        info!("IntentRouter initialized (single shared backbone — no tiers)");
 
         // Fallback active model ID for inference engine (default: Swift/Edge for lightweight streaming)
         let active_model_id = config.models.active_model.unwrap_or(NxrModelId::Swift);
@@ -460,7 +507,7 @@ impl NexoraAI {
 
         Ok(Self {
             registry: registry.clone(),
-            tier_router,
+            intent_router,
             active_model_id,
             inference_engine,
             config,
@@ -482,9 +529,9 @@ impl NexoraAI {
         self.active_model_id
     }
 
-    /// Get the TierRouter for observability and direct access
-    pub fn tier_router(&self) -> &Arc<TierRouter> {
-        &self.tier_router
+    /// Get the IntentRouter for observability and direct access
+    pub fn intent_router(&self) -> &Arc<IntentRouter> {
+        &self.intent_router
     }
 
     /// Get system information
@@ -506,14 +553,6 @@ impl NexoraAI {
     /// Get performance metrics
     pub async fn get_performance_metrics(&self) -> NexoraResult<serde_json::Value> {
         let system_info = self.get_system_info().await?;
-        let loaded_tiers: Vec<String> = self.tier_router.loaded_tiers()
-            .iter()
-            .map(|t| format!("{:?}", t))
-            .collect();
-        let hit_counts: Vec<serde_json::Value> = self.tier_router.hit_counts()
-            .iter()
-            .map(|(t, c)| serde_json::json!({ "tier": format!("{:?}", t), "hits": c }))
-            .collect();
         Ok(serde_json::json!({
             "cpu_usage": system_info.cpu_usage,
             "memory_usage": system_info.memory_usage,
@@ -523,9 +562,7 @@ impl NexoraAI {
             "request_count": self.request_count.load(Ordering::Relaxed),
             "uptime_seconds": (Utc::now() - self.start_time).num_seconds(),
             "inference_engine_model": format!("{}", self.active_model_id),
-            "loaded_tiers": loaded_tiers,
-            "vram_used_mb": self.tier_router.total_vram_used_mb(),
-            "tier_hit_counts": hit_counts,
+            "backend": "single shared backbone (no tiers)",
         }))
     }
 
@@ -591,9 +628,9 @@ impl NexoraAI {
             .map_err(|e| NexoraError::model(format!("Streaming inference failed: {}", e)))
     }
 
-    /// Generate text using TierRouter → delegation agent (lazy tier loading).
-    /// TierRouter classifies input intent, selects the best model/tier,
-    /// and ensures the tier backbone is loaded before delegation.
+    /// Generate text using IntentRouter → delegation agent.
+    /// IntentRouter classifies input intent, selects the best model,
+    /// dan otomatis mengundang model lain untuk debat & voting jika diperlukan.
     pub async fn generate_text(
         &self,
         prompt: &str,
@@ -616,37 +653,51 @@ impl NexoraAI {
             ));
         }
 
-        // Route user input → (model, tier, intent)
-        let route = self.tier_router.route(prompt);
+        // Route user input → (model, intent)
+        let route = self.intent_router.route(prompt);
         info!(
-            "TierRouter routed: intent={:?} → model={} tier={:?} (confidence={})",
-            route.intent, route.model_id, route.tier, route.confidence
+            "IntentRouter routed: intent={:?} → model={} (confidence={})",
+            route.intent, route.model_id, route.confidence
         );
 
-        // Ensure tier backbone is loaded (lazy — resolve_tier_backbone)
-        if let Err(e) = nexora_transformer::resolve_tier_backbone(route.tier) {
-            warn!("Failed to load tier {:?} backbone: {}, using default", route.tier, e);
-        }
-        self.tier_router.mark_tier_used(route.tier);
+        // Cek apakah prompt ini butuh multi-model debate
+        if self.intent_router.requires_debate(prompt, route.intent) {
+            info!(
+                "🎯 Multi-model debate triggered for intent={:?} (primary: {})",
+                route.intent, route.model_id
+            );
 
-        // Evict stale tiers if VRAM budget exceeded
-        let vram_used = self.tier_router.total_vram_used_mb();
-        if self.tier_router.should_evict(vram_used) {
-            if let Some(evict_tier) = self.tier_router.lru_eviction_candidate() {
-                if evict_tier != route.tier {
-                    info!("Evicting tier {:?} to free VRAM ({} MB used / {} MB budget)", 
-                        evict_tier, vram_used, self.tier_router.config().vram_budget_mb);
-                    let _ = nexora_transformer::unload_tier_backbone(evict_tier);
-                }
-            }
-        }
+            // Orchestrator handle semuanya secara internal:
+            // - Cost Controller (complexity → debate depth)
+            // - Dynamic Participant Selection (capability scoring)
+            // - Shared Context Bus (compressed summaries)
+            // - Hub-and-Spoke (Nexum sebagai moderator)
+            // - Weighted Voting (berdasarkan tier)
+            // - Verifier Layer (echo chamber prevention)
+            // - Top-K Synthesis (insight dari semua model)
+            // - Failure Mode (timeout + graceful fallback)
+            let orchestrator = DebateOrchestrator::new(Default::default());
+            let debate_result = orchestrator
+                .orchestrate(prompt, route.model_id)
+                .await;
 
-        let result = delegate_for_model(route.model_id, prompt).await;
-        Ok(result)
+            info!(
+                "Debate complete: winner={} consensus={} rounds={} depth={:?} complexity={:.2}",
+                debate_result.winner, debate_result.consensus,
+                debate_result.round_count, debate_result.depth,
+                debate_result.complexity_score
+            );
+
+            Ok(debate_result.final_response)
+        } else {
+            // Single backbone auto-loaded on first access by delegation agents
+            let result = delegate_for_model(route.model_id, prompt).await;
+            Ok(result)
+        }
     }
 
-    /// Chat conversation using TierRouter → delegation agent (lazy tier loading).
-    /// Each message is classified by TierRouter to select the optimal model/tier.
+    /// Chat conversation using IntentRouter → delegation agent.
+    /// Each message is classified by IntentRouter to select the optimal model.
     pub async fn chat(
         &self,
         message: &str,
@@ -659,31 +710,14 @@ impl NexoraAI {
             ));
         }
 
-        // Route user input → (model, tier, intent)
-        let route = self.tier_router.route(message);
+        // Route user input → (model, intent)
+        let route = self.intent_router.route(message);
         info!(
-            "TierRouter routed chat: intent={:?} → model={} tier={:?} (confidence={}), conversation_id={:?}",
-            route.intent, route.model_id, route.tier, route.confidence, conversation_id
+            "IntentRouter routed chat: intent={:?} → model={} (confidence={}), conversation_id={:?}",
+            route.intent, route.model_id, route.confidence, conversation_id
         );
 
-        // Ensure tier backbone is loaded (lazy)
-        if let Err(e) = nexora_transformer::resolve_tier_backbone(route.tier) {
-            warn!("Failed to load tier {:?} backbone: {}, using default", route.tier, e);
-        }
-        self.tier_router.mark_tier_used(route.tier);
-
-        // Evict stale tiers if VRAM budget exceeded
-        let vram_used = self.tier_router.total_vram_used_mb();
-        if self.tier_router.should_evict(vram_used) {
-            if let Some(evict_tier) = self.tier_router.lru_eviction_candidate() {
-                if evict_tier != route.tier {
-                    info!("Evicting tier {:?} to free VRAM ({} MB used / {} MB budget)", 
-                        evict_tier, vram_used, self.tier_router.config().vram_budget_mb);
-                    let _ = nexora_transformer::unload_tier_backbone(evict_tier);
-                }
-            }
-        }
-
+        // Single backbone auto-loaded on first access by delegation agents
         let result = delegate_for_model(route.model_id, message).await;
         Ok(result)
     }

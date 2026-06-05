@@ -1,7 +1,6 @@
 use crate::classifier_util;
 use crate::foundation::NxrSwiftModel;
 use crate::swift::classifier;
-use crate::swift::classifier::TaskClassifier;
 use nexora_has_moe_ffn::Router;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -26,7 +25,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                TaskClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }

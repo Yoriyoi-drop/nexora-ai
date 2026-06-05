@@ -1,5 +1,6 @@
 use super::plan::{BillingPlan, TierName};
 use super::usage::UsageTracker;
+use std::sync::Arc;
 
 pub enum QuotaDecision {
     Allowed,
@@ -15,11 +16,11 @@ impl QuotaDecision {
 }
 
 pub struct QuotaEnforcer {
-    usage_tracker: UsageTracker,
+    usage_tracker: Arc<UsageTracker>,
 }
 
 impl QuotaEnforcer {
-    pub fn new(usage_tracker: UsageTracker) -> Self {
+    pub fn new(usage_tracker: Arc<UsageTracker>) -> Self {
         Self { usage_tracker }
     }
 

@@ -17,7 +17,7 @@
 //   4. sync_gpu_to_paged() reads back the NEW tokens from GPU entries and
 //      appends them to paged cache blocks for block-level consistency
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use nexora_transformer::{KVCacheEntry, KVCacheProvider};
 use tracing::warn;
@@ -28,9 +28,14 @@ use crate::paged_cache::{PagedCacheConfig, PagedKVCache};
 use nexora_transformer::GpuKVCacheEntry;
 
 /// Wraps a `PagedKVCache` and presents it as a `KVCacheProvider`.
+///
+/// Single-write design: when GPU entries are active, `append()` writes ONLY to
+/// GPU (never to the CPU paged cache). The CPU paged cache blocks are written
+/// only by `sync_gpu_to_paged()` (lazy batched sync). This eliminates redundant
+/// CPU-side RwLock acquisition + block allocation on every `append()` call.
 pub struct PagedKVCacheProvider {
     seq_id: u64,
-    cache: Arc<Mutex<PagedKVCache>>,
+    cache: Arc<RwLock<PagedKVCache>>,
     num_layers: usize,
     /// Lazy flat mirror for `as_cpu_entries()`.
     flat: Vec<KVCacheEntry>,
@@ -40,8 +45,9 @@ pub struct PagedKVCacheProvider {
     /// These tokens' KV blocks are shared with another sequence via refcount.
     shared_prefix_tokens: usize,
     /// GPU mirror: GpuKVCacheEntry per layer exposed via as_gpu_entries().
-    /// When GPU is available, append() writes to both paged cache blocks AND
-    /// these GPU entries. GPU forward methods operate on these entries directly.
+    /// When GPU is available, `append()` writes ONLY to these entries
+    /// (single-write). The CPU paged cache is synced lazily via
+    /// `sync_gpu_to_paged()`.
     #[cfg(feature = "gpu")]
     gpu_entries: Vec<GpuKVCacheEntry>,
     #[cfg(feature = "gpu")]
@@ -50,6 +56,11 @@ pub struct PagedKVCacheProvider {
     gpu_head_dim: usize,
     #[cfg(feature = "gpu")]
     gpu_max_seq_len: usize,
+    /// When true, GPU entries are the primary storage. `append()` skips the
+    /// CPU paged cache write, and `ensure_flat_synced()` reads from GPU entries
+    /// instead of from paged cache blocks.
+    #[cfg(feature = "gpu")]
+    gpu_primary: bool,
 }
 
 impl PagedKVCacheProvider {
@@ -58,7 +69,7 @@ impl PagedKVCacheProvider {
         cache.register_sequence(seq_id);
         Self {
             seq_id,
-            cache: Arc::new(Mutex::new(cache)),
+            cache: Arc::new(RwLock::new(cache)),
             num_layers: config.num_layers,
             flat: Vec::new(),
             dirty: false,
@@ -72,17 +83,19 @@ impl PagedKVCacheProvider {
             gpu_head_dim: config.head_dim,
             #[cfg(feature = "gpu")]
             gpu_max_seq_len: config.max_seq_len,
+            #[cfg(feature = "gpu")]
+            gpu_primary: false,
         }
     }
 
     pub fn new_shared(
         seq_id: u64,
-        cache: Arc<Mutex<PagedKVCache>>,
+        cache: Arc<RwLock<PagedKVCache>>,
         num_layers: usize,
     ) -> Self {
         // Read dimensions from the underlying paged cache config
         let (num_kv_heads, head_dim, max_seq_len) = {
-            let guard = match cache.lock() {
+            let guard = match cache.read() {
                 Ok(g) => g,
                 Err(e) => {
                     warn!("paged cache lock poisoned in new_shared: {}", e);
@@ -93,7 +106,7 @@ impl PagedKVCacheProvider {
             (cfg.num_kv_heads, cfg.head_dim, cfg.max_seq_len)
         };
         {
-            let mut guard = match cache.lock() {
+            let mut guard = match cache.write() {
                 Ok(g) => g,
                 Err(e) => {
                     warn!("paged cache lock poisoned in new_shared (register): {}", e);
@@ -118,6 +131,8 @@ impl PagedKVCacheProvider {
             gpu_head_dim: head_dim,
             #[cfg(feature = "gpu")]
             gpu_max_seq_len: max_seq_len,
+            #[cfg(feature = "gpu")]
+            gpu_primary: false,
         }
     }
 
@@ -125,7 +140,7 @@ impl PagedKVCacheProvider {
         self.seq_id
     }
 
-    pub fn cache_arc(&self) -> &Arc<Mutex<PagedKVCache>> {
+    pub fn cache_arc(&self) -> &Arc<RwLock<PagedKVCache>> {
         &self.cache
     }
 
@@ -141,7 +156,17 @@ impl PagedKVCacheProvider {
         if !self.dirty {
             return;
         }
-        let guard = match self.cache.lock() {
+
+        // Single-write: when GPU is primary, read flat from GPU entries directly
+        #[cfg(feature = "gpu")]
+        if self.gpu_primary && !self.gpu_entries.is_empty() && self.total_tokens > 0 {
+            self.flat = self.read_flat_from_gpu();
+            self.dirty = false;
+            return;
+        }
+
+        // Fallback: read from paged cache blocks (CPU-only mode or after sync)
+        let guard = match self.cache.read() {
             Ok(g) => g,
             Err(e) => {
                 warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
@@ -152,6 +177,35 @@ impl PagedKVCacheProvider {
             self.flat = entries;
         }
         self.dirty = false;
+    }
+
+    /// Read all tokens from GPU entries into a flat Vec<KVCacheEntry>.
+    /// Used by ensure_flat_synced() when GPU is the primary storage.
+    #[cfg(feature = "gpu")]
+    fn read_flat_from_gpu(&self) -> Vec<KVCacheEntry> {
+        let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
+        let mut entries = Vec::with_capacity(self.num_layers);
+        for layer in 0..self.num_layers {
+            let mut k = Vec::with_capacity(self.total_tokens * kv_elems);
+            let mut v = Vec::with_capacity(self.total_tokens * kv_elems);
+            if layer < self.gpu_entries.len() {
+                for pos in 0..self.total_tokens.min(self.gpu_entries[layer].seq_len) {
+                    if let Some((k_row, v_row)) = self.gpu_entries[layer].read_token_cpu(pos) {
+                        k.extend_from_slice(&k_row);
+                        v.extend_from_slice(&v_row);
+                    }
+                }
+            }
+            entries.push(KVCacheEntry {
+                k,
+                v,
+                kv_dim: kv_elems,
+                num_kv_heads: self.gpu_num_kv_heads,
+                head_dim: self.gpu_head_dim,
+                ..Default::default()
+            });
+        }
+        entries
     }
 
     /// Initialize GPU entries if they haven't been created yet.
@@ -185,6 +239,9 @@ impl PagedKVCacheProvider {
 
         // Sync existing paged cache data into the freshly created GPU entries
         self.sync_paged_to_gpu();
+
+        // Switch to single-write mode: future append() writes to GPU only
+        self.gpu_primary = true;
     }
 
     /// Sync all existing paged cache data INTO GPU entries.
@@ -202,7 +259,7 @@ impl PagedKVCacheProvider {
         let _kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
 
         // For each layer, read existing tokens from paged cache and upload to GPU
-        let guard = match self.cache.lock() {
+        let guard = match self.cache.read() {
             Ok(g) => g,
             Err(e) => {
                 warn!("paged cache lock poisoned in sync_paged_to_gpu: {}", e);
@@ -263,7 +320,7 @@ impl PagedKVCacheProvider {
                     Some(kv) => kv,
                     None => continue,
                 };
-                let mut guard = match self.cache.lock() {
+                let mut guard = match self.cache.write() {
                     Ok(g) => g,
                     Err(e) => {
                         warn!("paged cache lock poisoned in sync_gpu_to_paged: {}", e);
@@ -303,7 +360,26 @@ impl PagedKVCacheProvider {
 impl KVCacheProvider for PagedKVCacheProvider {
     fn append(&mut self, layer_idx: usize, k: &[f32], v: &[f32]) {
         let token_pos = self.total_tokens;
-        let mut guard = match self.cache.lock() {
+
+        // Single-write: GPU is primary → write to GPU only, skip CPU paged cache
+        #[cfg(feature = "gpu")]
+        if self.gpu_primary && !self.gpu_entries.is_empty() && layer_idx < self.gpu_entries.len() {
+            let shape = vec![1, self.gpu_num_kv_heads, self.gpu_head_dim];
+            if let (Ok(k_gpu), Ok(v_gpu)) = (
+                nexora_autograd::gpu::GpuTensor::from_slice(shape.clone(), k),
+                nexora_autograd::gpu::GpuTensor::from_slice(shape, v),
+            ) {
+                if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
+                    let _ = self.gpu_entries[layer_idx].append(ctx, &k_gpu, &v_gpu);
+                }
+            }
+            self.total_tokens += 1;
+            self.dirty = true;
+            return;
+        }
+
+        // No GPU entries or GPU inactive → write to paged cache blocks (CPU-only mode)
+        let mut guard = match self.cache.write() {
             Ok(g) => g,
             Err(e) => {
                 warn!("paged cache lock poisoned in append: {}", e);
@@ -314,30 +390,6 @@ impl KVCacheProvider for PagedKVCacheProvider {
         drop(guard);
         self.total_tokens += 1;
         self.dirty = true;
-
-        // Also append to GPU entries if they exist
-        #[cfg(feature = "gpu")]
-        if !self.gpu_entries.is_empty() && layer_idx < self.gpu_entries.len() {
-            if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
-                if let (Ok(k_arr), Ok(v_arr)) = (
-                    ndarray::ArrayD::from_shape_vec(
-                        vec![1, self.gpu_num_kv_heads, self.gpu_head_dim],
-                        k.to_vec(),
-                    ),
-                    ndarray::ArrayD::from_shape_vec(
-                        vec![1, self.gpu_num_kv_heads, self.gpu_head_dim],
-                        v.to_vec(),
-                    ),
-                ) {
-                    if let (Ok(k_gpu), Ok(v_gpu)) = (
-                        nexora_autograd::gpu::GpuTensor::from_cpu(&k_arr),
-                        nexora_autograd::gpu::GpuTensor::from_cpu(&v_arr),
-                    ) {
-                        let _ = self.gpu_entries[layer_idx].append(ctx, &k_gpu, &v_gpu);
-                    }
-                }
-            }
-        }
     }
 
     fn get_k(&self, _layer_idx: usize) -> &[f32] {
@@ -361,7 +413,7 @@ impl KVCacheProvider for PagedKVCacheProvider {
         }
         #[cfg(feature = "gpu")]
         self.gpu_entries.clear();
-        let mut guard = match self.cache.lock() {
+        let mut guard = match self.cache.write() {
             Ok(g) => g,
             Err(e) => {
                 warn!("paged cache lock poisoned in clear: {}", e);
@@ -404,7 +456,7 @@ impl KVCacheProvider for PagedKVCacheProvider {
 
 impl Drop for PagedKVCacheProvider {
     fn drop(&mut self) {
-        if let Ok(mut guard) = self.cache.lock() {
+        if let Ok(mut guard) = self.cache.write() {
             guard.remove_sequence(self.seq_id);
         }
     }

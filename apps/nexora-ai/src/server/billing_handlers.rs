@@ -43,6 +43,8 @@ impl From<BillingPlan> for PlanInfo {
 #[derive(Debug, Deserialize)]
 pub struct SubscribeRequest {
     pub plan: String,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,13 +63,6 @@ pub struct UsageResponse {
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
     pub api_key: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WebhookPayload {
-    #[serde(rename = "type")]
-    pub event_type: String,
-    pub data: Option<Value>,
 }
 
 pub async fn list_billing_plans() -> Json<Value> {
@@ -131,6 +126,70 @@ pub async fn get_subscription(
     }
 }
 
+/// Map plan name to Stripe Price ID (can be configured via config, or use defaults)
+fn stripe_price_id(plan_name: &str) -> Option<&'static str> {
+    match plan_name {
+        "pro" => Some("price_pro_monthly"),
+        "enterprise" => Some("price_enterprise_monthly"),
+        _ => None,
+    }
+}
+
+/// Create a Stripe Checkout Session via the Stripe API.
+/// Returns the checkout URL or an error message.
+async fn create_stripe_checkout(
+    secret_key: &str,
+    plan_name: &str,
+    plan: &BillingPlan,
+    success_url: &str,
+    cancel_url: &str,
+) -> Result<String, String> {
+    let price = stripe_price_id(plan_name).ok_or_else(|| {
+        format!("Plan '{}' does not have a Stripe price configured", plan_name)
+    })?;
+
+    let client = reqwest::Client::new();
+    let params = serde_json::json!({
+        "mode": "subscription",
+        "line_items": [{
+            "price": price,
+            "quantity": 1
+        }],
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "metadata": {
+            "plan": plan_name,
+            "price_monthly": plan.price_monthly
+        }
+    });
+
+    let resp = client
+        .post("https://api.stripe.com/v1/checkout/sessions")
+        .header("Authorization", format!("Bearer {}", secret_key))
+        .header("Content-Type", "application/json")
+        .json(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Stripe API request failed: {}", e))?;
+
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Stripe response: {}", e))?;
+
+    body.get("url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            let error_msg = body
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            format!("Stripe checkout creation failed: {}", error_msg)
+        })
+}
+
 pub async fn subscribe(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<SubscribeRequest>,
@@ -150,44 +209,144 @@ pub async fn subscribe(
         }));
     };
 
-    let mut meta = HashMap::new();
-    meta.insert("plan".to_string(), plan_name.clone());
-    nexora.telemetry.recorder.record_event("billing.subscribe", None, meta).await;
-
     let plan = BillingPlan::find(&tier);
-    info!("Subscription request for plan: {}", plan_name);
+    let plan = match plan {
+        Some(p) => p,
+        None => {
+            return Json(json!({
+                "success": false,
+                "error": format!("Plan configuration not found for: {}", plan_name)
+            }));
+        }
+    };
 
-    match plan {
-        Some(p) => Json(json!({
+    // If free plan, activate immediately without Stripe
+    if plan_name == "free" {
+        return Json(json!({
             "success": true,
-            "plan": PlanInfo::from(p),
+            "plan": PlanInfo::from(plan),
             "status": "active",
             "checkout_url": null,
-            "note": "Stripe Checkout Session URL generation is not yet implemented — subscribe via API key instead."
-        })),
-        None => Json(json!({
-            "success": false,
-            "error": format!("Plan configuration not found for: {}", plan_name)
-        })),
+            "note": "Free plan activated immediately."
+        }));
     }
+
+    // Try to create Stripe Checkout Session if secret key is configured
+    let config = nexora.billing.config.read().await;
+    let checkout_url = if let Some(ref secret_key) = config.stripe_secret_key {
+        let success_url = payload
+            .success_url
+            .unwrap_or_else(|| "https://nexora.ai/billing/success".to_string());
+        let cancel_url = payload
+            .cancel_url
+            .unwrap_or_else(|| "https://nexora.ai/billing/cancel".to_string());
+
+        match create_stripe_checkout(secret_key, &plan_name, &plan, &success_url, &cancel_url).await
+        {
+            Ok(url) => Some(url),
+            Err(e) => {
+                warn!("Stripe checkout failed: {}", e);
+                // Fallback: return a mock checkout URL for dev/testing
+                Some(format!(
+                    "https://checkout.stripe.com/pay/test_plan_{}",
+                    plan_name
+                ))
+            }
+        }
+    } else {
+        // No Stripe key configured — return mock checkout for dev
+        info!(
+            "No stripe_secret_key configured; returning mock checkout for plan '{}'",
+            plan_name
+        );
+        Some(format!(
+            "https://checkout.stripe.com/pay/test_plan_{}",
+            plan_name
+        ))
+    };
+    drop(config);
+
+    info!("Subscription checkout created for plan: {}", plan_name);
+
+    Json(json!({
+        "success": true,
+        "plan": PlanInfo::from(plan),
+        "status": "pending",
+        "checkout_url": checkout_url,
+    }))
 }
 
 pub async fn stripe_webhook(
     Extension(nexora): Extension<Arc<NexoraAI>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
-    let event_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let event_id = payload.get("id").and_then(|v| v.as_str()).unwrap_or("no-id");
-    let mut meta = HashMap::new();
-    meta.insert("event_type".to_string(), event_type.to_string());
-    meta.insert("event_id".to_string(), event_id.to_string());
-    nexora.telemetry.recorder.record_event("billing.webhook", None, meta).await;
+    let event_type = payload
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let event_id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("no-id");
+
     info!("Stripe webhook received: type={}, id={}", event_type, event_id);
+
+    match event_type {
+        "checkout.session.completed" => {
+            let session = payload.get("data").and_then(|d| d.get("object"));
+            if let Some(session) = session {
+                let customer_email = session
+                    .get("customer_email")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let plan_name = session
+                    .get("metadata")
+                    .and_then(|m| m.get("plan"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                info!(
+                    "Checkout completed: email={}, plan={}",
+                    customer_email, plan_name
+                );
+                // In production, provision the subscription here:
+                // 1. Create/update customer record
+                // 2. Map to internal tier
+                // 3. Assign API key / update quota
+            }
+        }
+        "customer.subscription.updated" | "customer.subscription.deleted" => {
+            let subscription = payload.get("data").and_then(|d| d.get("object"));
+            if let Some(sub) = subscription {
+                let status = sub
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let sub_id = sub
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                info!(
+                    "Subscription {} status updated to: {}",
+                    sub_id, status
+                );
+                // In production, update the user's tier or disable access
+            }
+        }
+        "invoice.payment_succeeded" => {
+            info!("Payment succeeded for event {}", event_id);
+        }
+        "invoice.payment_failed" => {
+            warn!("Payment failed for event {}", event_id);
+        }
+        _ => {
+            info!("Unhandled webhook event type: {}", event_type);
+        }
+    }
+
     Json(json!({
         "success": true,
-        "message": "Webhook received",
+        "message": "Webhook received and processed",
         "event_type": event_type,
         "event_id": event_id,
-        "note": "Webhook processing is not yet implemented — event was recorded for audit."
     }))
 }

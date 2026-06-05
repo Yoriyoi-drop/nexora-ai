@@ -14,21 +14,21 @@ type FilterArc = Arc<dyn Filter>;
 
 #[derive(Debug, Clone)]
 pub struct GraphNode {
-    pub id: String,
+    pub id: Arc<str>,
     pub filter: FilterArc,
-    pub depends_on: Vec<String>,
-    pub children: Vec<String>,
+    pub depends_on: Vec<Arc<str>>,
+    pub children: Vec<Arc<str>>,
     pub concurrent: bool,
     pub priority: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct ExecutionGraph {
-    pub nodes: HashMap<String, GraphNode>,
-    pub entry_points: Vec<String>,
-    pub exit_points: Vec<String>,
+    pub nodes: HashMap<Arc<str>, GraphNode>,
+    pub entry_points: Vec<Arc<str>>,
+    pub exit_points: Vec<Arc<str>>,
     pub metrics: Arc<RwLock<PipelineMetrics>>,
-    cached_order: Arc<RwLock<Option<Vec<String>>>>,
+    cached_order: Arc<RwLock<Option<Vec<Arc<str>>>>>,
     semaphore: Arc<Semaphore>,
 }
 
@@ -52,30 +52,29 @@ impl ExecutionGraph {
         concurrent: bool,
         priority: u8,
     ) {
-        let children = Vec::new();
+        let id: Arc<str> = Arc::from(id);
+        let depends_on: Vec<Arc<str>> = depends_on.into_iter().map(Arc::from).collect();
         let node = GraphNode {
-            id: id.to_string(),
+            id: id.clone(),
             filter,
             depends_on,
-            children,
+            children: Vec::new(),
             concurrent,
             priority,
         };
-        self.nodes.insert(id.to_string(), node);
+        self.nodes.insert(id, node);
     }
 
     pub fn finalize(&mut self) {
-        let mut is_entry = HashSet::with_capacity(self.nodes.len());
-        let mut has_deps = HashSet::with_capacity(self.nodes.len());
-        let mut child_updates: Vec<(String, String)> = Vec::with_capacity(self.nodes.len());
+        let mut is_entry: HashSet<Arc<str>> = HashSet::with_capacity(self.nodes.len());
+        let mut child_updates: Vec<(Arc<str>, Arc<str>)> = Vec::with_capacity(self.nodes.len());
 
         for (id, node) in &self.nodes {
             if node.depends_on.is_empty() {
-                is_entry.insert(id.clone());
+                is_entry.insert(Arc::clone(id));
             }
             for dep in &node.depends_on {
-                has_deps.insert(dep.clone());
-                child_updates.push((dep.clone(), id.clone()));
+                child_updates.push((Arc::clone(dep), Arc::clone(id)));
             }
         }
 
@@ -92,7 +91,7 @@ impl ExecutionGraph {
             .keys()
             .filter(|k| {
                 self.nodes
-                    .get(k.as_str())
+                    .get(*k)
                     .map(|n| n.children.is_empty())
                     .unwrap_or(true)
             })
@@ -110,28 +109,28 @@ impl ExecutionGraph {
         );
     }
 
-    fn topological_order_inner(&self) -> Vec<String> {
-        let mut in_degree: HashMap<String, usize> = self
+    fn topological_order_inner(&self) -> Vec<Arc<str>> {
+        let mut in_degree: HashMap<Arc<str>, usize> = self
             .nodes
             .keys()
-            .map(|k| (k.clone(), self.nodes[k].depends_on.len()))
+            .map(|k| (Arc::clone(k), self.nodes[k].depends_on.len()))
             .collect();
 
-        let mut queue: VecDeque<String> = in_degree
+        let mut queue: VecDeque<Arc<str>> = in_degree
             .iter()
             .filter(|(_, &deg)| deg == 0)
-            .map(|(id, _)| id.clone())
+            .map(|(id, _)| Arc::clone(id))
             .collect();
 
         let mut result = Vec::with_capacity(self.nodes.len());
         while let Some(node_id) = queue.pop_front() {
-            result.push(node_id.clone());
+            result.push(Arc::clone(&node_id));
             if let Some(node) = self.nodes.get(&node_id) {
                 for child in &node.children {
                     if let Some(deg) = in_degree.get_mut(child) {
                         *deg = deg.saturating_sub(1);
                         if *deg == 0 {
-                            queue.push_back(child.clone());
+                            queue.push_back(Arc::clone(child));
                         }
                     }
                 }
@@ -139,10 +138,10 @@ impl ExecutionGraph {
         }
 
         if result.len() != self.nodes.len() {
-            let cycle_nodes: Vec<&String> = self
+            let cycle_nodes: Vec<&Arc<str>> = self
                 .nodes
                 .keys()
-                .filter(|id| !result.contains(*id))
+                .filter(|id| !result.contains(id))
                 .collect();
             warn!(
                 "Cycle detected in execution graph — {} nodes are unreachable: {:?}",
@@ -150,17 +149,16 @@ impl ExecutionGraph {
                 cycle_nodes
             );
 
-            // Break the cycle by removing one edge
             let mut broken = false;
             for node_id in &cycle_nodes {
-                if let Some(node) = self.nodes.get(node_id.as_str()) {
+                if let Some(node) = self.nodes.get(*node_id) {
                     for dep in &node.depends_on {
                         if cycle_nodes.contains(&dep) {
                             if let Some(deg) = in_degree.get_mut(*node_id) {
                                 *deg = deg.saturating_sub(1);
                                 warn!("Breaking cycle: removing edge {} -> {}", dep, node_id);
                                 if *deg == 0 {
-                                    queue.push_back((*node_id).clone());
+                                    queue.push_back(Arc::clone(*node_id));
                                 }
                                 broken = true;
                             }
@@ -174,13 +172,13 @@ impl ExecutionGraph {
             }
 
             while let Some(node_id) = queue.pop_front() {
-                result.push(node_id.clone());
+                result.push(Arc::clone(&node_id));
                 if let Some(node) = self.nodes.get(&node_id) {
                     for child in &node.children {
                         if let Some(deg) = in_degree.get_mut(child) {
                             *deg = deg.saturating_sub(1);
                             if *deg == 0 {
-                                queue.push_back(child.clone());
+                                queue.push_back(Arc::clone(child));
                             }
                         }
                     }
@@ -191,7 +189,7 @@ impl ExecutionGraph {
         result
     }
 
-    pub fn topological_order(&self) -> Vec<String> {
+    pub fn topological_order(&self) -> Vec<Arc<str>> {
         self.cached_order
             .read()
             .clone()
@@ -207,22 +205,21 @@ impl ExecutionGraph {
         let mut results: Vec<FilterResult> = Vec::with_capacity(order.len());
         let start = std::time::Instant::now();
 
-        // Group nodes by topological depth for parallel execution
-        let mut node_depths: HashMap<String, usize> = HashMap::new();
-        for node_id in order.iter() {
-            let node = match self.nodes.get(node_id.as_str()) {
+        let mut node_depths: HashMap<Arc<str>, usize> = HashMap::new();
+        for node_id in &order {
+            let node = match self.nodes.get(node_id) {
                 Some(n) => n,
                 None => return ExecutionResult::Cancelled,
             };
             let depth = node
                 .depends_on
                 .iter()
-                .filter_map(|dep| node_depths.get(dep.as_str()))
+                .filter_map(|dep| node_depths.get(dep))
                 .max()
                 .copied()
                 .unwrap_or(0)
                 + 1;
-            node_depths.insert(node_id.clone(), depth);
+            node_depths.insert(Arc::clone(node_id), depth);
         }
 
         let max_depth = node_depths.values().max().copied().unwrap_or(0);
@@ -232,10 +229,10 @@ impl ExecutionGraph {
                 return ExecutionResult::Cancelled;
             }
 
-            let level_nodes: Vec<String> = node_depths
+            let level_nodes: Vec<Arc<str>> = node_depths
                 .iter()
                 .filter(|(_, &d)| d == depth)
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| Arc::clone(id))
                 .collect();
 
             if level_nodes.is_empty() {
@@ -247,58 +244,26 @@ impl ExecutionGraph {
                 None => return ExecutionResult::Cancelled,
             };
             let sample_arc = std::sync::Arc::new(sample_ref);
-            let mut filter_results: Vec<(String, FilterResult)> =
+            let mut filter_results: Vec<(Arc<str>, FilterResult)> =
                 Vec::with_capacity(level_nodes.len());
 
             let mut handles = Vec::with_capacity(level_nodes.len());
-            if level_nodes.len() > 1 {
-                for node_id in &level_nodes {
-                    let permit = self.semaphore.clone().acquire_owned().await;
-                    let permit = match permit {
-                        Ok(p) => p,
-                        Err(_) => return ExecutionResult::Cancelled,
-                    };
-                    let filter = self.nodes[node_id].filter.clone();
-                    let sample = sample_arc.clone();
-                    let node_id = node_id.clone();
-                    handles.push(tokio::spawn(async move {
-                        let _permit = permit;
-                        let result = RetryConfig::default()
-                            .retry(|| {
-                                let filter = filter.clone();
-                                let sample = sample.clone();
-                                async move { Ok(filter.filter(&*sample).await) }
-                            })
-                            .await
-                            .unwrap_or_else(|e| {
-                                warn!("Filter '{}' failed after retries: {}", node_id, e);
-                                FilterResult {
-                                    passed: false,
-                                    sample_id: sample.id,
-                                    filter_name: filter.name().to_string(),
-                                    reason: Some(e),
-                                    score_delta: 0.0,
-                                }
-                            });
-                        (node_id, result)
-                    }));
-                }
-            } else {
-                let node_id = level_nodes[0].clone();
+            for node_id in &level_nodes {
                 let permit = self.semaphore.clone().acquire_owned().await;
                 let permit = match permit {
                     Ok(p) => p,
                     Err(_) => return ExecutionResult::Cancelled,
                 };
-                let filter = self.nodes[&node_id].filter.clone();
+                let filter = self.nodes[node_id].filter.clone();
                 let sample = sample_arc.clone();
+                let node_id = Arc::clone(node_id);
                 handles.push(tokio::spawn(async move {
                     let _permit = permit;
                     let result = RetryConfig::default()
                         .retry(|| {
                             let filter = filter.clone();
                             let sample = sample.clone();
-                            async move { Ok::<_, String>(filter.filter(&*sample).await) }
+                            async move { Ok(filter.filter(&*sample).await) }
                         })
                         .await
                         .unwrap_or_else(|e| {
@@ -335,7 +300,7 @@ impl ExecutionGraph {
                     metrics.samples_in += 1;
                     let entry = metrics
                         .filter_breakdown
-                        .entry(node_id.clone())
+                        .entry(node_id.to_string())
                         .or_insert_with(|| FilterMetric {
                             processed: 0,
                             passed: 0,
@@ -359,14 +324,14 @@ impl ExecutionGraph {
                         Some(s) => s,
                         None => return ExecutionResult::Cancelled,
                     };
-                    let node = &self.nodes[node_id.as_str()];
+                    let node = &self.nodes[node_id];
                     let action = node.filter.action();
                     match action {
                         FilterAction::Reject => {
                             return ExecutionResult::Rejected {
                                 sample,
                                 results,
-                                filter_name: node_id.clone(),
+                                filter_name: node_id.to_string(),
                                 reason,
                             };
                         }
@@ -374,7 +339,7 @@ impl ExecutionGraph {
                             return ExecutionResult::Rerouted {
                                 sample,
                                 results,
-                                filter_name: node_id.clone(),
+                                filter_name: node_id.to_string(),
                                 reason,
                             };
                         }
@@ -565,13 +530,17 @@ mod tests {
         assert!(g.entry_points.is_empty());
     }
 
+    fn arc(s: &str) -> Arc<str> {
+        Arc::from(s)
+    }
+
     #[test]
     fn test_finalize_single_node() {
         let mut g = ExecutionGraph::new();
         g.add_node("only", dummy_filter("only", true), vec![], false, 0);
         g.finalize();
-        assert_eq!(g.entry_points, vec!["only"]);
-        assert_eq!(g.exit_points, vec!["only"]);
+        assert_eq!(g.entry_points, vec![arc("only")]);
+        assert_eq!(g.exit_points, vec![arc("only")]);
     }
 
     #[test]
@@ -580,8 +549,8 @@ mod tests {
         g.add_node("a", dummy_filter("a", true), vec![], false, 0);
         g.add_node("b", dummy_filter("b", true), vec!["a".into()], false, 0);
         g.finalize();
-        assert_eq!(g.entry_points, vec!["a"]);
-        assert_eq!(g.exit_points, vec!["b"]);
+        assert_eq!(g.entry_points, vec![arc("a")]);
+        assert_eq!(g.exit_points, vec![arc("b")]);
     }
 
     #[test]
@@ -592,9 +561,9 @@ mod tests {
         g.add_node("c", dummy_filter("c", true), vec!["a".into()], false, 0);
         g.finalize();
         let order = g.topological_order();
-        assert_eq!(order[0], "a");
-        assert!(order.contains(&"b".to_string()));
-        assert!(order.contains(&"c".to_string()));
+        assert_eq!(&*order[0], "a");
+        assert!(order.iter().any(|x| &**x == "b"));
+        assert!(order.iter().any(|x| &**x == "c"));
     }
 
     #[tokio::test]
@@ -658,7 +627,7 @@ mod tests {
     #[test]
     fn test_graph_node_debug() {
         let node = GraphNode {
-            id: "test".into(),
+            id: arc("test"),
             filter: dummy_filter("test", true),
             depends_on: vec![],
             children: vec![],

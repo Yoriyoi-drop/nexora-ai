@@ -1,26 +1,13 @@
-//! NCCL-backed collective communication for tensor parallelism.
-//!
-//! Provides GPU-native all-reduce, all-gather, and reduce-scatter
-//! via NVIDIA NCCL (via `cudarc`'s nccl feature).
-//!
-//! # Feature gate
-//! Only available when `feature = "nccl"` is enabled in Cargo.toml.
-//! When disabled, provides a compile-time stub that returns errors.
-//!
-//! # Usage
-//! ```ignore
-//! let nccl = NcclCollective::new(num_shards, shard_rank)?;
-//! nccl.all_reduce(&mut buf)?;
-//! ```
-
-
 use crate::TransformerResult;
+use std::sync::Arc;
 
 /// NCCL collective communication wrapper.
 ///
 /// Manages NCCL communicator, device buffers, and exposes
 /// all_reduce / all_gather / reduce_scatter for tensor-parallel
 /// forward/backward passes.
+///
+/// When `nccl` feature is disabled, all operations return errors.
 #[derive(Debug, Clone)]
 pub struct NcclCollective {
     /// Total number of ranks in the communicator.
@@ -37,8 +24,7 @@ pub struct NcclCollective {
 #[cfg(feature = "nccl")]
 #[derive(Debug)]
 struct NcclInner {
-    #[allow(dead_code)]
-    comm: Box<dyn std::any::Any + Send + Sync>,
+    comm: nexora_autograd::gpu::nccl::safe::Comm,
 }
 
 impl NcclCollective {
@@ -72,30 +58,69 @@ impl NcclCollective {
         }
     }
 
-    /// Initialize NCCL communicator.
     #[cfg(feature = "nccl")]
     fn init_nccl(
-        _device_id: usize,
-        _num_shards: usize,
-        _shard_rank: usize,
+        device_id: usize,
+        num_shards: usize,
+        shard_rank: usize,
     ) -> TransformerResult<NcclInner> {
-        Err(crate::TransformerError::Implementation(
-            "NCCL runtime init not yet available in this build — requires cudarc/nccl bindings"
-                .into(),
-        ))
+        use nexora_autograd::gpu::nccl::safe::{Comm, Id};
+
+        let rt = nexora_autograd::gpu::cuda::CudaRuntime::init(device_id as usize)
+            .map_err(|e| {
+                crate::TransformerError::Implementation(format!("CUDA init for NCCL: {e}"))
+            })?;
+
+        let id = Id::new().map_err(|e| {
+            crate::TransformerError::Implementation(format!("NCCL Id::new: {e}"))
+        })?;
+
+        let comm = Comm::from_rank(
+            rt.stream.clone(),
+            shard_rank,
+            num_shards,
+            id,
+        )
+        .map_err(|e| {
+            crate::TransformerError::Implementation(format!("NCCL Comm::from_rank: {e}"))
+        })?;
+
+        Ok(NcclInner { comm })
     }
 
     /// In-place all-reduce (sum) across all ranks.
     ///
     /// `buf` is split evenly across `num_shards`. After this call,
     /// every rank holds the global sum in its local chunk.
+    ///
+    /// Uploads to GPU, runs NCCL all-reduce, downloads back.
     pub fn all_reduce(&self, buf: &mut [f32]) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            let _ = &self.inner;
-            Err(crate::TransformerError::Implementation(
-                "NCCL all_reduce not yet wired".into(),
-            ))
+            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            let stream = self.inner.comm.stream();
+            let send = stream.clone_htod(buf).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
+            })?;
+            let mut recv =
+                stream
+                    .alloc_zeros::<f32>(buf.len())
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!(
+                            "NCCL alloc_zeros: {e}"
+                        ))
+                    })?;
+            self.inner
+                .comm
+                .all_reduce(&send, &mut recv, &ReduceOp::Sum)
+                .map_err(|e| {
+                    crate::TransformerError::Implementation(format!("NCCL all_reduce: {e}"))
+                })?;
+            let result = stream.clone_dtoh(&recv).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL dtoh_copy: {e}"))
+            })?;
+            buf.copy_from_slice(&result);
+            Ok(())
         }
         #[cfg(not(feature = "nccl"))]
         {
@@ -113,10 +138,26 @@ impl NcclCollective {
     pub fn all_gather(&self, sendbuf: &[f32], recvbuf: &mut [f32]) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            let _ = (&self.inner, sendbuf, recvbuf);
-            Err(crate::TransformerError::Implementation(
-                "NCCL all_gather not yet wired".into(),
-            ))
+            let stream = self.inner.comm.stream();
+            let send = stream.clone_htod(sendbuf).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
+            })?;
+            let mut recv =
+                stream
+                    .alloc_zeros::<f32>(recvbuf.len())
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!(
+                            "NCCL alloc_zeros: {e}"
+                        ))
+                    })?;
+            self.inner.comm.all_gather(&send, &mut recv).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL all_gather: {e}"))
+            })?;
+            let result = stream.clone_dtoh(&recv).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL dtoh_copy: {e}"))
+            })?;
+            recvbuf.copy_from_slice(&result);
+            Ok(())
         }
         #[cfg(not(feature = "nccl"))]
         {
@@ -132,10 +173,30 @@ impl NcclCollective {
     pub fn reduce_scatter(&self, sendbuf: &[f32], recvbuf: &mut [f32]) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            let _ = (&self.inner, sendbuf, recvbuf);
-            Err(crate::TransformerError::Implementation(
-                "NCCL reduce_scatter not yet wired".into(),
-            ))
+            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            let stream = self.inner.comm.stream();
+            let send = stream.clone_htod(sendbuf).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
+            })?;
+            let mut recv =
+                stream
+                    .alloc_zeros::<f32>(recvbuf.len())
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!(
+                            "NCCL alloc_zeros: {e}"
+                        ))
+                    })?;
+            self.inner
+                .comm
+                .reduce_scatter(&send, &mut recv, &ReduceOp::Sum)
+                .map_err(|e| {
+                    crate::TransformerError::Implementation(format!("NCCL reduce_scatter: {e}"))
+                })?;
+            let result = stream.clone_dtoh(&recv).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL dtoh_copy: {e}"))
+            })?;
+            recvbuf.copy_from_slice(&result);
+            Ok(())
         }
         #[cfg(not(feature = "nccl"))]
         {
@@ -145,6 +206,33 @@ impl NcclCollective {
             ))
         }
     }
+
+    /// Access the inner NCCL communicator for GPU-native operations.
+    #[cfg(feature = "nccl")]
+    pub fn comm(&self) -> &nexora_autograd::gpu::nccl::safe::Comm {
+        &self.inner.comm
+    }
+}
+
+/// GPU-native all-reduce for in-flight GPU tensors.
+///
+/// Runs NCCL all-reduce directly on device memory without CPU round-trip.
+/// Requires the `nccl` feature.
+#[cfg(feature = "nccl")]
+pub fn collective_gpu_all_reduce(
+    nccl: &nexora_autograd::gpu::nccl::safe::Comm,
+    buf: &nexora_autograd::gpu::CudaSlice<f32>,
+) -> TransformerResult<()> {
+    use nexora_autograd::gpu::nccl::safe::ReduceOp;
+    let stream = nccl.stream();
+    let mut tmp = stream.alloc_zeros::<f32>(buf.len()).map_err(|e| {
+        crate::TransformerError::Implementation(format!("NCCL alloc_zeros: {e}"))
+    })?;
+    nccl.all_reduce(buf, &mut tmp, &ReduceOp::Sum)
+        .map_err(|e| {
+            crate::TransformerError::Implementation(format!("NCCL all_reduce: {e}"))
+        })?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -157,13 +245,7 @@ mod tests {
         #[cfg(not(feature = "nccl"))]
         assert!(result.is_err());
         #[cfg(feature = "nccl")]
-        assert!(result.is_err()); // init_nccl returns Err for now
-    }
-
-    #[test]
-    fn test_nccl_all_reduce_without_feature_returns_err() {
-        let nccl = NcclCollective::new(0, 1, 0).unwrap_err();
-        let _ = nccl; // just verify construction fails gracefully
+        assert!(result.is_err()); // no CUDA device in CI
     }
 
     #[test]
@@ -177,13 +259,14 @@ mod tests {
 
     #[test]
     fn test_nccl_all_gather_returns_err() {
-        // Create with 1 shard — should succeed since no NCCL needed
         let nccl = NcclCollective::new(0, 1, 0);
         if let Ok(nccl) = nccl {
             let mut buf = vec![0.0f32; 4];
             let result = nccl.all_gather(&[1.0f32; 2], &mut buf);
             #[cfg(not(feature = "nccl"))]
             assert!(result.is_err());
+            #[cfg(feature = "nccl")]
+            assert!(result.is_err()); // no actual GPU in test env
         }
     }
 

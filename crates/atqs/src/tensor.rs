@@ -9,6 +9,7 @@ use std::fmt;
 pub struct Tensor {
     data: Vec<f32>,
     shape: Vec<usize>,
+    frozen: bool,
     _compression_engine: Option<crate::compression::CompressionEngine>,
 }
 
@@ -18,6 +19,17 @@ impl Tensor {
         Self {
             data,
             shape,
+            frozen: false,
+            _compression_engine: None,
+        }
+    }
+
+    /// Create a new frozen tensor (excluded from optimizer updates)
+    pub fn new_frozen(data: Vec<f32>, shape: Vec<usize>) -> Self {
+        Self {
+            data,
+            shape,
+            frozen: true,
             _compression_engine: None,
         }
     }
@@ -45,6 +57,16 @@ impl Tensor {
     /// Check if tensor is empty
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+
+    /// Check if tensor is frozen (excluded from optimizer updates)
+    pub fn is_frozen(&self) -> bool {
+        self.frozen
+    }
+
+    /// Set frozen status
+    pub fn set_frozen(&mut self, frozen: bool) {
+        self.frozen = frozen;
     }
 }
 

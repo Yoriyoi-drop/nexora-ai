@@ -42,6 +42,22 @@ impl MultiHeadAttention {
         })
     }
 
+    pub fn q_projection(&self) -> &Linear {
+        &self.q_projection
+    }
+
+    pub fn k_projection(&self) -> &Linear {
+        &self.k_projection
+    }
+
+    pub fn v_projection(&self) -> &Linear {
+        &self.v_projection
+    }
+
+    pub fn out_projection(&self) -> &Linear {
+        &self.out_projection
+    }
+
     /// Forward pass untuk multi-head attention
     pub fn forward(&self, query: &Tensor, key: &Tensor, value: &Tensor) -> HLDVAResult<Tensor> {
         // Step 1: Project to Q, K, V
@@ -395,6 +411,22 @@ impl Linear {
         })
     }
 
+    pub fn weight(&self) -> &Tensor {
+        &self.weight
+    }
+
+    pub fn weight_mut(&mut self) -> &mut Tensor {
+        &mut self.weight
+    }
+
+    pub fn bias(&self) -> Option<&Tensor> {
+        self.bias.as_ref()
+    }
+
+    pub fn bias_mut(&mut self) -> Option<&mut Tensor> {
+        self.bias.as_mut()
+    }
+
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         #[cfg(feature = "gpu")]
         if let Some(result) = self.forward_gpu(input) {
@@ -552,6 +584,14 @@ impl FeedForward {
             linear2,
             activation: GELU,
         })
+    }
+
+    pub fn linear1(&self) -> &Linear {
+        &self.linear1
+    }
+
+    pub fn linear2(&self) -> &Linear {
+        &self.linear2
     }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {

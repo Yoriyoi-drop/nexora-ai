@@ -203,7 +203,9 @@ impl WorkspaceBuffer {
         self.data.len()
     }
 
-    fn clear(&mut self) {}
+    fn clear(&mut self) {
+        self.data.clear();
+    }
 }
 
 #[derive(Clone)]

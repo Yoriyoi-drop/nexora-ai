@@ -345,7 +345,7 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
             }
         })
         .collect();
-    let mask_arr = ArrayD::from_shape_vec(data.shape().to_vec(), mask).unwrap_or_else(|e| {
+    let mask_arr = ArrayD::from_shape_vec(data.shape(), mask).unwrap_or_else(|e| {
         debug!("shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
@@ -461,29 +461,35 @@ pub fn layer_norm_2d(
                                                     sum_dy_xhat += gv * xhat;
                                                 }
                                                 let inv_s = 1.0 / s;
-                                                for j in 0..dim {
-                                                    let idx = b * dim + j;
-                                                    let gv = gs[idx];
-                                                    let xv = xs[idx];
-                                                    let xhat = (xv - m) / s;
-                                                    let dx_val = inv_s
-                                                        * (gv
-                                                            - sum_dy / n_val
-                                                            - xhat * sum_dy_xhat / n_val);
-                                                    let mut inner = dx.clone();
-                                                    if let Some(slice) = inner.as_slice_mut() {
-                                                        slice[idx] = dx_val;
-                                                    } else {
-                                                        let mut v: Vec<f32> =
-                                                            inner.iter().copied().collect();
-                                                        v[idx] = dx_val;
-                                                        let shape = inner.shape().to_vec();
-                                                        inner = ArrayD::from_shape_vec(shape, v).unwrap_or_else(|e| {
-                                                            debug!("shape encoding failed (infallible): {e}");
-                                                            ArrayD::zeros(vec![0])
-                                                        });
+                                                if let Some(dx_slice) = dx.as_slice_mut() {
+                                                    for j in 0..dim {
+                                                        let idx = b * dim + j;
+                                                        let gv = gs[idx];
+                                                        let xv = xs[idx];
+                                                        let xhat = (xv - m) / s;
+                                                        dx_slice[idx] = inv_s
+                                                            * (gv
+                                                                - sum_dy / n_val
+                                                                - xhat * sum_dy_xhat / n_val);
                                                     }
-                                                    dx = inner;
+                                                } else {
+                                                    let mut v: Vec<f32> =
+                                                        dx.iter().copied().collect();
+                                                    for j in 0..dim {
+                                                        let idx = b * dim + j;
+                                                        let gv = gs[idx];
+                                                        let xv = xs[idx];
+                                                        let xhat = (xv - m) / s;
+                                                        v[idx] = inv_s
+                                                            * (gv
+                                                                - sum_dy / n_val
+                                                                - xhat * sum_dy_xhat / n_val);
+                                                    }
+                                                    let shape = dx.shape();
+                                                    dx = ArrayD::from_shape_vec(shape, v).unwrap_or_else(|e| {
+                                                        debug!("shape encoding failed (infallible): {e}");
+                                                        ArrayD::zeros(vec![0])
+                                                    });
                                                 }
                                             }
                                             vec![dx]
@@ -604,14 +610,14 @@ pub fn layer_norm_2d(
                 Some(s) => s,
                 None => {
                     tracing::error!("layernorm backward: grad not contiguous");
-                    return vec![ArrayD::zeros(x.shape().to_vec())];
+                    return vec![ArrayD::zeros(x.shape())];
                 }
             };
             let x_slice = match x.as_slice() {
                 Some(s) => s,
                 None => {
                     tracing::error!("layernorm backward: x not contiguous");
-                    return vec![ArrayD::zeros(x.shape().to_vec())];
+                    return vec![ArrayD::zeros(x.shape())];
                 }
             };
             for b in 0..batch {
@@ -632,7 +638,7 @@ pub fn layer_norm_2d(
                     Some(s) => s,
                     None => {
                         tracing::error!("layernorm backward: dx not contiguous");
-                        return vec![ArrayD::zeros(x.shape().to_vec())];
+                        return vec![ArrayD::zeros(x.shape())];
                     }
                 };
                 for j in 0..dim {
@@ -679,7 +685,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                                     let p = xv.clamp(1e-7, 1.0 - 1e-7);
                                     dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
                                 }
-                                vec![ndarray::ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                                vec![ndarray::ArrayD::from_shape_vec(x.shape(), dx_data)
                                     .unwrap_or_else(|e| {
                                         debug!("shape encoding failed (infallible): {e}");
                                         ArrayD::zeros(vec![0])
@@ -763,7 +769,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let p = x.clamp(1e-7, 1.0 - 1e-7);
         loss_data[i] = -(t * p.ln() + (1.0 - t) * (1.0 - p).ln());
     }
-    let loss = ArrayD::from_shape_vec(data.shape().to_vec(), loss_data).unwrap_or_else(|e| {
+    let loss = ArrayD::from_shape_vec(data.shape(), loss_data).unwrap_or_else(|e| {
         debug!("shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
@@ -787,7 +793,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                 dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
             }
             vec![
-                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                ArrayD::from_shape_vec(x.shape(), dx_data).unwrap_or_else(|e| {
                     debug!("shape encoding failed (infallible): {e}");
                     ArrayD::zeros(vec![0])
                 }),
@@ -1026,7 +1032,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                                         d_weight[[idx, j]] += grad[[i, j]];
                                     }
                                 }
-                                vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
+                                vec![ArrayD::zeros(grad.shape()), d_weight.into_dyn()]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
                                 use crate::gpu_backward::embedding_backward_gpu;
@@ -1099,7 +1105,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                     d_weight[[idx, j]] += grad[[i, j]];
                 }
             }
-            vec![ArrayD::zeros(grad.shape().to_vec()), d_weight.into_dyn()]
+            vec![ArrayD::zeros(grad.shape()), d_weight.into_dyn()]
         }),
     )
 }
@@ -1155,7 +1161,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                                     }
                                 }
                                 vec![
-                                    ArrayD::from_shape_vec(x.shape().to_vec(), dx_data)
+                                    ArrayD::from_shape_vec(x.shape(), dx_data)
                                         .unwrap_or_else(|e| {
                                             debug!("shape encoding failed (infallible): {e}");
                                             ArrayD::zeros(vec![0])
@@ -1266,7 +1272,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             }
 
             vec![
-                ArrayD::from_shape_vec(x.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                ArrayD::from_shape_vec(x.shape(), dx_data).unwrap_or_else(|e| {
                     debug!("shape encoding failed (infallible): {e}");
                     ArrayD::zeros(vec![0])
                 }),
@@ -1535,7 +1541,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                                         dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
                                     }
                                 }
-                                vec![ArrayD::from_shape_vec(soft.shape().to_vec(), dx)
+                                vec![ArrayD::from_shape_vec(soft.shape(), dx)
                                     .unwrap_or_else(|e| {
                                         debug!("shape encoding failed (infallible): {e}");
                                         ArrayD::zeros(vec![0])
@@ -1604,7 +1610,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                 }
             }
             vec![
-                ArrayD::from_shape_vec(soft.shape().to_vec(), dx_data).unwrap_or_else(|e| {
+                ArrayD::from_shape_vec(soft.shape(), dx_data).unwrap_or_else(|e| {
                     debug!("shape encoding failed (infallible): {e}");
                     ArrayD::zeros(vec![0])
                 }),

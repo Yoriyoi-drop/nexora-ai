@@ -3277,6 +3277,7 @@ dependencies = [
  "mimalloc",
  "ndarray 0.15.6",
  "nexora-agent",
+ "nexora-alignment",
  "nexora-api",
  "nexora-blaa",
  "nexora-core",

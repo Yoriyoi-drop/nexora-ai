@@ -132,8 +132,8 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
                                         vec![da, db]
                                     }),
                                     Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                        let a_shape = a_shape.clone();
-                                        let b_shape = b_shape.clone();
+                                        let a_shape = a_shape.to_vec();
+                                        let b_shape = b_shape.to_vec();
                                         let (da, db) = crate::gpu_backward::add_backward(
                                             ctx, &a_shape, &b_shape, grad_gpu,
                                         )

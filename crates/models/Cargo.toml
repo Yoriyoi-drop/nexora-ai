@@ -31,7 +31,7 @@ ndarray = { workspace = true }
 rand.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = ["full"] }
-async-trait = "0.1"
+async-trait = { workspace = true }
 futures = { workspace = true }
 
 [features]

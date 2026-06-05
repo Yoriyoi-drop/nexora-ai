@@ -21,14 +21,11 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
     cfg
 }
 
-/// No models are ACTIVE at startup — all are lazy/standby.
-/// Tier backbones are loaded on-demand by TierRouter based on user input.
-/// This eliminates unnecessary VRAM usage for unused tiers.
+/// Semua model standby di startup — satu shared backbone di-load lazy
+/// pas pertama kali ada request. Tidak ada tier, tidak ada eviction.
 
 /// Create and register a single causal LM model instance (standby/lazy).
-/// No block weights are loaded at startup — TierBackboneRegistry provides
-/// shared backbones on-demand when a tier is first accessed.
-/// If a checkpoint path is provided, it can be loaded later via `load_checkpoint`.
+/// Semua model share satu backbone CausalLM dari SingleBackboneRegistry.
 async fn register_causal_lm(
     model_id: NxrModelId,
     vocab_size: usize,
@@ -47,13 +44,11 @@ async fn register_causal_lm(
 
     let pcount = transformer_config.parameter_count();
 
-    // Echo-Net APSS injection enabled by default for all models
     info!(
         "EchoNet APSS injection enabled after layer 2 for {}",
         model_id
     );
 
-    // SEDC weight compression is opt-in — must be explicitly enabled
     info!(
         "SEDC weight compression — must be explicitly enabled for {}",
         model_id
@@ -64,21 +59,7 @@ async fn register_causal_lm(
     let mini_tok = MiniTokenizer::new(vocab_size);
     model.load_tokenizer(mini_tok).await;
 
-    let _params = serde_json::json!({
-        "transformer_config": {
-            "vocab_size": transformer_config.vocab_size,
-            "hidden_size": transformer_config.hidden_size,
-            "num_heads": transformer_config.num_heads,
-            "num_kv_heads": transformer_config.num_kv_heads,
-            "num_layers": transformer_config.num_layers,
-            "max_seq_len": transformer_config.max_seq_len,
-            "intermediate_size": transformer_config.intermediate_size,
-        }
-    });
-
-    // All models are now lazy/standby — no block weights at startup.
-    // Delegation agents get shared backbone from TierBackboneRegistry
-    // on-demand via resolve_tier_backbone().
+    // Lazy: semua model standby — backbone di-load on-demand via SingleBackboneRegistry
     let ckpt_path = checkpoints.get(&model_id);
     if let Some(path) = ckpt_path {
         model
@@ -95,7 +76,7 @@ async fn register_causal_lm(
             info!("Checkpoint path for {} not found: {} — using shared backbone", model_id, path);
         }
     } else {
-        info!("Model {} — lazy/standby (shared backbone via TierRouter)", model_id);
+        info!("Model {} — lazy/standby (shared backbone via SingleBackboneRegistry)", model_id);
     }
 
     let model_arc = Arc::new(model);
@@ -134,7 +115,7 @@ pub async fn initialize_foundation_models_with_checkpoints(
 
     wire_delegation_agents(&model_ids).await?;
 
-    info!("All 10 NXR foundation models registered (lazy/standby — tier backbones load on-demand) ✓");
+    info!("All 10 NXR foundation models registered (lazy/standby — single backbone loads on-demand) ✓");
     Ok(())
 }
 
@@ -143,33 +124,16 @@ pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
     initialize_foundation_models_with_checkpoints(HashMap::new()).await
 }
 
-/// Wire ALL 10 delegation agents WITHOUT loading tier backbones.
-/// Each delegation agent's `get_or_init_model()` lazily calls
-/// `resolve_tier_backbone()` on first `infer()` call — so backbones
-/// are only loaded when a user request routes to that tier.
-/// This eliminates startup VRAM usage for unused tiers.
+/// Wire ALL 10 delegation agents WITHOUT loading backbone.
+/// Setiap delegation agent panggil `resolve_single_backbone()` pas pertama kali infer.
 async fn wire_delegation_agents(model_ids: &[NxrModelId]) -> Result<(), RegistryError> {
     for model_id in model_ids {
-        // Do NOT call resolve_tier_backbone() here — let it be lazy.
-        // The delegation agent's get_or_init_model() will call it on first use.
-        let tf_tier = shared_tier_to_transformer(model_id.tier());
         info!(
-            "Delegation agent for {} wired (lazy — {:?} backbone loads on demand)",
-            model_id, tf_tier
+            "Delegation agent for {} wired (lazy — single backbone loads on demand)",
+            model_id
         );
     }
     Ok(())
-}
-
-fn shared_tier_to_transformer(tier: ModelTier) -> nexora_transformer::config::ModelTier {
-    match tier {
-        ModelTier::Ultra => nexora_transformer::config::ModelTier::Ultra,
-        ModelTier::Apex => nexora_transformer::config::ModelTier::Apex,
-        ModelTier::Pro => nexora_transformer::config::ModelTier::Pro,
-        ModelTier::Core => nexora_transformer::config::ModelTier::Core,
-        ModelTier::Edge => nexora_transformer::config::ModelTier::Edge,
-        ModelTier::Master => nexora_transformer::config::ModelTier::Ultra,
-    }
 }
 
 #[cfg(test)]
@@ -230,7 +194,7 @@ mod tests {
         let c2 = tier_config(NxrModelId::Swift, 50000);
         assert_eq!(c1.vocab_size, 100);
         assert_eq!(c2.vocab_size, 50000);
-        assert_eq!(c1.hidden_size, c2.hidden_size); // same model config
+        assert_eq!(c1.hidden_size, c2.hidden_size);
     }
 
     #[test]

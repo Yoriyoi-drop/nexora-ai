@@ -18,6 +18,7 @@ nexora-deeplearning = { path = "../../crates/deeplearning" }
 nexora-transformer = { path = "../../crates/transformer" }
 nexora-monitoring = { path = "../../crates/monitoring" }
 nexora-agent = { path = "../../crates/agent" }
+nexora-alignment = { path = "../../crates/alignment" }
 nexora-api = { path = "../../crates/api" }
 nexora-runtime = { path = "../../crates/runtime" }
 nexora-models = { path = "../../crates/models" }

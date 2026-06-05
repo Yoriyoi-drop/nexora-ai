@@ -1,37 +1,91 @@
-//! Tri-Query Former implementation
-//!
-//! Individual query sets for semantic, spatial, and temporal processing
-
 use crate::caffeine::error::Result;
 use ndarray::ArrayD;
+use rand::Rng;
 
-/// Query set for specific modality
+fn softmax_flat(scores: &mut [f32]) {
+    let max_val = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let mut sum = 0.0f32;
+    for s in scores.iter_mut() {
+        *s = (*s - max_val).exp();
+        sum += *s;
+    }
+    if sum > 0.0 {
+        for s in scores.iter_mut() {
+            *s /= sum;
+        }
+    }
+}
+
+fn scaled_dot_product_attention(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    num_q: usize,
+    num_kv: usize,
+    head_dim: usize,
+    out: &mut [f32],
+) {
+    let scale = 1.0 / (head_dim as f32).sqrt();
+    let mut scores = vec![0.0f32; num_kv];
+    for i in 0..num_q {
+        for j in 0..num_kv {
+            let mut s = 0.0f32;
+            for d in 0..head_dim {
+                s += q[i * head_dim + d] * k[j * head_dim + d];
+            }
+            scores[j] = s * scale;
+        }
+        softmax_flat(&mut scores);
+        for d in 0..head_dim {
+            let mut o = 0.0f32;
+            for j in 0..num_kv {
+                o += scores[j] * v[j * head_dim + d];
+            }
+            out[i * head_dim + d] = o;
+        }
+    }
+}
+
 pub struct QuerySet {
     queries: Vec<QueryToken>,
     hidden_dim: usize,
     query_type: String,
     attention_weights: Option<ArrayD<f32>>,
+    wq: Vec<Vec<f32>>,
+    wk: Vec<Vec<f32>>,
+    wv: Vec<Vec<f32>>,
 }
 
 impl QuerySet {
-    /// Create new query set
     pub fn new(num_queries: usize, hidden_dim: usize, query_type: String) -> Result<Self> {
+        let mut rng = rand::thread_rng();
+        let scale = (2.0 / hidden_dim as f32).sqrt();
         let mut queries = Vec::new();
-
         for i in 0..num_queries {
-            let query = QueryToken::new(i, hidden_dim)?;
-            queries.push(query);
+            queries.push(QueryToken::new(i, hidden_dim)?);
         }
+
+        let wq = (0..num_queries)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+        let wk = (0..num_queries)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+        let wv = (0..num_queries)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
 
         Ok(Self {
             queries,
             hidden_dim,
             query_type,
             attention_weights: None,
+            wq,
+            wk,
+            wv,
         })
     }
 
-    /// Forward pass through query set
     pub fn forward(&mut self, inputs: &[ArrayD<f32>]) -> Result<ArrayD<f32>> {
         if inputs.is_empty() {
             return Err(crate::caffeine::error::CaffeineError::qformer(
@@ -39,95 +93,85 @@ impl QuerySet {
             ));
         }
 
-        // Initialize query embeddings
         let mut query_embeddings = vec![0.0f32; self.queries.len() * self.hidden_dim];
-
         for (i, query) in self.queries.iter().enumerate() {
             for d in 0..self.hidden_dim {
-                let idx = i * self.hidden_dim + d;
-                query_embeddings[idx] = query.embedding[d];
+                query_embeddings[i * self.hidden_dim + d] = query.embedding[d];
             }
         }
 
-        // Process each input and update queries
         for input in inputs {
             self.process_input(input, &mut query_embeddings)?;
         }
 
-        // Apply self-attention among queries
         let attended_queries = self.apply_query_attention(&query_embeddings)?;
 
-        // Store attention weights
-        self.attention_weights = Some(self.compute_query_attention_weights(&query_embeddings)?);
+        let weights = self.compute_query_attention_weights(&query_embeddings)?;
+        self.attention_weights = Some(weights);
 
         let shape = vec![1, self.queries.len(), self.hidden_dim];
         Ok(ArrayD::from_shape_vec(shape, attended_queries)?)
     }
 
-    /// Process single input with queries
     fn process_input(&self, input: &ArrayD<f32>, query_embeddings: &mut [f32]) -> Result<()> {
         let input_shape = input.shape();
         let input_dim = input_shape.iter().product::<usize>();
+        let num_input_tokens = if self.hidden_dim > 0 { input_dim / self.hidden_dim } else { 0 };
 
-        // Cross-attention between queries and input
-        for (q_idx, _query) in self.queries.iter().enumerate() {
-            for d in 0..self.hidden_dim {
-                let query_idx = q_idx * self.hidden_dim + d;
+        if num_input_tokens == 0 {
+            return Ok(());
+        }
 
-                // Compute attention-weighted sum over input
-                let mut attention_sum = 0.0f32;
-                let mut attention_weight_sum = 0.0f32;
+        let num_queries = self.queries.len();
+        let head_dim = self.hidden_dim;
 
-                for i in 0..input_dim {
-                    if let Some(&input_val) = input.get([i]) {
-                        // Simple attention computation
-                        let attention_weight = (query_idx as f32 * i as f32 * 0.001).cos();
-                        attention_sum += input_val * attention_weight;
-                        attention_weight_sum += attention_weight.abs();
-                    }
-                }
+        let mut q = vec![0.0f32; num_queries * head_dim];
+        for i in 0..num_queries {
+            for d in 0..head_dim {
+                q[i * head_dim + d] = query_embeddings[i * head_dim + d];
+            }
+        }
 
-                if attention_weight_sum > 0.0 {
-                    query_embeddings[query_idx] += attention_sum / attention_weight_sum;
-                }
+        let mut k = vec![0.0f32; num_input_tokens * head_dim];
+        let mut v = vec![0.0f32; num_input_tokens * head_dim];
+        for i in 0..num_input_tokens {
+            for d in 0..head_dim {
+                let idx = i * head_dim + d;
+                k[i * head_dim + d] = input.get([idx]).copied().unwrap_or(0.0);
+                v[i * head_dim + d] = input.get([idx]).copied().unwrap_or(0.0);
+            }
+        }
+
+        let mut out = vec![0.0f32; num_queries * head_dim];
+        scaled_dot_product_attention(&q, &k, &v, num_queries, num_input_tokens, head_dim, &mut out);
+
+        for i in 0..num_queries {
+            for d in 0..head_dim {
+                query_embeddings[i * head_dim + d] += out[i * head_dim + d];
             }
         }
 
         Ok(())
     }
 
-    /// Apply self-attention among queries
     fn apply_query_attention(&self, query_embeddings: &[f32]) -> Result<Vec<f32>> {
         let num_queries = self.queries.len();
+        let head_dim = self.hidden_dim;
         let mut attended = vec![0.0f32; query_embeddings.len()];
 
-        for i in 0..num_queries {
-            for d in 0..self.hidden_dim {
-                let query_idx = i * self.hidden_dim + d;
-                let mut attention_output = 0.0f32;
-
-                // Self-attention over all queries
-                for j in 0..num_queries {
-                    let other_idx = j * self.hidden_dim + d;
-
-                    if query_idx < query_embeddings.len() && other_idx < query_embeddings.len() {
-                        let query_val = query_embeddings[query_idx];
-                        let key_val = query_embeddings[other_idx];
-
-                        // Simple attention computation
-                        let attention_score = query_val * key_val;
-                        attention_output += attention_score;
-                    }
-                }
-
-                attended[query_idx] = attention_output / num_queries as f32;
-            }
-        }
+        scaled_dot_product_attention(
+            query_embeddings,
+            query_embeddings,
+            query_embeddings,
+            num_queries,
+            num_queries,
+            head_dim,
+            &mut attended,
+        );
 
         Ok(attended)
     }
 
-    /// Compute query attention weights
     fn compute_query_attention_weights(&self, query_embeddings: &[f32]) -> Result<ArrayD<f32>> {
         let num_queries = self.queries.len();
         let mut attention_weights = vec![0.0f32; num_queries * num_queries];
@@ -135,16 +179,13 @@ impl QuerySet {
         for i in 0..num_queries {
             for j in 0..num_queries {
                 let mut similarity = 0.0f32;
-
                 for d in 0..self.hidden_dim {
                     let idx_i = i * self.hidden_dim + d;
                     let idx_j = j * self.hidden_dim + d;
-
                     if idx_i < query_embeddings.len() && idx_j < query_embeddings.len() {
                         similarity += query_embeddings[idx_i] * query_embeddings[idx_j];
                     }
                 }
-
                 attention_weights[i * num_queries + j] = similarity;
             }
         }
@@ -153,23 +194,19 @@ impl QuerySet {
         Ok(ArrayD::from_shape_vec(shape, attention_weights)?)
     }
 
-    /// Get query embeddings
     pub fn get_embeddings(&self) -> Vec<Vec<f32>> {
         self.queries.iter().map(|q| q.embedding.clone()).collect()
     }
 
-    /// Get query type
     pub fn query_type(&self) -> &str {
         &self.query_type
     }
 
-    /// Get number of queries
     pub fn num_queries(&self) -> usize {
         self.queries.len()
     }
 }
 
-/// Individual query token
 #[derive(Debug, Clone)]
 pub struct QueryToken {
     _id: usize,
@@ -178,16 +215,15 @@ pub struct QueryToken {
 }
 
 impl QueryToken {
-    /// Create new query token
     pub fn new(id: usize, hidden_dim: usize) -> Result<Self> {
-        let mut embedding = vec![0.0f32; hidden_dim];
+        let mut rng = rand::thread_rng();
+        let scale = (2.0 / hidden_dim as f32).sqrt();
+        let embedding: Vec<f32> = (0..hidden_dim)
+            .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+            .collect();
+
         let mut position_encoding = vec![0.0f32; hidden_dim];
-
-        // Initialize embedding
         for d in 0..hidden_dim {
-            embedding[d] = (id as f32 * (d as f32 + 1.0) * 0.01).sin();
-
-            // Position encoding
             if d % 2 == 0 {
                 position_encoding[d] =
                     (id as f32 / 10000.0_f32.powf(d as f32 / hidden_dim as f32)).sin();
@@ -204,19 +240,16 @@ impl QueryToken {
         })
     }
 
-    /// Update embedding
     pub fn update_embedding(&mut self, new_embedding: Vec<f32>) -> Result<()> {
         if new_embedding.len() != self.embedding.len() {
             return Err(crate::caffeine::error::CaffeineError::qformer(
                 "Embedding dimension mismatch",
             ));
         }
-
         self.embedding = new_embedding;
         Ok(())
     }
 
-    /// Get embedding with position encoding
     pub fn get_positional_embedding(&self) -> Vec<f32> {
         self.embedding
             .iter()
@@ -226,59 +259,105 @@ impl QueryToken {
     }
 }
 
-/// Query processor for different modalities
 pub struct QueryProcessor {
     hidden_dim: usize,
     num_heads: usize,
     _dropout_rate: f32,
+    wq: Vec<Vec<f32>>,
+    wk: Vec<Vec<f32>>,
+    wv: Vec<Vec<f32>>,
+    wo: Vec<Vec<f32>>,
 }
 
 impl QueryProcessor {
-    /// Create new query processor
     pub fn new(hidden_dim: usize, num_heads: usize, _dropout_rate: f32) -> Self {
+        let mut rng = rand::thread_rng();
+        let scale = (2.0 / hidden_dim as f32).sqrt();
+        let wq = (0..hidden_dim)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+        let wk = (0..hidden_dim)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+        let wv = (0..hidden_dim)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+        let wo = (0..hidden_dim)
+            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .collect();
+
         Self {
             hidden_dim,
             num_heads,
             _dropout_rate,
+            wq,
+            wk,
+            wv,
+            wo,
         }
     }
 
-    /// Process queries with multi-head attention
     pub fn process_queries(&self, queries: &[f32], num_queries: usize) -> Result<Vec<f32>> {
         let head_dim = self.hidden_dim / self.num_heads;
-        let mut processed = vec![0.0f32; queries.len()];
+        let mut q = vec![0.0f32; num_queries * self.hidden_dim];
+        let mut k = vec![0.0f32; num_queries * self.hidden_dim];
+        let mut v = vec![0.0f32; num_queries * self.hidden_dim];
 
-        for head in 0..self.num_heads {
-            let start_dim = head * head_dim;
-            let end_dim = std::cmp::min((head + 1) * head_dim, self.hidden_dim);
+        for i in 0..num_queries {
+            for d in 0..self.hidden_dim {
+                q[i * self.hidden_dim + d] = queries[i * self.hidden_dim + d];
+                k[i * self.hidden_dim + d] = queries[i * self.hidden_dim + d];
+                v[i * self.hidden_dim + d] = queries[i * self.hidden_dim + d];
+            }
+        }
+
+        let mut out = vec![0.0f32; num_queries * self.hidden_dim];
+
+        for h in 0..self.num_heads {
+            let hd = h * head_dim;
+            let mut hq = vec![0.0f32; num_queries * head_dim];
+            let mut hk = vec![0.0f32; num_queries * head_dim];
+            let mut hv = vec![0.0f32; num_queries * head_dim];
 
             for i in 0..num_queries {
-                for d in start_dim..end_dim {
-                    let query_idx = i * self.hidden_dim + d;
-                    if query_idx < queries.len() {
-                        // Apply head-specific processing
-                        let head_factor = (head as f32 + 1.0) * 0.1;
-                        processed[query_idx] = queries[query_idx] * head_factor.sin();
-                    }
+                for d in 0..head_dim {
+                    hq[i * head_dim + d] = q[i * self.hidden_dim + hd + d];
+                    hk[i * head_dim + d] = k[i * self.hidden_dim + hd + d];
+                    hv[i * head_dim + d] = v[i * self.hidden_dim + hd + d];
+                }
+            }
+
+            let mut hout = vec![0.0f32; num_queries * head_dim];
+            scaled_dot_product_attention(&hq, &hk, &hv, num_queries, num_queries, head_dim, &mut hout);
+
+            for i in 0..num_queries {
+                for d in 0..head_dim {
+                    out[i * self.hidden_dim + hd + d] = hout[i * head_dim + d];
                 }
             }
         }
 
-        Ok(processed)
+        let mut output = vec![0.0f32; queries.len()];
+        for i in 0..num_queries {
+            for d in 0..self.hidden_dim {
+                let mut s = 0.0f32;
+                for kk in 0..self.hidden_dim {
+                    s += out[i * self.hidden_dim + kk] * self.wo[kk][d];
+                }
+                output[i * self.hidden_dim + d] = s;
+            }
+        }
+
+        Ok(output)
     }
 
-    /// Apply layer normalization
     pub fn layer_norm(&self, inputs: &[f32]) -> Result<Vec<f32>> {
         let mean = inputs.iter().sum::<f32>() / inputs.len() as f32;
         let variance = inputs.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / inputs.len() as f32;
         let std_dev = variance.sqrt();
-
         if std_dev == 0.0 {
             return Ok(inputs.to_vec());
         }
-
-        let normalized = inputs.iter().map(|x| (x - mean) / std_dev).collect();
-
-        Ok(normalized)
+        Ok(inputs.iter().map(|x| (x - mean) / std_dev).collect())
     }
 }

@@ -1,29 +1,22 @@
-//! Video encoder implementation for CAFFEINE
-//!
-//! Based on 3D Vision Transformer with temporal modeling.
-//! Uses 2-layer MLP projections (GELU) with Xavier initialization
-//! instead of sinusoidal coefficients.
-
 use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
 use ndarray::{Array1, Array2, ArrayD};
 use rand::Rng;
 
-/// 2-layer MLP for frame patch projection.
-struct FrameMLP {
+struct FramePatchMLP {
     w1: Array2<f32>,
     b1: Array1<f32>,
     w2: Array2<f32>,
     b2: Array1<f32>,
 }
 
-impl FrameMLP {
-    fn new(input_dim: usize, hidden_dim: usize, output_dim: usize) -> Self {
+impl FramePatchMLP {
+    fn new(patch_pixels: usize, hidden_dim: usize, output_dim: usize) -> Self {
         let mut rng = rand::thread_rng();
-        let scale1 = (2.0 / input_dim as f32).sqrt();
+        let scale1 = (2.0 / patch_pixels as f32).sqrt();
         let scale2 = (2.0 / hidden_dim as f32).sqrt();
         Self {
-            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| {
+            w1: Array2::from_shape_fn((patch_pixels, hidden_dim), |_| {
                 rng.gen::<f32>() * 2.0 * scale1 - scale1
             }),
             b1: Array1::zeros(hidden_dim),
@@ -43,115 +36,214 @@ impl FrameMLP {
     }
 }
 
-/// Video encoder based on 3D Vision Transformer
+struct TemporalAttention {
+    num_heads: usize,
+    wq: Array2<f32>,
+    wk: Array2<f32>,
+    wv: Array2<f32>,
+    wo: Array2<f32>,
+}
+
+impl TemporalAttention {
+    fn new(embed_dim: usize, num_heads: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let _head_dim = embed_dim / num_heads;
+        let scale = (2.0 / embed_dim as f32).sqrt();
+        Self {
+            num_heads,
+            wq: Array2::from_shape_fn((embed_dim, embed_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale - scale
+            }),
+            wk: Array2::from_shape_fn((embed_dim, embed_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale - scale
+            }),
+            wv: Array2::from_shape_fn((embed_dim, embed_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale - scale
+            }),
+            wo: Array2::from_shape_fn((embed_dim, embed_dim), |_| {
+                rng.gen::<f32>() * 2.0 * scale - scale
+            }),
+        }
+    }
+
+    fn forward(&self, x: &[f32], seq_len: usize, embed_dim: usize) -> Vec<f32> {
+        let head_dim = embed_dim / self.num_heads;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+        let mut output = vec![0.0f32; seq_len * embed_dim];
+
+        let q = matmul_flat(x, &self.wq, seq_len, embed_dim, embed_dim);
+        let k = matmul_flat(x, &self.wk, seq_len, embed_dim, embed_dim);
+        let v = matmul_flat(x, &self.wv, seq_len, embed_dim, embed_dim);
+
+        for h in 0..self.num_heads {
+            let hd = h * head_dim;
+            for i in 0..seq_len {
+                for j in 0..seq_len {
+                    let mut score = 0.0f32;
+                    for d in 0..head_dim {
+                        score += q[i * embed_dim + hd + d] * k[j * embed_dim + hd + d];
+                    }
+                    score *= scale;
+                    let exp_score = score.exp();
+                    let mut sum_exp = 0.0f32;
+                    for kk in 0..seq_len {
+                        let mut s = 0.0f32;
+                        for d in 0..head_dim {
+                            s += q[i * embed_dim + hd + d] * k[kk * embed_dim + hd + d];
+                        }
+                        sum_exp += (s * scale).exp();
+                    }
+                    let attn = if sum_exp > 0.0 { exp_score / sum_exp } else { 0.0 };
+                    for d in 0..head_dim {
+                        output[i * embed_dim + hd + d] += attn * v[j * embed_dim + hd + d];
+                    }
+                }
+            }
+        }
+
+        matmul_flat(&output, &self.wo, seq_len, embed_dim, embed_dim)
+    }
+}
+
+fn matmul_flat(a: &[f32], w: &Array2<f32>, m: usize, k: usize, n: usize) -> Vec<f32> {
+    let mut out = vec![0.0f32; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            let mut sum = 0.0f32;
+            for kk in 0..k {
+                sum += a[i * k + kk] * w[[kk, j]];
+            }
+            out[i * n + j] = sum;
+        }
+    }
+    out
+}
+
 pub struct VideoEncoder {
     config: crate::caffeine::config::VideoEncoderConfig,
     model_loaded: bool,
     _temporal_dim: usize,
-    frame_projection: FrameMLP,
+    patch_projection: FramePatchMLP,
+    temporal_attention: TemporalAttention,
 }
 
 impl VideoEncoder {
-    /// Create new video encoder
     pub fn new(config: crate::caffeine::config::VideoEncoderConfig) -> Result<Self> {
-        let input_dim = 3; // RGB means
+        let patch_size = 16;
+        let channels = 3;
+        let patch_pixels = patch_size * patch_size * channels;
         let hidden_dim = config.output_dim.max(64);
         let output_dim = config.output_dim;
         let num_frames = config.num_frames;
+        let num_heads = config.output_dim.max(4) / 4;
+        let num_heads = num_heads.max(2).next_power_of_two().min(output_dim);
+
         Ok(Self {
             _temporal_dim: num_frames,
             model_loaded: false,
             config,
-            frame_projection: FrameMLP::new(input_dim, hidden_dim, output_dim),
+            patch_projection: FramePatchMLP::new(patch_pixels, hidden_dim, output_dim),
+            temporal_attention: TemporalAttention::new(output_dim, num_heads),
         })
     }
 
-    /// Load model weights
     pub fn load_model(&mut self) -> Result<()> {
         self.model_loaded = true;
         Ok(())
     }
 
-    /// Encode video input
     pub fn encode(&mut self, input: &VideoInput) -> Result<ArrayD<f32>> {
         if !self.model_loaded {
             self.load_model()?;
         }
 
-        // Sample frames if needed
         let sampled_frames = self.sample_frames(&input.frames)?;
 
-        // Encode each frame and aggregate temporal information
         let mut frame_features = Vec::new();
-
         for frame in &sampled_frames {
             let frame_feature = self.encode_frame(frame)?;
             frame_features.push(frame_feature);
         }
 
-        // Apply temporal modeling
         let temporal_features = self.apply_temporal_modeling(&frame_features)?;
-
         Ok(temporal_features)
     }
 
-    /// Sample frames from video
     fn sample_frames(&self, frames: &[ImageInput]) -> Result<Vec<ImageInput>> {
         if frames.len() <= self.config.num_frames {
             return Ok(frames.to_vec());
         }
-
         let mut sampled = Vec::new();
         let step = frames.len() / self.config.num_frames;
-
         for i in 0..self.config.num_frames {
             let frame_idx = i * step;
             if frame_idx < frames.len() {
                 sampled.push(frames[frame_idx].clone());
             }
         }
-
         Ok(sampled)
     }
 
-    /// Encode individual frame using actual pixel data with MLP projection.
     pub fn encode_frame(&self, frame: &ImageInput) -> Result<ArrayD<f32>> {
         let patch_size = 16;
         let cols = (frame.width / patch_size).max(1);
         let rows = (frame.height / patch_size).max(1);
         let num_patches = cols * rows;
         let embed_dim = self.config.output_dim;
+        let channels = 3;
+
+        let raw: Vec<f32> = frame.data.iter().map(|&b| b as f32 / 255.0).collect();
+        let mean = [0.48145466, 0.4578275, 0.40821073];
+        let std = [0.26862954, 0.26130258, 0.27577711];
+        let pixels: Vec<f32> = raw
+            .chunks(frame.data.len() / (frame.width * frame.height).max(1) * channels)
+            .flat_map(|pixel| {
+                pixel.iter().enumerate().map(|(c, &v)| {
+                    if c < 3 { (v - mean[c]) / std[c] } else { v }
+                })
+            })
+            .collect();
+
+        let channels_in_data = if frame.data.len() >= frame.width * frame.height * 3 {
+            3
+        } else {
+            1
+        };
 
         let mut features = vec![0.0f32; num_patches * embed_dim];
         for p in 0..num_patches {
             let patch_col = p % cols;
             let patch_row = p / cols;
-            let mut mean_r = 0.0f32;
-            let mut mean_g = 0.0f32;
-            let mut mean_b = 0.0f32;
-            let mut count = 0u32;
+            let mut patch_vec = Vec::with_capacity(patch_size * patch_size * 3);
 
             for py in 0..patch_size.min(frame.height - patch_row * patch_size) {
                 for px in 0..patch_size.min(frame.width - patch_col * patch_size) {
                     let idx = ((patch_row * patch_size + py) * frame.width
                         + (patch_col * patch_size + px))
-                        * 3;
-                    if idx + 2 < frame.data.len() {
-                        mean_r += frame.data[idx] as f32;
-                        mean_g += frame.data[idx + 1] as f32;
-                        mean_b += frame.data[idx + 2] as f32;
-                        count += 1;
+                        * channels_in_data;
+                    if channels_in_data >= 3 && idx + 2 < pixels.len() {
+                        patch_vec.push(pixels[idx]);
+                        patch_vec.push(pixels[idx + 1]);
+                        patch_vec.push(pixels[idx + 2]);
+                    } else if idx < pixels.len() {
+                        let v = pixels[idx];
+                        patch_vec.push(v);
+                        patch_vec.push(v);
+                        patch_vec.push(v);
+                    } else {
+                        patch_vec.push(0.0);
+                        patch_vec.push(0.0);
+                        patch_vec.push(0.0);
                     }
                 }
             }
-            let c = count.max(1) as f32;
-            mean_r /= c;
-            mean_g /= c;
-            mean_b /= c;
 
-            // Project RGB means through MLP
-            let rgb_arr = Array1::from_vec(vec![mean_r / 255.0, mean_g / 255.0, mean_b / 255.0]);
-            let projected = self.frame_projection.forward(&rgb_arr);
+            while patch_vec.len() < patch_size * patch_size * 3 {
+                patch_vec.push(0.0);
+            }
+
+            let patch_arr = Array1::from_vec(patch_vec);
+            let projected = self.patch_projection.forward(&patch_arr);
             for d in 0..embed_dim {
                 features[p * embed_dim + d] = projected[d];
             }
@@ -161,7 +253,6 @@ impl VideoEncoder {
         Ok(ArrayD::from_shape_vec(shape, features)?)
     }
 
-    /// Apply temporal modeling across frames
     fn apply_temporal_modeling(&self, frame_features: &[ArrayD<f32>]) -> Result<ArrayD<f32>> {
         if frame_features.is_empty() {
             return Err(crate::caffeine::error::CaffeineError::encoder(
@@ -174,129 +265,33 @@ impl VideoEncoder {
         let seq_len = first_shape[0];
         let embed_dim = first_shape[1];
 
-        // Create tensor with temporal dimension
         let mut temporal_data = vec![0.0f32; num_frames * seq_len * embed_dim];
 
         for (t, frame_feature) in frame_features.iter().enumerate() {
             for i in 0..seq_len {
                 for d in 0..embed_dim {
-                    let _input_idx = i * embed_dim + d;
-                    let output_idx = t * seq_len * embed_dim + i * embed_dim + d;
-
                     if let Some(&val) = frame_feature.get([i, d]) {
-                        // Add temporal position encoding
-                        let temporal_encoding = (t as f32 * 0.1).sin();
+                        let pos_enc_sin = (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).sin();
+                        let pos_enc_cos = (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).cos();
+                        let temporal_encoding = if d % 2 == 0 { pos_enc_sin } else { pos_enc_cos };
+                        let output_idx = t * seq_len * embed_dim + i * embed_dim + d;
                         temporal_data[output_idx] = val + temporal_encoding;
                     }
                 }
             }
         }
 
-        // Apply temporal attention (simplified)
-        let attended_features =
-            self.apply_temporal_attention(&temporal_data, num_frames, seq_len, embed_dim)?;
+        let attended = self.temporal_attention.forward(&temporal_data, num_frames * seq_len, embed_dim);
 
-        let shape = vec![1, num_frames * seq_len, embed_dim]; // batch, time*seq, embed
-        Ok(ArrayD::from_shape_vec(shape, attended_features)?)
+        let shape = vec![1, num_frames * seq_len, embed_dim];
+        Ok(ArrayD::from_shape_vec(shape, attended)?)
     }
 
-    /// Apply simplified temporal attention
-    fn apply_temporal_attention(
-        &self,
-        data: &[f32],
-        num_frames: usize,
-        seq_len: usize,
-        embed_dim: usize,
-    ) -> Result<Vec<f32>> {
-        let mut attended = vec![0.0f32; data.len()];
-
-        // Simple temporal averaging (in production, use proper attention)
-        for t in 0..num_frames {
-            for i in 0..seq_len {
-                for d in 0..embed_dim {
-                    let mut sum = 0.0f32;
-                    let mut count = 0.0f32;
-
-                    // Average across temporal dimension
-                    for t_prime in 0..num_frames {
-                        let idx = t_prime * seq_len * embed_dim + i * embed_dim + d;
-                        if idx < data.len() {
-                            sum += data[idx];
-                            count += 1.0;
-                        }
-                    }
-
-                    let output_idx = t * seq_len * embed_dim + i * embed_dim + d;
-                    attended[output_idx] = if count > 0.0 { sum / count } else { 0.0 };
-                }
-            }
-        }
-
-        Ok(attended)
-    }
-
-    /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
         self.model_loaded
     }
 
-    /// Get configuration
     pub fn config(&self) -> &crate::caffeine::config::VideoEncoderConfig {
         &self.config
-    }
-}
-
-/// Temporal modeling utilities
-pub struct TemporalModeler {
-    attention_heads: usize,
-    _dropout_rate: f32,
-}
-
-impl TemporalModeler {
-    /// Create new temporal modeler
-    pub fn new(attention_heads: usize, _dropout_rate: f32) -> Self {
-        Self {
-            attention_heads,
-            _dropout_rate,
-        }
-    }
-
-    /// Apply multi-head temporal attention
-    pub fn multi_head_attention(
-        &self,
-        query: &ArrayD<f32>,
-        key: &ArrayD<f32>,
-        value: &ArrayD<f32>,
-    ) -> Result<ArrayD<f32>> {
-        // Simplified multi-head attention implementation
-        let shape = query.shape();
-        let batch_size = shape[0];
-        let seq_len = shape[1];
-        let embed_dim = shape[2];
-
-        let _head_dim = embed_dim / self.attention_heads;
-
-        // Create output tensor
-        let mut output = vec![0.0f32; batch_size * seq_len * embed_dim];
-
-        for b in 0..batch_size {
-            for i in 0..seq_len {
-                for d in 0..embed_dim {
-                    let idx = b * seq_len * embed_dim + i * embed_dim + d;
-
-                    // Simplified attention computation
-                    if let Some(&q_val) = query.get([b, i, d]) {
-                        if let Some(&k_val) = key.get([b, i, d]) {
-                            if let Some(&v_val) = value.get([b, i, d]) {
-                                output[idx] = q_val * k_val * v_val;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let output_shape = vec![batch_size, seq_len, embed_dim];
-        Ok(ArrayD::from_shape_vec(output_shape, output)?)
     }
 }

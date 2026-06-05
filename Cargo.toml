@@ -15,6 +15,7 @@ members = [
     "crates/inference",
     "crates/intelligence",
     "crates/memory",
+    "crates/models",
     "crates/monitoring",
     "crates/runtime",
     "crates/tokenizer",

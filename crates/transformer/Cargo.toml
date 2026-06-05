@@ -31,5 +31,5 @@ harness = false
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]
-nccl = ["dep:reqwest"]
+nccl = ["nexora-autograd/cuda", "dep:reqwest"]
 http = ["dep:reqwest"]

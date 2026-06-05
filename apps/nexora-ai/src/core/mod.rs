@@ -2,6 +2,7 @@
 
 #[cfg(feature = "legacy-fastpath")]
 pub mod chat;
+pub mod debate;
 #[cfg(feature = "legacy-fastpath")]
 pub mod generation;
 pub mod processing;

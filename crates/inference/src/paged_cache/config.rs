@@ -9,7 +9,7 @@
 //! - Potensi sharing antar sequence (copy-on-write)
 //! - Eviction terprediksi (per-block, bukan per-entry)
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 
 use crate::paged_cache::PagedKVCache;
 
@@ -74,7 +74,7 @@ pub const DEFAULT_TIER_SWEEP_INTERVAL_SECS: f64 = 15.0;
 
 /// Global paged KV cache singleton accessible by the inference engine.
 /// Initialized via [`init_global_paged_cache`] or `PagedKVCache::new_for_engine`.
-pub static GLOBAL_PAGED_CACHE: OnceLock<Mutex<PagedKVCache>> = OnceLock::new();
+pub static GLOBAL_PAGED_CACHE: OnceLock<RwLock<PagedKVCache>> = OnceLock::new();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

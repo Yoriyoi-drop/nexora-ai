@@ -1,6 +1,5 @@
 use crate::foundation::NxrOmnisModel;
 use crate::omnis::router;
-use crate::omnis::router::OmnisMoERouter;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
@@ -24,7 +23,7 @@ fn init_router() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                OmnisMoERouter::init(embed.clone());
+                router::init_router(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }

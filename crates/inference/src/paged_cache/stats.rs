@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use crate::paged_cache::PagedKVCache;
 use crate::GLOBAL_PAGED_CACHE;
@@ -225,14 +225,14 @@ impl PagedKVCache {
 /// in the global singleton. When the `gpu` feature is enabled, also attempts
 /// to initialize the GPU page table bridge.
 ///
-/// Returns a reference to the initialized global mutex. Safe to call multiple
+/// Returns a reference to the initialized global RwLock. Safe to call multiple
 /// times — subsequent calls return the existing instance.
 pub fn init_global_paged_cache(
     num_layers: usize,
     num_kv_heads: usize,
     head_dim: usize,
     max_seq_len: usize,
-) -> &'static Mutex<PagedKVCache> {
+) -> &'static RwLock<PagedKVCache> {
     GLOBAL_PAGED_CACHE.get_or_init(|| {
         let mut cache =
             PagedKVCache::new_for_engine(num_layers, num_kv_heads, head_dim, max_seq_len);
@@ -240,7 +240,7 @@ pub fn init_global_paged_cache(
         if let Err(e) = cache.init_gpu_page_table() {
             tracing::warn!("Failed to init GPU page table for global paged cache: {e}");
         }
-        Mutex::new(cache)
+        RwLock::new(cache)
     })
 }
 

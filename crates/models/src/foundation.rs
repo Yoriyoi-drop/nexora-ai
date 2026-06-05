@@ -33,18 +33,6 @@ use nexora_shared::{
 use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
 
-fn ident_to_transformer_tier(tier: &str) -> nexora_transformer::config::ModelTier {
-    use nexora_transformer::config::ModelTier;
-    match tier {
-        "Ultra" => ModelTier::Ultra,
-        "Apex" => ModelTier::Apex,
-        "Pro" => ModelTier::Pro,
-        "Core" => ModelTier::Core,
-        "Edge" => ModelTier::Edge,
-        _ => ModelTier::Ultra,
-    }
-}
-
 /// Source-of-truth dev config — must match `crates/foundation/src/init.rs::tier_config()`.
 /// These sizes are used for local dev/testing. Production uses `TransformerConfig::preset()`.
 pub fn transformer_config_for(model_id: NxrModelId) -> TransformerConfig {
@@ -293,11 +281,10 @@ macro_rules! define_foundation_model {
                     e.into_inner()
                 });
                 if guard.is_none() {
-                    let tier = ident_to_transformer_tier(stringify!($tier));
-                    match nexora_transformer::resolve_tier_backbone(tier) {
+                    match nexora_transformer::resolve_single_backbone() {
                         Ok(backbone) => {
                             *guard = Some(backbone);
-                            tracing::info!(target: stringify!($name), "Using shared tier backbone (get_or_init_model)");
+                            tracing::info!(target: stringify!($name), "Using shared single backbone (get_or_init_model)");
                         }
                         Err(_) => {
                             *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));

@@ -231,6 +231,102 @@ fn gelu_derivative(x: f32) -> f32 {
     0.5 * (1.0 + tanh_val + x * (1.0 - tanh_val * tanh_val) * c * (1.0 + 3.0 * 0.044715 * x * x))
 }
 
+// ─── Generic Classifier (Sprint 2.9) ──────────────────────────────────
+// Eliminates 8× identical classifier.rs implementations across model crates.
+// NO dummy/uninit state — only exists when properly initialized via `new()`.
+
+/// Generic 2-layer MLP classifier parameterized by N output categories.
+/// Production-only: `new()` with real embed_table + Xavier init. No placeholder state.
+pub struct GenericClassifier<const N: usize> {
+    embed_table: Array2<f32>,
+    w1: Array2<f32>,
+    b1: Array1<f32>,
+    w2: Array2<f32>,
+    b2: Array1<f32>,
+}
+
+impl<const N: usize> GenericClassifier<N> {
+    /// Create classifier with Xavier-initialized weights. embed_table must have real data.
+    pub fn new(embed_table: Array2<f32>, hidden: usize) -> Self {
+        let hidden_size = embed_table.shape()[1];
+        Self {
+            w1: xavier_init(hidden_size, hidden),
+            b1: Array1::zeros(hidden),
+            w2: xavier_init(hidden, N),
+            b2: Array1::zeros(N),
+            embed_table,
+        }
+    }
+
+    /// Predict labels in original order (no sorting). Returns default if token_ids empty.
+    pub fn predict(&self, token_ids: &[u32], labels: &[&str; N], default: &str) -> Vec<(String, f32)> {
+        if token_ids.is_empty() {
+            return vec![(default.to_string(), 1.0)];
+        }
+        let avg = embed_average(&self.embed_table, token_ids);
+        let h = gelu(&(avg.dot(&self.w1) + &self.b1));
+        let logits = h.dot(&self.w2) + &self.b2;
+        let probs = softmax(&logits);
+        labels.iter().zip(probs.iter()).map(|(l, &p)| (l.to_string(), p)).collect()
+    }
+
+    /// Predict labels sorted by probability descending.
+    pub fn predict_sorted(&self, token_ids: &[u32], labels: &[&str; N], default: &str) -> Vec<(String, f32)> {
+        let mut results = self.predict(token_ids, labels, default);
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results
+    }
+}
+
+#[cfg(test)]
+mod generic_tests {
+    use super::*;
+
+    #[test]
+    fn test_generic_classifier_new_initialized() {
+        let embed = Array2::zeros((10, 64));
+        let cls = GenericClassifier::<6>::new(embed, 32);
+        assert_eq!(cls.w1.shape()[0], 64);
+        assert_eq!(cls.w1.shape()[1], 32);
+        assert_eq!(cls.w2.shape()[0], 32);
+        assert_eq!(cls.w2.shape()[1], 6);
+    }
+
+    #[test]
+    fn test_generic_predict_empty_ids() {
+        let embed = Array2::zeros((10, 64));
+        let cls = GenericClassifier::<6>::new(embed, 32);
+        let labels = ["a", "b", "c", "d", "e", "f"];
+        let r = cls.predict(&[], &labels, "a");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].0, "a");
+        assert!((r[0].1 - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_generic_predict_returns_all_labels() {
+        let embed = Array2::zeros((10, 64));
+        let cls = GenericClassifier::<4>::new(embed, 32);
+        let labels = ["simple", "moderate", "complex", "multi_domain"];
+        let r = cls.predict(&[0, 1, 2], &labels, "simple");
+        assert_eq!(r.len(), 4);
+        let sum: f32 = r.iter().map(|(_, p)| p).sum();
+        assert!((sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_generic_predict_sorted_descending() {
+        let embed = Array2::zeros((10, 64));
+        let cls = GenericClassifier::<3>::new(embed, 32);
+        let labels = ["x", "y", "z"];
+        let r = cls.predict_sorted(&[0], &labels, "x");
+        assert_eq!(r.len(), 3);
+        for i in 1..r.len() {
+            assert!(r[i - 1].1 >= r[i].1, "must be sorted descending");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

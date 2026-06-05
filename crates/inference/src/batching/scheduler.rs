@@ -35,7 +35,7 @@ pub struct ContinuousBatchingEngine<M> {
     max_seq_len: usize,
     paged_cache_dim_set: bool,
     /// Shared paged cache instance. All PagedKVCacheProviders use the same pool.
-    shared_paged: Option<std::sync::Arc<std::sync::Mutex<crate::paged_cache::PagedKVCache>>>,
+    shared_paged: Option<std::sync::Arc<std::sync::RwLock<crate::paged_cache::PagedKVCache>>>,
     // ── Adaptive Batching State ──────────────────────────────────────────────
     /// Exponentially weighted moving average of tokens/sec throughput.
     throughput_ewma: f64,
@@ -121,7 +121,7 @@ where
                 enable_cold_disk_offload: true,
                 ..Default::default()
             };
-            self.shared_paged = Some(Arc::new(std::sync::Mutex::new(
+            self.shared_paged = Some(Arc::new(std::sync::RwLock::new(
                 crate::paged_cache::PagedKVCache::new(paged_config),
             )));
         }
@@ -439,7 +439,7 @@ where
                 continue;
             }
 
-            let mut guard = match shared_cache.lock() {
+            let mut guard = match shared_cache.write() {
                 Ok(g) => g,
                 _ => continue,
             };

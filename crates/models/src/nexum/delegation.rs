@@ -1,6 +1,5 @@
 use crate::foundation::NxrNexumModel;
 use crate::nexum::classifier;
-use crate::nexum::classifier::ComplexityClassifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
 use std::sync::Arc;
@@ -27,7 +26,7 @@ fn init_classifier() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                ComplexityClassifier::init(embed.clone());
+                classifier::init_classifier(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }

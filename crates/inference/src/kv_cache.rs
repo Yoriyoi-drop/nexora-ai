@@ -16,6 +16,23 @@ pub struct CacheStats {
     pub max_entries: usize,
     pub evictions: usize,
     pub ttl_evictions: usize,
+    pub shard_count: usize,
+    pub eviction_policy: EvictionPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EvictionPolicy {
+    LRU,
+    LFU,
+    FIFO,
+    Random,
+    None,
+}
+
+impl Default for EvictionPolicy {
+    fn default() -> Self {
+        Self::LRU
+    }
 }
 
 struct CacheEntry {
@@ -26,9 +43,10 @@ struct CacheEntry {
     last_access: AtomicU64,
 }
 
-struct CacheStore {
+struct CacheShard {
     entries: HashMap<u64, CacheEntry>,
-    lru_order: BTreeSet<(u64, u64)>, // (last_access_nanos, hash)
+    lru_order: BTreeSet<(u64, u64)>,
+    size_count: usize,
 }
 
 fn timestamp_nanos() -> u64 {
@@ -41,8 +59,24 @@ fn timestamp_nanos() -> u64 {
     }
 }
 
+fn hash_key(key: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &byte in key {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn shard_index(key: &[u8], shard_count: usize) -> usize {
+    let h = hash_key(key);
+    (h as usize) % shard_count
+}
+
 pub struct KVCache {
-    store: RwLock<CacheStore>,
+    shards: Vec<Arc<RwLock<CacheShard>>>,
+    shard_count: usize,
+    eviction_policy: EvictionPolicy,
     ttl: Duration,
     max_entries: usize,
     max_entry_bytes: usize,
@@ -52,18 +86,30 @@ pub struct KVCache {
     stats_misses: AtomicUsize,
     stats_evictions: AtomicUsize,
     stats_ttl_evictions: AtomicUsize,
-    cache_size_count: AtomicUsize,
     estimated_memory: AtomicUsize,
     last_cleanup: RwLock<Instant>,
+    shutdown: RwLock<bool>,
 }
 
 impl KVCache {
     pub fn new() -> Self {
-        Self {
-            store: RwLock::new(CacheStore {
+        Self::with_shards(1)
+    }
+
+    pub fn with_shards(shard_count: usize) -> Self {
+        let shard_count = shard_count.max(1);
+        let mut shards = Vec::with_capacity(shard_count);
+        for _ in 0..shard_count {
+            shards.push(Arc::new(RwLock::new(CacheShard {
                 entries: HashMap::new(),
                 lru_order: BTreeSet::new(),
-            }),
+                size_count: 0,
+            })));
+        }
+        Self {
+            shards,
+            shard_count,
+            eviction_policy: EvictionPolicy::default(),
             ttl: Duration::from_secs(
                 std::env::var("KV_CACHE_TTL_SECS")
                     .ok()
@@ -78,9 +124,9 @@ impl KVCache {
             stats_misses: AtomicUsize::new(0),
             stats_evictions: AtomicUsize::new(0),
             stats_ttl_evictions: AtomicUsize::new(0),
-            cache_size_count: AtomicUsize::new(0),
             estimated_memory: AtomicUsize::new(0),
             last_cleanup: RwLock::new(Instant::now()),
+            shutdown: RwLock::new(false),
         }
     }
 
@@ -104,30 +150,66 @@ impl KVCache {
         self
     }
 
+    pub fn with_eviction_policy(mut self, policy: EvictionPolicy) -> Self {
+        self.eviction_policy = policy;
+        self
+    }
+
+    pub fn with_shard_count(mut self, count: usize) -> Self {
+        let count = count.max(1);
+        if count != self.shard_count {
+            let mut shards = Vec::with_capacity(count);
+            for _ in 0..count {
+                shards.push(Arc::new(RwLock::new(CacheShard {
+                    entries: HashMap::new(),
+                    lru_order: BTreeSet::new(),
+                    size_count: 0,
+                })));
+            }
+            self.shards = shards;
+            self.shard_count = count;
+        }
+        self
+    }
+
     pub async fn initialize(&self) -> Result<(), anyhow::Error> {
         tracing::info!(
-            "KVCache initialized with max_entries={}, ttl={:?}",
+            "KVCache initialized shards={} policy={:?} max_entries={} ttl={:?}",
+            self.shard_count,
+            self.eviction_policy,
             self.max_entries,
             self.ttl
         );
         Ok(())
     }
 
+    fn select_shard(&self, key: &[u8]) -> usize {
+        shard_index(key, self.shard_count)
+    }
+
     pub async fn get(&self, key: &[u8]) -> Option<Vec<f32>> {
-        let hash = self.hash_key(key);
+        if *self.shutdown.read().await {
+            return None;
+        }
+        let idx = self.select_shard(key);
+        let hash = hash_key(key);
         {
-            let store = self.store.read().await;
+            let store = self.shards[idx].read().await;
             if !store.entries.get(&hash).map_or(false, |e| e.key == key) {
                 self.stats_misses.fetch_add(1, Ordering::Relaxed);
                 return None;
             }
         }
-        let mut store = self.store.write().await;
+        let mut store = self.shards[idx].write().await;
         let entry = store.entries.remove(&hash)?;
         if entry.created_at.elapsed() > self.ttl {
             store
                 .lru_order
                 .remove(&(entry.last_access.load(Ordering::Relaxed), hash));
+            store.size_count -= 1;
+            let freed = entry.value.len() * std::mem::size_of::<f32>() + entry.key.len();
+            self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+            self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
             self.stats_ttl_evictions.fetch_add(1, Ordering::Relaxed);
             self.stats_misses.fetch_add(1, Ordering::Relaxed);
             return None;
@@ -144,6 +226,9 @@ impl KVCache {
     }
 
     pub async fn insert(&self, key: Vec<u8>, value: Vec<f32>) {
+        if *self.shutdown.read().await {
+            return;
+        }
         let value = Arc::new(value);
         let entry_size = value.len() * std::mem::size_of::<f32>() + key.len();
         if entry_size > self.max_entry_bytes {
@@ -152,35 +237,35 @@ impl KVCache {
             return;
         }
 
-        let hash = self.hash_key(&key);
-        let mut store = self.store.write().await;
+        let hash = hash_key(&key);
+        let idx = self.select_shard(&key);
+        let mut store = self.shards[idx].write().await;
 
-        // If key already exists, remove old entry's size first
         if let Some(old) = store.entries.get(&hash) {
             if old.key == key {
                 let freed = old.value.len() * std::mem::size_of::<f32>() + old.key.len();
                 self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
                 self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
-                self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
+                store.size_count -= 1;
             }
         }
 
         while store.entries.len() >= self.max_entries
             || (self.total_memory_used.load(Ordering::Relaxed) + entry_size) > self.max_memory_bytes
         {
-            let lru_key = store.lru_order.iter().next().copied().map(|(_, h)| h);
-            match lru_key {
+            let evict_key = self.select_victim(&store);
+            match evict_key {
                 Some(k) => {
                     if let Some(removed) = store.entries.remove(&k) {
                         store
                             .lru_order
                             .remove(&(removed.last_access.load(Ordering::Relaxed), k));
+                        store.size_count -= 1;
                         let freed =
                             removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                         self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
                         self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
                     }
-                    self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
                     self.stats_evictions.fetch_add(1, Ordering::Relaxed);
                 }
                 None => break,
@@ -199,7 +284,7 @@ impl KVCache {
                 last_access: AtomicU64::new(now),
             },
         );
-        self.cache_size_count.fetch_add(1, Ordering::Relaxed);
+        store.size_count += 1;
         self.total_memory_used
             .fetch_add(entry_size, Ordering::Relaxed);
         self.estimated_memory
@@ -209,33 +294,68 @@ impl KVCache {
         self.maybe_cleanup().await;
     }
 
+    fn select_victim(&self, store: &CacheShard) -> Option<u64> {
+        match self.eviction_policy {
+            EvictionPolicy::LRU => {
+                store.lru_order.iter().next().copied().map(|(_, h)| h)
+            }
+            EvictionPolicy::LFU => {
+                store
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.access_count.load(Ordering::Relaxed))
+                    .map(|(h, _)| *h)
+            }
+            EvictionPolicy::FIFO => {
+                store
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.created_at)
+                    .map(|(h, _)| *h)
+            }
+            EvictionPolicy::Random => {
+                let keys: Vec<u64> = store.entries.keys().copied().collect();
+                if keys.is_empty() {
+                    None
+                } else {
+                    let idx = (timestamp_nanos() as usize) % keys.len();
+                    Some(keys[idx])
+                }
+            }
+            EvictionPolicy::None => None,
+        }
+    }
+
     pub async fn contains(&self, key: &[u8]) -> bool {
-        let hash = self.hash_key(key);
-        let store = self.store.read().await;
+        let idx = self.select_shard(key);
+        let hash = hash_key(key);
+        let store = self.shards[idx].read().await;
         store.entries.get(&hash).map_or(false, |e| {
             e.key == key && e.created_at.elapsed() <= self.ttl
         })
     }
 
     pub async fn clear(&self) {
-        let mut store = self.store.write().await;
-        store.entries.clear();
-        store.lru_order.clear();
-        self.cache_size_count.store(0, Ordering::Relaxed);
-        self.estimated_memory.store(0, Ordering::Relaxed);
+        for shard in &self.shards {
+            let mut store = shard.write().await;
+            store.entries.clear();
+            store.lru_order.clear();
+            store.size_count = 0;
+        }
     }
 
     pub async fn remove(&self, key: &[u8]) -> bool {
-        let hash = self.hash_key(key);
-        let mut store = self.store.write().await;
+        let idx = self.select_shard(key);
+        let hash = hash_key(key);
+        let mut store = self.shards[idx].write().await;
         if let Some(removed) = store.entries.remove(&hash) {
             store
                 .lru_order
                 .remove(&(removed.last_access.load(Ordering::Relaxed), hash));
+            store.size_count -= 1;
             let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
             self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
             self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
-            self.cache_size_count.fetch_sub(1, Ordering::Relaxed);
             true
         } else {
             false
@@ -243,33 +363,35 @@ impl KVCache {
     }
 
     pub async fn evict_expired(&self) -> usize {
-        let mut store = self.store.write().await;
-        let _before = store.entries.len();
-        let evicted_entries: Vec<u64> = store
-            .entries
-            .iter()
-            .filter(|(_, e)| e.created_at.elapsed() > self.ttl)
-            .map(|(k, _)| *k)
-            .collect();
-        for k in &evicted_entries {
-            if let Some(removed) = store.entries.remove(k) {
-                store
-                    .lru_order
-                    .remove(&(removed.last_access.load(Ordering::Relaxed), *k));
-                let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
-                self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
-                self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
+        let mut total = 0;
+        for shard in &self.shards {
+            let mut store = shard.write().await;
+            let evicted: Vec<u64> = store
+                .entries
+                .iter()
+                .filter(|(_, e)| e.created_at.elapsed() > self.ttl)
+                .map(|(k, _)| *k)
+                .collect();
+            for k in &evicted {
+                if let Some(removed) = store.entries.remove(k) {
+                    store
+                        .lru_order
+                        .remove(&(removed.last_access.load(Ordering::Relaxed), *k));
+                    store.size_count -= 1;
+                    let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                    self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
+                    self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
+                }
             }
+            total += evicted.len();
+            self.stats_ttl_evictions
+                .fetch_add(evicted.len(), Ordering::Relaxed);
         }
-        self.cache_size_count
-            .fetch_sub(evicted_entries.len(), Ordering::Relaxed);
-        let evicted = evicted_entries.len();
-        self.stats_ttl_evictions
-            .fetch_add(evicted, Ordering::Relaxed);
-        evicted
+        total
     }
 
     pub async fn shutdown(&self) -> Result<(), anyhow::Error> {
+        *self.shutdown.write().await = true;
         self.clear().await;
         Ok(())
     }
@@ -278,7 +400,11 @@ impl KVCache {
         let hits = self.stats_hits.load(Ordering::Relaxed);
         let misses = self.stats_misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        let cache_size = self.cache_size_count.load(Ordering::Relaxed);
+        let cache_size: usize = self
+            .shards
+            .iter()
+            .map(|s| s.try_read().map(|g| g.size_count).unwrap_or(0))
+            .sum();
         let estimated_memory_bytes = self.estimated_memory.load(Ordering::Relaxed);
         CacheStats {
             cache_size,
@@ -294,11 +420,12 @@ impl KVCache {
             max_entries: self.max_entries,
             evictions: self.stats_evictions.load(Ordering::Relaxed),
             ttl_evictions: self.stats_ttl_evictions.load(Ordering::Relaxed),
+            shard_count: self.shard_count,
+            eviction_policy: self.eviction_policy.clone(),
         }
     }
 
     async fn maybe_cleanup(&self) {
-        // Lock ordering: last_cleanup → store (dropped before evict_expired acquires store)
         let mut last = self.last_cleanup.write().await;
         let eviction_interval = Duration::from_secs(
             std::env::var("KV_CACHE_EVICTION_INTERVAL_SECS")
@@ -311,16 +438,6 @@ impl KVCache {
             drop(last);
             self.evict_expired().await;
         }
-    }
-
-    fn hash_key(&self, key: &[u8]) -> u64 {
-        // FNV-1a hash (fast, no crypto overhead — internal cache, not user-exposed)
-        let mut hash: u64 = 0xcbf29ce484222325;
-        for &byte in key {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
-        hash
     }
 }
 
@@ -356,7 +473,12 @@ mod tests {
         cache.insert(b"k1".to_vec(), vec![1.0]).await;
         cache.insert(b"k2".to_vec(), vec![2.0]).await;
         cache.insert(b"k3".to_vec(), vec![3.0]).await;
-        assert!(cache.store.read().await.entries.len() <= 2);
+        let total: usize = cache
+            .shards
+            .iter()
+            .map(|s| s.try_read().map(|g| g.entries.len()).unwrap_or(0))
+            .sum();
+        assert!(total <= 2);
     }
 
     #[tokio::test]
@@ -389,12 +511,17 @@ mod tests {
         cache.insert(b"k1".to_vec(), vec![1.0]).await;
         cache.insert(b"k2".to_vec(), vec![2.0]).await;
         cache.clear().await;
-        assert_eq!(cache.store.read().await.entries.len(), 0);
+        let total: usize = cache
+            .shards
+            .iter()
+            .map(|s| s.try_read().map(|g| g.entries.len()).unwrap_or(0))
+            .sum();
+        assert_eq!(total, 0);
     }
 
     #[tokio::test]
     async fn test_concurrent_access() {
-        let cache = std::sync::Arc::new(KVCache::new());
+        let cache = std::sync::Arc::new(KVCache::with_shards(4));
         let mut handles = Vec::with_capacity(100);
         for i in 0..100 {
             let c = cache.clone();
@@ -412,7 +539,12 @@ mod tests {
                 Err(e) => tracing::error!("KV cache worker panicked: {:?}", e),
             }
         }
-        assert_eq!(cache.store.read().await.entries.len(), 100);
+        let total: usize = cache
+            .shards
+            .iter()
+            .map(|s| s.try_read().map(|g| g.entries.len()).unwrap_or(0))
+            .sum();
+        assert_eq!(total, 100);
     }
 
     #[test]
@@ -422,5 +554,34 @@ mod tests {
         assert_eq!(stats.cache_size, 0);
         assert_eq!(stats.cache_hits, 0);
         assert_eq!(stats.cache_misses, 0);
+    }
+
+    #[tokio::test]
+    async fn test_sharded_insert_and_get() {
+        let cache = KVCache::with_shards(8);
+        assert_eq!(cache.shard_count, 8);
+        cache.insert(b"key_a".to_vec(), vec![1.0]).await;
+        cache.insert(b"key_b".to_vec(), vec![2.0]).await;
+        cache.insert(b"key_c".to_vec(), vec![3.0]).await;
+        assert_eq!(cache.get(b"key_a").await, Some(vec![1.0]));
+        assert_eq!(cache.get(b"key_b").await, Some(vec![2.0]));
+        assert_eq!(cache.get(b"key_c").await, Some(vec![3.0]));
+    }
+
+    #[tokio::test]
+    async fn test_eviction_policy_lfu() {
+        let cache = KVCache::new()
+            .with_max_entries(2)
+            .with_eviction_policy(EvictionPolicy::LFU);
+        cache.insert(b"a".to_vec(), vec![1.0]).await;
+        cache.insert(b"b".to_vec(), vec![2.0]).await;
+        // Access 'a' more than 'b'
+        cache.get(b"a").await;
+        cache.get(b"a").await;
+        cache.get(b"b").await;
+        // Insert 'c' should evict 'b' (LFU: b accessed once, a accessed twice)
+        cache.insert(b"c".to_vec(), vec![3.0]).await;
+        assert!(cache.contains(b"a").await);
+        assert!(cache.contains(b"c").await);
     }
 }

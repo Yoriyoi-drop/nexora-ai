@@ -1,6 +1,5 @@
 use crate::foundation::NxrVortexModel;
 use crate::vortex::analyzer;
-use crate::vortex::analyzer::CodeReviewClassifier;
 use nexora_oracle::CodeLinterManager;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -25,7 +24,7 @@ fn init_analyzer() {
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
             if let Some(ref embed) = model.token_embedding {
-                CodeReviewClassifier::init(embed.clone());
+                analyzer::init_analyzer(embed.clone());
                 let _ = INITIALIZED.set(true);
             }
         }
