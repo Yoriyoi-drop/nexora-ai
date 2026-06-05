@@ -7,7 +7,7 @@ use super::Tensor;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuContext;
 
-pub(crate) fn backward_engine(output: &Tensor) {
+pub fn backward_engine(output: &Tensor) {
     let mut visited = HashSet::new();
     let mut topo = Vec::new();
     let mut queue = VecDeque::new();

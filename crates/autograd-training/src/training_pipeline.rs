@@ -1,128 +1,27 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(feature = "serde")]
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use ndarray::ArrayD;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::mixed_precision::LossScaler;
-use super::{Adam, Tensor};
-
-#[cfg(feature = "gpu")]
-use super::gpu::{GpuContext, GpuTensor};
+#[cfg(feature = "serde")]
+use nexora_autograd_core::LossScaler;
+use nexora_autograd_core::{Adam, Tensor};
 
 // ─── Optimizer State ─────────────────────────────────────────────────────────
 
 /// Serializable optimizer state for checkpoint resume (CPU)
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OptimizerState {
     pub m: Vec<Vec<f32>>,
     pub v: Vec<Vec<f32>>,
     pub step: usize,
-}
-
-/// GPU-resident optimizer state for persistent GPU residency
-#[cfg(feature = "gpu")]
-pub struct GpuOptimizerState {
-    pub m: Vec<GpuTensor>,
-    pub v: Vec<GpuTensor>,
-    pub step: usize,
-}
-
-#[cfg(feature = "gpu")]
-impl GpuOptimizerState {
-    /// Create GPU-resident optimizer state from CPU state
-    pub fn from_cpu(
-        cpu_state: &OptimizerState,
-        _ctx: &GpuContext,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let m = cpu_state
-            .m
-            .iter()
-            .map(|arr| {
-                let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
-                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let v = cpu_state
-            .v
-            .iter()
-            .map(|arr| {
-                let arr_d = ArrayD::from_shape_vec(vec![arr.len()], arr.clone())?;
-                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            m,
-            v,
-            step: cpu_state.step,
-        })
-    }
-
-    /// Convert to CPU state for checkpointing
-    /// Panics on GPU readback failure — checkpoint cannot proceed without valid data.
-    pub fn to_cpu(&self) -> OptimizerState {
-        fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
-            match t.to_cpu() {
-                Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                    tracing::warn!(
-                        "GpuOptimizerState::to_cpu: non-contiguous tensor, falling back to iter"
-                    );
-                    cpu.iter().copied().collect()
-                }),
-                Err(e) => {
-                    tracing::error!(
-                        "GpuOptimizerState::to_cpu GPU readback failed: {e}. \
-                         Returning zeros as fallback."
-                    );
-                    vec![0.0; t.numel()]
-                }
-            }
-        }
-        OptimizerState {
-            m: self.m.iter().map(gpu_tensor_to_vec).collect(),
-            v: self.v.iter().map(gpu_tensor_to_vec).collect(),
-            step: self.step,
-        }
-    }
-
-    /// Create GPU-resident optimizer state directly from Adam optimizer
-    pub fn from_adam_gpu(
-        adam: &Adam,
-        _ctx: &GpuContext,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let m = adam
-            .m
-            .iter()
-            .map(|arr| {
-                GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let v = adam
-            .v
-            .iter()
-            .map(|arr| {
-                GpuTensor::from_cpu(arr).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self {
-            m,
-            v,
-            step: adam.step,
-        })
-    }
-
-    /// Apply GPU-resident state to Adam optimizer (for CPU fallback)
-    pub fn apply_to_adam(&self, adam: &mut Adam) {
-        let cpu_state = self.to_cpu();
-        let shapes: Vec<Vec<usize>> = adam.parameters.iter().map(|p| p.shape()).collect();
-        cpu_state.apply_to_adam(adam, &shapes);
-    }
 }
 
 impl OptimizerState {
@@ -186,7 +85,8 @@ impl OptimizerState {
 // ─── Checkpoint ──────────────────────────────────────────────────────────────
 
 /// Full training state for save/load (CPU)
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Checkpoint {
     pub step: usize,
     pub epoch: usize,
@@ -197,129 +97,19 @@ pub struct Checkpoint {
     pub optimizer_state: Option<OptimizerState>,
 }
 
-/// GPU-resident checkpoint for persistent GPU residency
-#[cfg(feature = "gpu")]
-pub struct GpuCheckpoint {
-    pub step: usize,
-    pub epoch: usize,
-    pub best_val_loss: Option<f64>,
-    pub loss_scaler_scale: Option<f32>,
-    pub model_params: Vec<GpuTensor>,
-    pub model_shapes: Vec<Vec<usize>>,
-    pub optimizer_state: Option<GpuOptimizerState>,
-}
-
-#[cfg(feature = "gpu")]
-impl GpuCheckpoint {
-    /// Create GPU-resident checkpoint from CPU checkpoint
-    pub fn from_cpu(
-        cpu_ckpt: &Checkpoint,
-        ctx: &GpuContext,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let model_params = cpu_ckpt
-            .model_params
-            .iter()
-            .zip(&cpu_ckpt.model_shapes)
-            .map(|(params, shape)| {
-                let arr_d = ArrayD::from_shape_vec(shape.clone(), params.clone())?;
-                GpuTensor::from_cpu(&arr_d).map_err(|e| Box::from(e) as Box<dyn std::error::Error>)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let optimizer_state = cpu_ckpt
-            .optimizer_state
-            .as_ref()
-            .map(|opt| GpuOptimizerState::from_cpu(opt, ctx))
-            .transpose()?;
-
-        Ok(Self {
-            step: cpu_ckpt.step,
-            epoch: cpu_ckpt.epoch,
-            best_val_loss: cpu_ckpt.best_val_loss,
-            loss_scaler_scale: cpu_ckpt.loss_scaler_scale,
-            model_params,
-            model_shapes: cpu_ckpt.model_shapes.clone(),
-            optimizer_state,
-        })
-    }
-
-    /// Convert to CPU checkpoint for serialization
-    /// Panics on GPU readback failure — checkpoint cannot proceed without valid data.
-    pub fn to_cpu(&self) -> Checkpoint {
-        fn gpu_tensor_to_vec(t: &GpuTensor) -> Vec<f32> {
-            match t.to_cpu() {
-                Ok(cpu) => cpu.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| {
-                    tracing::warn!(
-                        "CheckpointGpu::to_cpu: non-contiguous tensor, falling back to iter"
-                    );
-                    cpu.iter().copied().collect()
-                }),
-                Err(e) => {
-                    tracing::error!(
-                        "CheckpointGpu::to_cpu GPU readback failed: {e}. \
-                         Returning zeros as fallback."
-                    );
-                    vec![0.0; t.numel()]
-                }
-            }
-        }
-        Checkpoint {
-            step: self.step,
-            epoch: self.epoch,
-            best_val_loss: self.best_val_loss,
-            loss_scaler_scale: self.loss_scaler_scale,
-            model_params: self
-                .model_params
-                .iter()
-                .map(gpu_tensor_to_vec)
-                .collect(),
-            model_shapes: self.model_shapes.clone(),
-            optimizer_state: self.optimizer_state.as_ref().map(|opt| opt.to_cpu()),
-        }
-    }
-
-    /// Save GPU-resident checkpoint to disk (converts to CPU first)
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
-        let cpu_ckpt = self.to_cpu();
-        let json = serde_json::to_string_pretty(&cpu_ckpt)?;
-        std::fs::write(path, json)?;
-        Ok(())
-    }
-
-    /// Load checkpoint from disk and convert to GPU-resident
-    pub fn load(
-        path: impl AsRef<Path>,
-        ctx: &GpuContext,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let json = std::fs::read_to_string(path)?;
-        let cpu_ckpt: Checkpoint = serde_json::from_str(&json)?;
-        Self::from_cpu(&cpu_ckpt, ctx)
-    }
-
-    /// Apply saved GPU weights to model parameters
-    pub fn restore_params(&self, params: &[Tensor]) {
-        for (i, p) in params.iter().enumerate() {
-            if i < self.model_params.len() && i < self.model_shapes.len() {
-                match self.model_params[i].to_cpu() {
-                    Ok(arr) => p.set_data(arr),
-                    Err(e) => tracing::warn!(
-                        "CheckpointGpu::restore_params GPU readback failed for param {i}: {e}"
-                    ),
-                }
-            }
-        }
-    }
-
-    /// Restore GPU-resident optimizer state to Adam optimizer
-    pub fn restore_optimizer(&self, adam: &mut Adam) {
-        if let Some(ref opt_state) = self.optimizer_state {
-            opt_state.apply_to_adam(adam);
-        }
-    }
-}
-
 impl Checkpoint {
+    #[cfg(feature = "serde")]
+    fn to_json(&self) -> Result<String, Box<dyn std::error::Error>> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
+    #[cfg(feature = "serde")]
+    fn from_json(json: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_str(json)?)
+    }
+
     /// Save checkpoint to disk
+    #[cfg(feature = "serde")]
     pub fn save(
         path: impl AsRef<Path>,
         params: &[Tensor],
@@ -341,16 +131,16 @@ impl Checkpoint {
             model_shapes: params.iter().map(|p| p.shape()).collect(),
             optimizer_state: Some(OptimizerState::from_adam(adam)),
         };
-        let json = serde_json::to_string_pretty(&ckpt)?;
+        let json = ckpt.to_json()?;
         std::fs::write(path, json)?;
         Ok(())
     }
 
     /// Load checkpoint from disk
+    #[cfg(feature = "serde")]
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
         let json = std::fs::read_to_string(path)?;
-        let ckpt: Self = serde_json::from_str(&json)?;
-        Ok(ckpt)
+        Self::from_json(&json)
     }
 
     /// Apply saved weights to model parameters.
@@ -521,7 +311,7 @@ pub struct TrainingLoop {
     pub total_tokens: usize,
     pub start_time: Option<Instant>,
     pub stop_flag: Arc<AtomicBool>,
-    pub checkpoint_callback: Option<Box<dyn Fn(u64) -> super::DLResult<()> + Send>>,
+    pub checkpoint_callback: Option<Box<dyn Fn(u64) -> nexora_autograd_core::DLResult<()> + Send>>,
     /// Stored model parameters for direct checkpoint serialization
     pub params: Option<Vec<Tensor>>,
     /// Stored Adam optimizer for direct checkpoint serialization
@@ -581,7 +371,7 @@ impl TrainingLoop {
     /// The callback receives the current step number and should return Ok(()) on success.
     pub fn set_checkpoint_callback<F>(&mut self, callback: F)
     where
-        F: Fn(u64) -> super::DLResult<()> + Send + 'static,
+        F: Fn(u64) -> nexora_autograd_core::DLResult<()> + Send + 'static,
     {
         self.checkpoint_callback = Some(Box::new(callback));
     }
@@ -611,7 +401,7 @@ impl TrainingLoop {
         lr: f32,
         grad_norm: f32,
         tokens_in_batch: usize,
-    ) -> super::DLResult<bool> {
+    ) -> nexora_autograd_core::DLResult<bool> {
         self.step += 1;
         self.total_tokens += tokens_in_batch;
 
@@ -651,44 +441,57 @@ impl TrainingLoop {
                 if let Err(e) = std::fs::create_dir_all(dir) {
                     tracing::warn!("  Failed to create checkpoint dir: {}", e);
                 } else if self.params.is_some() && self.adam.is_some() {
-                    let params = self.params.as_ref().ok_or_else(|| {
-                        super::DeepLearningError::Computation {
-                            reason: "params not initialized for checkpoint save".into(),
+                    #[cfg(feature = "serde")]
+                    {
+                        let params = self.params.as_ref().ok_or_else(|| {
+                            nexora_autograd_core::DeepLearningError::Computation {
+                                reason: "params not initialized for checkpoint save".into(),
+                            }
+                        })?;
+                        let adam = self.adam.as_ref().ok_or_else(|| {
+                            nexora_autograd_core::DeepLearningError::Computation {
+                                reason: "adam not initialized for checkpoint save".into(),
+                            }
+                        })?;
+                        match Checkpoint::save(
+                            &path,
+                            params,
+                            adam,
+                            self.step,
+                            self.epoch,
+                            self.best_val_loss,
+                            None::<&LossScaler>,
+                        ) {
+                            Ok(_) => tracing::info!("  Full checkpoint saved to {:?}", path),
+                            Err(e) => tracing::warn!("  Failed to save full checkpoint: {}", e),
                         }
-                    })?;
-                    let adam = self.adam.as_ref().ok_or_else(|| {
-                        super::DeepLearningError::Computation {
-                            reason: "adam not initialized for checkpoint save".into(),
-                        }
-                    })?;
-                    match Checkpoint::save(
-                        &path,
-                        params,
-                        adam,
-                        self.step,
-                        self.epoch,
-                        self.best_val_loss,
-                        None::<&LossScaler>,
-                    ) {
-                        Ok(_) => tracing::info!("  Full checkpoint saved to {:?}", path),
-                        Err(e) => tracing::warn!("  Failed to save full checkpoint: {}", e),
+                    }
+                    #[cfg(not(feature = "serde"))]
+                    {
+                        tracing::warn!("  Checkpoint saving requires 'serde' feature");
                     }
                 } else {
-                    // Metadata-only checkpoint when model state is not stored
-                    let meta_ckpt = serde_json::json!({
-                        "step": self.step,
-                        "epoch": self.epoch,
-                        "best_val_loss": self.best_val_loss,
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                        "type": "metadata-checkpoint",
-                        "note": "full checkpoint requires call to set_model_state()"
-                    });
-                    if let Ok(json) = serde_json::to_string_pretty(&meta_ckpt) {
-                        if let Err(e) = std::fs::write(&path, &json) {
-                            tracing::warn!("  Failed to save checkpoint: {}", e);
-                        } else {
-                            tracing::info!("  Checkpoint metadata saved to {:?}", path);
+                    #[cfg(feature = "serde")]
+                    {
+                        let meta_ckpt = serde_json::json!({
+                            "step": self.step,
+                            "epoch": self.epoch,
+                            "best_val_loss": self.best_val_loss,
+                            "timestamp": chrono::Utc::now().to_rfc3339(),
+                            "type": "metadata-checkpoint",
+                            "note": "full checkpoint requires call to set_model_state()"
+                        });
+                        if let Ok(json) = serde_json::to_string_pretty(&meta_ckpt) {
+                            if let Err(e) = std::fs::write(&path, &json) {
+                                tracing::warn!("  Failed to save checkpoint: {}", e);
+                            } else {
+                                tracing::info!("  Checkpoint metadata saved to {:?}", path);
+                            }
                         }
+                    }
+                    #[cfg(not(feature = "serde"))]
+                    {
+                        tracing::warn!("  Checkpoint saving requires 'serde' feature");
                     }
                 }
 
@@ -806,74 +609,12 @@ pub fn compute_grad_norm(params: &[Tensor]) -> f32 {
     sum_sq.sqrt()
 }
 
-/// GPU-native gradient norm: compute L2 norm of GPU-resident gradient tensors
-/// using GPU reduce + sqrt — hanya 1 scalar readback (vs N sebelumnya).
-#[cfg(feature = "gpu")]
-pub fn compute_grad_norm_gpu(grads: &[crate::gpu::GpuTensor], ctx: &crate::gpu::GpuContext) -> f32 {
-    if grads.is_empty() {
-        return 0.0;
-    }
-
-    // 1. Compute per-tensor L2 norm squared on GPU
-    let mut norm_sq_tensors = Vec::with_capacity(grads.len());
-    for g in grads {
-        if let Ok(norm_sq_t) = ctx.l2_norm(g) {
-            norm_sq_tensors.push(norm_sq_t);
-        }
-    }
-
-    if norm_sq_tensors.is_empty() {
-        return 0.0;
-    }
-
-    // 2. Sum all norms on GPU via elementwise add (no readback)
-    let mut total_norm_sq = norm_sq_tensors.swap_remove(0);
-    for t in &norm_sq_tensors {
-        if let Ok(result) = ctx.add(&total_norm_sq, t) {
-            total_norm_sq = result;
-        }
-    }
-
-    // 3. Sqrt on GPU, then async readback single scalar via channel
-    if let Ok(norm_gpu) = ctx.sqrt(&total_norm_sq) {
-        // Non-blocking: mulai readback, GPU masih bisa kerja
-        if let Ok(rb) = ctx.readback_f32_async(norm_gpu.buffer(), 4) {
-            // Attempt 1: non-blocking poll
-            ctx.poll_device();
-            if let Some(val) = rb.try_recv() {
-                return val[0];
-            }
-            // Attempt 2: 100μs timeout
-            ctx.poll_timeout(100_000);
-            if let Some(val) = rb.try_recv() {
-                return val[0];
-            }
-            // Attempt 3: 1ms timeout
-            ctx.poll_timeout(1_000_000);
-            if let Some(val) = rb.try_recv() {
-                return val[0];
-            }
-            // Non-blocking spin loop with device polling
-            ctx.wait_device();
-            for _ in 0..100 {
-                ctx.poll_timeout(100_000);
-                if let Some(val) = rb.try_recv() {
-                    return val[0];
-                }
-            }
-            if let Some(val) = rb.try_recv() {
-                return val[0];
-            }
-        }
-    }
-    0.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Linear, Module, Tensor, TensorOps};
+    use nexora_autograd_core::{Linear, Module, Tensor, TensorOps};
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_checkpoint_save_load_roundtrip() {
         let w = Tensor::randn(&[4, 2], true);
@@ -894,8 +635,8 @@ mod tests {
             optimizer_state: Some(OptimizerState::from_adam(&adam)),
         };
 
-        let json = serde_json::to_string_pretty(&ckpt).unwrap();
-        let loaded: Checkpoint = serde_json::from_str(&json).unwrap();
+        let json = ckpt.to_json().unwrap();
+        let loaded = Checkpoint::from_json(&json).unwrap();
 
         assert_eq!(loaded.step, 100);
         assert_eq!(loaded.epoch, 2);

@@ -2,31 +2,20 @@
 name = "nexora-autograd"
 version = "0.2.0"
 edition = "2021"
+description = "Unified re-export crate for autograd ecosystem"
 
 [dependencies]
-ndarray = { workspace = true, features = ["serde"] }
-thiserror = { workspace = true }
-rand = { workspace = true }
-serde = { workspace = true, optional = true }
-tracing = { workspace = true }
-serde_json = { workspace = true }
-num_cpus = "1.16"
-half = "2"
-once_cell = { workspace = true }
-parking_lot = { workspace = true }
-chrono = { workspace = true }
+nexora-autograd-core = { path = "../autograd-core" }
+nexora-autograd-gpu = { path = "../autograd-gpu", optional = true }
 
-# GPU compute backend (wgpu)
-wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl", "vulkan"] }
-pollster = { version = "0.4", optional = true }
-bytemuck = { version = "1", optional = true, features = ["extern_crate_alloc"] }
-
-# CUDA backend
-cudarc = { version = "0.19", optional = true, default-features = false, features = ["dynamic-loading", "cuda-version-from-build-system", "nccl"] }
+ndarray.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+tracing.workspace = true
 
 [features]
-default = ["std", "serde"]
-std = []
-serde = ["dep:serde"]
-gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
-cuda = ["dep:cudarc"]
+default = ["std", "serde", "gpu"]
+std = ["nexora-autograd-core/std"]
+serde = ["nexora-autograd-core/serde"]
+gpu = ["nexora-autograd-gpu", "nexora-autograd-core/device-gpu"]
+cuda = ["nexora-autograd-gpu/cuda", "nexora-autograd-core/device-cuda"]

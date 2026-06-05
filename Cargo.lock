@@ -3394,11 +3394,39 @@ dependencies = [
 name = "nexora-autograd"
 version = "0.2.0"
 dependencies = [
+ "ndarray 0.15.6",
+ "nexora-autograd-core",
+ "nexora-autograd-gpu",
+ "parking_lot",
+ "rand 0.8.6",
+ "tracing",
+]
+
+[[package]]
+name = "nexora-autograd-core"
+version = "0.1.0"
+dependencies = [
+ "half",
+ "ndarray 0.15.6",
+ "once_cell",
+ "parking_lot",
+ "rand 0.8.6",
+ "serde",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "nexora-autograd-gpu"
+version = "0.2.0"
+dependencies = [
  "bytemuck",
  "chrono",
  "cudarc",
  "half",
+ "libc",
  "ndarray 0.15.6",
+ "nexora-autograd-core",
  "num_cpus",
  "once_cell",
  "parking_lot",
@@ -3409,6 +3437,22 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "wgpu",
+]
+
+[[package]]
+name = "nexora-autograd-training"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "ndarray 0.15.6",
+ "nexora-autograd-core",
+ "num_cpus",
+ "parking_lot",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]

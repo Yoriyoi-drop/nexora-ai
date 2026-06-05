@@ -1,0 +1,36 @@
+[package]
+name = "nexora-autograd-gpu"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+nexora-autograd-core = { path = "../autograd-core" }
+ndarray.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde = { workspace = true, optional = true }
+rand.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+num_cpus = "1.16"
+half = "2"
+wgpu = "29"
+pollster = "0.4"
+bytemuck = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(all(target_arch = "x86_64", target_os = "linux"))'.dependencies]
+cudarc = { version = "0.19", features = ["dynamic-loading", "cuda-version-from-build-system", "nccl"], optional = true }
+
+[features]
+default = ["std", "serde"]
+std = []
+serde = ["dep:serde"]
+cuda = ["dep:cudarc"]

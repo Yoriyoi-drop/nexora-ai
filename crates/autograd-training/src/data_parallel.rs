@@ -17,11 +17,7 @@ use std::sync::Arc;
 
 use ndarray::ArrayD;
 
-use super::device::Storage;
-use super::Tensor;
-
-#[cfg(feature = "gpu")]
-use crate::gpu::GpuContext;
+use nexora_autograd_core::{Storage, Tensor};
 
 // ─── Gradient Accumulation ────────────────────────────────────────────────────
 
@@ -127,83 +123,6 @@ pub fn all_reduce_gradients(gradients: &mut [Vec<ArrayD<f32>>]) {
         }
         gradients[0][param_idx] = &sum / num_workers;
     }
-}
-
-/// GPU-native gradient allreduce: average gradients across model replicas.
-///
-/// Uses the GPU Gradient AllReduce WGSL kernel (`GRADIENT_ALLREDUCE_WGSL`)
-/// which operates on a flat interleaved buffer `[replica0 | replica1 | ...]`.
-/// Eliminates CPU readback for gradient synchronization.
-///
-/// `grad_tensors`: one gradient tensor per replica for a single parameter.
-/// All tensors must be on the same GPU device.
-#[cfg(feature = "gpu")]
-pub fn gpu_allreduce_gradients(
-    ctx: &crate::gpu::GpuContext,
-    grad_tensors: &[&crate::gpu::GpuTensor],
-) -> Result<(), crate::gpu::GpuError> {
-    let n = grad_tensors.len();
-    if n <= 1 {
-        return Ok(());
-    }
-
-    let numel = grad_tensors[0].numel();
-    let total_elements = numel * n;
-
-    // Allocate flat buffer: [replica0 | replica1 | ...]
-    let flat_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("dp_allreduce_flat"),
-        size: (total_elements * 4) as u64,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-
-    let mut enc = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dp_allreduce_copy"),
-        });
-    for (i, g) in grad_tensors.iter().enumerate() {
-        let offset = (i * numel * 4) as u64;
-        enc.copy_buffer_to_buffer(g.buffer(), 0, &flat_buffer, offset, (numel * 4) as u64);
-    }
-    ctx.queue.submit(Some(enc.finish()));
-
-    // Allreduce on flat buffer
-    let flat_tensor = crate::gpu::GpuTensor {
-        shape: vec![total_elements],
-        buffer: flat_buffer,
-        dtype: crate::gpu::GpuDtype::F32,
-        device_id: 0,
-    };
-    let out_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("dp_allreduce_out"),
-        size: (numel * 4) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let out_tensor = crate::gpu::GpuTensor {
-        shape: vec![numel],
-        buffer: out_buffer,
-        dtype: crate::gpu::GpuDtype::F32,
-        device_id: 0,
-    };
-    ctx.gradient_allreduce(&flat_tensor, &out_tensor, n as u32)?;
-
-    // Copy averaged gradients back to each replica
-    let mut cb = ctx
-        .device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dp_allreduce_copy_back"),
-        });
-    for g in grad_tensors {
-        cb.copy_buffer_to_buffer(out_tensor.buffer(), 0, g.buffer(), 0, (numel * 4) as u64);
-    }
-    ctx.queue.submit(Some(cb.finish()));
-
-    Ok(())
 }
 
 // ─── Data-Parallel Config ─────────────────────────────────────────────────────
@@ -321,10 +240,6 @@ impl DataParallel {
 /// Read gradient as [`Storage`] without forcing a GPU→CPU readback when the
 /// gradient already lives on GPU.
 fn get_storage_grad(p: &Tensor) -> Option<Storage> {
-    #[cfg(feature = "gpu")]
-    if let Some(s) = p.grad_storage() {
-        return Some(s);
-    }
     p.grad().map(Storage::from)
 }
 
@@ -333,14 +248,6 @@ fn get_storage_grad(p: &Tensor) -> Option<Storage> {
 fn storage_scale(s: &Storage, scale: f32) -> Storage {
     match s {
         Storage::Cpu(arr) => Storage::Cpu(Arc::new(arr.as_ref() * scale)),
-        #[cfg(feature = "gpu")]
-        Storage::Gpu(t) => {
-            let copy = t.clone();
-            if let Ok(ctx) = GpuContext::global() {
-                let _ = ctx.scale_inplace(&copy, scale);
-            }
-            Storage::Gpu(copy)
-        }
     }
 }
 
@@ -355,26 +262,6 @@ fn stash_add_inplace(stash: &mut HashMap<usize, Storage>, idx: usize, grad: Stor
                 (Storage::Cpu(ref mut e), Storage::Cpu(g)) => {
                     *e = Arc::new(e.as_ref() + g.as_ref());
                 }
-                #[cfg(feature = "gpu")]
-                (Storage::Cpu(ref mut e), Storage::Gpu(g)) => {
-                    if let Ok(g_cpu) = g.to_cpu() {
-                        *e = Arc::new(e.as_ref() + &g_cpu);
-                    }
-                }
-                #[cfg(feature = "gpu")]
-                (Storage::Gpu(ref mut e), Storage::Cpu(g)) => {
-                    if let Ok(ctx) = GpuContext::global() {
-                        if let Ok(g_gpu) = crate::gpu::GpuTensor::from_cpu(g) {
-                            let _ = ctx.add_inplace(e, &g_gpu);
-                        }
-                    }
-                }
-                #[cfg(feature = "gpu")]
-                (Storage::Gpu(ref mut e), Storage::Gpu(g)) => {
-                    if let Ok(ctx) = GpuContext::global() {
-                        let _ = ctx.add_inplace(e, g);
-                    }
-                }
             }
         }
         Entry::Vacant(entry) => {
@@ -388,18 +275,14 @@ fn stash_add_inplace(stash: &mut HashMap<usize, Storage>, idx: usize, grad: Stor
 fn set_storage_grad(p: &Tensor, g: &Storage) {
     match g {
         Storage::Cpu(arr) => p.set_grad(arr.as_ref().clone()),
-        #[cfg(feature = "gpu")]
-        Storage::Gpu(t) => {
-            p.set_grad_storage(Storage::Gpu(t.clone()));
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Tensor;
-    use crate::TensorOps;
+    use nexora_autograd_core::Tensor;
+    use nexora_autograd_core::TensorOps;
 
     #[test]
     fn test_gradient_accumulator_basics() {

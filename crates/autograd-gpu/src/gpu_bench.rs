@@ -1,6 +1,5 @@
 //! Shared GPU benchmark helpers — used by tests and optional runtime profiling.
 
-#[cfg(feature = "gpu")]
 /// Benchmark: GPU gradient clipping vs legacy CPU readback approach.
 /// Returns (gpu_clip_us, legacy_clip_us, improvement_factor).
 pub fn benchmark_gradient_clip(

@@ -55,7 +55,7 @@ pub fn reduce_to_shape(
 
     // CPU fallback for complex broadcast patterns
     let cpu_data = tensor.to_cpu()?;
-    let reduced = crate::broadcast::reduce_grad_for_shape(&cpu_data, target_shape);
+    let reduced = nexora_autograd_core::broadcast::reduce_grad_for_shape(&cpu_data, target_shape);
     GpuTensor::from_cpu(&reduced)
 }
 

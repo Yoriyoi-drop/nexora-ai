@@ -321,26 +321,11 @@ impl Tensor {
                 }
                 t
             }
-            #[cfg(feature = "gpu")]
-            Device::Gpu(_device_id) => match crate::gpu::GpuTensor::from_cpu(&cpu_data) {
-                Ok(gpu_tensor) => {
-                    let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    
-                    Tensor(Arc::new(RwLock::new(TensorInner {
-                        id,
-                        storage: Storage::Gpu(gpu_tensor),
-                        device: Device::Gpu(0),
-                        dtype: DType::F32,
-                        grad,
-                        requires_grad,
-                        grad_fn_idx,
-                    })))
-                }
-                Err(e) => {
-                    error!("GPU transfer failed: {e}, falling back to CPU");
-                    Tensor::new(cpu_data)
-                }
-            },
+            #[cfg(feature = "device-gpu")]
+            Device::Gpu(_) => {
+                tracing::warn!("to_device(Gpu) not supported in CPU-only build, staying on CPU");
+                Tensor::new(cpu_data)
+            }
         }
     }
 
