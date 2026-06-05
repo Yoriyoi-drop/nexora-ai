@@ -3,7 +3,7 @@ use std::path::Path;
 
 use ndarray::ArrayD;
 
-use crate::FoundationResult;
+use nexora_foundation_types::FoundationResult;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TensorEntry {
@@ -136,7 +136,7 @@ pub fn save_safetensors_with_meta(
         tensors: header_map,
     };
     let header_json = serde_json::to_string(&header_obj).map_err(|e| {
-        crate::FoundationError::Configuration(format!("JSON serialize header: {}", e))
+        nexora_foundation_types::FoundationError::Configuration(format!("JSON serialize header: {}", e))
     })?;
     let header_bytes = header_json.as_bytes();
     let header_len = header_bytes.len() as u64;
@@ -147,7 +147,7 @@ pub fn save_safetensors_with_meta(
     out.extend_from_slice(&data_bytes);
 
     std::fs::write(path.as_ref(), &out).map_err(|e| {
-        crate::FoundationError::Resource(format!("Write file {}: {}", path.as_ref().display(), e))
+        nexora_foundation_types::FoundationError::Resource(format!("Write file {}: {}", path.as_ref().display(), e))
     })?;
 
     Ok(())
@@ -178,11 +178,11 @@ pub fn load_safetensors_with_meta(
     Option<HashMap<String, String>>,
 )> {
     let raw = std::fs::read(path.as_ref()).map_err(|e| {
-        crate::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e))
+        nexora_foundation_types::FoundationError::Resource(format!("Read file {}: {}", path.as_ref().display(), e))
     })?;
 
     if raw.len() < 8 {
-        return Err(crate::FoundationError::Configuration(
+        return Err(nexora_foundation_types::FoundationError::Configuration(
             "File too small: safetensors requires at least 8 bytes".into(),
         ));
     }
@@ -194,7 +194,7 @@ pub fn load_safetensors_with_meta(
 
     let header_end = 8 + header_len;
     if header_end > raw.len() {
-        return Err(crate::FoundationError::Configuration(format!(
+        return Err(nexora_foundation_types::FoundationError::Configuration(format!(
             "Header length {} exceeds file size {}",
             header_len,
             raw.len()
@@ -202,11 +202,11 @@ pub fn load_safetensors_with_meta(
     }
 
     let header_json = std::str::from_utf8(&raw[8..header_end]).map_err(|e| {
-        crate::FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e))
+        nexora_foundation_types::FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e))
     })?;
 
     let header: SafetensorsHeader = serde_json::from_str(header_json).map_err(|e| {
-        crate::FoundationError::Configuration(format!("Invalid JSON header: {}", e))
+        nexora_foundation_types::FoundationError::Configuration(format!("Invalid JSON header: {}", e))
     })?;
 
     let mut result = HashMap::new();
@@ -214,7 +214,7 @@ pub fn load_safetensors_with_meta(
         let start = 8 + header_len + entry.data_offsets[0];
         let end = 8 + header_len + entry.data_offsets[1];
         if end > raw.len() {
-            return Err(crate::FoundationError::Configuration(format!(
+            return Err(nexora_foundation_types::FoundationError::Configuration(format!(
                 "Data offset [{}, {}] out of range for tensor '{}'",
                 entry.data_offsets[0], entry.data_offsets[1], name
             )));
@@ -234,7 +234,7 @@ pub fn load_safetensors_with_meta(
                 f16_bytes_to_f32_slice(bytes)
             }
             other => {
-                return Err(crate::FoundationError::Configuration(format!(
+                return Err(nexora_foundation_types::FoundationError::Configuration(format!(
                     "Unsupported dtype '{}' for tensor '{}' (supported: F32, F16)",
                     other, name
                 )));
@@ -242,7 +242,7 @@ pub fn load_safetensors_with_meta(
         };
 
         let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats).map_err(|e| {
-            crate::FoundationError::Configuration(format!(
+            nexora_foundation_types::FoundationError::Configuration(format!(
                 "Shape mismatch for tensor '{}': {}",
                 name, e
             ))

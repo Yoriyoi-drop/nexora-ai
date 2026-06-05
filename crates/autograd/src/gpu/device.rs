@@ -114,29 +114,20 @@ impl GpuContext {
             e.into_inner()
         });
 
-        // 1. Clear memory pool (uses internal Mutex — safe with &self)
-        self.clear_memory_pool();
+        // SAFETY: rebuild_lock provides exclusive access — no other thread
+        // can observe self during the rebuild. We create a &mut reference
+        // to avoid invalid_reference_casting on individual field writes.
+        #[allow(invalid_reference_casting)]
+        let ctx_mut = unsafe { &mut *(self as *const GpuContext as *mut GpuContext) };
+
+        // 1. Clear memory pool
+        ctx_mut.clear_memory_pool();
 
         // 2. Clear caches
-        // SAFETY: rebuild_lock provides exclusive access. We use ptr::write to
-        // replace HashMap contents without creating &mut references, avoiding
-        // the invalid_reference_casting lint (no &T→&mut T conversion occurs).
-        unsafe {
-            let sc = &self.shader_cache as *const HashMap<u64, wgpu::ShaderModule> as *mut HashMap<u64, wgpu::ShaderModule>;
-            ptr::drop_in_place(sc);
-            ptr::write(sc, HashMap::new());
-        }
-        unsafe {
-            let bc = &self.bind_group_layout_cache as *const HashMap<u64, wgpu::BindGroupLayout> as *mut HashMap<u64, wgpu::BindGroupLayout>;
-            ptr::drop_in_place(bc);
-            ptr::write(bc, HashMap::new());
-        }
-        unsafe {
-            let pc = &self.pipelines as *const HashMap<String, CompiledPipeline> as *mut HashMap<String, CompiledPipeline>;
-            ptr::drop_in_place(pc);
-            ptr::write(pc, HashMap::new());
-        }
-        *self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        ctx_mut.shader_cache.clear();
+        ctx_mut.bind_group_layout_cache.clear();
+        ctx_mut.pipelines.clear();
+        *ctx_mut.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
 
         // 3. Recreate device + queue from new adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -178,34 +169,21 @@ impl GpuContext {
         ))
         .map_err(|e| GpuError::DeviceLost(format!("Device re-request failed: {}", e)))?;
 
-        // 4. Replace device + queue via ptr::write (no &mut reference created)
-        // SAFETY: rebuild_lock guarantees exclusive access. wgpu::Device/Queue
-        // are Send+Sync and trivially relocatable (no self-references).
-        unsafe {
-            let dp = &self.device as *const wgpu::Device as *mut wgpu::Device;
-            ptr::drop_in_place(dp);
-            ptr::write(dp, dev);
-        }
-        unsafe {
-            let qp = &self.queue as *const wgpu::Queue as *mut wgpu::Queue;
-            ptr::drop_in_place(qp);
-            ptr::write(qp, q);
-        }
+        // 4. Replace device + queue
+        let _ = std::mem::replace(&mut ctx_mut.device, dev);
+        let _ = std::mem::replace(&mut ctx_mut.queue, q);
 
         // 5. Recreate memory pool
-        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&self.device);
-        *self.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
+        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&ctx_mut.device);
+        *ctx_mut.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
 
         // 6. Recreate command encoder
-        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let enc = ctx_mut.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nexora_reusable_encoder_recovered"),
         });
-        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        *ctx_mut.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
 
         // 7. Recompile all pipelines
-        // SAFETY: rebuild_lock provides exclusive access; device/queue are valid.
-        #[allow(invalid_reference_casting)]
-        let ctx_mut = unsafe { &mut *(self as *const GpuContext as *mut GpuContext) };
         match ctx_mut.compile_all_pipelines() {
             Ok(()) => {
                 tracing::info!("GPU context rebuilt successfully after device lost");

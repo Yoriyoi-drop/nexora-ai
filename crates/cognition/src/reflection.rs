@@ -10,7 +10,7 @@
 //! - stats(): returns live statistics from the history store.
 
 use async_trait::async_trait;
-use nexora_foundation::FoundationResult;
+use nexora_foundation_types::FoundationResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

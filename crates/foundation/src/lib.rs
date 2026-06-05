@@ -4,6 +4,8 @@
 //! for all AI frameworks in the Nexora ecosystem.
 //! Now includes NXR Model Series foundation implementations.
 
+pub use nexora_foundation_types::{FoundationError, FoundationResult};
+
 // Include framework modules
 
 pub mod atqs;
@@ -59,33 +61,6 @@ pub use crate::reasoning::*;
 pub use models::*;
 pub use shared::*;
 
-// Define FoundationResult directly to avoid nested structure issues
-pub type FoundationResult<T> = std::result::Result<T, FoundationError>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum FoundationError {
-    #[error("Implementation error: {0}")]
-    Implementation(String),
-
-    #[error("Configuration error: {0}")]
-    Configuration(String),
-
-    #[error("Resource error: {0}")]
-    Resource(String),
-
-    #[error("Processing error: {0}")]
-    Processing(String),
-
-    #[error("Timeout error")]
-    Timeout,
-}
-
-impl From<nexora_transformer::TransformerError> for FoundationError {
-    fn from(e: nexora_transformer::TransformerError) -> Self {
-        FoundationError::Processing(e.to_string())
-    }
-}
-
 // Nyata: wire monitoring system for observability (Phase 5d)
 fn _init_monitoring() -> nexora_monitoring::MonitoringSystem {
     let cfg = nexora_monitoring::MonitoringConfig::default();
@@ -138,12 +113,5 @@ mod tests {
     fn test_foundation_error_timeout() {
         let e = FoundationError::Timeout;
         assert_eq!(e.to_string(), "Timeout error");
-    }
-
-    #[test]
-    fn test_foundation_error_from_transformer_error() {
-        let te = nexora_transformer::TransformerError::Configuration("invalid".into());
-        let fe: FoundationError = te.into();
-        assert!(fe.to_string().contains("invalid"));
     }
 }

@@ -15,4 +15,4 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 
-nexora-foundation = { path = "../foundation" }
+nexora-foundation-types = { path = "../foundation-types" }

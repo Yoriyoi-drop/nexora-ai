@@ -1,0 +1,19 @@
+[package]
+name = "nexora-autograd-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core tensor operations for Nexora autograd — CPU only, no GPU dependencies"
+
+[dependencies]
+ndarray.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+once_cell.workspace = true
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["std", "serde"]
+std = []
+serde = ["dep:serde"]

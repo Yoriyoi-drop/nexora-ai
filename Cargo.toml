@@ -43,6 +43,7 @@ members = [
     "crates/star-x",
     "crates/gnac",
     "crates/echo-net",
+    "crates/foundation-types",
     "apps/nexora-ai",
     "apps/dashboard",
 ]

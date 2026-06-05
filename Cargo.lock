@@ -3450,7 +3450,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "nexora-foundation",
+ "nexora-foundation-types",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -3658,6 +3658,7 @@ dependencies = [
  "nexora-deeplearning",
  "nexora-echo-net",
  "nexora-erp",
+ "nexora-foundation-types",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
  "nexora-hldva-t",
@@ -3692,6 +3693,13 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "uuid",
+]
+
+[[package]]
+name = "nexora-foundation-types"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
 ]
 
 [[package]]

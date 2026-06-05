@@ -162,7 +162,7 @@ async fn shutdown_signal() {
             Ok(mut s) => s.recv().await,
             Err(e) => {
                 tracing::warn!("Failed to install SIGTERM handler (non-fatal): {}", e);
-                std::future::pending::<()>().await;
+                std::future::pending::<Option<()>>().await
             }
         }
     };
