@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use ndarray::Array2;
 use nexora_transformer::KVCacheEntry;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::cold_storage::{ColdStorage, ColdStorageConfig};
 use crate::paged_cache::{
@@ -437,6 +437,76 @@ impl PagedKVCache {
         }
 
         to_evict
+    }
+
+    /// Proactive eviction — panggil saat VRAM forecast mengindikasikan OOM.
+    /// Menggunakan `predicted_pressure()` logic: jika rasio alokasi tinggi,
+    /// evict sequence yang paling idle sebelum OOM benar-benar terjadi.
+    /// Returns jumlah sequence yang di-evict.
+    pub fn evict_proactive(&mut self, target_free_blocks: usize) -> usize {
+        let current_used = self.used_block_count();
+        if current_used == 0 {
+            return 0;
+        }
+        let effective_max = self.config.effective_max_blocks();
+        let free_needed = target_free_blocks.min(effective_max / 4);
+        let current_free = effective_max.saturating_sub(current_used);
+        if current_free >= free_needed {
+            return 0; // Already enough free space
+        }
+        let need_to_free = free_needed.saturating_sub(current_free);
+        let blocks_per_seq = self.used_block_count() / self.seq_access.len().max(1);
+        let seqs_to_evict = (need_to_free / blocks_per_seq.max(1)).max(1);
+
+        // Prioritaskan: Cold → Warm → Hot berdasarkan idle time
+        let now = Instant::now();
+        struct Candidate {
+            seq_id: u64,
+            tier_label: &'static str,
+            last_access: Instant,
+        }
+        let mut candidates: Vec<Candidate> = self.seq_access.iter()
+            .filter(|(_, acc)| {
+                now.duration_since(acc.created_at).as_secs_f64()
+                    >= self.config.eviction_min_age_secs
+            })
+            .map(|(k, v)| Candidate {
+                seq_id: *k,
+                tier_label: v.tier.label(),
+                last_access: v.last_access,
+            })
+            .collect();
+
+        // Sort by: Cold first (tier), then LRU within tier
+        candidates.sort_by(|a, b| {
+            let tier_cmp = a.tier_label.cmp(b.tier_label).reverse(); // Cold first
+            if tier_cmp != std::cmp::Ordering::Equal {
+                return tier_cmp;
+            }
+            a.last_access.cmp(&b.last_access) // then LRU
+        });
+
+        let mut evicted = 0usize;
+        for c in candidates.iter().take(seqs_to_evict) {
+            tracing::info!(
+                "Proactive eviction: seq {} (tier={:?}, blocks={})",
+                c.seq_id,
+                self.seq_access.get(&c.seq_id).map(|a| a.tier),
+                self.sequences.get(&c.seq_id).map(|t| t.num_tokens).unwrap_or(0)
+            );
+            // Coba offload Cold ke disk dulu
+            if self.config.enable_cold_disk_offload {
+                let offloaded = self.offload_coldest_to_disk();
+                if offloaded > 0 {
+                    evicted += 1;
+                    continue;
+                }
+            }
+            self.remove_sequence(c.seq_id);
+            self.num_evicted += 1;
+            evicted += 1;
+        }
+        evicted
     }
 
     /// Allocate a new physical block from the free list or create one.

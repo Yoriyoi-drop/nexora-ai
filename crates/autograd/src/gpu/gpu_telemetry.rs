@@ -189,6 +189,54 @@ impl GpuTelemetry {
         }
     }
 
+    /// OOM recovery: shrink, compact, then retry.
+    ///
+    /// Dipanggil setelah OOM event tercatat. Strategi:
+    /// 1. Compact GPU memory pool (evict expired buffers)
+    /// 2. Jika masih OOM, clear pool sepenuhnya
+    /// 3. Reset circuit breaker setelah cooldown
+    ///
+    /// Returns true jika recovery berhasil (ada memori yang dibebaskan).
+    pub fn try_oom_recovery(&self) -> bool {
+        let oom_count = self.oom_events.load(Ordering::Relaxed);
+        if oom_count == 0 {
+            return true; // No OOM to recover from
+        }
+        // Attempt compact via context memory pool if available
+        if let Some(ctx) = crate::gpu::gpu_types::GPU_CTX.get() {
+            let mut pool = match ctx.memory_pool.lock() {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+            let freed = pool.compact();
+            if freed > 0 {
+                tracing::info!("OOM recovery: compacted GPU pool, freed {:.2} MB",
+                    freed as f64 / 1_048_576.0);
+                // Update vram tracking
+                self.update_vram(
+                    self.vram_used.load(Ordering::Relaxed).saturating_sub(freed),
+                    self.vram_free.load(Ordering::Relaxed).saturating_add(freed),
+                    self.vram_total.load(Ordering::Relaxed),
+                );
+                self.mark_healthy();
+                return true;
+            }
+            // Second attempt: clear pool entirely
+            drop(pool);
+            if let Ok(mut pool) = ctx.memory_pool.lock() {
+                let prev = pool.stats().bytes_allocated;
+                pool.clear();
+                tracing::warn!("OOM recovery: cleared GPU pool entirely (was {:.2} MB)",
+                    prev as f64 / 1_048_576.0);
+                self.update_vram(0, self.vram_total.load(Ordering::Relaxed),
+                    self.vram_total.load(Ordering::Relaxed));
+                self.mark_healthy();
+                return true;
+            }
+        }
+        false
+    }
+
     /// Returns a JSON snapshot of all telemetry metrics.
     pub fn metrics(&self) -> serde_json::Value {
         let vram_total = self.vram_total.load(Ordering::Relaxed);

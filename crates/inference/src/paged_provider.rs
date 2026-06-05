@@ -17,7 +17,8 @@
 //   4. sync_gpu_to_paged() reads back the NEW tokens from GPU entries and
 //      appends them to paged cache blocks for block-level consistency
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use std::sync::RwLock;
 
 use nexora_transformer::{KVCacheEntry, KVCacheProvider};
 use tracing::warn;
@@ -94,7 +95,7 @@ impl PagedKVCacheProvider {
         num_layers: usize,
     ) -> Self {
         // Read dimensions from the underlying paged cache config
-        let (num_kv_heads, head_dim, max_seq_len) = {
+        let (num_kv_heads, head_dim, max_seq_len) = tokio::task::block_in_place(|| {
             let guard = match cache.read() {
                 Ok(g) => g,
                 Err(e) => {
@@ -104,8 +105,8 @@ impl PagedKVCacheProvider {
             };
             let cfg = guard.config();
             (cfg.num_kv_heads, cfg.head_dim, cfg.max_seq_len)
-        };
-        {
+        });
+        tokio::task::block_in_place(|| {
             let mut guard = match cache.write() {
                 Ok(g) => g,
                 Err(e) => {
@@ -114,7 +115,7 @@ impl PagedKVCacheProvider {
                 }
             };
             guard.register_sequence(seq_id);
-        }
+        });
         Self {
             seq_id,
             cache,

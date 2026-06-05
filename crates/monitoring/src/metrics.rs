@@ -335,7 +335,13 @@ impl MetricsCollector {
 
 impl Default for MetricsCollector {
     fn default() -> Self {
-        Self::new().expect("MetricsCollector::default() failed to register prometheus metrics")
+        match Self::new() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("MetricsCollector::default() failed: {}", e);
+                panic!("MetricsCollector::default() failed: {}", e);
+            }
+        }
     }
 }
 

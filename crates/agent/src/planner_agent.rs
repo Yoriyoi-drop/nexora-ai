@@ -473,9 +473,9 @@ impl PlannerAgent {
             Some(s) => s,
             None => return Ok(()),
         };
+        let mut store_guard = store.lock().await;
         let plans = self.active_plans.lock().await;
         let plan_ids: Vec<String> = plans.keys().map(|k| k.to_string()).collect();
-        let mut store_guard = store.lock().await;
 
         for (plan_id, plan) in plans.iter() {
             let key = format!("planner:plan:{}", plan_id);

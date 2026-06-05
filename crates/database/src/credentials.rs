@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 /// Secure database credentials
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct DatabaseCredentials {
     pub host: String,
     pub port: u16,
@@ -278,7 +278,7 @@ impl CredentialManager {
                     .unwrap_or(5432),
                 database: "nexora".to_string(),
                 username: "nexora_user".to_string(),
-                password: Secret::new("your_password_here".to_string()),
+                password: Secret::new("CHANGE_ME_IN_PRODUCTION".to_string()),
                 ssl_mode: SslMode::Prefer,
             },
         };
@@ -318,6 +318,19 @@ struct DatabaseConfigFile {
 impl From<DatabaseConfigFile> for DatabaseCredentials {
     fn from(config: DatabaseConfigFile) -> Self {
         config.database
+    }
+}
+
+impl std::fmt::Debug for DatabaseCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseCredentials")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &"***REDACTED***")
+            .field("ssl_mode", &self.ssl_mode)
+            .finish()
     }
 }
 

@@ -95,10 +95,19 @@ pub async fn create_inference_engine_inner(
         .downcast_ref::<nexora_foundation::causal_lm_model::CausalLmModel>()
         .ok_or_else(|| NexoraError::model(format!("Model {} is not a CausalLmModel", model_id)))?;
 
+    // Lazy-load the model — models are registered as standby/lazy and need
+    // an explicit load_model() before the underlying CausalLM is available.
+    if causal_lm_model.get_model_arc().await.is_none() {
+        info!("Lazy-loading model {} for inference engine", model_id);
+        causal_lm_model.load_model().await.map_err(|e| {
+            NexoraError::model(format!("Failed to lazy-load model {}: {}", model_id, e))
+        })?;
+    }
+
     let model_arc = causal_lm_model
         .get_model_arc()
         .await
-        .ok_or_else(|| NexoraError::model(format!("Model {} not loaded", model_id)))?;
+        .ok_or_else(|| NexoraError::model(format!("Model {} not loaded after lazy-load", model_id)))?;
 
     let tokenizer = Arc::new(Mutex::new(BpeTokenizer::new(BpeConfig {
         vocab_size: model_arc.config.vocab_size,

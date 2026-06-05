@@ -532,7 +532,7 @@ impl InferenceEngine {
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
-                Some(tok) => match tok.lock() {
+                Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
                     Ok(t) => t.encode(&augmented_prompt),
                     Err(e) => {
                         warn!("Tokenizer lock poisoned for streaming request {}: {}", request_id, e);
@@ -612,7 +612,7 @@ impl InferenceEngine {
                     };
 
                     let token_text = match &tokenizer {
-                        Some(tok) => match tok.lock() {
+                        Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
                             Ok(t) => t.decode(&[token_id]),
                             Err(e) => {
                                 warn!("Tokenizer lock poisoned: {}", e);
@@ -661,7 +661,7 @@ impl InferenceEngine {
             if let Some(ref memory) = memory_clone {
                 if !generated_ids.is_empty() {
                     let response_text = match &tokenizer {
-                        Some(tok) => match tok.lock() {
+                        Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
                             Ok(t) => t.decode(&generated_ids),
                             Err(e) => {
                                 warn!("Tokenizer lock poisoned: {}", e);
@@ -773,11 +773,15 @@ impl InferenceEngine {
                 crate::sampler::Sampler::new(crate::sampler::SamplingConfig::default());
             sampler.set_use_gpu(use_gpu);
 
+            let max_seqs = sequences.len();
+            let mut active_indices: Vec<usize> = Vec::with_capacity(max_seqs);
+            let mut tokens: Vec<u32> = Vec::with_capacity(max_seqs);
+            let mut seq_caches: Vec<nexora_transformer::CpuKVCache> = Vec::with_capacity(max_seqs);
+
             for _step in 0..max_steps {
-                // Collect ready sequences
-                let mut active_indices: Vec<usize> = Vec::new();
-                let mut tokens: Vec<u32> = Vec::new();
-                let mut seq_caches: Vec<nexora_transformer::CpuKVCache> = Vec::new();
+                active_indices.clear();
+                tokens.clear();
+                seq_caches.clear();
 
                 for (i, seq) in sequences.iter_mut().enumerate() {
                     if seq.finished {
@@ -1356,7 +1360,11 @@ impl InferenceEngine {
 
         let drain_duration = Duration::from_secs(self.config.drain_timeout_seconds);
         let drain_start = std::time::Instant::now();
-        let total_active = self.active_requests.read().await.len();
+
+        let total_active = {
+            let active_guard = self.active_requests.read().await;
+            active_guard.len()
+        };
 
         {
             let mut active = self.active_requests.write().await;
@@ -1583,7 +1591,7 @@ impl InferenceEngine {
     async fn encode_prompt(&self, prompt: &str) -> Result<Vec<u32>> {
         match &self.tokenizer {
             Some(tok) => {
-                let guard = tok.lock().map_err(|e| {
+                let guard = tokio::task::block_in_place(|| tok.lock()).map_err(|e| {
                     InferenceError::InternalError(format!("Tokenizer lock poisoned: {}", e))
                 })?;
                 Ok(guard.encode(prompt))
@@ -1596,7 +1604,7 @@ impl InferenceEngine {
 
     async fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
-            Some(tok) => match tok.lock() {
+            Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
                 Ok(guard) => guard.decode(&[token_id]),
                 Err(e) => {
                     warn!("Tokenizer lock poisoned: {}", e);

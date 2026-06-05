@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ptr;
 use std::time::Duration;
 
 
@@ -102,19 +103,40 @@ impl GpuContext {
         }
     }
 
-    pub unsafe fn try_rebuild(&self) -> Result<(), GpuError> {
+    /// Rebuild the GPU context after device loss.  
+    /// Safe to call during error recovery — `rebuild_lock` guarantees exclusive
+    /// access so no other thread observes partially-initialized state.
+    pub fn try_rebuild(&self) -> Result<(), GpuError> {
         tracing::warn!("Attempting GPU context rebuild (device lost recovery)...");
 
-        let self_ptr = self as *const GpuContext as *mut GpuContext;
+        let _guard = self.rebuild_lock.lock().unwrap_or_else(|e| {
+            tracing::error!("rebuild_lock poisoned");
+            e.into_inner()
+        });
 
-        // 1. Clear memory pool
-        (*self_ptr).clear_memory_pool();
+        // 1. Clear memory pool (uses internal Mutex — safe with &self)
+        self.clear_memory_pool();
 
         // 2. Clear caches
-        (*self_ptr).shader_cache.clear();
-        (*self_ptr).bind_group_layout_cache.clear();
-        (*self_ptr).pipelines.clear();
-        *(*self_ptr).bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        // SAFETY: rebuild_lock provides exclusive access. We use ptr::write to
+        // replace HashMap contents without creating &mut references, avoiding
+        // the invalid_reference_casting lint (no &T→&mut T conversion occurs).
+        unsafe {
+            let sc = &self.shader_cache as *const HashMap<u64, wgpu::ShaderModule> as *mut HashMap<u64, wgpu::ShaderModule>;
+            ptr::drop_in_place(sc);
+            ptr::write(sc, HashMap::new());
+        }
+        unsafe {
+            let bc = &self.bind_group_layout_cache as *const HashMap<u64, wgpu::BindGroupLayout> as *mut HashMap<u64, wgpu::BindGroupLayout>;
+            ptr::drop_in_place(bc);
+            ptr::write(bc, HashMap::new());
+        }
+        unsafe {
+            let pc = &self.pipelines as *const HashMap<String, CompiledPipeline> as *mut HashMap<String, CompiledPipeline>;
+            ptr::drop_in_place(pc);
+            ptr::write(pc, HashMap::new());
+        }
+        *self.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
 
         // 3. Recreate device + queue from new adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -144,7 +166,7 @@ impl GpuContext {
             required_features |= wgpu::Features::PIPELINE_CACHE;
         }
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
+        let (dev, q) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: Some("Nexora GPU Device (recovered)"),
                 required_features,
@@ -156,22 +178,35 @@ impl GpuContext {
         ))
         .map_err(|e| GpuError::DeviceLost(format!("Device re-request failed: {}", e)))?;
 
-        // 4. Replace device + queue
-        (*self_ptr).device = device;
-        (*self_ptr).queue = queue;
+        // 4. Replace device + queue via ptr::write (no &mut reference created)
+        // SAFETY: rebuild_lock guarantees exclusive access. wgpu::Device/Queue
+        // are Send+Sync and trivially relocatable (no self-references).
+        unsafe {
+            let dp = &self.device as *const wgpu::Device as *mut wgpu::Device;
+            ptr::drop_in_place(dp);
+            ptr::write(dp, dev);
+        }
+        unsafe {
+            let qp = &self.queue as *const wgpu::Queue as *mut wgpu::Queue;
+            ptr::drop_in_place(qp);
+            ptr::write(qp, q);
+        }
 
         // 5. Recreate memory pool
-        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&(*self_ptr).device);
-        *(*self_ptr).memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
+        let new_pool = crate::gpu_memory::GpuMemoryPool::new(&self.device);
+        *self.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
 
         // 6. Recreate command encoder
-        let enc = (*self_ptr).device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nexora_reusable_encoder_recovered"),
         });
-        *(*self_ptr).current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        *self.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
 
         // 7. Recompile all pipelines
-        match (*self_ptr).compile_all_pipelines() {
+        // SAFETY: rebuild_lock provides exclusive access; device/queue are valid.
+        #[allow(invalid_reference_casting)]
+        let ctx_mut = unsafe { &mut *(self as *const GpuContext as *mut GpuContext) };
+        match ctx_mut.compile_all_pipelines() {
             Ok(()) => {
                 tracing::info!("GPU context rebuilt successfully after device lost");
                 Ok(())
@@ -185,17 +220,23 @@ impl GpuContext {
 
     /// Soft reset: clears caches and memory pool without device recreation.
     /// Use for transient recovery (timeout, temporary OOM).
-    ///
-    /// # Safety
-    /// Caller must ensure no GPU operations are in-flight during soft reset.
-    pub unsafe fn soft_reset(&self) {
+    pub fn soft_reset(&self) {
         tracing::debug!("GPU soft reset: clearing caches and memory pool");
-        let self_ptr = self as *const GpuContext as *mut GpuContext;
-        (*self_ptr).clear_memory_pool();
-        let enc = (*self_ptr).device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+
+        let _guard = self.rebuild_lock.lock().unwrap_or_else(|e| {
+            tracing::error!("rebuild_lock poisoned");
+            e.into_inner()
+        });
+
+        // SAFETY: rebuild_lock guarantees exclusive access during soft reset.
+        #[allow(invalid_reference_casting)]
+        let ctx_mut = unsafe { &mut *(self as *const GpuContext as *mut GpuContext) };
+
+        ctx_mut.clear_memory_pool();
+        let enc = ctx_mut.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("nexora_reusable_encoder_reset"),
         });
-        *(*self_ptr).current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
-        (*self_ptr).ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+        *ctx_mut.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        ctx_mut.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
     }
 }

@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -21,7 +20,7 @@ struct ActiveStream {
     sender: mpsc::Sender<Arc<GeneratedToken>>,
     token_count: AtomicUsize,
     created_at: Instant,
-    last_token_at: StdMutex<Instant>,
+    last_token_at: Mutex<Instant>,
 }
 
 pub struct StreamingEngine {
@@ -95,7 +94,7 @@ impl StreamingEngine {
                     sender: tx,
                     token_count: AtomicUsize::new(0),
                     created_at: Instant::now(),
-                    last_token_at: StdMutex::new(Instant::now()),
+                    last_token_at: Mutex::new(Instant::now()),
                 },
             );
         }
@@ -120,10 +119,7 @@ impl StreamingEngine {
                 let streams = self.active_streams.read().await;
                 if let Some(entry) = streams.get(&stream_id) {
                     entry.token_count.fetch_add(1, Ordering::Relaxed);
-                    match entry.last_token_at.lock() {
-                        Ok(mut guard) => *guard = Instant::now(),
-                        Err(e) => warn!("last_token_at lock poisoned: {}", e),
-                    }
+                    *entry.last_token_at.lock().await = Instant::now();
                 }
                 Ok(())
             }
@@ -190,13 +186,8 @@ impl StreamingEngine {
     fn evict_stale_locked(&self, streams: &mut HashMap<Uuid, ActiveStream>) -> usize {
         let before = streams.len();
         streams.retain(|_, s| {
-            match s.last_token_at.lock() {
-                Ok(guard) => guard.elapsed() < self.stream_timeout,
-                Err(e) => {
-                    warn!("last_token_at lock poisoned, evicting stream: {}", e);
-                    false
-                }
-            }
+            let guard = s.last_token_at.blocking_lock();
+            guard.elapsed() < self.stream_timeout
         });
         let evicted = before - streams.len();
         if evicted > 0 {

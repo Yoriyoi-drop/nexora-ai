@@ -335,7 +335,7 @@ impl BeamSearchEngine {
     pub fn expand_beam(
         &self,
         state: &mut BeamSearchState,
-        logits_batch: &[Vec<f32>],
+        logits_batch: &[&[f32]],
     ) -> Result<()> {
         debug!(
             "Expanding beam at step {}, {} hypotheses",
@@ -675,8 +675,8 @@ pub fn run_beam_search(
     let mut state = engine.initialize(initial_logits)?;
 
     for step_logits in subsequent_logits.iter().take(max_steps - 1) {
-        let batched_logits: Vec<Vec<f32>> = (0..state.hypotheses.len())
-            .map(|_| step_logits.clone())
+        let batched_logits: Vec<&[f32]> = (0..state.hypotheses.len())
+            .map(|_| step_logits.as_slice())
             .collect();
         engine.expand_beam(&mut state, &batched_logits)?;
 

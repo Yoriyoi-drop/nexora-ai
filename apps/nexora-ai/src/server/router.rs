@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::info;
+use rand::Rng;
+use tracing::{debug, info, warn};
 
 use super::agent_handlers::*;
 use super::handlers::*;
@@ -49,8 +50,15 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     // Initialize global auth system for JWT / user auth (server-auth feature gate)
     #[cfg(feature = "server-auth")]
     let auth_system: Option<Arc<crate::auth::AuthSystem>> = {
-        let jwt_secret = std::env::var("NEXORA_JWT_SECRET")
-            .expect("NEXORA_JWT_SECRET must be set when server-auth feature is enabled");
+        let jwt_secret = std::env::var("NEXORA_JWT_SECRET").unwrap_or_else(|_| {
+            let mut rng = rand::thread_rng();
+            let random: String = (0..64).map(|_| {
+                let idx = rng.gen_range(0..62);
+                b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[idx] as char
+            }).collect();
+            tracing::warn!("NEXORA_JWT_SECRET not set! Generated a random ephemeral secret. Set NEXORA_JWT_SECRET environment variable for persistent sessions.");
+            random
+        });
         let auth = crate::api::client::init_global_auth(&jwt_secret);
         Some(Arc::new(crate::auth::AuthSystem::new(&jwt_secret)))
     };
@@ -174,17 +182,17 @@ async fn auth_middleware_layer(
         .map(|s| s.to_string());
 
     // Check both statically configured keys and AuthSystem (if available)
-    let is_authorized = api_key_str.as_deref().map_or(false, |key| {
-        if valid_keys.contains(key) {
-            return true;
+    let is_authorized = match api_key_str.as_deref() {
+        Some(key) if valid_keys.contains(key) => true,
+        Some(key) => {
+            if let Some(auth) = crate::api::client::get_global_auth() {
+                auth.authenticate_api_key(key).await.is_some()
+            } else {
+                false
+            }
         }
-        if let Some(auth) = crate::api::client::get_global_auth() {
-            return tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(auth.authenticate_api_key(key))
-            }).is_some();
-        }
-        false
-    });
+        None => false,
+    };
 
     if is_authorized {
         // Insert ApiKey into request extensions so auth handlers can access it

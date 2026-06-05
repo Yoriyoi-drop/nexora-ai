@@ -77,6 +77,14 @@ impl GpuContext {
 
         // ── Persistent pipeline cache setup ──
         let adapter_info = adapter.get_info();
+
+        // Unified memory coordinator — estimate VRAM from device type
+        let vram_total: u64 = match adapter_info.device_type {
+            wgpu::DeviceType::DiscreteGpu => 24_000_000_000,
+            wgpu::DeviceType::IntegratedGpu => 16_000_000_000,
+            _ => 8_000_000_000,
+        };
+        let memory_coordinator = Mutex::new(crate::gpu_memory::MemoryCoordinator::new(vram_total));
         // Include driver version in cache key so driver updates invalidate the cache
         let driver_version = &adapter_info.driver_info;
         let cache_key = {
@@ -169,6 +177,7 @@ impl GpuContext {
             bind_group_layout_cache: HashMap::new(),
             bind_group_cache_mutex: Mutex::new(HashMap::new()),
             memory_pool,
+            memory_coordinator,
             profiling_query_set,
             query_pool_size,
             query_index: std::sync::atomic::AtomicUsize::new(0),
@@ -183,6 +192,7 @@ impl GpuContext {
             cache_key,
             backend,
             readback_limiter: ReadbackLimiter::new(MAX_PENDING_READBACKS),
+            rebuild_lock: Mutex::new(()),
             #[cfg(feature = "cuda")]
             cuda: cuda_runtime,
         };

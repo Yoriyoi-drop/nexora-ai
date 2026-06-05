@@ -170,11 +170,13 @@ impl UserStore for InMemoryUserStore {
         let api_key = SecurityUtils::generate_secure_token(48);
         let id = user.id.clone();
         let email = user.email.clone();
-        let lookup_id = id.clone();
-        self.users_by_id.write().await.insert(id.clone(), user);
+        let mut users_by_id = self.users_by_id.write().await;
+        let created_user = user.clone();
+        users_by_id.insert(id.clone(), user);
+        drop(users_by_id);
         self.users_by_email.write().await.insert(email, id);
-        self.api_key_to_user.write().await.insert(api_key, lookup_id.clone());
-        Ok(self.users_by_id.read().await.get(&lookup_id).cloned().expect("user was just inserted above"))
+        self.api_key_to_user.write().await.insert(api_key, created_user.id.clone());
+        Ok(created_user)
     }
 
     async fn get_user_by_id(&self, id: &str) -> Option<User> {

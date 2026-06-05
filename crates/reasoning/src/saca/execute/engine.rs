@@ -415,6 +415,17 @@ impl SandboxCodeExecutor {
             "breakpoint",
             "help(",
             "input(",
+            "__class__",
+            "__bases__",
+            "__subclasses__",
+            "__mro__",
+            "__globals__",
+            "getattr",
+            "setattr",
+            "type(",
+            "vars(",
+            "dir(",
+            "open(",
         ];
 
         for pattern in &dangerous_patterns {
@@ -484,10 +495,13 @@ impl SandboxCodeExecutor {
         let start = std::time::Instant::now();
 
         match Command::new("python3")
+            .arg("-I")
             .arg("-c")
             .arg(code)
             .stdin(std::process::Stdio::null())
             .env_clear()
+            .env_remove("PYTHONSTARTUP")
+            .env_remove("PYTHONINSPECT")
             .env("PYTHONIOENCODING", "utf-8")
             .output()
         {

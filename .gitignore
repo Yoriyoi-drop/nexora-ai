@@ -43,3 +43,4 @@ session-*.md
 *.wasm
 *.bin
 /data
+/node_modules

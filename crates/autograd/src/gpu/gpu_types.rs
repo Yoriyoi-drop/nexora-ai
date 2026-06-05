@@ -221,6 +221,8 @@ pub struct GpuContext {
     /// Thread-safe memory pool for &self access (used by dispatch methods)
     /// Uses `std::sync::Mutex` — all GPU dispatch methods are sync. Never used in async context.
     pub(crate) memory_pool: Mutex<crate::gpu_memory::GpuMemoryPool>,
+    /// Unified memory coordinator — tracks pool + external allocations.
+    pub(crate) memory_coordinator: Mutex<crate::gpu_memory::MemoryCoordinator>,
     pub(crate) profiling_query_set: Option<wgpu::QuerySet>,
     pub(crate) query_pool_size: usize,
     pub(crate) query_index: std::sync::atomic::AtomicUsize,
@@ -243,6 +245,10 @@ pub struct GpuContext {
     pub(crate) wgpu_cache: Option<wgpu::PipelineCache>,
     pub(crate) disk_cache: Option<crate::persistent_cache::PipelineDiskCache>,
     pub(crate) cache_key: u64,
+    // ── Rebuild lock ────────────────────────────────────────────────
+    /// Mutex ensuring exclusive access during GPU context rebuild.
+    /// Guards device+queue and cache mutation in `try_rebuild`/`soft_reset`.
+    pub(crate) rebuild_lock: Mutex<()>,
     // ── Active backend ───────────────────────────────────────────────
     pub(crate) backend: GpuBackend,
     /// Limits concurrent GPU readback operations to prevent OOM.

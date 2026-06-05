@@ -2,6 +2,7 @@ use std::sync::{Mutex, RwLock};
 
 use crate::paged_cache::PagedKVCache;
 use crate::GLOBAL_PAGED_CACHE;
+use tracing::debug;
 
 pub struct PagedCacheStats {
     pub num_sequences: usize,
@@ -158,24 +159,67 @@ impl PagedKVCache {
         reclaimed
     }
 
-    /// Phase 2: Compact active blocks (ref_count > 0).
+    /// Phase 2: Compact active block indices (ref_count > 0).
     ///
-    /// SAFETY NOTE (BF44): Active block defrag is fundamentally unsafe without
-    /// per-logical-block row offset tracking. Each logical block reads from row 0
-    /// of its mapped physical block. Moving data between physical blocks and
-    /// remapping logical→physical entries causes silent data corruption because:
-    ///   - The moved data's logical position changes (it now resides at row N of
-    ///     a different physical block, NOT row 0 where the logical block reads).
-    ///   - Shared blocks (ref_count > 1) affect ALL referencing sequences.
+    /// Reorganizes the `blocks[layer]` Vec so all active blocks are contiguous
+    /// at the front, and all free blocks are at the back. This is safe because
+    /// block data is never moved between blocks — only block indices change.
+    /// All sequence `BlockTable` entries are remapped to the new indices.
     ///
-    /// A correct implementation would require per-sequence, per-logical-block
-    /// row_offset tracking (where does this logical block's data start within
-    /// its physical block?). Phase 1 (free block defrag) reclaims fragmented
-    /// blocks that are not live, which is the primary source of reclaimable space.
-    /// Memory tiering (Hot→Warm→Cold demotion) provides additional memory savings
-    /// by reducing precision of idle sequences.
-    fn defrag_active_blocks(&mut self, _layer: usize, _bs: usize) -> usize {
-        0
+    /// Returns the number of blocks reclaimed (excess at end that can be freed).
+    fn defrag_active_blocks(&mut self, layer: usize, _bs: usize) -> usize {
+        let len = self.blocks[layer].len();
+        if len <= 1 {
+            return 0;
+        }
+
+        // Build remap table: old_idx → new_idx
+        let mut remap = vec![usize::MAX; len];
+        let mut new_idx = 0usize;
+        let mut free_count = 0usize;
+
+        for old_idx in 0..len {
+            if !self.blocks[layer][old_idx].is_free() {
+                remap[old_idx] = new_idx;
+                if old_idx != new_idx {
+                    self.blocks[layer].swap(old_idx, new_idx);
+                }
+                new_idx += 1;
+            } else {
+                free_count += 1;
+            }
+        }
+
+        if new_idx == len {
+            return 0; // No free blocks to compact
+        }
+
+        // Update all sequence block table entries for this layer only
+        for table in self.sequences.values_mut() {
+            table.remap_layer(layer, &remap);
+        }
+
+        // Rebuild free list for this layer: all free blocks now at new_idx..len
+        self.free_lists[layer].clear();
+        for i in new_idx..len {
+            self.free_lists[layer].push(i);
+            // Reset block state
+            self.blocks[layer][i].filled = 0;
+            self.blocks[layer][i].ref_count = 0;
+        }
+
+        debug!(
+            "defrag_active_blocks: layer {} compacted {} blocks ({} active → front, {} free → back)",
+            layer, len, new_idx, free_count
+        );
+
+        // Trim trailing free blocks from Vec to reclaim memory
+        self.blocks[layer].truncate(new_idx);
+
+        self.num_freed += free_count;
+
+        // Return actual freed block count (what can be reclaimed by allocator)
+        free_count
     }
 
     pub fn stats(&self) -> PagedCacheStats {

@@ -629,7 +629,7 @@ pub async fn generate_text(
                 "success": true,
                 "generated_text": generated,
                 "parameters": {
-                    "prompt": prompt,
+                    "prompt": sanitized,
                     "max_tokens": max_tokens,
                     "temperature": temperature
                 },
@@ -711,10 +711,10 @@ pub async fn generate_text_stream(
             match rx.recv().await {
                 Some(token) => {
                     acc.push_str(&token.token_text);
-                    let data = format!(
-                        r#"{{"token":"{}","position":{}}}"#,
-                        token.token_text, token.position
-                    );
+                    let data = serde_json::to_string(&json!({
+                        "token": token.token_text,
+                        "position": token.position,
+                    })).unwrap_or_else(|_| r#"{"token":"","position":0}"#.to_string());
                     Some((Ok::<_, anyhow::Error>(Event::default().data(data)), (rx, acc, false, prompt_arc)))
                 }
                 None => {

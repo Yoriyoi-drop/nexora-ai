@@ -13,6 +13,7 @@ fn registry() -> &'static RwLock<HashMap<(usize, usize, u64), Arc<Array2<f32>>>>
 /// Resolve a shared embedding table by (vocab_size, hidden_size, seed).
 /// If the table was already created, returns the cached `Arc<Array2<f32>>`.
 /// Otherwise creates, caches, and returns it.
+/// Uses write-first pattern to avoid read→write lock starvation.
 pub fn resolve_embedding(
     vocab_size: usize,
     hidden_size: usize,
@@ -20,25 +21,35 @@ pub fn resolve_embedding(
 ) -> Arc<Array2<f32>> {
     let key = (vocab_size, hidden_size, seed);
 
+    // Fast path: try read lock first
     if let Ok(cache) = registry().read() {
         if let Some(embed) = cache.get(&key) {
             return Arc::clone(embed);
         }
     }
 
+    // Acquire write lock, double-check, then create if missing
+    if let Ok(mut cache) = registry().write() {
+        if let Some(embed) = cache.get(&key) {
+            return Arc::clone(embed);
+        }
+        let scale = (hidden_size as f32).sqrt().recip();
+        let mut rng = rand::thread_rng();
+        let arr = Array2::from_shape_fn((vocab_size, hidden_size), |_| {
+            rng.gen::<f32>() * 2.0 * scale - scale
+        });
+        let shared = Arc::new(arr);
+        let entry = cache.entry(key).or_insert_with(|| Arc::clone(&shared));
+        return Arc::clone(entry);
+    }
+
+    // Fallback: create without caching (lock poisoned)
     let scale = (hidden_size as f32).sqrt().recip();
     let mut rng = rand::thread_rng();
     let arr = Array2::from_shape_fn((vocab_size, hidden_size), |_| {
         rng.gen::<f32>() * 2.0 * scale - scale
     });
-    let shared = Arc::new(arr);
-
-    if let Ok(mut cache) = registry().write() {
-        let entry = cache.entry(key).or_insert_with(|| Arc::clone(&shared));
-        return Arc::clone(entry);
-    }
-
-    shared
+    Arc::new(arr)
 }
 
 /// Number of cached embedding tables.

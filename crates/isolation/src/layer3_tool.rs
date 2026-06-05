@@ -315,6 +315,17 @@ const ALLOWED_SHELL_COMMANDS: &[&str] = &[
     "git", "cargo", "rustc", "python3", "node", "npm", "npx",
 ];
 
+/// Check if a string contains shell metacharacters that could enable injection.
+fn has_shell_metachars(s: &str) -> bool {
+    s.contains(';')
+        || s.contains('|')
+        || s.contains("&&")
+        || s.contains("`")
+        || s.contains("$(")
+        || s.contains(">")
+        || s.contains("<")
+}
+
 /// Spawn the tool command in a real subprocess.
 async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionResult {
     let start = std::time::Instant::now();
@@ -336,6 +347,121 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
             }
         }
     };
+
+    // Validate arguments per tool kind to prevent argument injection
+    match &request.tool_kind {
+        ToolKind::Python => {
+            for arg in &request.args {
+                if has_shell_metachars(arg) {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Shell metacharacters blocked in Python argument: {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_shell_metachars".to_string()],
+                    };
+                }
+                if !arg.starts_with('-') && !arg.ends_with(".py") {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Invalid Python argument (must be a flag or .py file): {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_python_arg".to_string()],
+                    };
+                }
+            }
+        }
+        ToolKind::Browser => {
+            let allowed_browser_flags: [&str; 4] =
+                ["--headless", "--no-sandbox", "--disable-gpu", "--version"];
+            for arg in &request.args {
+                if has_shell_metachars(arg) {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Shell metacharacters blocked in Browser argument: {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_shell_metachars".to_string()],
+                    };
+                }
+                let is_url = arg.starts_with("http://") || arg.starts_with("https://");
+                let is_allowed_flag = allowed_browser_flags.contains(&arg.as_str());
+                if !is_url && !is_allowed_flag {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Invalid Browser argument (must be URL or known flag): {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_browser_arg".to_string()],
+                    };
+                }
+            }
+        }
+        ToolKind::FileSystem => {
+            for arg in &request.args {
+                if arg.contains("..") || arg.contains("~") || arg.starts_with('/') {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Invalid FileSystem path (must be relative, no .. or ~): {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_filesystem_path".to_string()],
+                    };
+                }
+            }
+        }
+        ToolKind::Network => {
+            for arg in &request.args {
+                if has_shell_metachars(arg) {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!(
+                            "Shell metacharacters blocked in Network argument: {}",
+                            arg
+                        ),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_shell_metachars".to_string()],
+                    };
+                }
+            }
+            if let Some(url) = request.args.first() {
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return ToolExecutionResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: format!("Invalid Network URL (must start with http:// or https://): {}", url),
+                        exit_code: -1,
+                        execution_time_ms: 0,
+                        sandbox_violations: vec!["blocked_network_url".to_string()],
+                    };
+                }
+            }
+        }
+        _ => {}
+    }
 
     // Whitelist validation for shell commands: block arbitrary command execution
     if request.tool_kind == ToolKind::Shell || request.tool_kind == ToolKind::Terminal {

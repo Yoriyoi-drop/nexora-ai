@@ -170,7 +170,9 @@ pub struct ColdStorageStats {
     pub storage_dir: PathBuf,
 }
 
+/// Serialize entries ke buffer, lalu kompres dengan zstd.
 fn serialize_compressed_entries(entries: &[KVCacheEntry]) -> Result<Vec<u8>, String> {
+    // Raw serialization (sama seperti sebelumnya)
     let mut buf = Vec::with_capacity(entries.len() * 1024);
     buf.extend_from_slice(&(entries.len() as u32).to_le_bytes());
     for entry in entries {
@@ -187,34 +189,59 @@ fn serialize_compressed_entries(entries: &[KVCacheEntry]) -> Result<Vec<u8>, Str
         buf.extend_from_slice(&(entry.v_scales.len() as u32).to_le_bytes());
         for &s in &entry.v_scales { buf.extend_from_slice(&s.to_le_bytes()); }
     }
-    Ok(buf)
+
+    // Kompres dengan zstd level 3 (speed vs ratio tradeoff)
+    let compressed = zstd::encode_all(std::io::Cursor::new(&buf), 3)
+        .map_err(|e| format!("zstd compress: {e}"))?;
+
+    // Format: [4 bytes uncompressed size][zstd compressed data]
+    let mut result = Vec::with_capacity(compressed.len() + 4);
+    result.extend_from_slice(&(buf.len() as u32).to_le_bytes());
+    result.extend_from_slice(&compressed);
+
+    Ok(result)
 }
 
+/// Decompress zstd, lalu deserialize entries.
 fn deserialize_compressed_entries(bytes: &[u8]) -> Option<Vec<KVCacheEntry>> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    let uncompressed_len = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
+    let compressed = bytes.get(4..)?;
+
+    // Decompress dengan zstd
+    let mut buf: Vec<u8> = Vec::with_capacity(uncompressed_len);
+    zstd::stream::copy_decode(std::io::Cursor::new(compressed), &mut buf).ok()?;
+
+    if buf.len() != uncompressed_len {
+        return None;
+    }
+
     let mut pos = 0usize;
-    let num_entries = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+    let num_entries = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
     let mut entries = Vec::with_capacity(num_entries);
     for _ in 0..num_entries {
-        let kv_dim = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let num_kv_heads = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let head_dim = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let compressed_seq_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let k_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let k_compressed = bytes.get(pos..pos+k_len)?.to_vec(); pos += k_len;
-        let v_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
-        let v_compressed = bytes.get(pos..pos+v_len)?.to_vec(); pos += v_len;
-        let ks_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize;
+        let kv_dim = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let num_kv_heads = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let head_dim = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let compressed_seq_len = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let k_len = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let k_compressed = buf.get(pos..pos+k_len)?.to_vec(); pos += k_len;
+        let v_len = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize; pos += 4;
+        let v_compressed = buf.get(pos..pos+v_len)?.to_vec(); pos += v_len;
+        let ks_len = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize;
         pos += 4;
         let mut k_scales = Vec::with_capacity(ks_len);
         for _ in 0..ks_len {
-            k_scales.push(f32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?));
+            k_scales.push(f32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?));
             pos += 4;
         }
-        let vs_len = u32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?) as usize;
+        let vs_len = u32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?) as usize;
         pos += 4;
         let mut v_scales = Vec::with_capacity(vs_len);
         for _ in 0..vs_len {
-            v_scales.push(f32::from_le_bytes(bytes.get(pos..pos+4)?.try_into().ok()?));
+            v_scales.push(f32::from_le_bytes(buf.get(pos..pos+4)?.try_into().ok()?));
             pos += 4;
         }
         entries.push(KVCacheEntry {

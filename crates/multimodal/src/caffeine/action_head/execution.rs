@@ -22,6 +22,40 @@ static RE_PHONE: LazyLock<Regex> =
 static RE_URL_SIMPLE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"https?://[^\s]+"#).expect("valid URL simple regex"));
 
+/// Validates that a string is a safe URL for xdg-open
+fn is_safe_url(destination: &str) -> bool {
+    if destination.is_empty() || destination.len() > 2048 {
+        return false;
+    }
+    // Only allow http, https, mailto, and file protocols
+    let lower = destination.to_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("file://")
+    {
+        !destination.contains(';')
+            && !destination.contains('|')
+            && !destination.contains('`')
+            && !destination.contains('$')
+            && !destination.contains('>')
+            && !destination.contains('<')
+            && !destination.contains('&')
+    } else {
+        false
+    }
+}
+
+/// Sanitize text for xdotool type - block control characters and shell metacharacters
+fn sanitize_xdotool_text(text: &str) -> String {
+    text.chars()
+        .filter(|&c| {
+            // Allow printable ASCII and Unicode, block control chars except \n, \t
+            c == '\n' || c == '\t' || (c >= ' ' && c != '\x7f')
+        })
+        .collect()
+}
+
 /// Mesin eksekusi untuk menjalankan tindakan
 pub struct ExecutionEngine {
     action_config: crate::caffeine::config::ActionConfig,
@@ -283,6 +317,12 @@ impl ActionHandler for TypeHandler {
 
         if text.is_empty() {
             warn!("Teks kosong untuk tindakan ketik");
+            return Ok(ExecutionResult::Failure);
+        }
+
+        let text = sanitize_xdotool_text(&text);
+        if text.is_empty() {
+            warn!("Text was empty after sanitization (all characters were blocked)");
             return Ok(ExecutionResult::Failure);
         }
 
@@ -590,6 +630,13 @@ impl ActionHandler for NavigateHandler {
         if destination.is_empty() || destination == "unknown" {
             warn!("Tujuan navigasi tidak valid: '{}'", destination);
             return Ok(ExecutionResult::Failure);
+        }
+
+        if !is_safe_url(destination) {
+            warn!("Dangerous navigation destination blocked: '{}'", destination);
+            return Err(crate::caffeine::error::CaffeineError::action_head(
+                &format!("Navigation blocked: invalid or dangerous URL: {}", destination),
+            ));
         }
 
         info!("Mencoba navigasi ke '{}'", destination);

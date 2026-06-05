@@ -175,6 +175,23 @@ fn elem_size_bytes(config: &PagedCacheConfig) -> usize {
 }
 
 impl PagedCacheConfig {
+    /// Auto-tune block_size berdasarkan rata-rata sequence length terobservasi.
+    /// Formula: block_size = clamp(avg_seq_len / 16, 8, 64)
+    /// Sequence pendek → block kecil (kurang waste), sequence panjang → block besar (kurang overhead).
+    pub fn auto_tune_block_size(&mut self, avg_seq_len: usize) {
+        if avg_seq_len == 0 {
+            return;
+        }
+        let suggested = (avg_seq_len / 16).clamp(8, 64);
+        if suggested != self.block_size {
+            tracing::info!(
+                "Adaptive block size: {} → {} (avg_seq_len={})",
+                self.block_size, suggested, avg_seq_len
+            );
+            self.block_size = suggested;
+        }
+    }
+
     /// Total memory in bytes for all blocks at max_blocks
     pub fn total_memory_bytes(&self) -> usize {
         let elem = if self.q4_storage {

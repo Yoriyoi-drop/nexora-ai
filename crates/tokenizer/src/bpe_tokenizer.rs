@@ -377,7 +377,10 @@ impl BpeTokenizer {
         let file = fs::File::open(path.as_ref())?;
         let mmap = unsafe { Mmap::map(&file)? };
         let corpus = std::str::from_utf8(&mmap)?;
-        self.train(corpus)
+        let result = self.train(corpus);
+        drop(mmap);
+        drop(file);
+        result
     }
 
     pub fn encode(&self, text: &str) -> Vec<TokenId> {

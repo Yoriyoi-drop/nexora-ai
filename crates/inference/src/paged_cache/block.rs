@@ -416,6 +416,20 @@ impl BlockTable {
         self.num_tokens >= end
     }
 
+    /// Remap physical block indices in a specific layer for this sequence.
+    /// Used after block index compaction (defrag) on that layer.
+    pub(crate) fn remap_layer(&mut self, layer: usize, remap: &[usize]) {
+        if let Some(entries) = self.layers.get_mut(layer) {
+            for entry in entries.iter_mut() {
+                if let Some(phys) = entry {
+                    if *phys < remap.len() {
+                        *phys = remap[*phys];
+                    }
+                }
+            }
+        }
+    }
+
     fn num_logical_blocks_needed(&self) -> usize {
         if self.num_tokens == 0 {
             0

@@ -47,26 +47,11 @@ impl GpuDtype {
     }
 }
 
-// SAFETY:
-// `GpuTensor` contains:
-// - `shape: Vec<usize>` — trivially `Send + Sync`
-// - `buffer: wgpu::Buffer` — a wgpu GPU-resource handle. wgpu's `Buffer` is
-//   `Send + Sync` because it is reference-counted and thread-safe internally.
-// - `dtype: GpuDtype` — a `Copy` enum, trivially `Send + Sync`.
-//
-// All GPU operations (reads, writes, compute dispatches) are sequenced through
-// `GpuContext`'s single queue, so concurrent access to distinct `GpuTensor`
-// instances is safe. The Rust compiler cannot verify this automatically because
-// `wgpu::Buffer` does not implement `Send + Sync` in wgpu's type system, but
-// wgpu's own documentation states that Buffer handles are safe to send across
-// threads as long as the device is not dropped. We hold a reference to the
-// `GpuContext` via the global `OnceCell`, guaranteeing the device outlives all
-// tensors.
-unsafe impl Send for GpuTensor {}
-// SAFETY: Same reasoning as `Send`. Shared references to `GpuTensor` are safe
-// because `buffer` is an atomic ref-counted handle and all mutation goes through
-// `GpuContext`'s synchronized queue.
-unsafe impl Sync for GpuTensor {}
+// `GpuTensor` is automatically `Send + Sync` because:
+// - `wgpu::Buffer` implements `Send + Sync` on native platforms (cfg send_sync is always
+//   true on non-wasm targets in wgpu 29+, via atomic-refcounted inner handles).
+// - `Vec<usize>` and `GpuDtype` are trivially `Send + Sync`.
+// - All GPU operations are sequenced through `GpuContext`'s single queue.
 
 /// Poll GPU with 30s timeout and wait for map_async result.
 /// Prevents threads from hanging forever on GPU readback.

@@ -989,7 +989,7 @@ impl DebateOrchestrator {
                             confidence,
                         });
                         // Record success
-                        if let Ok(mut hist) = self.historical.lock() {
+                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock()) {
                             hist.entry(model_id)
                                 .or_insert_with(|| ModelHistory::new(model_id))
                                 .record_success(100.0);
@@ -998,7 +998,7 @@ impl DebateOrchestrator {
                     Err(e) => {
                         warn!("{} failed in round {}: {} — removing from debate", model_id, round, e);
                         // Record failure
-                        if let Ok(mut hist) = self.historical.lock() {
+                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock()) {
                             hist.entry(model_id)
                                 .or_insert_with(|| ModelHistory::new(model_id))
                                 .record_failure();
@@ -1185,7 +1185,7 @@ impl DebateOrchestrator {
             None
         };
 
-        let historical = self.historical.lock().ok()
+        let historical = tokio::task::block_in_place(|| self.historical.lock()).ok()
             .and_then(|h| h.get(&model_id).map(|h| {
                 ModelHistory {
                     model_id: h.model_id,

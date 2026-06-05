@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const SIZE_BUCKETS: &[u64] = &[
@@ -59,6 +60,8 @@ pub struct GpuMemoryPool {
     free_buffers: HashMap<(usize, wgpu::BufferUsages), VecDeque<(wgpu::Buffer, Instant)>>,
     stats: PoolStats,
     max_capacity: usize,
+    /// Optional coordinator for unified VRAM tracking
+    coordinator: Option<std::sync::Weak<Mutex<MemoryCoordinator>>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -79,12 +82,30 @@ impl GpuMemoryPool {
             free_buffers: HashMap::new(),
             stats: PoolStats::default(),
             max_capacity: MAX_POOL_CAPACITY,
+            coordinator: None,
         }
     }
 
     pub fn with_max_capacity(mut self, max: usize) -> Self {
         self.max_capacity = max;
         self
+    }
+
+    /// Link to a MemoryCoordinator for unified VRAM tracking.
+    pub fn with_coordinator(mut self, coord: &Arc<Mutex<MemoryCoordinator>>) -> Self {
+        self.coordinator = Some(Arc::downgrade(coord));
+        self
+    }
+
+    /// Update the coordinator with current pool usage.
+    fn update_coordinator(&mut self) {
+        if let Some(weak) = &self.coordinator {
+            if let Some(coord) = weak.upgrade() {
+                if let Ok(mut c) = coord.lock() {
+                    c.set_pool_used(self.stats.bytes_allocated);
+                }
+            }
+        }
     }
 
     pub fn alloc(&mut self, size: u64, usage: wgpu::BufferUsages) -> PooledBuffer {
@@ -103,12 +124,14 @@ impl GpuMemoryPool {
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 crate::gpu::gpu_observability::POOL_BYTES_REUSED
                     .fetch_add(b_size, std::sync::atomic::Ordering::Relaxed);
-                return PooledBuffer {
+                let result = PooledBuffer {
                     buffer: buf,
                     size: b_size,
                     usage,
                     pool_key: Some((bucket, usage)),
                 };
+                self.update_coordinator();
+                return result;
             }
         }
 
@@ -136,12 +159,14 @@ impl GpuMemoryPool {
             mapped_at_creation: false,
         });
 
-        PooledBuffer {
+        let result = PooledBuffer {
             buffer,
             size: b_size,
             usage,
             pool_key: Some((bucket, usage)),
-        }
+        };
+        self.update_coordinator();
+        result
     }
 
     pub fn dealloc(&mut self, buf: PooledBuffer) {
@@ -160,6 +185,7 @@ impl GpuMemoryPool {
                 self.evict_one_lru();
             }
         }
+        self.update_coordinator();
     }
 
     /// Garbage collect all expired buffers across all buckets
@@ -219,6 +245,56 @@ impl GpuMemoryPool {
         }
     }
 
+    /// Compact the memory pool — evict oldest expired buffers and
+    /// drop excess buffers from over-full buckets to reduce GPU memory pressure.
+    /// Returns number of bytes freed.
+    pub fn compact(&mut self) -> u64 {
+        let before_total = self.stats.bytes_allocated;
+        // Step 1: GC expired buffers
+        self.gc();
+        // Step 2: Trim buckets down to 75% capacity, evicting oldest first
+        let target_per_bucket = (self.max_capacity as f64 * 0.75) as usize;
+        for list in self.free_buffers.values_mut() {
+            while list.len() > target_per_bucket {
+                list.pop_front(); // oldest first
+                self.stats.dealloc_dropped += 1;
+            }
+        }
+        // Step 3: Recalculate total remaining bytes from bucket sizes
+        let remaining: u64 = self.free_buffers.iter()
+            .flat_map(|((bucket_idx, _usage), list)| {
+                let b_size = bucket_size(*bucket_idx);
+                list.iter().map(move |_| b_size)
+            })
+            .sum();
+        let bytes_freed = before_total.saturating_sub(remaining);
+        if bytes_freed > 0 {
+            tracing::debug!("GpuMemoryPool::compact: freed {:.2} MB", bytes_freed as f64 / 1_048_576.0);
+        }
+        // Force GPU to release memory
+        self.device.poll(wgpu::PollType::Poll);
+        bytes_freed
+    }
+
+    /// Compute external fragmentation ratio — fraction of total allocated size
+    /// that is wasted due to partial buckets.
+    pub fn fragmentation_ratio(&self) -> f64 {
+        let total_allocated = self.stats.bytes_allocated;
+        if total_allocated == 0 {
+            return 0.0;
+        }
+        let total_wasted: u64 = self.free_buffers.values()
+            .flat_map(|v| v.iter())
+            .map(|(buf, _)| {
+                let buf_size = buf.size();
+                let bucket = bucket_for(buf_size);
+                let b_size = bucket_size(bucket);
+                b_size.saturating_sub(buf_size)
+            })
+            .sum();
+        total_wasted as f64 / total_allocated as f64
+    }
+
     pub fn stats(&self) -> &PoolStats {
         &self.stats
     }
@@ -252,5 +328,115 @@ fn evict_expired_in_bucket(list: &mut VecDeque<(wgpu::Buffer, Instant)>) {
         } else {
             break;
         }
+    }
+}
+
+// ─── Unified Memory Coordinator ──────────────────────────────────────────────
+
+/// Tracks a single external memory consumer (e.g., KV cache) alongside the GPU pool.
+/// Memberikan pandangan terpadu tentang total VRAM yang digunakan.
+///
+/// Cara kerja:
+/// - GPU pool allocations dilaporkan oleh `GpuMemoryPool` langsung
+/// - External allocations (KV cache blocks, activation buffers) dilaporkan
+///   oleh consumer melalui `register_external` / `update_external`
+/// - `total_used_bytes()` return gabungan keduanya
+#[derive(Debug)]
+pub struct MemoryCoordinator {
+    /// Total VRAM pada device (bytes).
+    total_vram: u64,
+    /// Bytes yang teralokasi oleh GpuMemoryPool.
+    pool_used_bytes: u64,
+    /// Bytes yang teralokasi oleh external consumer.
+    external_used_bytes: u64,
+    /// Soft limit — total allocation di atas ini trigger eviction.
+    eviction_threshold: u64,
+    /// Hard limit — reject allocation di atas ini.
+    critical_threshold: u64,
+}
+
+impl MemoryCoordinator {
+    pub fn new(total_vram: u64) -> Self {
+        let eviction = (total_vram as f64 * 0.70) as u64;
+        let critical = (total_vram as f64 * 0.90) as u64;
+        Self {
+            total_vram,
+            pool_used_bytes: 0,
+            external_used_bytes: 0,
+            eviction_threshold: eviction,
+            critical_threshold: critical,
+        }
+    }
+
+    pub fn total_vram(&self) -> u64 { self.total_vram }
+    pub fn pool_used(&self) -> u64 { self.pool_used_bytes }
+    pub fn external_used(&self) -> u64 { self.external_used_bytes }
+    pub fn total_used(&self) -> u64 { self.pool_used_bytes + self.external_used_bytes }
+    pub fn available(&self) -> u64 { self.total_vram.saturating_sub(self.total_used()) }
+    pub fn usage_ratio(&self) -> f64 { self.total_used() as f64 / self.total_vram as f64 }
+
+    pub fn set_pool_used(&mut self, bytes: u64) { self.pool_used_bytes = bytes; }
+    pub fn add_pool_used(&mut self, bytes: u64) { self.pool_used_bytes += bytes; }
+    pub fn release_pool(&mut self, bytes: u64) {
+        self.pool_used_bytes = self.pool_used_bytes.saturating_sub(bytes);
+    }
+
+    /// Register external allocation (KV cache, activations, etc).
+    pub fn set_external(&mut self, bytes: u64) { self.external_used_bytes = bytes; }
+    pub fn add_external(&mut self, bytes: u64) { self.external_used_bytes += bytes; }
+    pub fn release_external(&mut self, bytes: u64) {
+        self.external_used_bytes = self.external_used_bytes.saturating_sub(bytes);
+    }
+
+    /// Cek apakah total allocation (existing + new) akan exceed critical threshold.
+    pub fn can_allocate(&self, additional_bytes: u64) -> bool {
+        self.total_used() + additional_bytes < self.critical_threshold
+    }
+
+    /// Berapa banyak VRAM yang bisa dialokasikan sebelum critical.
+    pub fn headroom(&self) -> u64 {
+        self.critical_threshold.saturating_sub(self.total_used())
+    }
+}
+
+#[cfg(test)]
+mod memory_coordinator_tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_coordinator_basic() {
+        let mut coord = MemoryCoordinator::new(24_000_000_000);
+        assert_eq!(coord.total_vram(), 24_000_000_000);
+        assert!(coord.can_allocate(1_000_000_000));
+
+        coord.set_pool_used(10_000_000_000);
+        coord.set_external(8_000_000_000);
+        assert_eq!(coord.total_used(), 18_000_000_000);
+        assert!(coord.can_allocate(1_000_000_000));
+        assert!(!coord.can_allocate(10_000_000_000));
+    }
+
+    #[test]
+    fn test_memory_coordinator_release() {
+        let mut coord = MemoryCoordinator::new(1000);
+        coord.add_pool_used(300);
+        coord.add_external(200);
+        assert_eq!(coord.total_used(), 500);
+
+        coord.release_pool(100);
+        coord.release_external(100);
+        assert_eq!(coord.total_used(), 300);
+    }
+
+    #[test]
+    fn test_memory_coordinator_headroom() {
+        let mut coord = MemoryCoordinator::new(1000);
+        // critical at 90% = 900
+        assert_eq!(coord.headroom(), 900);
+
+        coord.set_pool_used(500);
+        coord.set_external(300);
+        assert_eq!(coord.total_used(), 800);
+        assert_eq!(coord.headroom(), 100);
     }
 }

@@ -504,9 +504,9 @@ impl WorkerAgent {
             Some(s) => s,
             None => return Vec::new(),
         };
-        let mut wm = self.active_work.lock().await;
         let restore_key = "worker:in_flight";
         let mut store_guard = store.lock().await;
+        let mut wm = self.active_work.lock().await;
         if let Ok(Some(val)) = store_guard.retrieve(nexora_memory::MemoryLayer::Session, restore_key).await {
             if let Ok(ids) = serde_json::from_str::<Vec<String>>(&val) {
                 for id_str in ids {

@@ -46,8 +46,8 @@ impl DatasetCache {
 
     pub async fn register_mmap(&self, shard: &ShardPath) {
         let key = shard.path.to_string_lossy().to_string();
-        let mut reg = self.mmap_registry.write();
         let mut order = self.mmap_order.lock().await;
+        let mut reg = self.mmap_registry.write();
 
         if !reg.contains_key(&key) {
             order.push_back(key.clone());

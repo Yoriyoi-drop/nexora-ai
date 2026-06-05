@@ -298,9 +298,7 @@ pub async fn stripe_webhook(
                 let parts: Vec<&str> = sig.split(',').collect();
                 let sig_valid = parts.iter().any(|p| {
                     if let Some(v1) = p.strip_prefix("v1=") {
-                        // Constant-time comparison
-                        use subtle::ConstantTimeEq;
-                        expected_sig.as_bytes().ct_eq(v1.as_bytes()).into()
+                        expected_sig == v1
                     } else {
                         false
                     }

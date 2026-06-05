@@ -6,6 +6,9 @@
 //! - Activations (per batch)
 //! - Temporary buffers
 //!
+//! Juga menyediakan predictive forecasting: memperkirakan kapan VRAM akan
+//! mencapai critical threshold berdasarkan tren alokasi saat ini.
+//!
 //! Usage:
 //! ```ignore
 //! let budget = VramBudget::new(24_000_000_000); // 24GB GPU
@@ -15,6 +18,12 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// Jendela untuk sliding window allocation rate (detik).
+const FORECAST_WINDOW_SECS: f64 = 30.0;
+/// Ambang batas: keluarkan early warning jika predicted OOM dalam N detik.
+const PREDICTED_OOM_WARN_SECS: f64 = 15.0;
 
 /// Pressure level for VRAM usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +36,8 @@ pub enum VramPressure {
     Critical,
     /// OOM — usage above 95%. Immediate action required.
     Oom,
+    /// Predicted OOM — usage rate indicates OOM in < 15s if trend continues.
+    PredictedOom,
 }
 
 impl VramPressure {
@@ -68,6 +79,13 @@ pub struct VramBreakdown {
     pub temp_buffers_bytes: u64,
 }
 
+/// Sample alokasi VRAM untuk trend forecasting.
+#[derive(Debug, Clone)]
+struct AllocationSample {
+    timestamp: Instant,
+    used_bytes: u64,
+}
+
 /// VRAM budget tracker for a single GPU device.
 ///
 /// Thread-safe via `Arc<Mutex<>>` for cross-component access.
@@ -84,6 +102,12 @@ pub struct VramBudget {
     eviction_threshold: u64,
     /// Hard limit — reject requests above this.
     critical_threshold: u64,
+    /// Sliding window allocation samples untuk forecasting.
+    allocation_samples: Vec<AllocationSample>,
+    /// Waktu sampel terakhir diambil.
+    last_sample_time: Option<Instant>,
+    /// Bytes yang terpakai saat sampel terakhir.
+    last_sample_used: u64,
 }
 
 impl VramBudget {
@@ -100,6 +124,9 @@ impl VramBudget {
             peak_used_bytes: AtomicU64::new(0),
             eviction_threshold: eviction,
             critical_threshold: critical,
+            allocation_samples: Vec::with_capacity(64),
+            last_sample_time: None,
+            last_sample_used: 0,
         }
     }
 
@@ -172,6 +199,7 @@ impl VramBudget {
         }
         self.breakdown.temp_buffers_bytes += bytes;
         self.peak_used_bytes.fetch_max(self.used_bytes(), Ordering::Relaxed);
+        self.record_sample();
         Ok(VramReservation { bytes, budget: Some(self_arc) })
     }
 
@@ -226,15 +254,121 @@ impl VramBudget {
         ]
     }
 
-    /// Print human-readable VRAM status.
+    /// Record an allocation sample for trend analysis.
+    /// Panggil metode ini setiap kali VRAM usage berubah signifikan.
+    pub fn record_sample(&mut self) {
+        let now = Instant::now();
+        let used = self.used_bytes();
+
+        // Prune samples older than FORECAST_WINDOW_SECS
+        let cutoff = now - Duration::from_secs_f64(FORECAST_WINDOW_SECS);
+        self.allocation_samples.retain(|s| s.timestamp > cutoff);
+
+        // Only sample if at least 100ms has passed or usage delta > 1MB
+        let should_sample = match self.last_sample_time {
+            None => true,
+            Some(t) => {
+                let elapsed = now.duration_since(t);
+                let delta = if used > self.last_sample_used {
+                    used - self.last_sample_used
+                } else {
+                    self.last_sample_used - used
+                };
+                elapsed > Duration::from_millis(100) && delta > 1_000_000
+            }
+        };
+
+        if should_sample {
+            self.allocation_samples.push(AllocationSample {
+                timestamp: now,
+                used_bytes: used,
+            });
+            self.last_sample_time = Some(now);
+            self.last_sample_used = used;
+        }
+    }
+
+    /// Compute allocation rate (bytes/second) from sliding window.
+    /// Returns 0.0 if insufficient data.
+    pub fn allocation_rate(&self) -> f64 {
+        let samples = &self.allocation_samples;
+        if samples.len() < 3 {
+            return 0.0;
+        }
+        let first = samples.first().unwrap();
+        let last = samples.last().unwrap();
+        let elapsed = last.timestamp.duration_since(first.timestamp).as_secs_f64();
+        if elapsed < 0.1 {
+            return 0.0;
+        }
+        let delta = if last.used_bytes > first.used_bytes {
+            last.used_bytes - first.used_bytes
+        } else {
+            0
+        };
+        delta as f64 / elapsed
+    }
+
+    /// Forecast seconds until critical threshold is reached at current rate.
+    /// Returns `None` if rate is zero or negative (not growing).
+    pub fn seconds_to_critical(&self) -> Option<f64> {
+        let rate = self.allocation_rate();
+        if rate <= 0.0 {
+            return None;
+        }
+        let used = self.used_bytes();
+        let remaining = self.critical_threshold.saturating_sub(used + self.reserved_bytes);
+        if remaining == 0 {
+            return Some(0.0);
+        }
+        Some(remaining as f64 / rate)
+    }
+
+    /// Forecast seconds until OOM at current rate.
+    pub fn seconds_to_oom(&self) -> Option<f64> {
+        let rate = self.allocation_rate();
+        if rate <= 0.0 {
+            return None;
+        }
+        let used = self.used_bytes();
+        let oom_at = (self.total_bytes as f64 * 0.95) as u64;
+        let remaining = oom_at.saturating_sub(used);
+        if remaining == 0 {
+            return Some(0.0);
+        }
+        Some(remaining as f64 / rate)
+    }
+
+    /// Enhanced pressure level — includes predictive OOM detection.
+    pub fn predicted_pressure(&self) -> VramPressure {
+        let base = self.pressure();
+        if !matches!(base, VramPressure::Ok | VramPressure::Warning) {
+            return base;
+        }
+        if let Some(secs) = self.seconds_to_critical() {
+            if secs <= PREDICTED_OOM_WARN_SECS {
+                return VramPressure::PredictedOom;
+            }
+        }
+        base
+    }
+
+    /// Print human-readable VRAM status with forecast.
     pub fn print_status(&self) {
         let total_gb = self.total_bytes as f64 / 1e9;
         let used_gb = self.used_bytes() as f64 / 1e9;
         let avail_gb = self.available() as f64 / 1e9;
+        let pressure = self.predicted_pressure();
         tracing::info!(
             "VRAM: {:.2}GB used / {:.2}GB total ({:.2}GB free, pressure={:?})",
-            used_gb, total_gb, avail_gb, self.pressure()
+            used_gb, total_gb, avail_gb, pressure
         );
+        if let Some(secs) = self.seconds_to_critical() {
+            tracing::info!("  forecast: critical in {:.1}s at current rate", secs);
+        }
+        if let Some(secs) = self.seconds_to_oom() {
+            tracing::info!("  forecast: OOM in {:.1}s at current rate", secs);
+        }
         for (name, bytes) in self.summary() {
             if bytes > 0 {
                 tracing::info!("  {}: {:.2}GB", name, bytes as f64 / 1e9);
@@ -288,5 +422,27 @@ mod tests {
         assert_eq!(budget.pressure(), VramPressure::Critical);
         budget.set_model_weights(960);
         assert_eq!(budget.pressure(), VramPressure::Oom);
+    }
+
+    #[test]
+    fn test_predicted_pressure_ok_when_no_trend() {
+        let budget = VramBudget::new(24_000_000_000);
+        assert_eq!(budget.predicted_pressure(), VramPressure::Ok);
+        assert!(budget.seconds_to_critical().is_none());
+    }
+
+    #[test]
+    fn test_allocation_rate_zero_with_few_samples() {
+        let budget = VramBudget::new(24_000_000_000);
+        assert_eq!(budget.allocation_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_predicted_pressure_on_high_usage() {
+        let mut budget = VramBudget::new(1000);
+        budget.set_model_weights(920);
+        // Usage is above 90% → already Critical, not PredictedOom
+        assert_eq!(budget.pressure(), VramPressure::Critical);
+        assert_eq!(budget.predicted_pressure(), VramPressure::Critical);
     }
 }

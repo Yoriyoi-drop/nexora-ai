@@ -272,11 +272,14 @@ impl RequestScheduler {
         if active >= self.max_concurrent {
             return None;
         }
-        let mut collector = self.batch_collector.write().await;
-        let batches = collector.drain_ready();
-        if batches.is_empty() {
-            return None;
-        }
+        let batches = {
+            let mut collector = self.batch_collector.write().await;
+            let b = collector.drain_ready();
+            if b.is_empty() {
+                return None;
+            }
+            b
+        };
 
         let mut timed_out = Vec::new();
 

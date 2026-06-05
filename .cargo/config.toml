@@ -11,8 +11,8 @@ linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [profile.release]
-lto = "fat"                 # Full link-time optimization (20-30% perf gain)
-codegen-units = 1           # Maximize per-function optimization
+lto = "thin"                # Thin LTO: 80% perf of fat-LTO, 3-5× faster link
+codegen-units = 8           # Parallel LLVM codegen (8 core)
 opt-level = 3               # Maximum optimization
 strip = "symbols"           # Remove debug symbols from release binary
 panic = "abort"             # Smaller binary, no unwind tables

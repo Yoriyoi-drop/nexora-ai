@@ -47,6 +47,9 @@ procfs = "0.16"
 nvml-wrapper = "0.9"
 libc = "0.2"
 
+# Compression
+zstd = { workspace = true }
+
 # GPU sampling
 nexora-autograd = { path = "../autograd" }
 nexora-memory = { path = "../memory" }

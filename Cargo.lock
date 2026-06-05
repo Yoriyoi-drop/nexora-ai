@@ -3808,6 +3808,7 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+ "zstd",
 ]
 
 [[package]]

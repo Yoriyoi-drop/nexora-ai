@@ -39,7 +39,7 @@ impl ResourceManager {
         let permit = self.semaphore.clone().acquire_owned().await.map_err(|_| {
             InferenceError::ResourceExhausted("Failed to acquire resource".to_string())
         })?;
-        let pressure = self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()).pressure();
+        let pressure = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner())).pressure();
         Ok(ResourceGuard { _permit: permit, _vram_pressure: pressure })
     }
 
@@ -47,7 +47,7 @@ impl ResourceManager {
     pub async fn acquire_with_vram(&self, needed_vram: u64) -> Result<ResourceGuardVram> {
         // Check VRAM availability first
         {
-            let budget = self.vram_budget.lock().unwrap_or_else(|e| e.into_inner());
+            let budget = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()));
             if !budget.can_allocate(needed_vram) {
                 return Err(InferenceError::ResourceExhausted(format!(
                     "VRAM: need {} bytes, only {} available (pressure={:?})",
@@ -62,7 +62,7 @@ impl ResourceManager {
             InferenceError::ResourceExhausted("Failed to acquire resource".to_string())
         })?;
         let reservation = {
-            let mut budget = self.vram_budget.lock().unwrap_or_else(|e| e.into_inner());
+            let mut budget = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()));
             budget.reserve(needed_vram, self.vram_budget.clone())
                 .map_err(|e| InferenceError::ResourceExhausted(e))?
         };

@@ -158,10 +158,13 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => s.recv().await,
+            Err(e) => {
+                tracing::warn!("Failed to install SIGTERM handler (non-fatal): {}", e);
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

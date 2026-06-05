@@ -61,6 +61,9 @@ struct RemoteClient {
 impl RemoteClient {
     fn new(address: &str, node_id: Uuid, shared_secret: Option<&str>) -> Self {
         let scheme = if shared_secret.is_some() { "https" } else { "http" };
+        if scheme == "http" && !cfg!(debug_assertions) {
+            tracing::warn!("Distributed scheduler using HTTP without shared_secret. This is INSECURE. Set shared_secret for automatic HTTPS.");
+        }
         let auth_header = shared_secret.map(|s| ("x-nexora-auth".to_string(), s.to_string()));
         let mut client_builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(30));

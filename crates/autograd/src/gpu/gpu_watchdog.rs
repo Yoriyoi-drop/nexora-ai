@@ -115,7 +115,7 @@ impl GpuWatchdog {
         self.hang_count.store(0, Ordering::Relaxed);
 
         if let Ok(ctx) = crate::gpu::GpuContext::global() {
-            match unsafe { ctx.try_rebuild() } {
+            match ctx.try_rebuild() {
                 Ok(_) => {
                     tracing::info!("GPU watchdog: context rebuilt successfully after reset");
                     self.ping();
