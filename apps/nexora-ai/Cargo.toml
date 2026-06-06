@@ -32,7 +32,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 axum = "0.7"
-tower = { version = "0.4", features = ["limit", "timeout"] }
+tower = { version = "0.5", features = ["limit", "timeout"] }
 futures.workspace = true
 tower-http = { version = "0.5", features = ["cors", "compression-br", "trace", "timeout"] }
 hyper = "1.0"
