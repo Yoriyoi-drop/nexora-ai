@@ -21,6 +21,7 @@ use crate::{
     Agent, AgentConfig, AgentError, AgentMessage, AgentResponse, AgentStats, AgentStatus, Result,
 };
 use nexora_isolation::quarantine::QuarantineManager;
+use nexora_isolation::IsolationOrchestrator;
 
 /// Konfigurasi untuk AgentManager
 #[derive(Debug, Clone)]
@@ -75,6 +76,8 @@ pub struct AgentManager {
     inference_engine: StdArc<tokio::sync::RwLock<Option<StdArc<dyn InferenceEngine>>>>,
     /// Quarantine manager for agent isolation
     quarantine: StdArc<tokio::sync::RwLock<QuarantineManager>>,
+    /// Full isolation orchestrator (L0-L6, firewall, kill switch, permissions)
+    isolation: Option<IsolationOrchestrator>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -166,7 +169,14 @@ impl AgentManager {
             is_running: StdArc::new(AtomicBool::new(true)),
             inference_engine: StdArc::new(tokio::sync::RwLock::new(None)),
             quarantine: StdArc::new(tokio::sync::RwLock::new(QuarantineManager::new())),
+            isolation: None,
         }
+    }
+
+    /// Set isolation orchestrator for L0-L6 checks, firewall, kill switch
+    pub fn with_isolation(mut self, isolation: IsolationOrchestrator) -> Self {
+        self.isolation = Some(isolation);
+        self
     }
 
     /// Get command sender untuk external communication
@@ -452,6 +462,39 @@ impl AgentManager {
 
         // Step 0: Quarantine check — block if agent is quarantined
         self.check_agent_quarantined(agent_id).await?;
+
+        // Step 0b: Agent communication firewall check
+        if let Some(ref isolation) = self.isolation {
+            let src_id = message.sender.unwrap_or_else(uuid::Uuid::new_v4);
+            if let Err(e) = isolation.check_agent_communication(
+                src_id,
+                "agent:unknown",
+                agent_id,
+                "agent:receiver",
+                &message.message_type,
+                &serde_json::to_vec(&message.payload).unwrap_or_default(),
+            ) {
+                warn!("Agent communication blocked by isolation firewall: {} -> {}: {}", src_id, agent_id, e);
+                return Err(AgentError::ProcessingError {
+                    operation: "isolation_firewall".to_string(),
+                    reason: format!("Agent communication blocked: {}", e),
+                });
+            }
+
+            // Step 0c: Tool access verification for execute_step messages
+            if message.message_type == "execute_step" {
+                let tool = message.payload.get("step_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("processing");
+                if let Err(e) = isolation.verify_tool_access(agent_id, tool) {
+                    warn!("Tool access denied by isolation: agent={} tool={}: {}", agent_id, tool, e);
+                    return Err(AgentError::ProcessingError {
+                        operation: "isolation_tool_check".to_string(),
+                        reason: format!("Tool access denied: {}", e),
+                    });
+                }
+            }
+        }
 
         // Step 1: Receive message
         {
@@ -817,6 +860,26 @@ impl AgentManager {
     fn get_memory_store(&self) -> StdArc<std::sync::Mutex<nexora_memory::MemoryLayers>> {
         self.memory_store.clone()
     }
+
+    /// Trigger isolation kill switch for a target agent/mode/cluster
+    pub async fn trigger_kill_switch(
+        &self,
+        target: nexora_isolation::killswitch::KillTarget,
+        reason: &str,
+        trigger: nexora_isolation::killswitch::KillTrigger,
+    ) -> Result<nexora_isolation::killswitch::KillEvent> {
+        match &self.isolation {
+            Some(isolation) => isolation.trigger_kill_switch(target, reason, trigger)
+                .map_err(|e| AgentError::ProcessingError {
+                    operation: "kill_switch".to_string(),
+                    reason: e.to_string(),
+                }),
+            None => Err(AgentError::ProcessingError {
+                operation: "kill_switch".to_string(),
+                reason: "Isolation orchestrator not configured".to_string(),
+            }),
+        }
+    }
 }
 
 impl Clone for AgentManager {
@@ -833,6 +896,7 @@ impl Clone for AgentManager {
             is_running: StdArc::clone(&self.is_running),
             inference_engine: StdArc::clone(&self.inference_engine),
             quarantine: StdArc::clone(&self.quarantine),
+            isolation: self.isolation.clone(),
             background_handles: StdArc::clone(&self.background_handles),
         }
     }

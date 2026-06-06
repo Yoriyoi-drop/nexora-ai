@@ -321,16 +321,6 @@ impl NxrOmnisModel {
         .unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
         let moe_output = self.components.moe.forward(&moe_input);
 
-        // Apply ERP compression on deep learning state
-        {
-            let mut erp = self.components.erp.write();
-            let weights = vec![ndarray::Array2::<f32>::zeros((
-                moe_output.shape()[0],
-                moe_output.shape()[1],
-            ))];
-            let _compressed = erp.apply_pruning(&weights);
-        }
-
         // Step 1: Decompose the problem
         let decomposition = self.agents.oracle_7().decompose_problem(input)?;
 

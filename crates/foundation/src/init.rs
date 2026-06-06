@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tracing::{info, warn};
 
 use nexora_models::foundation::transformer_config_for;
@@ -106,8 +106,9 @@ pub async fn initialize_foundation_models_with_checkpoints(
 ) -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
-    // Initialize foundation subsystems (monitoring, memory, utils)
-    crate::init_subsystems();
+    // Initialize foundation subsystems (monitoring, memory, utils, erp)
+    static INIT_CTX: OnceLock<crate::InitContext> = OnceLock::new();
+    INIT_CTX.get_or_init(|| crate::init_subsystems());
 
     let model_ids = NxrModelId::all();
 

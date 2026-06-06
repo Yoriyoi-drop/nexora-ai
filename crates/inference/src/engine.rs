@@ -121,6 +121,7 @@ pub struct InferenceEngine {
     model_ready: bool,
     memory: Option<Arc<Mutex<MemoryManager>>>,
     distributed: Option<Arc<DistributedRouter>>,
+    erp: Option<nexora_erp::ERPEngine>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,6 +187,7 @@ impl InferenceEngine {
             model_ready,
             memory: None,
             distributed: None,
+            erp: None,
         }
     }
 
@@ -231,7 +233,13 @@ impl InferenceEngine {
             model_ready: true,
             memory: None,
             distributed: None,
+            erp: None,
         }
+    }
+
+    pub fn with_erp(mut self, erp: nexora_erp::ERPEngine) -> Self {
+        self.erp = Some(erp);
+        self
     }
 
     pub fn with_distributed(
@@ -372,12 +380,31 @@ impl InferenceEngine {
         info!("Initializing inference engine");
         *self.state.write().await = EngineState::Initializing;
 
-        // Wire cross-layer subsystems (monitoring, utils, db)
-        let _monitoring = crate::init_inference_monitoring();
-        let _utils = crate::inference_text_utils();
-        let _reasoning = crate::inference_reasoning();
-        let _db = crate::inference_db();
-        let _quant = crate::check_quantized(nexora_quantization::QuantizedDtype::Int8);
+        // Wire cross-layer subsystems (monitoring, utils, db, erp)
+        self.monitoring = crate::init_inference_monitoring();
+        self.text_utils = crate::inference_text_utils();
+        self.reasoning = crate::inference_reasoning();
+        self.db = crate::inference_db();
+        self.quant = crate::check_quantized(nexora_quantization::QuantizedDtype::Int8);
+        self.erp = Some(crate::inference_erp());
+
+        // Apply ERP weight pruning if engine is configured
+        if let Some(erp) = &mut self.erp {
+            let weights = self.model.collect_weights_for_sedc().0;
+            if !weights.is_empty() {
+                match erp.apply_pruning(&weights) {
+                    Ok(layers) => {
+                        info!(
+                            "ERP pruning applied: {} layers compressed (resonance groups formed)",
+                            layers.len()
+                        );
+                    }
+                    Err(e) => {
+                        warn!("ERP pruning failed (non-fatal): {}", e);
+                    }
+                }
+            }
+        }
 
         self.runtime.initialize().await?;
         self.scheduler.write().await.initialize().await?;

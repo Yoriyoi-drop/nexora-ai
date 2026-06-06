@@ -342,6 +342,11 @@ pub fn inference_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }
 
+// Nyata: ERP compression untuk model weight pruning
+pub fn inference_erp() -> nexora_erp::ERPEngine {
+    nexora_erp::ERPEngine::new(nexora_erp::ERPConfig::default())
+}
+
 impl InferenceRequest {
     /// Create new request
     pub fn new(prompt: String) -> Self {

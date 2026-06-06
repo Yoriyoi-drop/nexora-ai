@@ -27,6 +27,8 @@ pub use nexora_api;
 pub use config::NexoraConfig;
 pub use core::*;
 pub use server::{NexoraServer, ServerConfig};
+use nexora_isolation::{IsolationOrchestrator, IsolationCheckError};
+use nexora_memory::MemoryManager;
 
 // --- Foundation model integration ---
 use nexora_alignment::sparo::SparoSystem;
@@ -63,6 +65,8 @@ pub async fn create_inference_engine(
     registry: &nexora_foundation::shared::model_registry::NxrModelRegistry,
     model_id: &NxrModelId,
     config: nexora_inference::InferenceConfig,
+    memory: Option<Arc<MemoryManager>>,
+    erp: Option<nexora_foundation::ERPEngine>,
 ) -> Result<nexora_inference::InferenceEngineStruct, NexoraError> {
     create_inference_engine_inner(
         registry,
@@ -72,6 +76,8 @@ pub async fn create_inference_engine(
         "127.0.0.1:8080",
         &[],
         1000,
+        memory,
+        erp,
     )
     .await
 }
@@ -85,6 +91,8 @@ pub async fn create_inference_engine_inner(
     listen_address: &str,
     seed_nodes: &[String],
     gossip_interval_ms: u64,
+    memory: Option<Arc<MemoryManager>>,
+    erp: Option<nexora_foundation::ERPEngine>,
 ) -> Result<nexora_inference::InferenceEngineStruct, NexoraError> {
     let model_raw = registry
         .get_model_raw(model_id)
@@ -133,6 +141,12 @@ pub async fn create_inference_engine_inner(
             config,
         )
         .with_distributed(node_registry, node_id);
+        if let Some(mem) = memory.as_ref() {
+            engine = engine.with_memory((**mem).clone());
+        }
+        if let Some(erp_engine) = erp {
+            engine = engine.with_erp(erp_engine);
+        }
         engine.initialize().await.map_err(|e| {
             NexoraError::system(format!("Failed to initialize inference engine: {}", e))
         })?;
@@ -140,6 +154,33 @@ pub async fn create_inference_engine_inner(
     } else {
         let mut engine =
             nexora_inference::InferenceEngineStruct::with_model(model_arc, Some(tokenizer), config);
+        if let Some(mem) = memory.as_ref() {
+            engine = engine.with_memory((**mem).clone());
+        }
+        if let Some(erp_engine) = erp {
+            engine = engine.with_erp(erp_engine);
+        }
+        engine.initialize().await.map_err(|e| {
+            NexoraError::system(format!("Failed to initialize inference engine: {}", e))
+        })?;
+        Ok(engine)
+    }
+        if let Some(ref erp_engine) = erp {
+            engine = engine.with_erp(erp_engine.clone());
+        }
+        engine.initialize().await.map_err(|e| {
+            NexoraError::system(format!("Failed to initialize inference engine: {}", e))
+        })?;
+        Ok(engine)
+    } else {
+        let mut engine =
+            nexora_inference::InferenceEngineStruct::with_model(model_arc, Some(tokenizer), config);
+        if let Some(mem) = memory.as_ref() {
+            engine = engine.with_memory((**mem).clone());
+        }
+        if let Some(ref erp_engine) = erp {
+            engine = engine.with_erp(erp_engine.clone());
+        }
         engine.initialize().await.map_err(|e| {
             NexoraError::system(format!("Failed to initialize inference engine: {}", e))
         })?;
@@ -154,11 +195,12 @@ static AGENT_SPARO: OnceLock<SparoSystem> = OnceLock::new();
 struct NexoraInferenceEngine {
     engine: Arc<nexora_inference::InferenceEngineStruct>,
     model_id: String,
+    isolation: IsolationOrchestrator,
 }
 
 impl NexoraInferenceEngine {
-    fn new(engine: Arc<nexora_inference::InferenceEngineStruct>, model_id: String) -> Self {
-        Self { engine, model_id }
+    fn new(engine: Arc<nexora_inference::InferenceEngineStruct>, model_id: String, isolation: IsolationOrchestrator) -> Self {
+        Self { engine, model_id, isolation }
     }
 
     fn sparo() -> &'static SparoSystem {
@@ -210,11 +252,20 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
 
     async fn generate_tokens(
         &self,
-        _session_id: Uuid,
+        agent_id: Uuid,
         prompt: &str,
         max_tokens: u32,
     ) -> nexora_agent::Result<String> {
         Self::check_input(prompt).await?;
+
+        // Isolation pre-inference check — block if agent is quarantined or lacks capability
+        self.isolation.pre_inference_check(agent_id).map_err(|e| {
+            warn!("Inference blocked by isolation: agent={} reason={}", agent_id, e);
+            nexora_agent::AgentError::ProcessingError {
+                operation: "pre_inference_check".to_string(),
+                reason: format!("Inference blocked by isolation: {}", e),
+            }
+        })?;
 
         let request = nexora_inference::InferenceRequest {
             request_id: Uuid::new_v4(),
@@ -242,11 +293,20 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
 
     async fn stream_tokens(
         &self,
-        _session_id: Uuid,
+        agent_id: Uuid,
         prompt: &str,
         max_tokens: u32,
     ) -> nexora_agent::Result<Box<dyn futures::Stream<Item = nexora_agent::Result<String>> + Send>> {
         Self::check_input(prompt).await?;
+
+        // Isolation pre-inference check — block if agent is quarantined or lacks capability
+        self.isolation.pre_inference_check(agent_id).map_err(|e| {
+            warn!("Streaming inference blocked by isolation: agent={} reason={}", agent_id, e);
+            nexora_agent::AgentError::ProcessingError {
+                operation: "pre_inference_check".to_string(),
+                reason: format!("Streaming blocked by isolation: {}", e),
+            }
+        })?;
 
         let request = nexora_inference::InferenceRequest {
             request_id: Uuid::new_v4(),
@@ -333,6 +393,12 @@ pub struct NexoraAI {
 
     /// Shared training metrics store (written by CLI, served to dashboard)
     pub train_metrics: Arc<RwLock<Value>>,
+
+    /// Isolation orchestrator for L0-L6 security checks, firewall, kill switch
+    isolation: IsolationOrchestrator,
+
+    /// Memory manager for RAG, session storage, compression
+    memory_manager: Arc<MemoryManager>,
 }
 
 impl NexoraAI {
@@ -384,6 +450,28 @@ impl NexoraAI {
         nexora_foundation::model_agent_manager::init_model_agents().await;
 
         let registry = global_registry();
+
+        // Step 2b: Initialize isolation orchestrator — L0-L6 security, firewall, kill switch
+        let isolation = {
+            let cfg = &config.isolation;
+            let orch = nexora_foundation::init_isolation(cfg.clone());
+            info!("Isolation orchestrator initialized (L0-L6 + firewall + kill switch)");
+            orch
+        };
+
+        // Step 2c: Initialize memory manager — RAG, session storage, compression
+        let memory_manager = Arc::new(nexora_model::intel_memory(&config.memory));
+        info!(
+            "Memory manager initialized (short={}, session={}, long={}, knowledge={})",
+            config.memory.short_term_capacity,
+            config.memory.session_capacity,
+            config.memory.long_term_capacity,
+            config.memory.knowledge_capacity,
+        );
+
+        // Step 2d: Initialize ERP engine — weight compression/pruning
+        let erp_engine = nexora_foundation::ERPEngine::new(nexora_foundation::ERPConfig::default());
+        info!("ERP engine initialized (resonance compression ready)");
 
         // Step 2: Initialize Intent Router — classifies input → model
         // Semua model pakai satu shared backbone (no tiers, no VRAM eviction)
@@ -447,6 +535,9 @@ impl NexoraAI {
                 &config.core.distributed_listen_address,
                 &config.core.distributed_seed_nodes,
                 config.core.distributed_gossip_interval_ms,
+                Some(memory_manager.clone()),
+                Some(erp_engine),
+
             )
             .await
             .map_err(|e| {
@@ -457,13 +548,17 @@ impl NexoraAI {
 
         // Step 4: Initialize multi-agent system — wire engine, start, spawn 7 agents
         let agent_config = nexora_agent::agent_manager::AgentManagerConfig::default();
-        let agent_manager = Arc::new(nexora_agent::AgentManager::new(agent_config));
+        let agent_manager = Arc::new(
+            nexora_agent::AgentManager::new(agent_config)
+                .with_isolation(isolation.clone()),
+        );
 
-        // Wire inference engine into agent system
+        // Wire inference engine into agent system with isolation
         let nexus_engine: Arc<dyn nexora_agent::inference_agent::InferenceEngine> =
             Arc::new(NexoraInferenceEngine::new(
                 Arc::clone(&inference_engine),
                 active_model_id.to_string(),
+                isolation.clone(),
             ));
         agent_manager.set_inference_engine(nexus_engine).await;
 
@@ -531,6 +626,8 @@ impl NexoraAI {
             ),
             agent_manager,
             train_metrics,
+            isolation,
+            memory_manager,
         })
     }
 
@@ -611,6 +708,12 @@ impl NexoraAI {
             ));
         }
 
+        // Isolation pre-inference check for direct API inference
+        self.isolation.pre_inference_check(uuid::Uuid::nil()).map_err(|e| {
+            warn!("Streaming inference blocked by isolation: reason={}", e);
+            NexoraError::system(format!("Inference blocked by isolation: {}", e))
+        })?;
+
         info!(
             "Streaming text via inference engine ({} model): prompt={}, max_tokens={}, temperature={}",
             self.active_model_id,
@@ -661,6 +764,12 @@ impl NexoraAI {
                 "Temperature must be between 0.0 and 2.0",
             ));
         }
+
+        // Isolation pre-inference check for direct API inference
+        self.isolation.pre_inference_check(uuid::Uuid::nil()).map_err(|e| {
+            warn!("generate_text blocked by isolation: reason={}", e);
+            NexoraError::system(format!("Inference blocked by isolation: {}", e))
+        })?;
 
         // Route user input → (model, intent)
         let route = self.intent_router.route(prompt);
@@ -805,5 +914,24 @@ impl NexoraAI {
     /// Get agent manager for agent orchestration
     pub fn agent_manager(&self) -> &Arc<nexora_agent::AgentManager> {
         &self.agent_manager
+    }
+
+    /// Get isolation orchestrator for security checks
+    pub fn isolation(&self) -> &IsolationOrchestrator {
+        &self.isolation
+    }
+
+    pub fn memory_manager(&self) -> &Arc<MemoryManager> {
+        &self.memory_manager
+    }
+
+    /// Trigger kill switch for a target agent/mode/cluster
+    pub fn trigger_kill_switch(
+        &self,
+        target: nexora_isolation::killswitch::KillTarget,
+        reason: &str,
+        trigger: nexora_isolation::killswitch::KillTrigger,
+    ) -> Result<nexora_isolation::killswitch::KillEvent, IsolationCheckError> {
+        self.isolation.trigger_kill_switch(target, reason, trigger)
     }
 }

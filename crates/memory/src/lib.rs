@@ -3,12 +3,12 @@
 //! Module ini menyediakan memory management dengan 4 layers untuk Nexora AI system
 //!
 //! Cognitive Dynamics Extension — mengubah memory system menjadi unified cognitive
-
 //! dynamical system dengan conservation law, phase coherence, attention curvature,
 //! meta-learning, dan identity persistence.
 
 pub mod cache;
 pub mod compression;
+pub mod config;
 pub mod core;
 pub mod episodic;
 pub mod layers;
@@ -17,6 +17,7 @@ pub mod types;
 
 pub use cache::{LRUCache, MemoryCache};
 pub use compression::{CompressedContext, ContextCompressor};
+pub use config::{EvictionStrategy, MemoryConfig};
 pub use episodic::{EpisodicMemory, MemoryEpisode};
 pub use layers::{MemoryLayer, MemoryLayers};
 pub use memory_model::{
@@ -42,7 +43,7 @@ use tracing::debug;
 ///
 /// ⚠️ JANGAN pernah acquire lock dalam urutan berbeda.
 /// ⚠️ JANGAN pernah hold satu lock sambil acquire lock sebelumnya.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryManager {
     layers: Arc<RwLock<MemoryLayers>>,
     episodic: Arc<RwLock<EpisodicMemory>>,
@@ -53,11 +54,23 @@ pub struct MemoryManager {
 impl MemoryManager {
     pub fn new() -> Self {
         Self {
-            // Lock ordering: layers → episodic → cache → compressor
-            // Acquire in this order to prevent deadlocks.
             layers: Arc::new(RwLock::new(MemoryLayers::new())),
             episodic: Arc::new(RwLock::new(EpisodicMemory::new(1000))),
             cache: Arc::new(RwLock::new(LRUCache::new(100))),
+            compressor: Arc::new(RwLock::new(ContextCompressor::new())),
+        }
+    }
+
+    pub fn from_config(cfg: &MemoryConfig) -> Self {
+        let mut layers = MemoryLayers::new();
+        layers.update_layer_config(MemoryLayer::Short, cfg.short_term_capacity);
+        layers.update_layer_config(MemoryLayer::Session, cfg.session_capacity);
+        layers.update_layer_config(MemoryLayer::Long, cfg.long_term_capacity);
+        layers.update_layer_config(MemoryLayer::Knowledge, cfg.knowledge_capacity);
+        Self {
+            layers: Arc::new(RwLock::new(layers)),
+            episodic: Arc::new(RwLock::new(EpisodicMemory::new(cfg.session_capacity))),
+            cache: Arc::new(RwLock::new(LRUCache::new(cfg.short_term_capacity.min(1000)))),
             compressor: Arc::new(RwLock::new(ContextCompressor::new())),
         }
     }

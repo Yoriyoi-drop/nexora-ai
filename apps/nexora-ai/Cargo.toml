@@ -23,6 +23,7 @@ nexora-api = { path = "../../crates/api" }
 nexora-runtime = { path = "../../crates/runtime" }
 nexora-models = { path = "../../crates/models" }
 nexora-quantization = { path = "../../crates/quantization" }
+nexora-isolation = { path = "../../crates/isolation" }
 
 tokio.workspace = true
 serde.workspace = true

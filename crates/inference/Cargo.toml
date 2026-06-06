@@ -62,6 +62,7 @@ nexora-validation = { path = "../validation" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-cognition = { path = "../cognition" }
 nexora-database = { path = "../database" }
+nexora-erp = { path = "../erp" }
 
 [features]
 default = ["gpu"]

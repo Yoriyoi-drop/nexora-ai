@@ -49,8 +49,8 @@ pub fn intel_cognition_reason() -> nexora_cognition::reasoning::ReasoningChain {
 }
 
 // Nyata: memory untuk model context window management
-pub fn intel_memory() -> nexora_memory::MemoryManager {
-    nexora_memory::MemoryManager::new()
+pub fn intel_memory(cfg: &nexora_memory::MemoryConfig) -> nexora_memory::MemoryManager {
+    nexora_memory::MemoryManager::from_config(cfg)
 }
 
 // Nyata: database untuk model registry persistence

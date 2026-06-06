@@ -1,5 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Extension, Json};
 use nexora_agent::agent_manager::ManagerCommand;
+use nexora_isolation::killswitch::{KillTarget, KillTrigger};
+use nexora_isolation::layer1_mode::ModeId;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -434,5 +436,58 @@ pub async fn list_plans(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Channel error: {}", e)})),
         ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct KillSwitchRequest {
+    pub target_type: String,
+    pub target_id: Option<String>,
+    pub reason: String,
+    pub trigger_type: String,
+}
+
+pub async fn trigger_kill_switch(
+    Extension(nexora): Extension<Arc<NexoraAI>>,
+    Json(req): Json<KillSwitchRequest>,
+) -> impl IntoResponse {
+    let target = match req.target_type.as_str() {
+        "agent" => {
+            let id = match &req.target_id {
+                Some(id) => match uuid::Uuid::parse_str(id) {
+                    Ok(uid) => uid,
+                    Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid agent UUID"}))),
+                },
+                None => return (StatusCode::BAD_REQUEST, Json(json!({"error": "target_id required for agent kill"}))),
+            };
+            KillTarget::Agent(id)
+        }
+        "mode" => {
+            let mode_id = req.target_id.unwrap_or_default();
+            KillTarget::Mode(ModeId::new(&mode_id))
+        }
+        "cluster" => KillTarget::Cluster,
+        _ => return (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid target_type, use: agent, mode, cluster"}))),
+    };
+
+    let trigger = match req.trigger_type.as_str() {
+        "manual" => KillTrigger::Manual { user: "api-user".to_string() },
+        "automated" => KillTrigger::AutoQuarantine { anomaly_score: 0.95 },
+        "emergency" => KillTrigger::AutoQuarantine { anomaly_score: 1.0 },
+        _ => return (StatusCode::BAD_REQUEST, Json(json!({"error": "Invalid trigger_type, use: manual, automated, emergency"}))),
+    };
+
+    match nexora.trigger_kill_switch(target, &req.reason, trigger) {
+        Ok(event) => (StatusCode::OK, Json(json!({
+            "status": "kill_triggered",
+            "event_id": event.id,
+            "target": format!("{:?}", event.target),
+            "reason": event.reason,
+            "trigger": format!("{:?}", event.triggered_by),
+            "timestamp": event.timestamp,
+        }))),
+        Err(e) => (StatusCode::FORBIDDEN, Json(json!({
+            "error": e.to_string(),
+        }))),
     }
 }

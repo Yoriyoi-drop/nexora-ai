@@ -50,6 +50,10 @@ pub struct NexoraConfig {
 
     /// Logging configuration
     pub logging: LoggingConfig,
+
+    /// Isolation configuration
+    #[serde(default)]
+    pub isolation: nexora_isolation::config::IsolationConfig,
 }
 
 impl Default for NexoraConfig {
@@ -63,6 +67,7 @@ impl Default for NexoraConfig {
             server: ServerConfig::default(),
             api: ApiConfig::default(),
             logging: LoggingConfig::default(),
+            isolation: nexora_isolation::config::IsolationConfig::default(),
         }
     }
 }
