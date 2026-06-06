@@ -33,9 +33,9 @@ impl<'a> Deref for DataRef<'a> {
 /// Global flag: when set, Tensor::new / from_slice / zeros / ones create GPU-resident
 /// tensors so that GPU ops (matmul, add, etc.) stay on GPU instead of falling back to CPU.
 /// Defaults to true when gpu feature is compiled.
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 static GPU_AUTO_CREATE: AtomicBool = AtomicBool::new(true);
-#[cfg(not(feature = "gpu"))]
+#[cfg(not(feature = "device-gpu"))]
 static GPU_AUTO_CREATE: AtomicBool = AtomicBool::new(false);
 
 /// Enable automatic GPU tensor creation for from_slice / zeros / ones.
@@ -80,14 +80,14 @@ struct TensorInner {
 
 impl Tensor {
     pub fn new(data: ArrayD<f32>) -> Self {
-        #[cfg(feature = "gpu")]
+        #[cfg(feature = "device-gpu")]
         if is_gpu_auto_create() {
             if let Ok(_ctx) = crate::gpu::GpuContext::global() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&data) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     return Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
-                        storage: Storage::Gpu(gpu_t),
+                        storage: Storage::Gpu(gpu_t, data.shape().to_vec()),
                         device: Device::Gpu(0),
                         dtype: DType::F32,
                         grad: None,
@@ -97,7 +97,7 @@ impl Tensor {
                 }
             }
         }
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "device-cuda")]
         if is_gpu_auto_create() {
             if let Ok(rt) = crate::gpu::CudaRuntime::init(0) {
                 let flat: Vec<f32> = data.iter().copied().collect();
@@ -111,7 +111,7 @@ impl Tensor {
                         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                         return Tensor(Arc::new(RwLock::new(TensorInner {
                             id,
-                            storage: Storage::Cuda(cuda_t),
+                            storage: Storage::Cuda(cuda_t, data.shape().to_vec()),
                             device: Device::Cuda(0),
                             dtype: DType::F32,
                             grad: None,
@@ -138,11 +138,12 @@ impl Tensor {
     }
 
     /// Create tensor from GPU tensor (no grad tracking)
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub fn from_gpu(gpu_tensor: crate::gpu::GpuTensor, id: usize, requires_grad: bool) -> Self {
+        let shape = gpu_tensor.shape();
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Gpu(gpu_tensor),
+            storage: Storage::Gpu(gpu_tensor, shape),
             device: Device::Gpu(0),
             dtype: DType::F32,
             grad: None,
@@ -152,16 +153,17 @@ impl Tensor {
     }
 
     /// Create tensor from CUDA tensor (no grad tracking)
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     pub fn from_cuda(
         cuda_tensor: crate::gpu::cuda::CudaTensor,
         id: usize,
         requires_grad: bool,
     ) -> Self {
         let device_id = cuda_tensor.device_id;
+        let shape = cuda_tensor.shape.clone();
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Cuda(cuda_tensor),
+            storage: Storage::Cuda(cuda_tensor, shape),
             device: Device::Cuda(device_id),
             dtype: DType::F32,
             grad: None,
@@ -171,7 +173,7 @@ impl Tensor {
     }
 
     /// Create CUDA tensor with CPU backward (forward stays on CUDA, backward on CPU).
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     pub(crate) fn from_cuda_with_grad_fn(
         cuda_tensor: crate::gpu::cuda::CudaTensor,
         inputs: Vec<Tensor>,
@@ -179,11 +181,12 @@ impl Tensor {
         backward: Box<dyn FnOnce(&ArrayD<f32>, &[ArrayD<f32>]) -> Vec<ArrayD<f32>>>,
     ) -> Self {
         let device_id = cuda_tensor.device_id;
+        let shape = cuda_tensor.shape.clone();
         let grad_fn_idx = crate::tape::register_grad_fn(inputs, saved, backward);
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Cuda(cuda_tensor),
+            storage: Storage::Cuda(cuda_tensor, shape),
             device: Device::Cuda(device_id),
             dtype: DType::F32,
             grad: None,
@@ -234,12 +237,12 @@ impl Tensor {
         let guard = self.0.read();
         let ptr: *const ArrayD<f32> = match &guard.storage {
             Storage::Cpu(arr) => arr.as_ref(),
-            #[cfg(feature = "gpu")]
-            Storage::Gpu(_) => {
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(..) => {
                 return Err("data_ref() on GPU tensor — use data() for GPU readback")
             }
-            #[cfg(feature = "cuda")]
-            Storage::Cuda(_) => {
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(..) => {
                 return Err("data_ref() on CUDA tensor — use data() for GPU readback")
             }
         };
@@ -255,7 +258,7 @@ impl Tensor {
     }
 
     /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
-    #[cfg(any(feature = "gpu", feature = "cuda"))]
+    #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
     pub fn data(&self) -> ArrayD<f32> {
         self.0.read().storage.to_cpu().unwrap_or_else(|e| {
             error!("Tensor::data GPU readback failed: {e}");
@@ -264,12 +267,12 @@ impl Tensor {
     }
 
     /// Returns an owned copy of the tensor data (CPU-only path).
-    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+    #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
     pub fn data(&self) -> ArrayD<f32> {
         self.0.read().storage.to_cpu()
     }
 
-    #[cfg(any(feature = "gpu", feature = "cuda"))]
+    #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         match self.0.read().grad.as_ref() {
             Some(g) => match g.to_cpu() {
@@ -283,14 +286,14 @@ impl Tensor {
         }
     }
 
-    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+    #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         self.0.read().grad.as_ref().map(|g| g.to_cpu())
     }
 
     /// Returns the gradient storage directly (no CPU readback if on GPU).
     /// Use this in GPU training paths to avoid blocking GPU→CPU transfer.
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub fn grad_storage(&self) -> Option<Storage> {
         self.0.read().grad.clone()
     }
@@ -301,12 +304,12 @@ impl Tensor {
         if inner.device == *target {
             return self.clone();
         }
-        #[cfg(any(feature = "gpu", feature = "cuda"))]
+        #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
         let cpu_data = inner.storage.to_cpu().unwrap_or_else(|e| {
             error!("Tensor::to_device GPU readback failed: {e}, falling back to CPU");
             ArrayD::zeros(vec![0])
         });
-        #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+        #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
         let cpu_data = inner.storage.to_cpu();
         let requires_grad = inner.requires_grad;
         let grad = inner.grad.clone();
@@ -336,11 +339,11 @@ impl Tensor {
 
     /// Check if tensor is on wgpu GPU
     pub fn is_gpu(&self) -> bool {
-        #[cfg(feature = "gpu")]
+        #[cfg(feature = "device-gpu")]
         {
             matches!(self.0.read().device, Device::Gpu(_))
         }
-        #[cfg(not(feature = "gpu"))]
+        #[cfg(not(feature = "device-gpu"))]
         {
             false
         }
@@ -348,11 +351,11 @@ impl Tensor {
 
     /// Check if tensor is on CUDA GPU
     pub fn is_cuda(&self) -> bool {
-        #[cfg(feature = "cuda")]
+        #[cfg(feature = "device-cuda")]
         {
             matches!(self.0.read().device, Device::Cuda(_))
         }
-        #[cfg(not(feature = "cuda"))]
+        #[cfg(not(feature = "device-cuda"))]
         {
             false
         }
@@ -395,14 +398,14 @@ impl Tensor {
 
     pub fn zeros(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::zeros(shape.to_vec());
-        #[cfg(feature = "gpu")]
+        #[cfg(feature = "device-gpu")]
         if is_gpu_auto_create()
             && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     let t = Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
-                        storage: Storage::Gpu(gpu_t),
+                        storage: Storage::Gpu(gpu_t, arr.shape().to_vec()),
                         device: Device::Gpu(0),
                         dtype: DType::F32,
                         grad: None,
@@ -419,14 +422,14 @@ impl Tensor {
 
     pub fn ones(shape: &[usize], requires_grad: bool) -> Self {
         let arr = ArrayD::ones(shape.to_vec());
-        #[cfg(feature = "gpu")]
+        #[cfg(feature = "device-gpu")]
         if is_gpu_auto_create()
             && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     let t = Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
-                        storage: Storage::Gpu(gpu_t),
+                        storage: Storage::Gpu(gpu_t, arr.shape().to_vec()),
                         device: Device::Gpu(0),
                         dtype: DType::F32,
                         grad: None,
@@ -451,14 +454,14 @@ impl Tensor {
             );
             ArrayD::zeros(vec![0])
         });
-        #[cfg(feature = "gpu")]
+        #[cfg(feature = "device-gpu")]
         if is_gpu_auto_create()
             && crate::gpu::GpuContext::global().is_ok() {
                 if let Ok(gpu_t) = crate::gpu::GpuTensor::from_cpu(&arr) {
                     let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                     return Tensor(Arc::new(RwLock::new(TensorInner {
                         id,
-                        storage: Storage::Gpu(gpu_t),
+                        storage: Storage::Gpu(gpu_t, arr.shape().to_vec()),
                         device: Device::Gpu(0),
                         dtype: DType::F32,
                         grad: None,
@@ -492,7 +495,7 @@ impl Tensor {
     /// Create GPU tensor with GPU-native backward (Phase 4).
     /// Forward data stays on GPU. Backward runs on GPU via gpu_backward closure.
     /// Falls back to CPU backward if GPU backward fails.
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub(crate) fn from_gpu_with_grad_fn(
         gpu_tensor: crate::gpu::GpuTensor,
         inputs: Vec<Tensor>,
@@ -504,9 +507,10 @@ impl Tensor {
         let grad_fn_idx =
             crate::tape::register_gpu_grad_fn(inputs, saved, saved_gpu, backward, gpu_backward);
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let shape = gpu_tensor.shape();
         Self(Arc::new(RwLock::new(TensorInner {
             id,
-            storage: Storage::Gpu(gpu_tensor),
+            storage: Storage::Gpu(gpu_tensor, shape),
             device: Device::Gpu(0),
             dtype: DType::F32,
             grad: None,
@@ -523,8 +527,8 @@ impl Tensor {
                 existing += grad;
                 inner.grad = Some(Storage::Cpu(Arc::new(existing)));
             }
-            #[cfg(feature = "gpu")]
-            Some(Storage::Gpu(ref mut gpu)) => {
+            #[cfg(feature = "device-gpu")]
+            Some(Storage::Gpu(ref mut gpu, _)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
                     if let Ok(g_gpu) = Storage::from(grad.clone()).to_gpu(&ctx) {
                         if ctx.add_inplace(gpu, &g_gpu).is_ok() {
@@ -552,7 +556,7 @@ impl Tensor {
     /// Accumulate gradient from Storage (CPU or GPU).
     /// GPU+GPU accumulates entirely on GPU without CPU round-trip.
     /// Returns error if GPU readback fails (caller can skip or propagate).
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub(crate) fn try_accumulate_grad_storage(
         &self,
         grad: &Storage,
@@ -563,12 +567,12 @@ impl Tensor {
                 *Arc::make_mut(existing) += g.as_ref();
                 Ok(())
             }
-            (Some(Storage::Cpu(existing)), Storage::Gpu(g)) => {
+            (Some(Storage::Cpu(existing)), Storage::Gpu(g, _)) => {
                 let g_cpu = g.to_cpu()?;
                 *Arc::make_mut(existing) += &g_cpu;
                 Ok(())
             }
-            (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
+            (Some(Storage::Gpu(existing, _)), Storage::Cpu(g)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
                     if let Ok(g_gpu) = g.to_gpu(&ctx) {
                         return ctx.add_inplace(existing, &g_gpu)
@@ -580,7 +584,7 @@ impl Tensor {
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));
                 Ok(())
             }
-            (Some(Storage::Gpu(existing)), Storage::Gpu(g)) => {
+            (Some(Storage::Gpu(existing, _)), Storage::Gpu(g, _)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
                     ctx.add_inplace(existing, g)
                         .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()))
@@ -600,7 +604,7 @@ impl Tensor {
 
     /// Legacy wrapper — logs warning on GPU readback failure.
     /// Prefer try_accumulate_grad_storage() for production code.
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub(crate) fn accumulate_grad_storage(&self, grad: &Storage) {
         if let Err(e) = self.try_accumulate_grad_storage(grad) {
             warn!("accumulate_grad_storage GPU readback/accumulation failed: {e}. Skipping.");
@@ -616,12 +620,12 @@ impl Tensor {
     }
 
     /// Zero grads on GPU when tensor storage is on GPU.
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub fn zero_grad_gpu(&self) -> Result<(), crate::gpu::GpuError> {
         use crate::gpu::GpuContext;
         let mut inner = self.0.write();
         inner.grad = None;
-        if let Storage::Gpu(gpu_t) = &inner.storage {
+        if let Storage::Gpu(gpu_t, _) = &inner.storage {
             let ctx = GpuContext::global()?;
             ctx.fill_zero(gpu_t)?;
         }
@@ -648,12 +652,12 @@ impl Tensor {
     }
 
     /// Set gradient from Storage (CPU or GPU).
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub fn set_grad_storage(&self, grad: Storage) {
         self.0.write().grad = Some(grad);
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.write();
         let current = match inner.storage.to_cpu() {
@@ -667,7 +671,7 @@ impl Tensor {
         inner.storage = Storage::Cpu(Arc::new(new_data));
     }
 
-    #[cfg(not(feature = "gpu"))]
+    #[cfg(not(feature = "device-gpu"))]
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.write();
         let current = inner.storage.to_cpu();
@@ -688,7 +692,7 @@ impl Tensor {
 }
 
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
     grad.as_ref().and_then(|s| {
         s.to_cpu()
@@ -698,7 +702,7 @@ pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
 }
 
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.
-#[cfg(not(feature = "gpu"))]
+#[cfg(not(feature = "device-gpu"))]
 pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
     grad.as_ref().map(|s| s.to_cpu())
 }

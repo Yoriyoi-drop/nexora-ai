@@ -1,16 +1,16 @@
 use tracing::warn;
 
 use super::super::tensor::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::{ElemOp, GpuContext, GpuTensor};
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
 pub fn relu(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Relu) {
                     Ok(gpu_result) => {
@@ -77,10 +77,10 @@ pub fn relu(input: &Tensor) -> Tensor {
 }
 
 pub fn gelu(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Gelu) {
                     Ok(gpu_result) => {
@@ -160,10 +160,10 @@ pub fn gelu(input: &Tensor) -> Tensor {
 }
 
 pub fn tanh(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Tanh) {
                     Ok(gpu_result) => {
@@ -226,10 +226,10 @@ pub fn tanh(input: &Tensor) -> Tensor {
 }
 
 pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 let mut gpu_result = gpu_input.clone();
                 match ctx.leaky_relu_inplace(&mut gpu_result, negative_slope) {
@@ -289,10 +289,10 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
 }
 
 pub fn sigmoid(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Sigmoid) {
                     Ok(gpu_result) => {
@@ -363,10 +363,10 @@ pub fn sigmoid(input: &Tensor) -> Tensor {
 }
 
 pub fn silu(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.elementwise_unary(gpu_input, ElemOp::Silu) {
                     Ok(gpu_result) => {
@@ -458,11 +458,11 @@ pub fn silu(input: &Tensor) -> Tensor {
 }
 
 pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let g_storage = gate.storage();
         let x_storage = x.storage();
-        if let (Storage::Gpu(gpu_gate), Storage::Gpu(gpu_x)) = (&g_storage, &x_storage) {
+        if let (Storage::Gpu(gpu_gate, _), Storage::Gpu(gpu_x, _)) = (&g_storage, &x_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 // Use existing GPU ops: silu(gate) * x
                 match ctx.silu(gpu_gate) {

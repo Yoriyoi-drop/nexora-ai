@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::device::Storage;
 use super::tape;
 use super::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::GpuContext;
 
 pub fn backward_engine(output: &Tensor) {
@@ -41,11 +41,11 @@ pub fn backward_engine(output: &Tensor) {
         grads.insert(output.id(), Storage::Cpu(Arc::new(g)));
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     let gpu_batch_active: bool =
         GpuContext::is_available() && topo.iter().any(|id| tape::has_gpu_backward(*id));
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     if gpu_batch_active {
         if let Ok(ctx) = GpuContext::global() {
             ctx.begin_batch_mode();
@@ -64,7 +64,7 @@ pub fn backward_engine(output: &Tensor) {
                 let inputs = tape::with_tape(|tap| tap.inputs(fn_idx));
                 let saved = tape::with_tape(|tap| tap.saved(fn_idx));
 
-                #[cfg(feature = "gpu")]
+                #[cfg(feature = "device-gpu")]
                 let used_gpu: bool = {
                     if tape::has_gpu_backward(fn_idx) {
                         if let Ok(ctx) = GpuContext::global() {
@@ -72,7 +72,7 @@ pub fn backward_engine(output: &Tensor) {
                             let gpu_backward = tape::take_gpu_backward(fn_idx);
                             if let Some(backward_gpu) = gpu_backward {
                                 let grad_gpu_result = match &grad_out_storage {
-                                    Storage::Gpu(g) => Ok(g.clone()),
+                                    Storage::Gpu(g, _) => Ok(g.clone()),
                                     Storage::Cpu(arr) => {
                                         crate::gpu::GpuTensor::from_cpu(arr.as_ref())
                                     }
@@ -89,7 +89,7 @@ pub fn backward_engine(output: &Tensor) {
                                                         if let Some(existing) =
                                                             grads.get_mut(&inp.id())
                                                         {
-                                                            if let Storage::Gpu(ref mut e) =
+                                                            if let Storage::Gpu(ref mut e, _) =
                                                                 existing
                                                             {
                                                                 if e.shape() == gpu_grad.shape() {
@@ -144,9 +144,10 @@ pub fn backward_engine(output: &Tensor) {
                                                                 }
                                                             }
                                                         } else {
+                                                            let gpu_grad_shape = gpu_grad.shape();
                                                             grads.insert(
-                                                                inp.id(),
-                                                                Storage::Gpu(gpu_grad),
+                                                                 inp.id(),
+                                                                 Storage::Gpu(gpu_grad, gpu_grad_shape),
                                                             );
                                                         }
                                                     }
@@ -157,7 +158,7 @@ pub fn backward_engine(output: &Tensor) {
                                                 tracing::warn!(
                                                     "GPU backward failed, falling back to CPU: {e}"
                                                 );
-                                                if let Storage::Gpu(g) = &grad_out_storage {
+                                                if let Storage::Gpu(g, _) = &grad_out_storage {
                                                     if let Ok(cpu) = g.to_cpu() {
                                                         let cpu_storage =
                                                             Storage::Cpu(Arc::new(cpu));
@@ -183,18 +184,18 @@ pub fn backward_engine(output: &Tensor) {
                     }
                 };
 
-                #[cfg(not(feature = "gpu"))]
+                #[cfg(not(feature = "device-gpu"))]
                 let used_gpu = false;
 
                 if !used_gpu {
                     let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
                     if let Some(backward) = backward_fn {
-                        #[cfg(any(feature = "gpu", feature = "cuda"))]
+                        #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
                         let grad_cpu = grad_out_storage.to_cpu().unwrap_or_else(|e| {
                             tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}");
                             ndarray::ArrayD::zeros(grad_out_storage.shape())
                         });
-                        #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+                        #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
                         let grad_cpu = grad_out_storage.to_cpu();
                         let grad_inputs = backward(&grad_cpu, &saved);
                         for (i, inp) in inputs.iter().enumerate() {
@@ -206,8 +207,8 @@ pub fn backward_engine(output: &Tensor) {
                                             *Arc::make_mut(e) += &g;
                                         }
                                         Storage::Cpu(ref mut e) => *e = Arc::new(g),
-                                        #[cfg(feature = "gpu")]
-                                        Storage::Gpu(ref mut gpu_grad) => {
+                                        #[cfg(feature = "device-gpu")]
+                                        Storage::Gpu(ref mut gpu_grad, _) => {
                                             match crate::gpu::GpuContext::global() {
                                                 Ok(ctx) => {
                                                     let g_gpu =
@@ -242,18 +243,19 @@ pub fn backward_engine(output: &Tensor) {
                                         }
                                     }
                                 } else {
-                                    #[cfg(any(feature = "gpu", feature = "cuda"))]
+                                    #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
                                     {
+                                        let g_shape = g.shape().to_vec();
                                         let storage = match crate::gpu::GpuContext::global() {
                                             Ok(_ctx) => match crate::gpu::GpuTensor::from_cpu(&g) {
-                                                Ok(g_gpu) => Storage::Gpu(g_gpu),
+                                                Ok(g_gpu) => Storage::Gpu(g_gpu, g_shape),
                                                 Err(_) => Storage::Cpu(Arc::new(g)),
                                             },
                                             Err(_) => Storage::Cpu(Arc::new(g)),
                                         };
                                         grads.insert(inp.id(), storage);
                                     }
-                                    #[cfg(not(any(feature = "gpu", feature = "cuda")))]
+                                    #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
                                     {
                                         grads.insert(inp.id(), Storage::Cpu(Arc::new(g)));
                                     }
@@ -266,7 +268,7 @@ pub fn backward_engine(output: &Tensor) {
         }
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     if gpu_batch_active {
         if let Ok(ctx) = GpuContext::global() {
             ctx.end_batch_mode();
@@ -275,9 +277,9 @@ pub fn backward_engine(output: &Tensor) {
 
     for (tid, g) in grads {
         if let Some(t) = grad_map.get(&tid) {
-            #[cfg(feature = "gpu")]
+            #[cfg(feature = "device-gpu")]
             t.accumulate_grad_storage(&g);
-            #[cfg(not(feature = "gpu"))]
+            #[cfg(not(feature = "device-gpu"))]
             t.accumulate_grad(&g.to_cpu());
         }
     }

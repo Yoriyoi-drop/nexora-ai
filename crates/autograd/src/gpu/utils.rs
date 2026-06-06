@@ -1482,7 +1482,7 @@ impl GpuContext {
         let b_shape = b.shape();
 
         if a_shape != b_shape {
-            let target = nexora_autograd_core::broadcast::broadcast_shapes(&a_shape, &b_shape);
+            let target = crate::broadcast::broadcast_shapes(&a_shape, &b_shape);
             let a_bc = if a_shape != target {
                 self.broadcast_tensor(a, &target)?
             } else {

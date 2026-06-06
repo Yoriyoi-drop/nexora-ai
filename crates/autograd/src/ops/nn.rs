@@ -3,16 +3,16 @@ use tracing::{debug, warn};
 
 use super::super::tensor::Tensor;
 use super::math;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 use crate::gpu::CudaRuntime;
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
                 let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
@@ -70,10 +70,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
                 let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
@@ -240,10 +240,10 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
 }
 
 pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
                 let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
@@ -309,10 +309,10 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
                 let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
@@ -467,10 +467,10 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
 
     let scale = 1.0 / (1.0 - rate);
 
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 let shape = cu_input.shape().to_vec();
                 if let Ok(mask) = CudaTensor::zeros(&ctx.device, shape.clone()) {
@@ -496,10 +496,10 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
         }
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 let shape = gpu_input.shape().to_vec();
                 let seed = rand::random::<u32>();
@@ -572,12 +572,12 @@ pub fn layer_norm_2d(
     bias: Option<&Tensor>,
     eps: f32,
 ) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let in_storage = input.storage();
-        if let Storage::Cuda(cu_in) = &in_storage {
+        if let Storage::Cuda(cu_in, _) = &in_storage {
             if let (Some(w), Some(b)) = (weight, bias) {
-                if let (Storage::Cuda(cu_w), Storage::Cuda(cu_b)) = (&w.storage(), &b.storage()) {
+                if let (Storage::Cuda(cu_w, _), Storage::Cuda(cu_b, _)) = (&w.storage(), &b.storage()) {
                     if let Ok(ctx) = CudaRuntime::global() {
                         match ctx.layer_norm(cu_in, cu_w, cu_b, eps) {
                             Ok(cuda_result) => {
@@ -646,15 +646,15 @@ pub fn layer_norm_2d(
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let in_storage = input.storage();
-        if let Storage::Gpu(gpu_in) = &in_storage {
-            let has_gpu_weight = weight.is_none_or(|w| matches!(w.storage(), Storage::Gpu(_)));
-            let has_gpu_bias = bias.is_none_or(|b| matches!(b.storage(), Storage::Gpu(_)));
+        if let Storage::Gpu(gpu_in, _) = &in_storage {
+            let has_gpu_weight = weight.is_none_or(|w| matches!(w.storage(), Storage::Gpu(..)));
+            let has_gpu_bias = bias.is_none_or(|b| matches!(b.storage(), Storage::Gpu(..)));
             if has_gpu_weight && has_gpu_bias {
                 if let (Some(w), Some(b)) = (weight, bias) {
-                    if let (Storage::Gpu(gpu_w), Storage::Gpu(gpu_b)) = (&w.storage(), &b.storage())
+                    if let (Storage::Gpu(gpu_w, _), Storage::Gpu(gpu_b, _)) = (&w.storage(), &b.storage())
                     {
                         if let Ok(ctx) = crate::gpu::GpuContext::global() {
                             match ctx.layer_norm(gpu_in, gpu_w, gpu_b, eps) {
@@ -930,11 +930,11 @@ pub fn layer_norm_2d(
 }
 
 pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
-        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_t)) = (&in_storage, &t_storage) {
+        if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.binary_cross_entropy(cu_in, cu_t) {
                     Ok(cuda_result) => {
@@ -968,11 +968,11 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
-        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_t)) = (&in_storage, &t_storage) {
+        if let (Storage::Gpu(gpu_in, _), Storage::Gpu(gpu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.elementwise_binary(gpu_in, gpu_t, crate::gpu::ElemOp::BinaryCrossEntropy)
                 {
@@ -1116,11 +1116,11 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
-        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_t)) = (&in_storage, &t_storage) {
+        if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.cross_entropy(cu_in, cu_t) {
                     Ok(cuda_result) => {
@@ -1166,11 +1166,11 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
-        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_t)) = (&in_storage, &t_storage) {
+        if let (Storage::Gpu(gpu_in, _), Storage::Gpu(gpu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.cross_entropy(gpu_in, gpu_t) {
                     Ok(gpu_result) => {
@@ -1351,11 +1351,11 @@ pub fn mse_loss(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let ids_storage = input_ids.storage();
         let w_storage = weight.storage();
-        if let (Storage::Cuda(cu_ids), Storage::Cuda(cu_w)) = (&ids_storage, &w_storage) {
+        if let (Storage::Cuda(cu_ids, _), Storage::Cuda(cu_w, _)) = (&ids_storage, &w_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.embedding(cu_ids, cu_w) {
                     Ok(cuda_result) => {
@@ -1388,11 +1388,11 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let ids_storage = input_ids.storage();
         let w_storage = weight.storage();
-        if let (Storage::Gpu(gpu_ids), Storage::Gpu(gpu_w)) = (&ids_storage, &w_storage) {
+        if let (Storage::Gpu(gpu_ids, _), Storage::Gpu(gpu_w, _)) = (&ids_storage, &w_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.embedding(gpu_ids, gpu_w) {
                     Ok(gpu_result) => {
@@ -1511,11 +1511,11 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
 }
 
 pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let in_storage = input.storage();
         let w_storage = weight.storage();
-        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_w)) = (&in_storage, &w_storage) {
+        if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_w, _)) = (&in_storage, &w_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.rms_norm(cu_in, cu_w, eps) {
                     Ok(cuda_result) => {
@@ -1566,11 +1566,11 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let in_storage = input.storage();
         let w_storage = weight.storage();
-        if let (Storage::Gpu(gpu_in), Storage::Gpu(gpu_w)) = (&in_storage, &w_storage) {
+        if let (Storage::Gpu(gpu_in, _), Storage::Gpu(gpu_w, _)) = (&in_storage, &w_storage) {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.rms_norm(gpu_in, gpu_w, eps) {
                     Ok(gpu_result) => {
@@ -1830,12 +1830,12 @@ fn attention_backward_cpu(
 }
 
 pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let q_storage = q.storage();
         let k_storage = k.storage();
         let v_storage = v.storage();
-        if let (Storage::Cuda(cq), Storage::Cuda(ck), Storage::Cuda(cv)) = (&q_storage, &k_storage, &v_storage) {
+        if let (Storage::Cuda(cq, _), Storage::Cuda(ck, _), Storage::Cuda(cv, _)) = (&q_storage, &k_storage, &v_storage) {
             if q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 {
                 if let Ok(ctx) = CudaRuntime::global() {
                     match ctx.fused_attention(cq, ck, cv, scale, true) {
@@ -1868,12 +1868,12 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let q_storage = q.storage();
         let k_storage = k.storage();
         let v_storage = v.storage();
-        if let (Storage::Gpu(gq), Storage::Gpu(gk), Storage::Gpu(gv)) =
+        if let (Storage::Gpu(gq, _), Storage::Gpu(gk, _), Storage::Gpu(gv, _)) =
             (&q_storage, &k_storage, &v_storage)
         {
             if q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 {
@@ -1995,10 +1995,10 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
 }
 
 pub fn causal_softmax(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.causal_softmax(cu_input) {
                     Ok(cuda_out) => {
@@ -2036,10 +2036,10 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
                 match ctx.causal_softmax(gpu_input) {
                     Ok(gpu_out) => {

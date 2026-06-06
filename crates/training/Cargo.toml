@@ -7,7 +7,7 @@ description = "Training pipeline for Nexora - gradient accumulation, LR scheduli
 [dependencies]
 nexora-transformer = { path = "../transformer" }
 nexora-autograd = { path = "../autograd" }
-nexora-autograd-training = { path = "../autograd-training" }
+# Moved into nexora-autograd crate
 nexora-evaluation = { path = "../evaluation" }
 ndarray.workspace = true
 serde.workspace = true

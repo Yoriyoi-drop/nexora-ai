@@ -2,18 +2,18 @@ use ndarray::ArrayD;
 use tracing::{debug, warn};
 
 use super::super::tensor::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::{GpuContext, GpuTensor, ReduceOp};
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 use crate::gpu::CudaRuntime;
 
 pub fn sum(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.sum(cu_input) {
                     Ok(cuda_result) => {
@@ -43,10 +43,10 @@ pub fn sum(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.reduce(gpu_input, ReduceOp::Sum) {
                     Ok(gpu_result) => {
@@ -148,10 +148,10 @@ fn fallback_mean(input: &Tensor) -> Tensor {
 }
 
 pub fn mean(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
-        if let Storage::Cuda(cu_input) = &storage {
+        if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.mean(cu_input) {
                     Ok(cuda_result) => {
@@ -183,10 +183,10 @@ pub fn mean(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.reduce(gpu_input, ReduceOp::Sum) {
                     Ok(gpu_sum) => {

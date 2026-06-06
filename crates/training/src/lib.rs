@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ndarray::ArrayD;
-use nexora_autograd_training::compute_grad_norm;
+use nexora_autograd::compute_grad_norm;
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
 use tracing::{info, warn};

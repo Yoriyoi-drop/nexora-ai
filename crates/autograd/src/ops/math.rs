@@ -5,13 +5,13 @@ use tracing::debug;
 
 use super::super::broadcast;
 use super::super::tensor::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::{ElemOp, GpuContext, GpuTensor};
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::GpuError;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
 pub(crate) static GPU_MATH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
@@ -21,15 +21,15 @@ pub fn gpu_math_fallback_count() -> u64 {
 }
 
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        if matches!(&a_storage, Storage::Cuda(_))
-            && matches!(&b_storage, Storage::Cuda(_))
+        if matches!(&a_storage, Storage::Cuda(..))
+            && matches!(&b_storage, Storage::Cuda(..))
         {
             match (&a_storage, &b_storage) {
-                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) => {
                     if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                         match ctx.add(ca, cb) {
                             Ok(cuda_result) => {
@@ -82,14 +82,14 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
-                (Storage::Gpu(ga), Storage::Gpu(gb)) => {
+                (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.add(ga, gb) {
                             Ok(gpu_result) => {
@@ -208,13 +208,13 @@ pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+        if matches!(&a_storage, Storage::Cuda(..)) && matches!(&b_storage, Storage::Cuda(..)) {
             match (&a_storage, &b_storage) {
-                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) => {
                     if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                         match ctx.sub(ca, cb) {
                             Ok(cuda_result) => {
@@ -267,14 +267,14 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
-                (Storage::Gpu(ga), Storage::Gpu(gb)) => {
+                (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.sub(ga, gb) {
                             Ok(gpu_result) => {
@@ -393,13 +393,13 @@ pub fn sub(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+        if matches!(&a_storage, Storage::Cuda(..)) && matches!(&b_storage, Storage::Cuda(..)) {
             match (&a_storage, &b_storage) {
-                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) => {
                     if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                         match ctx.mul(ca, cb) {
                             Ok(cuda_result) => {
@@ -434,14 +434,14 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
-                (Storage::Gpu(ga), Storage::Gpu(gb)) => {
+                (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.mul(ga, gb) {
                             Ok(gpu_result) => {
@@ -520,13 +520,13 @@ pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        if matches!(&a_storage, Storage::Cuda(_)) && matches!(&b_storage, Storage::Cuda(_)) {
+        if matches!(&a_storage, Storage::Cuda(..)) && matches!(&b_storage, Storage::Cuda(..)) {
             match (&a_storage, &b_storage) {
-                (Storage::Cuda(ca), Storage::Cuda(cb)) => {
+                (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) => {
                     if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                         match ctx.div(ca, cb) {
                             Ok(cuda_result) => {
@@ -563,14 +563,14 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
-                (Storage::Gpu(ga), Storage::Gpu(gb)) => {
+                (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
                     if let Ok(ctx) = GpuContext::global() {
                         match ctx.div(ga, gb) {
                             Ok(gpu_result) => {
@@ -651,10 +651,10 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
 }
 
 pub fn exp(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let input_storage = input.storage();
-        if let Storage::Cuda(cu_input) = &input_storage {
+        if let Storage::Cuda(cu_input, _) = &input_storage {
             if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                 match ctx.exp(cu_input) {
                     Ok(cuda_result) => {
@@ -683,11 +683,11 @@ pub fn exp(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let input_storage = input.storage();
         if !RECOVERY_MANAGER.is_circuit_open() {
-            if let Storage::Gpu(gpu_input) = &input_storage {
+            if let Storage::Gpu(gpu_input, _) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.exp(gpu_input) {
                         Ok(gpu_result) => {
@@ -752,10 +752,10 @@ pub fn exp(input: &Tensor) -> Tensor {
 }
 
 pub fn ln(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let input_storage = input.storage();
-        if let Storage::Cuda(cu_input) = &input_storage {
+        if let Storage::Cuda(cu_input, _) = &input_storage {
             if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                 match ctx.ln(cu_input) {
                     Ok(cuda_result) => {
@@ -784,11 +784,11 @@ pub fn ln(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let input_storage = input.storage();
         if !RECOVERY_MANAGER.is_circuit_open() {
-            if let Storage::Gpu(gpu_input) = &input_storage {
+            if let Storage::Gpu(gpu_input, _) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.elementwise_unary(gpu_input, ElemOp::Ln) {
                         Ok(gpu_result) => {
@@ -852,10 +852,10 @@ pub fn ln(input: &Tensor) -> Tensor {
 }
 
 pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let input_storage = input.storage();
-        if let Storage::Cuda(cu_input) = &input_storage {
+        if let Storage::Cuda(cu_input, _) = &input_storage {
             if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                 match ctx.powf(cu_input, exponent) {
                     Ok(cuda_result) => {
@@ -886,11 +886,11 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let input_storage = input.storage();
         if !RECOVERY_MANAGER.is_circuit_open() {
-            if let Storage::Gpu(gpu_input) = &input_storage {
+            if let Storage::Gpu(gpu_input, _) = &input_storage {
                 if let Ok(_ctx) = GpuContext::global() {
                     let result_arr = input.data().mapv(|x| x.powf(exponent));
                     match GpuTensor::from_cpu(&result_arr) {
@@ -963,10 +963,10 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
 }
 
 pub fn sqrt(input: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let input_storage = input.storage();
-        if let Storage::Cuda(cu_input) = &input_storage {
+        if let Storage::Cuda(cu_input, _) = &input_storage {
             if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                 match ctx.sqrt(cu_input) {
                     Ok(cuda_result) => {
@@ -995,11 +995,11 @@ pub fn sqrt(input: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let input_storage = input.storage();
         if !RECOVERY_MANAGER.is_circuit_open() {
-            if let Storage::Gpu(gpu_input) = &input_storage {
+            if let Storage::Gpu(gpu_input, _) = &input_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.sqrt(gpu_input) {
                         Ok(gpu_result) => {
@@ -1064,10 +1064,10 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 }
 
 pub fn neg(a: &Tensor) -> Tensor {
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
-        if let Storage::Cuda(ca) = &a_storage {
+        if let Storage::Cuda(ca, _) = &a_storage {
             if let Ok(ctx) = crate::gpu::CudaRuntime::global() {
                 match ctx.neg(ca) {
                     Ok(cuda_result) => {
@@ -1091,11 +1091,11 @@ pub fn neg(a: &Tensor) -> Tensor {
             }
         }
     }
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         if !RECOVERY_MANAGER.is_circuit_open() {
-            if let Storage::Gpu(ga) = &a_storage {
+            if let Storage::Gpu(ga, _) = &a_storage {
                 if let Ok(ctx) = GpuContext::global() {
                     match ctx.elementwise_unary(ga, ElemOp::Neg) {
                         Ok(gpu_result) => {

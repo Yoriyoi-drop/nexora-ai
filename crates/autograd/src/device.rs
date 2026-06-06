@@ -55,12 +55,20 @@ impl Device {
 /// CPU storage uses Arc for O(1) clone and zero-copy data access.
 pub enum Storage {
     Cpu(Arc<ArrayD<f32>>),
+    #[cfg(feature = "device-gpu")]
+    Gpu(Box<dyn std::any::Any + Send + Sync>, Vec<usize>),
+    #[cfg(feature = "device-cuda")]
+    Cuda(Box<dyn std::any::Any + Send + Sync>, Vec<usize>),
 }
 
 impl Clone for Storage {
     fn clone(&self) -> Self {
         match self {
             Storage::Cpu(arr) => Storage::Cpu(Arc::clone(arr)),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => panic!("Storage::Gpu clone not supported - use explicit GPU tensor clone"),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => panic!("Storage::Cuda clone not supported - use explicit CUDA tensor clone"),
         }
     }
 }
@@ -69,12 +77,20 @@ impl Storage {
     pub fn shape(&self) -> Vec<usize> {
         match self {
             Storage::Cpu(arr) => arr.shape().to_vec(),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, shape) => shape.clone(),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, shape) => shape.clone(),
         }
     }
 
     pub fn numel(&self) -> usize {
         match self {
             Storage::Cpu(arr) => arr.len(),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, shape) => shape.iter().product(),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, shape) => shape.iter().product(),
         }
     }
 
@@ -85,42 +101,70 @@ impl Storage {
     pub fn device(&self) -> Device {
         match self {
             Storage::Cpu(_) => Device::Cpu,
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => Device::Gpu(0),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => Device::Cuda(0),
         }
     }
 
     pub fn to_cpu(&self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => arr.as_ref().clone(),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => panic!("Storage::to_cpu() called on Gpu variant - use data() for GPU readback"),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => panic!("Storage::to_cpu() called on Cuda variant - use data() for GPU readback"),
         }
     }
 
     pub fn as_cpu(&self) -> Option<&ArrayD<f32>> {
         match self {
             Storage::Cpu(arr) => Some(arr.as_ref()),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => None,
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => None,
         }
     }
 
     pub fn as_cpu_mut(&mut self) -> Option<&mut ArrayD<f32>> {
         match self {
             Storage::Cpu(arr) => Some(Arc::make_mut(arr)),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => None,
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => None,
         }
     }
 
     pub fn into_cpu(self) -> ArrayD<f32> {
         match self {
             Storage::Cpu(arr) => Arc::unwrap_or_clone(arr),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => panic!("Storage::into_cpu() called on Gpu variant - use data() for GPU readback"),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => panic!("Storage::into_cpu() called on Cuda variant - use data() for GPU readback"),
         }
     }
 
     pub fn data_arc(&self) -> Arc<ArrayD<f32>> {
         match self {
             Storage::Cpu(arr) => Arc::clone(arr),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => panic!("Storage::data_arc() called on Gpu variant - not supported"),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => panic!("Storage::data_arc() called on Cuda variant - not supported"),
         }
     }
 
     pub fn try_data_arc(&self) -> Result<Arc<ArrayD<f32>>, Box<dyn std::error::Error>> {
         match self {
             Storage::Cpu(arr) => Ok(Arc::clone(arr)),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(_, _) => Err("Storage::try_data_arc() called on Gpu variant - not supported".into()),
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => Err("Storage::try_data_arc() called on Cuda variant - not supported".into()),
         }
     }
 }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use ndarray::ArrayD;
 
-use nexora_autograd_core::{Storage, Tensor};
+use crate::{Storage, Tensor};
 
 // ─── Gradient Accumulation ────────────────────────────────────────────────────
 
@@ -281,8 +281,8 @@ fn set_storage_grad(p: &Tensor, g: &Storage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexora_autograd_core::Tensor;
-    use nexora_autograd_core::TensorOps;
+    use crate::Tensor;
+    use crate::TensorOps;
 
     #[test]
     fn test_gradient_accumulator_basics() {

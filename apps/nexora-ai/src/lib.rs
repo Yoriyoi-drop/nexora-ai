@@ -165,27 +165,6 @@ pub async fn create_inference_engine_inner(
         })?;
         Ok(engine)
     }
-        if let Some(ref erp_engine) = erp {
-            engine = engine.with_erp(erp_engine.clone());
-        }
-        engine.initialize().await.map_err(|e| {
-            NexoraError::system(format!("Failed to initialize inference engine: {}", e))
-        })?;
-        Ok(engine)
-    } else {
-        let mut engine =
-            nexora_inference::InferenceEngineStruct::with_model(model_arc, Some(tokenizer), config);
-        if let Some(mem) = memory.as_ref() {
-            engine = engine.with_memory((**mem).clone());
-        }
-        if let Some(ref erp_engine) = erp {
-            engine = engine.with_erp(erp_engine.clone());
-        }
-        engine.initialize().await.map_err(|e| {
-            NexoraError::system(format!("Failed to initialize inference engine: {}", e))
-        })?;
-        Ok(engine)
-    }
 }
 
 /// SPARO alignment instance shared across all agent inference calls.

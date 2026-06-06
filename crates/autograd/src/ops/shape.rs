@@ -2,19 +2,19 @@ use ndarray::ArrayD;
 use tracing::warn;
 
 use super::super::tensor::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::GpuContext;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 
 pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
     let new_vec = new_shape.to_vec();
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             match gpu_input.reshape(new_vec.clone()) {
                 Ok(gpu_result) => {
                     RECOVERY_MANAGER.record_recovery();
@@ -111,10 +111,10 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
 }
 
 pub fn transpose(input: &Tensor) -> Tensor {
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let storage = input.storage();
-        if let Storage::Gpu(gpu_input) = &storage {
+        if let Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.transpose(gpu_input) {
                     Ok(gpu_result) => {

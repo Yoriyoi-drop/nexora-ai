@@ -1,15 +1,15 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::tensor::Tensor;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::gpu_recovery::RECOVERY_MANAGER;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::gpu::GpuError;
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 use crate::Storage;
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 use crate::gpu::cuda::CudaTensor;
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 use crate::gpu::CudaRuntime;
 use ndarray::ArrayD;
 use tracing::warn;
@@ -42,11 +42,11 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     }
 
     // ── CUDA matmul via cuBLAS (Tensor Core enabled) ──────────────
-    #[cfg(feature = "cuda")]
+    #[cfg(feature = "device-cuda")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        if let (Storage::Cuda(ca), Storage::Cuda(cb)) = (&a_storage, &b_storage) {
+        if let (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) = (&a_storage, &b_storage) {
             if let Ok(rt) = CudaRuntime::global() {
                 match rt.matmul(ca, cb) {
                     Ok(cuda_result) => {
@@ -61,14 +61,14 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
         }
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(feature = "device-gpu")]
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(_)) && matches!(&b_storage, Storage::Gpu(_));
+        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
-                (Storage::Gpu(ga), Storage::Gpu(gb)) => {
+                (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
                     if let Ok(ctx) = crate::gpu::GpuContext::global() {
                         match ctx.matmul(ga, gb) {
                             Ok(gpu_result) => {

@@ -34,9 +34,7 @@ members = [
     "crates/training",
     "crates/alignment",
     "crates/autograd",
-    "crates/autograd-core",
-    "crates/autograd-training",
-    "crates/autograd-gpu",
+    # Source code merged into crates/autograd
     "crates/evaluation",
     "crates/benchmark",
     "crates/transformer",

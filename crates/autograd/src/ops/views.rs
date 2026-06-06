@@ -10,12 +10,12 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
     assert!(!tensors.is_empty(), "cat: at least one tensor required");
 
     // GPU-H1: GPU path — keep result on GPU
-    #[cfg(feature = "gpu")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Gpu(_))) {
+    #[cfg(feature = "device-gpu")]
+    if tensors.iter().all(|t| matches!(t.storage(), Storage::Gpu(..))) {
         return cat_gpu(tensors, axis);
     }
-    #[cfg(feature = "cuda")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(_))) {
+    #[cfg(feature = "device-cuda")]
+    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(..))) {
         return cat_cuda(tensors, axis);
     }
 
@@ -66,12 +66,12 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
     assert!(!tensors.is_empty(), "stack: at least one tensor required");
 
     // GPU-H1: GPU path — keep result on GPU
-    #[cfg(feature = "gpu")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Gpu(_))) {
+    #[cfg(feature = "device-gpu")]
+    if tensors.iter().all(|t| matches!(t.storage(), Storage::Gpu(..))) {
         return stack_gpu(tensors, axis);
     }
-    #[cfg(feature = "cuda")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(_))) {
+    #[cfg(feature = "device-cuda")]
+    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(..))) {
         return stack_cuda(tensors, axis);
     }
 
@@ -124,7 +124,7 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
 
 /// GPU cat: download all GPU tensors to CPU, concat on CPU, upload result to GPU.
 /// Result stays GPU-resident — no immediate readback for downstream ops.
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
     use crate::gpu::{GpuContext, GpuTensor};
     let arrays: Vec<ArrayD<f32>> = tensors.iter().map(|t| t.data()).collect();
@@ -177,7 +177,7 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
     )
 }
 
-#[cfg(feature = "gpu")]
+#[cfg(feature = "device-gpu")]
 fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
     use crate::gpu::{GpuContext, GpuTensor};
     let mut expanded: Vec<ArrayD<f32>> = Vec::with_capacity(tensors.len());
@@ -233,7 +233,7 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
 
 // ─── CUDA helpers ──────────────────────────────────────────────────────────
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 fn cat_cuda(tensors: &[&Tensor], axis: usize) -> Tensor {
     use crate::gpu::cuda::{CudaRuntime, CudaTensor};
     let arrays: Vec<ArrayD<f32>> = tensors.iter().map(|t| t.data()).collect();
@@ -285,7 +285,7 @@ fn cat_cuda(tensors: &[&Tensor], axis: usize) -> Tensor {
     )
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(feature = "device-cuda")]
 fn stack_cuda(tensors: &[&Tensor], axis: usize) -> Tensor {
     use crate::gpu::cuda::{CudaRuntime, CudaTensor};
     let mut expanded: Vec<ArrayD<f32>> = Vec::with_capacity(tensors.len());

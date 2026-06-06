@@ -10,8 +10,8 @@ use ndarray::ArrayD;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "serde")]
-use nexora_autograd_core::LossScaler;
-use nexora_autograd_core::{Adam, Tensor};
+use crate::LossScaler;
+use crate::{Adam, Tensor};
 
 // ─── Optimizer State ─────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ pub struct TrainingLoop {
     pub total_tokens: usize,
     pub start_time: Option<Instant>,
     pub stop_flag: Arc<AtomicBool>,
-    pub checkpoint_callback: Option<Box<dyn Fn(u64) -> nexora_autograd_core::DLResult<()> + Send>>,
+    pub checkpoint_callback: Option<Box<dyn Fn(u64) -> crate::DLResult<()> + Send>>,
     /// Stored model parameters for direct checkpoint serialization
     pub params: Option<Vec<Tensor>>,
     /// Stored Adam optimizer for direct checkpoint serialization
@@ -371,7 +371,7 @@ impl TrainingLoop {
     /// The callback receives the current step number and should return Ok(()) on success.
     pub fn set_checkpoint_callback<F>(&mut self, callback: F)
     where
-        F: Fn(u64) -> nexora_autograd_core::DLResult<()> + Send + 'static,
+        F: Fn(u64) -> crate::DLResult<()> + Send + 'static,
     {
         self.checkpoint_callback = Some(Box::new(callback));
     }
@@ -401,7 +401,7 @@ impl TrainingLoop {
         lr: f32,
         grad_norm: f32,
         tokens_in_batch: usize,
-    ) -> nexora_autograd_core::DLResult<bool> {
+    ) -> crate::DLResult<bool> {
         self.step += 1;
         self.total_tokens += tokens_in_batch;
 
@@ -444,12 +444,12 @@ impl TrainingLoop {
                     #[cfg(feature = "serde")]
                     {
                         let params = self.params.as_ref().ok_or_else(|| {
-                            nexora_autograd_core::DeepLearningError::Computation {
+                            crate::DeepLearningError::Computation {
                                 reason: "params not initialized for checkpoint save".into(),
                             }
                         })?;
                         let adam = self.adam.as_ref().ok_or_else(|| {
-                            nexora_autograd_core::DeepLearningError::Computation {
+                            crate::DeepLearningError::Computation {
                                 reason: "adam not initialized for checkpoint save".into(),
                             }
                         })?;
@@ -612,7 +612,7 @@ pub fn compute_grad_norm(params: &[Tensor]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexora_autograd_core::{Linear, Module, Tensor, TensorOps};
+    use crate::{Linear, Module, Tensor, TensorOps};
 
     #[cfg(feature = "serde")]
     #[test]
