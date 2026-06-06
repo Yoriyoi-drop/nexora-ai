@@ -9,13 +9,13 @@ enable_colors = false
 enable = true
 path = "/var/log/nexora"
 rotation = "daily"
-max_size_mb = 100
-max_files = 10
+max_size_mb = 500
+max_files = 30
 
 [console]
 enable = true
-level = "info"
+level = "warn"
 
 [tracing]
 enable = true
-sample_rate = 0.1
+sample_rate = 0.05

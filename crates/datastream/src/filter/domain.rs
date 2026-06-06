@@ -13,59 +13,52 @@ pub struct DomainClassifier {
     pub instruction_patterns: Vec<Regex>,
 }
 
+fn compile_patterns(patterns: &[&str]) -> Vec<Regex> {
+    patterns.iter().filter_map(|p| Regex::new(p).ok()).collect()
+}
+
 fn default_code_patterns() -> Vec<Regex> {
-    vec![
-        Regex::new(r"(?m)^(fn|def|function|class|impl|struct|enum|pub|use|import|from)\s")
-            .expect("valid domain regex: code keywords"), // safe: hardcoded regex pattern
-        Regex::new(r"\{[\s\S]*\}").expect("valid domain regex: code braces"), // safe: hardcoded regex pattern
-        Regex::new(r"(?m)^\s*#\s*(include|define|pragma)")
-            .expect("valid domain regex: preprocessor"), // safe: hardcoded regex pattern
-        Regex::new(r"->\s*[A-Za-z_][A-Za-z0-9_<>]*").expect("valid domain regex: return type"), // safe: hardcoded regex pattern
-        Regex::new(r"(?m)^(for|while|if|match|switch)\s*\(")
-            .expect("valid domain regex: control flow"), // safe: hardcoded regex pattern
-    ]
+    compile_patterns(&[
+        r"(?m)^(fn|def|function|class|impl|struct|enum|pub|use|import|from)\s",
+        r"\{[\s\S]*\}",
+        r"(?m)^\s*#\s*(include|define|pragma)",
+        r"->\s*[A-Za-z_][A-Za-z0-9_<>]*",
+        r"(?m)^(for|while|if|match|switch)\s*\(",
+    ])
 }
 
 fn default_reasoning_patterns() -> Vec<Regex> {
-    vec![
-        Regex::new(r"(?i)\b(therefore|because|since|hence|thus|consequently)\b")
-            .expect("valid domain regex: reasoning connectives"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(step\s+\d+|firstly|secondly|finally)\b")
-            .expect("valid domain regex: reasoning steps"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(conclusion|analysis|reasoning|logically)\b")
-            .expect("valid domain regex: reasoning nouns"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(if.*then|implies|iff|whenever)\b")
-            .expect("valid domain regex: logical operators"), // safe: hardcoded regex pattern
-    ]
+    compile_patterns(&[
+        r"(?i)\b(therefore|because|since|hence|thus|consequently)\b",
+        r"(?i)\b(step\s+\d+|firstly|secondly|finally)\b",
+        r"(?i)\b(conclusion|analysis|reasoning|logically)\b",
+        r"(?i)\b(if.*then|implies|iff|whenever)\b",
+    ])
 }
 
 fn default_knowledge_patterns() -> Vec<Regex> {
-    vec![
-        Regex::new(r"(?i)\b(wikipedia|according\s+to|reference|source)\b")
-            .expect("valid domain regex: citation"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)\b(century|decade|era|period|historical)\b")
-            .expect("valid domain regex: time periods"), // safe: hardcoded regex pattern
-        Regex::new(r"\b\d{4}\b").expect("valid domain regex: year"), // safe: hardcoded regex pattern
-    ]
+    compile_patterns(&[
+        r"(?i)\b(wikipedia|according\s+to|reference|source)\b",
+        r"(?i)\b(century|decade|era|period|historical)\b",
+        r"\b\d{4}\b",
+    ])
 }
 
 fn default_math_patterns() -> Vec<Regex> {
-    vec![
-        Regex::new(r"\\[\(\[].*?\\[\)\]]").expect("valid domain regex: LaTeX"), // safe: hardcoded regex pattern
-        Regex::new(r"\b(\d+[\+\-\*\/]\d+|\d+=\d+)\b").expect("valid domain regex: arithmetic"), // safe: hardcoded regex pattern
-        Regex::new(r"\b(equation|theorem|lemma|proof|axiom)\b")
-            .expect("valid domain regex: math nouns"), // safe: hardcoded regex pattern
-        Regex::new(r"\b(sin|cos|tan|log|ln|sqrt|integral|derivative)\b")
-            .expect("valid domain regex: math functions"), // safe: hardcoded regex pattern
-    ]
+    compile_patterns(&[
+        r"\\[\(\[].*?\\[\)\]]",
+        r"\b(\d+[\+\-\*\/]\d+|\d+=\d+)\b",
+        r"\b(equation|theorem|lemma|proof|axiom)\b",
+        r"\b(sin|cos|tan|log|ln|sqrt|integral|derivative)\b",
+    ])
 }
 
 fn default_instruction_patterns() -> Vec<Regex> {
-    vec![
-        Regex::new(r"(?i)\b(please|could\s+you|can\s+you|would\s+you)\s+(explain|help|tell|show|write|create)").expect("valid domain regex: polite requests"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)^(write|create|generate|make|build|design|implement)\s").expect("valid domain regex: imperative"), // safe: hardcoded regex pattern
-        Regex::new(r"(?i)^(what|how|why|when|where|who|which)\s").expect("valid domain regex: question words"), // safe: hardcoded regex pattern
-    ]
+    compile_patterns(&[
+        r"(?i)\b(please|could\s+you|can\s+you|would\s+you)\s+(explain|help|tell|show|write|create)",
+        r"(?i)^(write|create|generate|make|build|design|implement)\s",
+        r"(?i)^(what|how|why|when|where|who|which)\s",
+    ])
 }
 
 impl Default for DomainClassifier {

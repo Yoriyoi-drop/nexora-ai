@@ -39,14 +39,10 @@ impl RetryConfig {
         Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
-        let mut last_err = None;
-        for attempt in 0..=self.max_retries {
+        for attempt in 0..self.max_retries {
             match operation().await {
                 Ok(val) => return Ok(val),
                 Err(e) => {
-                    if attempt == self.max_retries {
-                        return Err(e);
-                    }
                     let delay = self.calculate_delay(attempt);
                     tracing::warn!(
                         "Operation failed (attempt {}/{}): {}. Retrying in {}ms",
@@ -56,11 +52,10 @@ impl RetryConfig {
                         delay
                     );
                     tokio::time::sleep(Duration::from_millis(delay)).await;
-                    last_err = Some(e);
                 }
             }
         }
-        Err(last_err.unwrap())
+        operation().await
     }
 
     pub fn calculate_delay(&self, attempt: u32) -> u64 {

@@ -1,27 +1,29 @@
-# Runtime Configuration
+# ==================================================
+# Runtime Configuration (Production)
+# ==================================================
 
 [scheduler]
-max_concurrent_tasks = 100
+max_concurrent_tasks = 1000
 task_timeout_seconds = 300
-queue_size = 1000
+queue_size = 50000
 
 [executor]
-thread_pool_size = 8
-max_blocking_threads = 32
-keep_alive_seconds = 60
+thread_pool_size = 32
+max_blocking_threads = 128
+keep_alive_seconds = 120
 
 [resource]
-max_memory_mb = 8192
-max_gpu_memory_mb = 16384
+max_memory_mb = 65536
+max_gpu_memory_mb = 0
 enable_gpu = true
-gpu_device_ids = [0]
+gpu_device_ids = []
 
 [monitoring]
 enable_metrics = true
 metrics_port = 9090
-health_check_interval_seconds = 30
+health_check_interval_seconds = 10
 
 [core]
-max_tiers_in_vram = 1
-vram_budget_mb = 24000
-eviction_threshold = 0.85
+max_tiers_in_vram = 3
+vram_budget_mb = 0
+eviction_threshold = 0.90

@@ -8,18 +8,23 @@
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+rustflags = [
+    "-C", "link-arg=-fuse-ld=lld"
+]
 
 [profile.release]
-lto = "thin"                # Thin LTO: 80% perf of fat-LTO, 3-5× faster link
-codegen-units = 8           # Parallel LLVM codegen (8 core)
-opt-level = 3               # Maximum optimization
-strip = "symbols"           # Remove debug symbols from release binary
-panic = "abort"             # Smaller binary, no unwind tables
-overflow-checks = false     # Disable integer overflow checks (perf)
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+panic = "abort"
+overflow-checks = false
+incremental = false
+debug = 1
 
 [profile.dev]
 opt-level = 0
 debug = true
 panic = "unwind"
 overflow-checks = true
+incremental = true

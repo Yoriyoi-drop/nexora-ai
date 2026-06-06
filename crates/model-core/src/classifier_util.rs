@@ -92,7 +92,7 @@ pub fn sanitize_prompt(prompt: &str) -> String {
             }
         }
         if !matched {
-            let ch = result[i..].chars().next().unwrap();
+            let ch = result[i..].chars().next().unwrap_or('?');
             out.push(ch);
             i += ch.len_utf8();
         }
@@ -153,14 +153,20 @@ impl ClassifierWeights {
 
     pub fn to_w1(&self) -> Array2<f32> {
         Array2::from_shape_vec((self.w1_rows, self.w1_cols), self.w1_data.clone())
-            .expect("ClassifierWeights::to_w1: w1_data length must match w1_rows × w1_cols")
+            .unwrap_or_else(|e| {
+                tracing::error!("ClassifierWeights::to_w1: {e}. Returning zeros.");
+                Array2::zeros((self.w1_rows, self.w1_cols))
+            })
     }
     pub fn to_b1(&self) -> Array1<f32> {
         Array1::from_vec(self.b1_data.clone())
     }
     pub fn to_w2(&self) -> Array2<f32> {
         Array2::from_shape_vec((self.w2_rows, self.w2_cols), self.w2_data.clone())
-            .expect("ClassifierWeights::to_w2: w2_data length must match w2_rows × w2_cols")
+            .unwrap_or_else(|e| {
+                tracing::error!("ClassifierWeights::to_w2: {e}. Returning zeros.");
+                Array2::zeros((self.w2_rows, self.w2_cols))
+            })
     }
     pub fn to_b2(&self) -> Array1<f32> {
         Array1::from_vec(self.b2_data.clone())

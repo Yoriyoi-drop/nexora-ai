@@ -274,22 +274,36 @@ pub struct PoolStats {
 }
 
 /// Global tensor pool instance
-static GLOBAL_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::new(|| {
-    match TensorPool::new() {
-        Ok(pool) => pool,
-        Err(e) => {
-            panic!(
-                "Fatal: failed to create global tensor pool ({}). \
-                 This indicates OOM or invalid size category configuration and cannot be recovered.",
+static GLOBAL_TENSOR_POOL: std::sync::LazyLock<std::result::Result<TensorPool, String>> =
+    std::sync::LazyLock::new(|| {
+        TensorPool::new().map_err(|e| {
+            tracing::error!(
+                "Failed to create global tensor pool ({}). \
+                 This indicates OOM or invalid size category configuration.",
+                e
+            );
+            format!(
+                "Failed to create global tensor pool: {}. \
+                 This indicates OOM or invalid size category configuration.",
                 e
             )
-        }
+        })
+    });
+
+impl TensorPool {
+    pub fn global() -> &'static std::result::Result<TensorPool, String> {
+        &GLOBAL_TENSOR_POOL
     }
-});
+}
 
 /// Get global tensor pool
 pub fn global_pool() -> &'static TensorPool {
-    &GLOBAL_TENSOR_POOL
+    match GLOBAL_TENSOR_POOL.as_ref() {
+        Ok(pool) => pool,
+        Err(msg) => {
+            panic!("Global tensor pool init failed: {}. This is a fundamental system failure.", msg)
+        }
+    }
 }
 
 /// RAII wrapper untuk automatic tensor return

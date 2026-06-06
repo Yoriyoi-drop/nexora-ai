@@ -274,7 +274,7 @@ impl Caffeine {
             let compressor = self
                 .atqs_compression
                 .as_mut()
-                .expect("atqs_compression checked Some above");
+                .ok_or_else(|| CaffeineError::Config("ATQS compression unavailable".into()))?;
             let compressed = compressor.compress_tensor_data(&tensor)?;
             self.tensor_to_tokens(&compressed, &tokens)?
         } else {

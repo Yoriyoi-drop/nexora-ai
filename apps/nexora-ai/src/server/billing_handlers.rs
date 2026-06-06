@@ -290,8 +290,13 @@ pub async fn stripe_webhook(
 
         match sig_header {
             Some(sig) => {
-                let mut expected = HmacSha256::new_from_slice(secret.as_bytes())
-                    .expect("HMAC key length valid");
+                let mut expected = match HmacSha256::new_from_slice(secret.as_bytes()) {
+                    Ok(mac) => mac,
+                    Err(e) => {
+                        tracing::error!("HMAC key invalid: {e}. Skipping webhook signature verification.");
+                        return HttpResponse::Unauthorized().body("Invalid webhook configuration");
+                    }
+                };
                 expected.update(&body);
                 let expected_sig = hex::encode(expected.finalize().into_bytes());
 

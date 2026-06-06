@@ -80,10 +80,13 @@ async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("install signal handler")
-            .recv()
-            .await;
+        if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            sig.recv().await;
+        } else {
+            tracing::error!("install signal handler: failed to register terminate signal handler");
+            std::future::pending::<()>().await;
+        }
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();

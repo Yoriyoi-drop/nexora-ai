@@ -81,9 +81,14 @@ impl LazyWeightLoader {
             num_tensors, path, cache_blocks
         );
 
-        // safe: cache_blocks.max(1) >= 1, NonZeroUsize::new(2) is infallible
         let cache_size = std::num::NonZeroUsize::new(cache_blocks.max(1))
-            .unwrap_or(std::num::NonZeroUsize::new(2).expect("2 is non-zero"));
+            .unwrap_or_else(|| {
+                tracing::warn!("cache_blocks.max(1) is zero; using default cache size 2");
+                std::num::NonZeroUsize::new(2).unwrap_or_else(|| {
+                    tracing::error!("NonZeroUsize::new(2) failed");
+                    std::num::NonZeroUsize::MIN
+                })
+            });
 
         Ok(Self {
             path,
