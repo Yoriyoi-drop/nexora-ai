@@ -104,16 +104,16 @@ pub use distributed::*;
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: core interaction untuk scheduler
-fn _runtime_core() {
+pub fn runtime_core() {
     let _config = nexora_core::CoreController::new();
 }
 
 // Nyata: monitoring untuk scheduler observability
-fn _runtime_monitoring() -> nexora_monitoring::MonitoringSystem {
+pub fn runtime_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
 }
 
 // Nyata: utils untuk time formatting dan performance
-fn _runtime_utils() -> nexora_utils::UtilsManager {
+pub fn runtime_utils() -> nexora_utils::UtilsManager {
     nexora_utils::UtilsManager::default()
 }

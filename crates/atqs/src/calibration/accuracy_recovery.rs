@@ -240,6 +240,12 @@ fn apply_adaptive_calibration(
         // Analyze layer-wise error patterns
         let error_patterns = analyze_error_patterns(model, validation_data)?;
 
+        // Compute weight std dev for calibration range estimation
+        let params = model.parameters();
+        for (_name, weights) in params.iter() {
+            let _std_dev = compute_weight_standard_deviation(weights)?;
+        }
+
         // Apply adaptive calibration based on error patterns
         apply_error_based_calibration(model, &error_patterns)?;
 
@@ -890,7 +896,7 @@ fn compute_mse_loss(output: &ArrayD<f32>, target: &ArrayD<f32>) -> Result<f32, c
     Ok(mse)
 }
 
-fn _compute_weight_standard_deviation(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
+pub fn compute_weight_standard_deviation(weights: &ArrayD<f32>) -> Result<f32, crate::ATQSError> {
     let mean = weights.iter().sum::<f32>() / weights.len() as f32;
     let variance = weights.iter().map(|w| (w - mean).powi(2)).sum::<f32>() / weights.len() as f32;
     Ok(variance.sqrt())

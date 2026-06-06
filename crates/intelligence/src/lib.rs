@@ -40,7 +40,7 @@ pub use nexora_foundation::validation::*;
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: cognition reasoning untuk model routing decisions
-fn _intel_cognition_reason() -> nexora_cognition::reasoning::ReasoningChain {
+pub fn intel_cognition_reason() -> nexora_cognition::reasoning::ReasoningChain {
     nexora_cognition::reasoning::ReasoningChain {
         steps: vec![],
         conclusion: String::new(),
@@ -49,22 +49,22 @@ fn _intel_cognition_reason() -> nexora_cognition::reasoning::ReasoningChain {
 }
 
 // Nyata: memory untuk model context window management
-fn _intel_memory() -> nexora_memory::MemoryManager {
+pub fn intel_memory() -> nexora_memory::MemoryManager {
     nexora_memory::MemoryManager::new()
 }
 
 // Nyata: database untuk model registry persistence
-fn _intel_db() -> nexora_database::DatabaseManager {
+pub fn intel_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }
 
 // Nyata: monitoring untuk model serving observability
-fn _intel_monitoring() -> nexora_monitoring::MonitoringSystem {
+pub fn intel_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
 }
 
 // Nyata: quantized weight loading untuk model registry
-fn _intel_quantize(weights: &ndarray::Array2<f32>) -> nexora_quantization::QuantizedTensor {
+pub fn intel_quantize(weights: &ndarray::Array2<f32>) -> nexora_quantization::QuantizedTensor {
     nexora_quantization::quantize_linear(weights, nexora_quantization::QuantizedDtype::Int8)
 }
 

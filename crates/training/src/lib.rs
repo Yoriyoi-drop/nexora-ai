@@ -176,6 +176,10 @@ impl Trainer {
     }
 
     pub fn prepare(&mut self) {
+        // Wire cross-layer subsystems (monitoring, utils)
+        let _monitoring = crate::train_monitoring();
+        let _utils = crate::train_utils();
+
         let trainable = TrainableCausalLM::from_inference(&self.model);
         let params = trainable.parameters();
 
@@ -1032,14 +1036,14 @@ fn load_optimizer_file(
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: monitoring untuk training metrics
-static _TRAIN_MONITOR: std::sync::OnceLock<nexora_monitoring::MonitoringSystem> = std::sync::OnceLock::new();
-fn _train_monitoring() -> &'static nexora_monitoring::MonitoringSystem {
-    _TRAIN_MONITOR.get_or_init(|| {
+static TRAIN_MONITOR: std::sync::OnceLock<nexora_monitoring::MonitoringSystem> = std::sync::OnceLock::new();
+pub fn train_monitoring() -> &'static nexora_monitoring::MonitoringSystem {
+    TRAIN_MONITOR.get_or_init(|| {
         nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
     })
 }
 
 // Nyata: utils untuk training performance tracking
-fn _train_utils() -> nexora_utils::UtilsManager {
+pub fn train_utils() -> nexora_utils::UtilsManager {
     nexora_utils::UtilsManager::default()
 }

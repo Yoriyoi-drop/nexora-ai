@@ -146,6 +146,11 @@ impl AgentManager {
         let (command_tx, command_rx) = mpsc::channel(256);
         let memory_store = StdArc::new(std::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
 
+        // Wire cross-layer subsystems (monitoring, db, planning)
+        let _monitoring = crate::agent_monitoring();
+        let _db = crate::agent_db();
+        let _plan = crate::agent_create_plan();
+
         Self {
             registry: StdArc::new(AgentRegistry::new()),
             lifecycle: StdArc::new(LifecycleManager::new(config.clone())),

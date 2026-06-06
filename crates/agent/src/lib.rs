@@ -100,12 +100,12 @@ pub type Result<T> = std::result::Result<T, AgentError>;
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Isolation check sudah di-wire via QuarantineManager di AgentManager (CF-3)
 // Database untuk persist agent state
-fn _agent_db() -> nexora_database::DatabaseManager {
+pub fn agent_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }
 
 // Nyata: cognition planning untuk agent task decomposition
-fn _agent_create_plan() -> nexora_cognition::planning::Plan {
+pub fn agent_create_plan() -> nexora_cognition::planning::Plan {
     let step = nexora_cognition::planning::PlanStep {
         id: uuid::Uuid::new_v4(),
         action: "process".into(),
@@ -122,12 +122,12 @@ fn _agent_create_plan() -> nexora_cognition::planning::Plan {
 }
 
 // Nyata: monitoring untuk agent observability
-fn _agent_monitoring() -> nexora_monitoring::MonitoringSystem {
+pub fn agent_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
 }
 
 // Nyata: text preprocessing untuk agent prompts
-fn _agent_preprocess(text: &str) -> anyhow::Result<String> {
+pub fn agent_preprocess(text: &str) -> anyhow::Result<String> {
     let utils = nexora_utils::UtilsManager::default();
     utils.preprocess_text(text)
 }

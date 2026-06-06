@@ -95,6 +95,21 @@ impl UtilsManager {
         StringUtils::calculate_similarity(text1, text2)
     }
 
+    /// Compute dot product between two vectors (SIMD-accelerated)
+    pub fn dot_product(&self, a: &[f32], b: &[f32]) -> f32 {
+        simd_ops::SimdVectorOps::dot_product(a, b)
+    }
+
+    /// Compute cosine similarity between two vectors (SIMD-accelerated)
+    pub fn cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
+        simd_ops::SimdVectorOps::cosine_similarity(a, b)
+    }
+
+    /// Compute string similarity (SIMD-accelerated for large inputs)
+    pub fn string_similarity(&self, a: &str, b: &str) -> f32 {
+        simd_ops::SimdTextOps::string_similarity(a, b)
+    }
+
     /// Get system info
     pub async fn get_system_info(&self) -> Result<SystemInfo> {
         let memory_usage = crate::performance::PerformanceMonitor::get_memory_usage()

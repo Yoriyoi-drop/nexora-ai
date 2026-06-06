@@ -326,6 +326,11 @@ impl Tensor {
                 tracing::warn!("to_device(Gpu) not supported in CPU-only build, staying on CPU");
                 Tensor::new(cpu_data)
             }
+            #[cfg(feature = "device-cuda")]
+            Device::Cuda(_) => {
+                tracing::warn!("to_device(Cuda) not supported in CPU-only build, staying on CPU");
+                Tensor::new(cpu_data)
+            }
         }
     }
 

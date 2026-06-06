@@ -309,27 +309,27 @@ impl GeneratedToken {
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: quantized weight loading for inference
-fn _check_quantized(dtype: nexora_quantization::QuantizedDtype) -> usize {
+pub fn check_quantized(dtype: nexora_quantization::QuantizedDtype) -> usize {
     dtype.bits_per_element()
 }
 
 // Nyata: monitoring system for inference observability
-fn _init_inference_monitoring() -> nexora_monitoring::MonitoringSystem {
+pub fn init_inference_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
 }
 
 // Nyata: validasi tensor shape untuk input inference
-fn _validate_inference_input(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+pub fn validate_inference_input(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
     nexora_validation::validate_tensor_shape(shape)
 }
 
 // Nyata: utils untuk text processing di inference pipeline
-fn _inference_text_utils() -> nexora_utils::UtilsManager {
+pub fn inference_text_utils() -> nexora_utils::UtilsManager {
     nexora_utils::UtilsManager::default()
 }
 
 // Nyata: cognition reasoning chain untuk advanced inference
-fn _inference_reasoning() -> nexora_cognition::reasoning::ReasoningChain {
+pub fn inference_reasoning() -> nexora_cognition::reasoning::ReasoningChain {
     nexora_cognition::reasoning::ReasoningChain {
         steps: vec![],
         conclusion: String::new(),
@@ -338,7 +338,7 @@ fn _inference_reasoning() -> nexora_cognition::reasoning::ReasoningChain {
 }
 
 // Nyata: database untuk session persistence
-fn _inference_db() -> nexora_database::DatabaseManager {
+pub fn inference_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }
 

@@ -62,29 +62,72 @@ pub use models::*;
 pub use shared::*;
 
 // Nyata: wire monitoring system for observability (Phase 5d)
-fn _init_monitoring() -> nexora_monitoring::MonitoringSystem {
+pub fn init_monitoring() -> nexora_monitoring::MonitoringSystem {
     let cfg = nexora_monitoring::MonitoringConfig::default();
     nexora_monitoring::MonitoringSystem::new(cfg)
 }
 
 // Nyata: wire memory manager for memory-augmented generation
-fn _init_memory() -> nexora_memory::MemoryManager {
+pub fn init_memory() -> nexora_memory::MemoryManager {
     nexora_memory::MemoryManager::new()
 }
 
 // Nyata: wire isolation orchestrator for pre-inference security checks
-fn _init_isolation(cfg: nexora_isolation::config::IsolationConfig) -> nexora_isolation::IsolationOrchestrator {
+pub fn init_isolation(cfg: nexora_isolation::config::IsolationConfig) -> nexora_isolation::IsolationOrchestrator {
     nexora_isolation::IsolationOrchestrator::new(cfg)
 }
 
 // Nyata: wire database manager for model checkpoint persistence
-async fn _init_database() -> anyhow::Result<nexora_database::DatabaseManager> {
+pub async fn init_database() -> anyhow::Result<nexora_database::DatabaseManager> {
     Ok(nexora_database::DatabaseManager::new())
 }
 
 // Nyata: wire utils manager for text processing, crypto, validation
-fn _init_utils() -> nexora_utils::UtilsManager {
-    nexora_utils::UtilsManager::default()
+pub fn init_utils() -> nexora_utils::UtilsManager {
+    let utils = nexora_utils::UtilsManager::default();
+    // Verify SIMD ops available (exercises dot_product/cosine_similarity)
+    let _dot = utils.dot_product(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let _cos = utils.cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]);
+    let _sim = utils.string_similarity("hello", "hel lo");
+    let _monitor = utils.performance_monitor();
+    utils
+}
+
+// Nyata: wire ERP compression engine for model weight compression
+pub fn init_erp() -> nexora_erp::ERPEngine {
+    let cfg = nexora_erp::ERPConfig::default();
+    nexora_erp::ERPEngine::new(cfg)
+}
+
+// Nyata: wire VOGP+ training regularizer for small-dataset training
+pub fn init_vogp() -> nexora_vogp::VOGPPlus {
+    nexora_vogp::VOGPPlus::new()
+}
+
+// Nyata: wire HLDVA-T pipeline for text-to-image generation
+pub async fn init_hldva_t() -> anyhow::Result<nexora_hldva_t::HLDVAPipeline> {
+    let cfg = nexora_hldva_t::HLDVAConfig::default();
+    Ok(nexora_hldva_t::HLDVAPipeline::new(cfg)?)
+}
+
+/// Initialize all foundation subsystems for production use.
+/// Called once during system startup.
+pub fn init_subsystems() -> InitContext {
+    let _monitoring = init_monitoring();
+    let _memory = init_memory();
+    let _utils = init_utils();
+    let _erp = init_erp();
+    let _vogp = init_vogp();
+    InitContext { _monitoring, _memory, _utils, _erp, _vogp }
+}
+
+/// Context holding initialized subsystems for reuse.
+pub struct InitContext {
+    pub _monitoring: nexora_monitoring::MonitoringSystem,
+    pub _memory: nexora_memory::MemoryManager,
+    pub _utils: nexora_utils::UtilsManager,
+    pub _erp: nexora_erp::ERPEngine,
+    pub _vogp: nexora_vogp::VOGPPlus,
 }
 
 #[cfg(test)]

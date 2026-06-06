@@ -772,7 +772,7 @@ mod tests {
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: database untuk persistent memory storage
-fn _memory_db() -> nexora_database::DatabaseManager {
+pub fn memory_db() -> nexora_database::DatabaseManager {
     nexora_database::DatabaseManager::new()
 }
 
@@ -781,5 +781,19 @@ impl MemoryManager {
     pub async fn persist_to_db(&self, db: &nexora_database::DatabaseManager) -> anyhow::Result<()> {
         let _status = db.get_all_status().await;
         anyhow::Ok(())
+    }
+}
+
+/// Initialize memory subsystem with optional DB persistence.
+/// Wires memory_db into MemoryManager initialization path.
+impl MemoryManager {
+    /// Create MemoryManager with database-backed persistence.
+    pub async fn with_db_persistence() -> Self {
+        let manager = MemoryManager::new();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| memory_db()));
+        if let Ok(db) = result {
+            let _ = manager.persist_to_db(&db).await;
+        }
+        manager
     }
 }

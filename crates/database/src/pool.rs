@@ -202,7 +202,7 @@ pub struct SlowQueryRecord {
 
 /// Health checker for connections
 struct HealthChecker {
-    _test_query: String,
+    pub(crate) test_query: String,
     interval: Duration,
     last_check: Arc<Mutex<Instant>>,
     is_healthy: Arc<RwLock<bool>>,
@@ -225,7 +225,7 @@ impl DatabasePool {
         let slow_query_logger = Arc::new(Mutex::new(Vec::new()));
 
         let health_checker = Arc::new(HealthChecker {
-            _test_query: config.test_query.clone(),
+            test_query: config.test_query.clone(),
             interval: Duration::from_secs(30),
             last_check: Arc::new(Mutex::new(Instant::now())),
             is_healthy: Arc::new(RwLock::new(true)),
@@ -800,10 +800,17 @@ impl OptimizationReport {
 }
 
 impl HealthChecker {
-    async fn _check_health(&self, pool: &PgPool) -> bool {
+    pub(crate) async fn check_health(&self, pool: &PgPool) -> bool {
         let start = Instant::now();
-        sqlx::query(&self._test_query).fetch_one(pool).await.is_ok()
+        sqlx::query(&self.test_query).fetch_one(pool).await.is_ok()
             && start.elapsed() < Duration::from_secs(5)
+    }
+}
+
+impl DatabasePool {
+    /// Check pool health status. Returns true if the pool is responsive.
+    pub async fn health_check(&self) -> bool {
+        self.health_checker.check_health(&self.pool).await
     }
 }
 

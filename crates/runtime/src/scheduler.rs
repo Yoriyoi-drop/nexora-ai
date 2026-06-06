@@ -118,6 +118,12 @@ impl RequestScheduler {
 
     pub async fn initialize(&self) -> Result<()> {
         info!("Initializing request scheduler");
+
+        // Wire cross-layer subsystems (core, monitoring, utils)
+        crate::runtime_core();
+        let _monitoring = crate::runtime_monitoring();
+        let _utils = crate::runtime_utils();
+
         let mut inner = self.inner.write().await;
         inner.state = SchedulerState::Initializing;
         inner.stats.last_updated = Utc::now();

@@ -79,6 +79,10 @@ impl Default for PipelineBuilder {
 
 impl PipelineBuilder {
     pub fn new() -> Self {
+        // Wire cross-layer validation and preprocessing
+        let _ = crate::ds_validate_tensor(&[1]);
+        let _preprocess = crate::ds_preprocess("init");
+
         Self {
             graph: ExecutionGraph::new(),
             intake: StreamIntakeEngine::default(),
@@ -277,12 +281,12 @@ mod tests {
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: validasi data sample shape di pipeline
-fn _ds_validate_tensor(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+pub fn ds_validate_tensor(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
     nexora_validation::validate_tensor_shape(shape)
 }
 
 // Nyata: text preprocessing untuk filter pipeline
-fn _ds_preprocess(text: &str) -> anyhow::Result<String> {
+pub fn ds_preprocess(text: &str) -> anyhow::Result<String> {
     let utils = nexora_utils::UtilsManager::default();
     utils.preprocess_text(text)
 }

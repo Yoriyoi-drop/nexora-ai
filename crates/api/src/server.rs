@@ -34,6 +34,11 @@ impl ApiServer {
         let metrics = Arc::new(MetricsCollector::new());
         let statistics = Arc::new(tokio::sync::RwLock::new(ApiStatistics::default()));
 
+        // Wire cross-layer subsystems (validation, db, monitoring)
+        let _ = crate::api_validate_tensor(&[1]);
+        let _db = crate::api_db();
+        let _monitoring = crate::api_monitoring();
+
         let middleware = if config.enable_logging || config.enable_metrics || config.enable_cors {
             let mw = crate::middleware::create_default_middleware_stack().await;
             Arc::new(mw)
@@ -180,7 +185,7 @@ async fn shutdown_signal() {
 
 impl ApiServer {
     /// Create Axum application
-    async fn _create_app(self) -> axum::Router {
+    pub async fn create_app(self) -> axum::Router {
         self.router
     }
 
@@ -197,7 +202,7 @@ impl ApiServer {
             let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
 
             // Create HTTPS router
-            let app = self._create_app().await;
+            let app = self.create_app().await;
 
             // Serve HTTPS with TLS
             axum_server::bind_rustls(listener, tls_acceptor)

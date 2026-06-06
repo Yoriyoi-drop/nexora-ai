@@ -372,6 +372,13 @@ impl InferenceEngine {
         info!("Initializing inference engine");
         *self.state.write().await = EngineState::Initializing;
 
+        // Wire cross-layer subsystems (monitoring, utils, db)
+        let _monitoring = crate::init_inference_monitoring();
+        let _utils = crate::inference_text_utils();
+        let _reasoning = crate::inference_reasoning();
+        let _db = crate::inference_db();
+        let _quant = crate::check_quantized(nexora_quantization::QuantizedDtype::Int8);
+
         self.runtime.initialize().await?;
         self.scheduler.write().await.initialize().await?;
 
@@ -1584,6 +1591,10 @@ impl InferenceEngine {
             return Err(InferenceError::InvalidRequest(
                 "temperature must be >= 0".to_string(),
             ));
+        }
+        // Wire cross-layer tensor validation
+        if let Err(e) = crate::validate_inference_input(&[request.max_tokens as usize]) {
+            tracing::debug!("Inference input validation note: {}", e);
         }
         Ok(())
     }

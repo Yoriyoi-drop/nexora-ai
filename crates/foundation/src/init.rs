@@ -106,6 +106,9 @@ pub async fn initialize_foundation_models_with_checkpoints(
 ) -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
+    // Initialize foundation subsystems (monitoring, memory, utils)
+    crate::init_subsystems();
+
     let model_ids = NxrModelId::all();
 
     for model_id in &model_ids {

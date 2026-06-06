@@ -115,8 +115,7 @@ pub fn tucker_decompose(
 
     // Compute factor matrices for each mode
     for mode in 0..ndim {
-        let unfolded = unfold_tensor(tensor, mode)?;
-        let (u, _, _) = compute_svd_truncated(&unfolded.view(), ranks[mode])?;
+        let u = compute_factor_matrix(tensor, mode, ranks[mode])?;
         factors.push(u);
     }
 
@@ -233,7 +232,7 @@ fn unfold_tensor(
 }
 
 /// Compute factor matrix for specific mode using SVD
-fn _compute_factor_matrix(
+pub fn compute_factor_matrix(
     tensor: &ArrayD<f32>,
     mode: usize,
     rank: usize,
@@ -279,7 +278,7 @@ fn mode_n_product(
 }
 
 /// Mode-n unfolding of tensor
-fn _mode_n_unfold(
+pub fn mode_n_unfold(
     tensor: &ArrayD<f32>,
     mode: usize,
 ) -> Result<Array<f32, ndarray::Ix2>, crate::ATQSError> {
