@@ -119,6 +119,65 @@ impl HasMoeFFN {
         }
     }
 
+    /// Number of parameter tensors in this HasMoeFFN: 1 (router) + 4 × num_experts
+    pub fn param_count(&self) -> usize {
+        1 + self.config.num_experts * 4
+    }
+
+    /// Collect all parameters as (flat_f32_data, shape) pairs for checkpoint save.
+    /// Order: [router_weight, (fc1, b1, fc2, b2) × num_experts]
+    pub fn collect_params(&self) -> Vec<(Vec<f32>, Vec<usize>)> {
+        let mut params = Vec::with_capacity(self.param_count());
+        if let Some((data, shape)) = self.router.get_weights_flat() {
+            params.push((data, shape));
+        } else {
+            params.push((vec![], vec![0, 0]));
+        }
+        for exp in &self.experts {
+            params.push(exp.get_fc1().unwrap_or((vec![], vec![0, 0])));
+            params.push(exp.fc1_bias_params().unwrap_or((vec![], vec![0])));
+            params.push(exp.get_fc2().unwrap_or((vec![], vec![0, 0])));
+            params.push(exp.fc2_bias_params().unwrap_or((vec![], vec![0])));
+        }
+        params
+    }
+
+    /// Restore parameters from checkpoint data.
+    /// Must be in the same order as `collect_params`.
+    pub fn sync_params(&mut self, params: &[(Vec<f32>, Vec<usize>)]) {
+        if params.is_empty() {
+            return;
+        }
+        let mut idx = 0;
+        if idx < params.len() && !params[idx].0.is_empty() {
+            let (data, shape) = &params[idx];
+            self.router.set_weights_flat(data, shape);
+        }
+        idx += 1;
+        for exp in &mut self.experts {
+            if idx < params.len() && !params[idx].0.is_empty() {
+                let (data, shape) = &params[idx];
+                exp.set_fc1(data, shape);
+            }
+            idx += 1;
+            if idx < params.len() && !params[idx].0.is_empty() {
+                let (data, shape) = &params[idx];
+                exp.set_fc1_bias(data, shape);
+            }
+            idx += 1;
+            if idx < params.len() && !params[idx].0.is_empty() {
+                let (data, shape) = &params[idx];
+                exp.set_fc2(data, shape);
+            }
+            idx += 1;
+            if idx < params.len() && !params[idx].0.is_empty() {
+                let (data, shape) = &params[idx];
+                exp.set_fc2_bias(data, shape);
+            }
+            idx += 1;
+        }
+    }
+
     /// Forward pass through HAS-MoE-FFN
     /// GPU-accelerated: groups tokens by expert, processes batches on GPU.
     pub fn forward(&self, input: &ndarray::Array2<f32>) -> ndarray::Array2<f32> {

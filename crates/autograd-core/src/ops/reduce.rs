@@ -6,8 +6,43 @@ use super::super::tensor::Tensor;
 use crate::gpu::{GpuContext, GpuTensor, ReduceOp};
 #[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
+#[cfg(feature = "cuda")]
+use crate::gpu::CudaRuntime;
 
 pub fn sum(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.sum(cu_input) {
+                    Ok(cuda_result) => {
+                        if !input.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let orig_shape = input.shape();
+                        let shape_saved = ArrayD::from_shape_vec(
+                            vec![orig_shape.len()],
+                            orig_shape.iter().map(|&x| x as f32).collect(),
+                        ).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![shape_saved],
+                            Box::new(|grad, saved| {
+                                let shape_data: Vec<f32> = saved[0].iter().copied().collect();
+                                let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                let grad_val = grad.iter().copied().next().unwrap_or(1.0);
+                                vec![ArrayD::from_elem(orig_shape, grad_val)]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA sum failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let storage = input.storage();
@@ -113,6 +148,41 @@ fn fallback_mean(input: &Tensor) -> Tensor {
 }
 
 pub fn mean(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.mean(cu_input) {
+                    Ok(cuda_result) => {
+                        if !input.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let orig_shape = input.shape();
+                        let numel = input.numel() as f32;
+                        let shape_saved = ArrayD::from_shape_vec(
+                            vec![orig_shape.len()],
+                            orig_shape.iter().map(|&x| x as f32).collect(),
+                        ).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![shape_saved, ArrayD::from_elem(vec![1], numel)],
+                            Box::new(|grad, saved| {
+                                let shape_data: Vec<f32> = saved[0].iter().copied().collect();
+                                let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                let n = saved[1].iter().copied().next().unwrap_or(1.0);
+                                let grad_val = grad.iter().copied().next().unwrap_or(1.0);
+                                vec![ArrayD::from_elem(orig_shape, grad_val / n)]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA mean failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let storage = input.storage();

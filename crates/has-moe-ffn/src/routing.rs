@@ -119,6 +119,25 @@ impl Router {
         })
     }
 
+    /// Get router weights as flat vec + shape (for checkpoint save)
+    pub fn get_weights_flat(&self) -> Option<(Vec<f32>, Vec<usize>)> {
+        self.router_weights.as_ref().map(|w| {
+            let shape = vec![w.len(), w.first().map(|r| r.len()).unwrap_or(0)];
+            let data: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+            (data, shape)
+        })
+    }
+
+    /// Set router weights from flat vec + shape (for checkpoint load)
+    pub fn set_weights_flat(&mut self, data: &[f32], shape: &[usize]) {
+        let (rows, cols) = (shape[0], shape[1]);
+        let mut w = Vec::with_capacity(rows);
+        for r in 0..rows {
+            w.push(data[r * cols..(r + 1) * cols].to_vec());
+        }
+        self.router_weights = Some(w);
+    }
+
     pub fn init_random(&mut self) {
         let num_experts = self.config.num_experts;
         let hidden_size = self.config.hidden_size;

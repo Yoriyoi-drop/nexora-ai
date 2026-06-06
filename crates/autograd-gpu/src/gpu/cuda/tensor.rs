@@ -24,6 +24,10 @@ impl CudaTensor {
         self.device_id
     }
 
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+
     pub fn reshape(&self, new_shape: Vec<usize>) -> Result<Self, String> {
         let expected: usize = new_shape.iter().product();
         if expected != self.numel() {

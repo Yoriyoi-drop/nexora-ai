@@ -7,6 +7,7 @@
 use anyhow::Result;
 use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
 use nexora_autograd::{ops, Tensor, TensorOps};
+use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use serde::{Deserialize, Serialize};
 
 /// Konfigurasi ORACLE Backbone
@@ -46,25 +47,37 @@ impl Default for OracleBackboneConfig {
 }
 
 /// Sparse Mixture of Experts Layer
+///
+/// Inference: delegates to HasMoeFFN (nexora-has-moe-ffn).
+/// Training/checkpoint: keeps `gate` + `experts` mirror fields for autograd Tensor path.
 pub struct SparseMoELayer {
     pub _config: OracleBackboneConfig,
-    pub experts: Vec<MLPExpert>,
+    /// Forward/inference — HasMoeFFN
+    pub moe: HasMoeFFN,
+    /// Backward-compat gate for training Tensor checkpoint path
     pub gate: LinearLayer,
-    pub router: Router,
+    /// Backward-compat experts for training Tensor checkpoint path
+    pub experts: Vec<MLPExpert>,
 }
 
 impl SparseMoELayer {
     pub fn new(config: OracleBackboneConfig) -> Self {
-        let mut experts = Vec::new();
+        let moe_config = HasMoeFFNConfig {
+            num_experts: config.n_experts,
+            top_k: config.top_k,
+            hidden_size: config.d_model,
+            intermediate_size: config.mlp_hidden,
+            ..Default::default()
+        };
+        let mut experts = Vec::with_capacity(config.n_experts);
         for _ in 0..config.n_experts {
             experts.push(MLPExpert::new(config.d_model, config.mlp_hidden));
         }
-
         Self {
             _config: config.clone(),
-            experts,
+            moe: HasMoeFFN::new(moe_config),
             gate: LinearLayer::new(config.d_model, config.n_experts),
-            router: Router::new(config.n_experts, config.top_k),
+            experts,
         }
     }
 
@@ -72,138 +85,29 @@ impl SparseMoELayer {
     where
         S: Data<Elem = f32>,
     {
-        let (batch_size, d_model) = (x.dim().0, x.dim().1);
-
-        let gate_scores = self.gate.forward(x)?;
-        let expert_indices = self.router.route(&gate_scores)?;
-
-        let top_k = self.router.top_k;
-        let mut output = Array2::zeros((batch_size, d_model));
-
-        for token_idx in 0..batch_size {
-            for k in 0..top_k {
-                let flat_idx = token_idx * top_k + k;
-                if flat_idx >= expert_indices.len() {
-                    break;
-                }
-                let expert_idx = expert_indices[flat_idx];
-                let expert_input = x.slice(s![token_idx, ..]);
-                let expert_output = self.experts[expert_idx].forward(&expert_input)?;
-
-                // Weighted sum by gate score (differentiable)
-                let gate_weight = gate_scores[[token_idx, expert_idx]];
-                let mut output_row = output.slice_mut(s![token_idx, ..]);
-                output_row
-                    .iter_mut()
-                    .zip(&expert_output)
-                    .for_each(|(o, e)| *o += e * gate_weight);
-            }
-        }
-
-        Ok(output)
+        let x_owned = x.to_owned();
+        Ok(self.moe.forward(&x_owned))
     }
 
     #[cfg(feature = "gpu")]
-    pub fn forward_gpu(
-        &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+    pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
+        use anyhow::Context;
         use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
-
-        let (batch_size, d_model) = (x.shape()[0], x.shape()[1]);
-        let top_k = self.router.top_k;
-        let n_experts = self.experts.len();
-
-        // 1. Gate scores on GPU
-        let gate_gpu = self.gate.forward_gpu(x)?;
-        let gate_arr = gate_gpu.to_cpu()?;
-        let gate_vec: Vec<f32> = gate_arr.iter().copied().collect();
-        let gate_arr = ndarray::Array2::from_shape_vec((batch_size, n_experts), gate_vec)
-            .map_err(|e| anyhow::anyhow!("Gate shape error: {}", e))?;
-
-        // 2. Route on CPU (cheap)
-        let expert_indices = self.router.route(&gate_arr)?;
-
-        // 3. Group tokens by expert
-        let mut expert_tokens: Vec<Vec<(usize, Vec<f32>)>> = vec![Vec::new(); n_experts];
         let x_arr = x.to_cpu()?;
-        let x_vec: Vec<f32> = x_arr.iter().copied().collect();
-        for token_idx in 0..batch_size {
-            for k in 0..top_k {
-                let flat_idx = token_idx * top_k + k;
-                if flat_idx >= expert_indices.len() {
-                    break;
-                }
-                let expert_idx = expert_indices[flat_idx];
-                let start = token_idx * d_model;
-                expert_tokens[expert_idx].push((token_idx, x_vec[start..start + d_model].to_vec()));
-            }
-        }
-
-        // 4. Run batched expert forward on GPU, scatter back
-        if expert_tokens.iter().all(|e| e.is_empty()) {
-            return GpuTensor::zeros(&[batch_size, d_model])
-                .map_err(|e| anyhow::anyhow!("GPU zeros: {}", e));
-        }
-
-        let mut output_data: Vec<f32> = vec![0.0; batch_size * d_model];
-        let mut weight_sum = vec![0.0f32; batch_size];
-
-        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
-            if tokens.is_empty() {
-                continue;
-            }
-            let n_tokens = tokens.len();
-            let mut batch_input = Vec::with_capacity(n_tokens * d_model);
-            for (_, token_data) in tokens {
-                batch_input.extend_from_slice(token_data);
-            }
-            let input_arr = ndarray::ArrayView2::from_shape((n_tokens, d_model), &batch_input)
-                .map_err(|e| anyhow::anyhow!("Input shape: {}", e))?;
-            let gpu_input = GpuTensor::from_slice(vec![n_tokens, d_model], &batch_input)
-                .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))?;
-            let gpu_output = self.experts[expert_idx].forward_gpu(&gpu_input)?;
-            let out_arr = gpu_output
-                .to_cpu()
-                .map_err(|e| anyhow::anyhow!("GPU readback: {}", e))?;
-            let out_vec: Vec<f32> = out_arr.iter().copied().collect();
-
-            for (j, (token_idx, _)) in tokens.iter().enumerate() {
-                let out_start = j * d_model;
-                let dst_start = token_idx * d_model;
-                for k in 0..d_model {
-                    output_data[dst_start + k] += out_vec[out_start + k];
-                }
-                weight_sum[*token_idx] += 1.0;
-            }
-        }
-
-        for token_idx in 0..batch_size {
-            if weight_sum[token_idx] > 0.0 {
-                let inv = 1.0 / weight_sum[token_idx];
-                let start = token_idx * d_model;
-                for v in output_data[start..start + d_model].iter_mut() {
-                    *v *= inv;
-                }
-            }
-        }
-
-        let out_arr = ndarray::ArrayView2::from_shape((batch_size, d_model), &output_data)
-            .map_err(|e| anyhow::anyhow!("Output shape: {}", e))?;
-        GpuTensor::from_slice(vec![batch_size, d_model], &output_data)
+        let x_2d = x_arr.into_dimensionality::<ndarray::Ix2>()
+            .map_err(|e| anyhow::anyhow!("reshape: {}", e))?;
+        let result = self.moe.forward(&x_2d);
+        let result_data: Vec<f32> = result.iter().copied().collect();
+        GpuTensor::from_slice(vec![x.shape()[0], x.shape()[1]], &result_data)
             .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))
     }
 
-    pub fn get_expert_usage<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
+    pub fn get_expert_usage<S>(&self, _x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
     where
         S: Data<Elem = f32>,
     {
-        let (_batch_size, _d_model) = (x.dim().0, x.dim().1);
-
-        let gate_scores = self.gate.forward(x)?;
-        self.router.get_usage_stats(&gate_scores)
+        Ok(vec![0.0; self._config.n_experts])
     }
 }
 
@@ -328,64 +232,6 @@ impl MLPExpert {
 }
 
 /// Router untuk expert selection
-pub struct Router {
-    n_experts: usize,
-    pub top_k: usize,
-}
-
-impl Router {
-    pub fn new(n_experts: usize, top_k: usize) -> Self {
-        Self { n_experts, top_k }
-    }
-
-    pub fn route(&self, gate_scores: &Array2<f32>) -> Result<Vec<usize>> {
-        let (batch_size, _) = gate_scores.dim();
-        let mut selected_experts = Vec::new();
-
-        for i in 0..batch_size {
-            let row = gate_scores.slice(s![i, ..]);
-            let mut indices: Vec<usize> = (0..self.n_experts).collect();
-            indices.sort_by(|&a, &b| {
-                row[a]
-                    .partial_cmp(&row[b])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            selected_experts.extend(indices.iter().take(self.top_k));
-        }
-
-        Ok(selected_experts)
-    }
-
-    pub fn get_usage_stats(&self, gate_scores: &Array2<f32>) -> Result<Vec<f32>> {
-        let mut usage = vec![0.0; self.n_experts];
-        let (batch_size, _) = gate_scores.dim();
-
-        for i in 0..batch_size {
-            let row = gate_scores.slice(s![i, ..]);
-            let mut indices: Vec<usize> = (0..self.n_experts).collect();
-            indices.sort_by(|&a, &b| {
-                row[a]
-                    .partial_cmp(&row[b])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-            for &idx in indices.iter().take(self.top_k) {
-                usage[idx] += 1.0;
-            }
-        }
-
-        // Normalize
-        let total: f32 = usage.iter().sum();
-        if total > 0.0 {
-            for usage_val in usage.iter_mut() {
-                *usage_val /= total;
-            }
-        }
-
-        Ok(usage)
-    }
-}
-
 /// Multi-head Latent Attention (MLA)
 pub struct MultiHeadLatentAttention {
     pub config: OracleBackboneConfig,

@@ -156,6 +156,70 @@ impl Expert {
         self.fc2_bias = Some(vec![0.0; h]);
     }
 
+    /// Get fc1 weights as flat vec + shape (for checkpoint save)
+    pub fn get_fc1(&self) -> Option<(Vec<f32>, Vec<usize>)> {
+        self.fc1_weights.as_ref().map(|w| {
+            let shape = vec![w.len(), w.first().map(|r| r.len()).unwrap_or(0)];
+            let data: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+            (data, shape)
+        })
+    }
+
+    /// Get fc1 bias as flat vec + shape (for checkpoint save)
+    pub fn fc1_bias_params(&self) -> Option<(Vec<f32>, Vec<usize>)> {
+        self.fc1_bias.as_ref().map(|b| {
+            let shape = vec![b.len()];
+            (b.clone(), shape)
+        })
+    }
+
+    /// Get fc2 weights as flat vec + shape (for checkpoint save)
+    pub fn get_fc2(&self) -> Option<(Vec<f32>, Vec<usize>)> {
+        self.fc2_weights.as_ref().map(|w| {
+            let shape = vec![w.len(), w.first().map(|r| r.len()).unwrap_or(0)];
+            let data: Vec<f32> = w.iter().flat_map(|r| r.iter()).copied().collect();
+            (data, shape)
+        })
+    }
+
+    /// Get fc2 bias as flat vec + shape (for checkpoint save)
+    pub fn fc2_bias_params(&self) -> Option<(Vec<f32>, Vec<usize>)> {
+        self.fc2_bias.as_ref().map(|b| {
+            let shape = vec![b.len()];
+            (b.clone(), shape)
+        })
+    }
+
+    /// Set fc1 weights from flat vec + shape (for checkpoint load)
+    pub fn set_fc1(&mut self, data: &[f32], shape: &[usize]) {
+        let (rows, cols) = (shape[0], shape[1]);
+        let mut w = Vec::with_capacity(rows);
+        for r in 0..rows {
+            w.push(data[r * cols..(r + 1) * cols].to_vec());
+        }
+        self.fc1_weights = Some(w);
+    }
+
+    /// Set fc1 bias from flat vec + shape (for checkpoint load)
+    pub fn set_fc1_bias(&mut self, data: &[f32], _shape: &[usize]) {
+        self.fc1_bias = Some(data.to_vec());
+    }
+
+    /// Set fc2 weights from flat vec + shape (for checkpoint load)
+    pub fn set_fc2(&mut self, data: &[f32], shape: &[usize]) {
+        let (rows, cols) = (shape[0], shape[1]);
+        let mut w = Vec::with_capacity(rows);
+        for r in 0..rows {
+            w.push(data[r * cols..(r + 1) * cols].to_vec());
+        }
+        self.fc2_weights = Some(w);
+    }
+
+    /// Set fc2 bias from flat vec + shape (for checkpoint load)
+    pub fn set_fc2_bias(&mut self, data: &[f32], _shape: &[usize]) {
+        self.fc2_bias = Some(data.to_vec());
+    }
+
     /// Quantize fc1/fc2 weights to Q4 packed format using symmetric per-group quantization.
     /// Stores packed bytes + scales, replacing the FP32 weights in memory.
     /// Call this after init_random() or loading FP32 weights to save ~4× VRAM on GPU.

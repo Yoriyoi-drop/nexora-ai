@@ -4281,6 +4281,7 @@ dependencies = [
  "ndarray-rand",
  "nexora-autograd",
  "nexora-core",
+ "nexora-has-moe-ffn",
  "once_cell",
  "proc-macro2",
  "quote",

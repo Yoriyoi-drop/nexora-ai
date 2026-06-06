@@ -11,6 +11,28 @@ use super::tensor::CudaTensor;
 
 static CUDA_CTX: OnceCell<Arc<CudaRuntime>> = OnceCell::new();
 
+macro_rules! launch_1d {
+    ($self:ident, $func:ident, $numel:expr, $out:ident $(, $arg:expr)*) => {{
+        let cfg = LaunchConfig {
+            grid: (($numel as u32 + 255) / 256).max(1),
+            block: 256,
+            shared_mem_bytes: 0,
+        };
+        unsafe {
+            let mut builder = $self.stream.launch_builder(&$func);
+            builder.arg(&mut $out);
+            $(builder.arg($arg);)*
+            builder.launch(cfg).map_err(|e| format!("kernel launch: {e}"))?;
+        }
+    }};
+}
+
+macro_rules! compile_simple {
+    ($self:ident, $name:expr, $source:expr) => {{
+        $self.get_or_compile_kernel($name, $source)
+    }};
+}
+
 /// Global CUDA runtime singleton.
 pub struct CudaRuntime {
     pub device: CudaDevice,
@@ -1041,5 +1063,1347 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             buffer: out,
             device_id: self.device_id,
         })
+    }
+
+    // ── Buffer ops ──────────────────────────────────────────────────
+
+    pub fn fill_zero(&self, t: &CudaTensor) -> Result<(), String> {
+        let numel = t.numel();
+        let func = compile_simple!(self, "fill_zero_f32", r#"
+extern "C" __global__ void fill_zero_f32(float* buf, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) buf[i] = 0.0f;
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&t.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_zero: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn fill_constant(&self, t: &CudaTensor, value: f32) -> Result<(), String> {
+        let numel = t.numel();
+        let func = compile_simple!(self, "fill_constant_f32", r#"
+extern "C" __global__ void fill_constant_f32(float* buf, float val, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) buf[i] = val;
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&t.buffer); b.arg(&value); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_constant: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn scale_inplace(&self, t: &CudaTensor, scale: f32) -> Result<(), String> {
+        let numel = t.numel();
+        let func = compile_simple!(self, "scale_inplace_f32", r#"
+extern "C" __global__ void scale_inplace_f32(float* buf, float scale, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) buf[i] *= scale;
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&t.buffer); b.arg(&scale); b.arg(&numel); b.launch(cfg).map_err(|e| format!("scale_inplace: {e}"))?;
+        }
+        Ok(())
+    }
+
+    // ── Reduce ops ──────────────────────────────────────────────────
+
+    fn reduce_1d(&self, input: &CudaTensor, op: &str, expr: &str, init: &str) -> Result<CudaTensor, String> {
+        let shape = input.shape();
+        let numel = input.numel();
+        if shape.len() != 1 && !(shape.len() == 2 && shape[0] == 1) {
+            // Flatten for 1D reduction
+            let flat = input.reshape(vec![1, numel])?;
+            return self.reduce_1d(&flat, op, expr, init);
+        }
+        let kernel_name = format!("reduce_{}_1d", op);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, size_t numel) {{
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    float val = {init};
+    for (unsigned int i = tid; i < numel; i += blockDim.x) {{
+        val = {expr};
+    }}
+    shared[tid] = val;
+    __syncthreads();
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {{
+        if (tid < s) {{
+            shared[tid] = {expr};
+        }}
+        __syncthreads();
+    }}
+    if (tid == 0) out[0] = shared[0];
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let mut out_buf = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("reduce scratch: {e}"))?;
+        let cfg = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out_buf); b.arg(input.buffer()); b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("reduce_{} launch: {e}", op))?;
+        }
+        Ok(CudaTensor { shape: vec![1], buffer: out_buf, device_id: self.device_id })
+    }
+
+    pub fn sum(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        self.reduce_1d(input, "sum", "val + a[i]", "0.0f")
+    }
+
+    pub fn max_val(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        self.reduce_1d(input, "max", "fmaxf(val, a[i])", "-INFINITY")
+    }
+
+    pub fn min_val(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        self.reduce_1d(input, "min", "fminf(val, a[i])", "INFINITY")
+    }
+
+    pub fn mean(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        let sum = self.sum(input)?;
+        let numel = input.numel() as f32;
+        self.elementwise_unary_scalar_impl(&sum, "div", "a[i] / scalar", numel)
+    }
+
+    pub fn l2_norm(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        let numel = input.numel();
+        let kernel_name = "l2_norm_f32";
+        let source = r#"
+extern "C" __global__ void l2_norm_f32(float* __restrict__ out,
+    const float* __restrict__ a, size_t numel) {
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    float sum_sq = 0.0f;
+    for (unsigned int i = tid; i < numel; i += blockDim.x) {
+        sum_sq += a[i] * a[i];
+    }
+    shared[tid] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) { shared[tid] += shared[tid + s]; }
+        __syncthreads();
+    }
+    if (tid == 0) out[0] = sqrtf(shared[0]);
+}"#;
+        let func = self.get_or_compile_kernel(kernel_name, source)?;
+        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("l2_norm scratch: {e}"))?;
+        let cfg = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(input.buffer()); b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("l2_norm launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+    }
+
+    // ── RMS Norm ────────────────────────────────────────────────────
+
+    pub fn rms_norm(&self, x: &CudaTensor, weight: &CudaTensor, eps: f32) -> Result<CudaTensor, String> {
+        let shape = x.shape();
+        if shape.len() != 2 {
+            return Err(format!("rms_norm: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = x.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("rms_norm scratch: {e}"))?;
+
+        let kernel_name = format!("rms_norm_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ x, const float* __restrict__ weight,
+    size_t rows, size_t cols, float eps) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float sum_sq = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float v = x[row * cols + i];
+        sum_sq += v * v;
+    }}
+    shared[tid] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }}
+    float rms = sqrtf(shared[0] / (float)cols + eps);
+    float inv_rms = 1.0f / rms;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        out[row * cols + i] = x[row * cols + i] * inv_rms * weight[i];
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = cols.next_power_of_two().min(256).max(32);
+        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer());
+            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.launch(cfg).map_err(|e| format!("rms_norm launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    pub fn rms_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor), String> {
+        let shape = input.shape();
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = input.numel();
+        let mut dx = self.scratch_f32(numel).map_err(|e| format!("rms_norm_bwd scratch: {e}"))?;
+        let mut dw = self.scratch_f32(cols).map_err(|e| format!("rms_norm_bwd dw scratch: {e}"))?;
+        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: dw.clone(), device_id: self.device_id })?;
+
+        let kernel_name = format!("rms_norm_bwd_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(
+    float* __restrict__ dx, float* __restrict__ dw,
+    const float* __restrict__ x, const float* __restrict__ weight,
+    const float* __restrict__ grad,
+    size_t rows, size_t cols, float eps) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float sum_sq = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float v = x[row * cols + i];
+        sum_sq += v * v;
+    }}
+    shared[tid] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }}
+    float rms = sqrtf(shared[0] / (float)cols + eps);
+    float inv_rms = 1.0f / rms;
+    float inv_norm = inv_rms / (float)cols;
+
+    float sum_dot = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float xi = x[row * cols + i];
+        float gi = grad[row * cols + i];
+        float wi = weight[i];
+        float normed = xi * inv_rms;
+        dx[row * cols + i] = gi * wi * inv_rms - normed * (gi * wi * xi * inv_norm);
+        sum_dot += gi * normed;
+    }}
+    shared[tid] = sum_dot;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }}
+    float row_dot = shared[0];
+
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float xi = x[row * cols + i];
+        float gi = grad[row * cols + i];
+        float normed = xi * inv_rms;
+        dx[row * cols + i] = (gi - row_dot * normed) * weight[i] * inv_rms;
+    }}
+
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float xi = x[row * cols + i];
+        float gi = grad[row * cols + i];
+        atomicAdd(&dw[i], gi * normed);
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = cols.next_power_of_two().min(256).max(32);
+        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut dx); b.arg(&mut dw);
+            b.arg(input.buffer()); b.arg(weight.buffer()); b.arg(grad.buffer());
+            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.launch(cfg).map_err(|e| format!("rms_norm_bwd launch: {e}"))?;
+        }
+        Ok((CudaTensor { shape: shape.clone(), buffer: dx, device_id: self.device_id },
+            CudaTensor { shape: vec![cols], buffer: dw, device_id: self.device_id }))
+    }
+
+    // ── Layer Norm ──────────────────────────────────────────────────
+
+    pub fn layer_norm(&self, x: &CudaTensor, weight: &CudaTensor, bias: &CudaTensor, eps: f32) -> Result<CudaTensor, String> {
+        let shape = x.shape();
+        if shape.len() != 2 {
+            return Err(format!("layer_norm: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = x.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("layer_norm scratch: {e}"))?;
+
+        let kernel_name = format!("layer_norm_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ x, const float* __restrict__ weight,
+    const float* __restrict__ bias, size_t rows, size_t cols, float eps) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float sum = 0.0f, sum_sq = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float v = x[row * cols + i];
+        sum += v;
+        sum_sq += v * v;
+    }}
+    shared[tid] = sum;
+    shared[tid + n] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) {{
+            shared[tid] += shared[tid + s];
+            shared[tid + n] += shared[tid + s + n];
+        }}
+        __syncthreads();
+    }}
+    float mean = shared[0] / (float)cols;
+    float var = shared[n] / (float)cols - mean * mean;
+    float inv_std = rsqrtf(var + eps);
+    for (unsigned int i = tid; i < cols; i += n) {{
+        out[row * cols + i] = (x[row * cols + i] - mean) * inv_std * weight[i] + bias[i];
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = cols.next_power_of_two().min(256).max(32);
+        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 8) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer()); b.arg(bias.buffer());
+            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.launch(cfg).map_err(|e| format!("layer_norm launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    pub fn layer_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, bias: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
+        let shape = input.shape();
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = input.numel();
+        let mut dx = self.scratch_f32(numel).map_err(|e| format!("ln_bwd dx scratch: {e}"))?;
+        let mut dw = self.scratch_f32(cols).map_err(|e| format!("ln_bwd dw scratch: {e}"))?;
+        let mut db = self.scratch_f32(cols).map_err(|e| format!("ln_bwd db scratch: {e}"))?;
+        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: dw.clone(), device_id: self.device_id })?;
+        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: db.clone(), device_id: self.device_id })?;
+
+        let kernel_name = format!("ln_bwd_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(
+    float* __restrict__ dx, float* __restrict__ dw, float* __restrict__ db,
+    const float* __restrict__ x, const float* __restrict__ weight,
+    const float* __restrict__ grad, size_t rows, size_t cols, float eps) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float sum = 0.0f, sum_sq = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float v = x[row * cols + i];
+        sum += v;
+        sum_sq += v * v;
+    }}
+    shared[tid] = sum; shared[tid + n] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) {{ shared[tid] += shared[tid + s]; shared[tid + n] += shared[tid + s + n]; }}
+        __syncthreads();
+    }}
+    float mean = shared[0] / (float)cols;
+    float var = shared[n] / (float)cols - mean * mean;
+    float inv_std = rsqrtf(var + eps);
+
+    float d_mean = 0.0f, d_var = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float xi = x[row * cols + i];
+        float gi = grad[row * cols + i];
+        float wi = weight[i];
+        float normed = (xi - mean) * inv_std;
+        d_mean += gi * wi * (-inv_std);
+        d_var += gi * wi * (xi - mean) * (-0.5f * inv_std * inv_std * inv_std);
+    }}
+    shared[tid] = d_mean; shared[tid + n] = d_var;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) {{ shared[tid] += shared[tid + s]; shared[tid + n] += shared[tid + s + n]; }}
+        __syncthreads();
+    }}
+    float g_mean = shared[0], g_var = shared[n];
+
+    for (unsigned int i = tid; i < cols; i += n) {{
+        float xi = x[row * cols + i];
+        float gi = grad[row * cols + i];
+        float wi = weight[i];
+        float normed = (xi - mean) * inv_std;
+        float dxi = gi * wi * inv_std + g_mean / (float)cols
+            + g_var * 2.0f * (xi - mean) / (float)cols;
+        dx[row * cols + i] = dxi;
+        atomicAdd(&dw[i], gi * normed);
+        atomicAdd(&db[i], gi);
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = cols.next_power_of_two().min(256).max(32);
+        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 8) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut dx); b.arg(&mut dw); b.arg(&mut db);
+            b.arg(input.buffer()); b.arg(weight.buffer()); b.arg(grad.buffer());
+            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.launch(cfg).map_err(|e| format!("ln_bwd launch: {e}"))?;
+        }
+        Ok((CudaTensor { shape: shape.clone(), buffer: dx, device_id: self.device_id },
+            CudaTensor { shape: vec![cols], buffer: dw, device_id: self.device_id },
+            CudaTensor { shape: vec![cols], buffer: db, device_id: self.device_id }))
+    }
+
+    // ── Cross Entropy ───────────────────────────────────────────────
+
+    pub fn cross_entropy(&self, logits: &CudaTensor, targets: &CudaTensor) -> Result<CudaTensor, String> {
+        let shape = logits.shape();
+        if shape.len() != 2 {
+            return Err(format!("cross_entropy: expected 2D logits, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("ce scratch: {e}"))?;
+
+        let kernel_name = format!("cross_entropy_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ loss,
+    const float* __restrict__ logits, const float* __restrict__ targets,
+    size_t rows, size_t cols) {{
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float total_loss = 0.0f;
+    for (unsigned int row = 0; row < rows; row++) {{
+        if (tid == 0) {{
+            float max_val = -INFINITY;
+            for (unsigned int j = 0; j < cols; j++) {{
+                max_val = fmaxf(max_val, logits[row * cols + j]);
+            }}
+            float sum_exp = 0.0f;
+            for (unsigned int j = 0; j < cols; j++) {{
+                sum_exp += expf(logits[row * cols + j] - max_val);
+            }}
+            int target = (int)targets[row];
+            float log_softmax = logits[row * cols + target] - max_val - logf(sum_exp);
+            total_loss += -log_softmax;
+        }}
+    }}
+    if (tid == 0) loss[0] = total_loss / (float)rows;
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: 1, block: 32, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(logits.buffer()); b.arg(targets.buffer());
+            b.arg(&rows); b.arg(&cols);
+            b.launch(cfg).map_err(|e| format!("cross_entropy launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+    }
+
+    pub fn cross_entropy_backward(&self, softmax: &CudaTensor, grad: &CudaTensor, targets: &CudaTensor) -> Result<CudaTensor, String> {
+        let shape = softmax.shape();
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = softmax.numel();
+        let mut dlogits = self.scratch_f32(numel).map_err(|e| format!("ce_bwd scratch: {e}"))?;
+
+        let kernel_name = format!("ce_bwd_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ dlogits,
+    const float* __restrict__ softmax, const float* __restrict__ grad,
+    const float* __restrict__ targets, size_t rows, size_t cols) {{
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = rows * cols;
+    if (i >= total) return;
+    unsigned int row = i / cols;
+    unsigned int col = i % cols;
+    float g = grad[row];  // scalar gradient from upstream
+    int target = (int)targets[row];
+    float soft = softmax[i];
+    float diag = (col == (unsigned int)target) ? 1.0f : 0.0f;
+    dlogits[i] = g * (soft - diag) / (float)rows;
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut dlogits); b.arg(softmax.buffer()); b.arg(grad.buffer()); b.arg(targets.buffer());
+            b.arg(&rows); b.arg(&cols);
+            b.launch(cfg).map_err(|e| format!("ce_bwd launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: dlogits, device_id: self.device_id })
+    }
+
+    // ── Embedding ───────────────────────────────────────────────────
+
+    pub fn embedding(&self, ids: &CudaTensor, weight: &CudaTensor) -> Result<CudaTensor, String> {
+        let ids_shape = ids.shape();
+        let w_shape = weight.shape();
+        if w_shape.len() != 2 {
+            return Err(format!("embedding: weight must be 2D, got {}D", w_shape.len()));
+        }
+        let vocab = w_shape[0];
+        let dim = w_shape[1];
+        let num_ids = ids.numel();
+        let out_shape: Vec<usize> = ids_shape.iter().chain(std::iter::once(&dim)).copied().collect();
+        let mut out = self.scratch_f32(num_ids * dim).map_err(|e| format!("embedding scratch: {e}"))?;
+
+        let kernel_name = format!("embedding_f32_{}", dim);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ ids_f, const float* __restrict__ weight,
+    size_t num_ids, size_t vocab, size_t dim) {{
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = num_ids * dim;
+    if (i >= total) return;
+    unsigned int id_pos = i / dim;
+    unsigned int d = i % dim;
+    int token_id = (int)ids_f[id_pos];
+    if (token_id >= 0 && token_id < (int)vocab) {{
+        out[i] = weight[token_id * dim + d];
+    }} else {{
+        out[i] = 0.0f;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let total = num_ids * dim;
+        let cfg = LaunchConfig { grid: ((total as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(ids.buffer()); b.arg(weight.buffer());
+            b.arg(&num_ids); b.arg(&vocab); b.arg(&dim);
+            b.launch(cfg).map_err(|e| format!("embedding launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: out_shape, buffer: out, device_id: self.device_id })
+    }
+
+    pub fn embedding_backward(&self, ids: &CudaTensor, grad: &CudaTensor, vocab_size: usize) -> Result<CudaTensor, String> {
+        let dim = if grad.shape().len() >= 2 { grad.shape()[grad.ndim() - 1] } else { 0 };
+        let num_ids = ids.numel();
+        let mut dw = self.scratch_f32(vocab_size * dim).map_err(|e| format!("embedding_bwd scratch: {e}"))?;
+        self.fill_zero(&CudaTensor { shape: vec![vocab_size * dim], buffer: dw.clone(), device_id: self.device_id })?;
+
+        let grad_shape = grad.shape();
+        let grad_flat = if grad_shape.len() > 2 {
+            let flat: Vec<usize> = vec![num_ids, dim];
+            grad.reshape(flat)?
+        } else {
+            grad.clone()
+        };
+
+        let func = compile_simple!(self, "embedding_bwd_f32", r#"
+extern "C" __global__ void embedding_bwd_f32(float* __restrict__ dw,
+    const float* __restrict__ ids_f, const float* __restrict__ grad,
+    size_t num_ids, size_t dim) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = num_ids * dim;
+    if (i >= total) return;
+    unsigned int id_pos = i / dim;
+    unsigned int d = i % dim;
+    int token_id = (int)ids_f[id_pos];
+    atomicAdd(&dw[token_id * dim + d], grad[i]);
+}"#)?;
+        let total = num_ids * dim;
+        let cfg = LaunchConfig { grid: ((total as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut dw); b.arg(ids.buffer()); b.arg(grad_flat.buffer());
+            b.arg(&num_ids); b.arg(&dim);
+            b.launch(cfg).map_err(|e| format!("embedding_bwd launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![vocab_size, dim], buffer: dw, device_id: self.device_id })
+    }
+
+    // ── Causal Softmax ──────────────────────────────────────────────
+
+    pub fn causal_softmax(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        let shape = input.shape();
+        if shape.len() != 2 {
+            return Err(format!("causal_softmax: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = input.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("causal_softmax scratch: {e}"))?;
+
+        let kernel_name = format!("causal_softmax_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, size_t rows, size_t cols) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    float max_val = -INFINITY;
+    for (unsigned int j = tid; j <= row && j < cols; j += n) {{
+        max_val = fmaxf(max_val, a[row * cols + j]);
+    }}
+    extern __shared__ float shared[];
+    shared[tid] = max_val;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] = fmaxf(shared[tid], shared[tid + s]);
+        __syncthreads();
+    }}
+    float global_max = shared[0];
+    __syncthreads();
+
+    float sum_exp = 0.0f;
+    for (unsigned int j = tid; j <= row && j < cols; j += n) {{
+        float e = expf(a[row * cols + j] - global_max);
+        out[row * cols + j] = e;
+        sum_exp += e;
+    }}
+    // Zero out positions beyond row
+    for (unsigned int j = tid + row + 1; j < cols; j += n) {{
+        out[row * cols + j] = 0.0f;
+    }}
+    shared[tid] = sum_exp;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }}
+    float global_sum = shared[0];
+    __syncthreads();
+
+    float inv_sum = global_sum > 0.0f ? 1.0f / global_sum : 0.0f;
+    for (unsigned int j = tid; j <= row && j < cols; j += n) {{
+        out[row * cols + j] *= inv_sum;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = cols.next_power_of_two().min(256).max(32);
+        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
+            b.launch(cfg).map_err(|e| format!("causal_softmax launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    // ── Rotary Embedding ────────────────────────────────────────────
+
+    pub fn rotary_embedding(&self, x: &CudaTensor, cos: &CudaTensor, sin: &CudaTensor, head_dim: u32) -> Result<CudaTensor, String> {
+        let shape = x.shape();
+        let numel = x.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("rotary scratch: {e}"))?;
+
+        let func = compile_simple!(self, "rotary_embedding_f32", r#"
+extern "C" __global__ void rotary_embedding_f32(float* __restrict__ out,
+    const float* __restrict__ x, const float* __restrict__ cos_t,
+    const float* __restrict__ sin_t, size_t numel, unsigned int head_dim) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numel) return;
+    unsigned int pos = (i / head_dim);
+    unsigned int d = i % head_dim;
+    unsigned int half = head_dim / 2;
+    float cos_val = cos_t[pos * half + (d % half)];
+    float sin_val = sin_t[pos * half + (d % half)];
+    if (d < half) {
+        float x_pair = x[i + half];
+        out[i] = x[i] * cos_val - x_pair * sin_val;
+    } else {
+        float x_pair = x[i - half];
+        out[i] = x[i] * cos_val + x_pair * sin_val;
+    }
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(x.buffer()); b.arg(cos.buffer()); b.arg(sin.buffer());
+            b.arg(&numel); b.arg(&head_dim);
+            b.launch(cfg).map_err(|e| format!("rotary launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    // ── Repeat Heads (GQA) ──────────────────────────────────────────
+
+    pub fn repeat_heads(&self, src: &CudaTensor, kv_heads: u32, q_heads: u32, dim: u32) -> Result<CudaTensor, String> {
+        let shape = src.shape();
+        if shape.len() != 4 {
+            return Err(format!("repeat_heads: expected 4D, got {}D", shape.len()));
+        }
+        let batch = shape[0];
+        let seq = shape[2];
+        let numel = batch as u32 * q_heads * seq as u32 * dim;
+        let out_shape = vec![batch, q_heads as usize, seq, dim as usize];
+        let mut out = self.scratch_f32(numel as usize).map_err(|e| format!("repeat_heads scratch: {e}"))?;
+
+        let func = compile_simple!(self, "repeat_heads_f32", r#"
+extern "C" __global__ void repeat_heads_f32(float* __restrict__ out,
+    const float* __restrict__ src, size_t batch, unsigned int kv_heads,
+    unsigned int q_heads, unsigned int seq, unsigned int dim) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * q_heads * seq * dim;
+    if (i >= total) return;
+    unsigned int d = i % dim;
+    unsigned int s = (i / dim) % seq;
+    unsigned int h = (i / (seq * dim)) % q_heads;
+    unsigned int b = i / (q_heads * seq * dim);
+    unsigned int src_h = h % kv_heads;
+    size_t src_idx = ((b * kv_heads + src_h) * seq + s) * dim + d;
+    out[i] = src[src_idx];
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(src.buffer()); b.arg(&batch); b.arg(&kv_heads);
+            b.arg(&q_heads); b.arg(&seq); b.arg(&dim);
+            b.launch(cfg).map_err(|e| format!("repeat_heads launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: out_shape, buffer: out, device_id: self.device_id })
+    }
+
+    // ── Sampling ops ────────────────────────────────────────────────
+
+    pub fn temperature_scale(&self, logits: &CudaTensor, temperature: f32) -> Result<CudaTensor, String> {
+        if temperature <= 0.0 || temperature.abs() < 1e-8 {
+            return Ok(logits.clone());
+        }
+        self.elementwise_unary_scalar_impl(logits, "div", "a[i] / scalar", temperature)
+    }
+
+    pub fn top_k_mask(&self, logits: &CudaTensor, k: u32) -> Result<CudaTensor, String> {
+        let shape = logits.shape();
+        if shape.len() != 2 {
+            return Err(format!("top_k: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = logits.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("top_k scratch: {e}"))?;
+
+        let kernel_name = format!("top_k_mask_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ logits, size_t rows, size_t cols, unsigned int k) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    // Copy to local
+    extern __shared__ float shared[];
+    for (unsigned int i = tid; i < cols; i += n) {{
+        shared[i] = logits[row * cols + i];
+    }}
+    __syncthreads();
+
+    // Find k-th largest value (simple iterative selection)
+    float kth_val = -INFINITY;
+    for (unsigned int ki = 0; ki < k && ki < cols; ki++) {{
+        float max_v = -INFINITY;
+        unsigned int max_idx = 0;
+        for (unsigned int i = 0; i < cols; i++) {{
+            if (shared[i] > max_v) {{ max_v = shared[i]; max_idx = i; }}
+        }}
+        if (ki == k - 1) kth_val = max_v;
+        shared[max_idx] = -INFINITY;
+    }}
+
+    for (unsigned int i = tid; i < cols; i += n) {{
+        out[row * cols + i] = (logits[row * cols + i] >= kth_val) ? logits[row * cols + i] : -INFINITY;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols * 4) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&k);
+            b.launch(cfg).map_err(|e| format!("top_k launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    pub fn top_p_mask(&self, logits: &CudaTensor, p: f32) -> Result<CudaTensor, String> {
+        let shape = logits.shape();
+        if shape.len() != 2 {
+            return Err(format!("top_p: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = logits.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("top_p scratch: {e}"))?;
+
+        let kernel_name = format!("top_p_mask_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ logits, size_t rows, size_t cols, float p) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    extern __shared__ float shared[];
+    for (unsigned int i = tid; i < cols; i += n) {{
+        shared[i] = logits[row * cols + i];
+    }}
+    __syncthreads();
+
+    // Sort descending (simple bubble sort for shared memory)
+    for (unsigned int i = 0; i < cols - 1; i++) {{
+        for (unsigned int j = 0; j < cols - i - 1; j++) {{
+            if (shared[j] < shared[j + 1]) {{
+                float tmp = shared[j];
+                shared[j] = shared[j + 1];
+                shared[j + 1] = tmp;
+            }}
+        }}
+    }}
+
+    // Softmax the sorted values
+    float max_v = shared[0];
+    float sum_exp = 0.0f;
+    for (unsigned int i = 0; i < cols; i++) {{
+        sum_exp += expf(shared[i] - max_v);
+    }}
+    float cum = 0.0f;
+    float threshold = -INFINITY;
+    for (unsigned int i = 0; i < cols; i++) {{
+        float prob = expf(shared[i] - max_v) / sum_exp;
+        cum += prob;
+        if (cum > p) {{ threshold = shared[i]; break; }}
+    }}
+
+    for (unsigned int i = tid; i < cols; i += n) {{
+        out[row * cols + i] = (logits[row * cols + i] >= threshold) ? logits[row * cols + i] : -INFINITY;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols * 4) as u32 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&p);
+            b.launch(cfg).map_err(|e| format!("top_p launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    pub fn multinomial_sample(&self, logits: &CudaTensor, seed: u64) -> Result<CudaTensor, String> {
+        let shape = logits.shape();
+        if shape.len() != 2 {
+            return Err(format!("multinomial: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let mut out = self.stream.alloc_zeros::<f32>(rows).map_err(|e| format!("multinomial scratch: {e}"))?;
+
+        let kernel_name = format!("multinomial_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ logits, size_t rows, size_t cols, unsigned long long seed) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    unsigned int tid = threadIdx.x;
+    unsigned int n = blockDim.x;
+
+    extern __shared__ float shared[];
+
+    // Find max
+    float max_v = -INFINITY;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        max_v = fmaxf(max_v, logits[row * cols + i]);
+    }}
+    shared[tid] = max_v;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] = fmaxf(shared[tid], shared[tid + s]);
+        __syncthreads();
+    }}
+    float gmax = shared[0];
+    __syncthreads();
+
+    // Compute softmax denominator
+    float sum_exp = 0.0f;
+    for (unsigned int i = tid; i < cols; i += n) {{
+        sum_exp += expf(logits[row * cols + i] - gmax);
+    }}
+    shared[tid] = sum_exp;
+    __syncthreads();
+    for (unsigned int s = n / 2; s > 0; s >>= 1) {{
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }}
+    float total = shared[0];
+    __syncthreads();
+
+    // CDF walk with PRNG
+    if (tid == 0) {{
+        unsigned long long rng = seed + row * 6364136223846793005ULL;
+        rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
+        float r = (float)(rng >> 33) / (float)(1UL << 31);
+        float cum = 0.0f;
+        for (unsigned int i = 0; i < cols; i++) {{
+            cum += expf(logits[row * cols + i] - gmax) / total;
+            if (r <= cum || i == cols - 1) {{ out[row] = (float)i; break; }}
+        }}
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols.min(256).max(32) as u32 * 4) };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&seed);
+            b.launch(cfg).map_err(|e| format!("multinomial launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![rows], buffer: out, device_id: self.device_id })
+    }
+
+    pub fn dropout_mask(&self, mask: &CudaTensor, rate: f32, scale: f32, seed: u32) -> Result<(), String> {
+        let numel = mask.numel();
+        let func = compile_simple!(self, "dropout_mask_f32", r#"
+extern "C" __global__ void dropout_mask_f32(float* __restrict__ mask,
+    float rate, float scale, unsigned int seed, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numel) return;
+    unsigned int rng = seed + i * 1103515245u;
+    rng = rng * 1103515245u + 12345u;
+    float r = (float)(rng & 0x7FFFFFFF) / (float)0x7FFFFFFF;
+    mask[i] = (r >= rate) ? scale : 0.0f;
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mask.buffer); b.arg(&rate); b.arg(&scale); b.arg(&seed); b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("dropout_mask launch: {e}"))?;
+        }
+        Ok(())
+    }
+
+    // ── Gradient ops ────────────────────────────────────────────────
+
+    pub fn gradient_clip(&self, grads: &CudaTensor, max_norm: f32) -> Result<(), String> {
+        let numel = grads.numel();
+        // Compute L2 norm squared
+        let mut norm_sq = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("clip norm scratch: {e}"))?;
+        let func1 = compile_simple!(self, "grad_norm_sq_f32", r#"
+extern "C" __global__ void grad_norm_sq_f32(float* __restrict__ out,
+    const float* __restrict__ g, size_t numel) {
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    float sum_sq = 0.0f;
+    for (unsigned int i = tid; i < numel; i += blockDim.x) sum_sq += g[i] * g[i];
+    shared[tid] = sum_sq;
+    __syncthreads();
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) out[0] = shared[0];
+}"#)?;
+        let cfg1 = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func1);
+            b.arg(&mut norm_sq); b.arg(grads.buffer()); b.arg(&numel);
+            b.launch(cfg1).map_err(|e| format!("norm_sq launch: {e}"))?;
+        }
+
+        let norm_val: f32 = self.stream.clone_dtoh_sync(&norm_sq).map_err(|e| format!("clip norm readback: {e}"))?.first().copied().unwrap_or(0.0);
+        let norm_val = norm_val.sqrt();
+        if norm_val <= max_norm || norm_val.abs() < 1e-8 { return Ok(()); }
+        let scale = max_norm / norm_val;
+        self.scale_inplace(grads, scale)
+    }
+
+    pub fn gradient_allreduce(&self, grad_buffers: &CudaTensor, out: &CudaTensor, num_replicas: u32) -> Result<(), String> {
+        let numel = out.numel();
+        let inv = 1.0f32 / num_replicas as f32;
+        let func = compile_simple!(self, "grad_allreduce_f32", r#"
+extern "C" __global__ void grad_allreduce_f32(float* __restrict__ out,
+    const float* __restrict__ in, float inv_n, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) out[i] += in[i] * inv_n;
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&out.buffer); b.arg(grad_buffers.buffer()); b.arg(&inv); b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("grad_allreduce launch: {e}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn adam_step(&self, param: &CudaTensor, grad: &CudaTensor, m: &CudaTensor, v: &CudaTensor,
+        lr: f32, beta1: f32, beta2: f32, eps: f32, weight_decay: f32, step: u32) -> Result<(), String> {
+        let numel = param.numel();
+        let func = compile_simple!(self, "adam_step_f32", r#"
+extern "C" __global__ void adam_step_f32(
+    float* __restrict__ param, const float* __restrict__ grad,
+    float* __restrict__ m, float* __restrict__ v,
+    float lr, float beta1, float beta2, float eps, float wd, unsigned int step,
+    size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numel) return;
+    float g = grad[i];
+    float m_i = beta1 * m[i] + (1.0f - beta1) * g;
+    float v_i = beta2 * v[i] + (1.0f - beta2) * g * g;
+    m[i] = m_i;
+    v[i] = v_i;
+    float m_hat = m_i / (1.0f - powf(beta1, (float)step));
+    float v_hat = v_i / (1.0f - powf(beta2, (float)step));
+    float update = lr * m_hat / (sqrtf(v_hat) + eps);
+    param[i] = param[i] - update + wd * param[i];
+}"#)?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&param.buffer); b.arg(grad.buffer());
+            b.arg(&m.buffer); b.arg(&v.buffer);
+            b.arg(&lr); b.arg(&beta1); b.arg(&beta2); b.arg(&eps); b.arg(&weight_decay); b.arg(&step);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("adam_step launch: {e}"))?;
+        }
+        Ok(())
+    }
+
+    // ── Fused ops ───────────────────────────────────────────────────
+
+    pub fn fused_matmul_bias(&self, a: &CudaTensor, b: &CudaTensor, bias: &CudaTensor, activation: &str) -> Result<CudaTensor, String> {
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+        let mut out = self.scratch_f32(m * n).map_err(|e| format!("fused_mm_bias scratch: {e}"))?;
+
+        let activation_expr = match activation {
+            "gelu" => "0.5f * val * (1.0f + tanhf(0.79788456f * (val + 0.044715f * val * val * val)))",
+            "relu" => "fmaxf(0.0f, val)",
+            "silu" => "val / (1.0f + expf(-val))",
+            _ => "val",
+        };
+
+        let kernel_name = format!("fused_mm_bias_{}", activation);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, const float* __restrict__ b,
+    const float* __restrict__ bias, size_t M, size_t N, size_t K) {{
+    unsigned int row = blockIdx.x;
+    unsigned int col = blockIdx.y * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+    float sum = 0.0f;
+    for (size_t i = 0; i < K; i++) {{
+        sum += a[row * K + i] * b[i * N + col];
+    }}
+    float val = sum + bias[col];
+    out[row * N + col] = {activation_expr};
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: (m as u32, ((n as u32) + 15) / 16, 1), block: 16, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(a.buffer()); b.arg(b.buffer()); b.arg(bias.buffer());
+            b.arg(&m); b.arg(&n); b.arg(&k);
+            b.launch(cfg).map_err(|e| format!("fused_mm_bias launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+    }
+
+    pub fn fused_online_softmax(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        // Single-pass online softmax (Welford-style max+sum)
+        let shape = input.shape();
+        if shape.len() != 2 {
+            return Err(format!("online_softmax: expected 2D, got {}D", shape.len()));
+        }
+        let rows = shape[0];
+        let cols = shape[1];
+        let numel = input.numel();
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("online_softmax scratch: {e}"))?;
+
+        let kernel_name = format!("online_softmax_f32_{}", cols);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, size_t rows, size_t cols) {{
+    unsigned int row = blockIdx.x;
+    if (row >= rows) return;
+    float m = -INFINITY, d = 0.0f;
+    for (unsigned int j = 0; j < cols; j++) {{
+        float x = a[row * cols + j];
+        float m_new = fmaxf(m, x);
+        float old_scale = expf(m - m_new);
+        d = old_scale * d + expf(x - m_new);
+        m = m_new;
+    }}
+    float inv_d = 1.0f / d;
+    unsigned int tid = threadIdx.x;
+    for (unsigned int j = tid; j < cols; j += blockDim.x) {{
+        out[row * cols + j] = expf(a[row * cols + j] - m) * inv_d;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
+            b.launch(cfg).map_err(|e| format!("online_softmax launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    // ── Fused Attention Backward ────────────────────────────────────
+
+    pub fn fused_attention_backward(&self, q: &CudaTensor, k: &CudaTensor, v: &CudaTensor, grad: &CudaTensor,
+        scale: f32, causal: bool) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
+        let q_shape = q.shape();
+        let batch = q_shape[0];
+        let heads = q_shape[1];
+        let seq_len = q_shape[2];
+        let dim = q_shape[3];
+        let numel = q.numel();
+        let mut dq = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dq scratch: {e}"))?;
+        let mut dk = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dk scratch: {e}"))?;
+        let mut dv = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dv scratch: {e}"))?;
+        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dq.clone(), device_id: self.device_id })?;
+        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dk.clone(), device_id: self.device_id })?;
+        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dv.clone(), device_id: self.device_id })?;
+
+        let causal_u32: u32 = if causal { 1 } else { 0 };
+        let block_size: u32 = 256;
+
+        let kernel_name = format!("attn_bwd_f32_{}", dim);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(
+    float* __restrict__ dq, float* __restrict__ dk, float* __restrict__ dv,
+    const float* __restrict__ q, const float* __restrict__ k,
+    const float* __restrict__ v, const float* __restrict__ grad,
+    size_t batch, size_t heads, size_t seq_len, size_t dim, float scale,
+    unsigned int causal) {{
+
+    unsigned int wg_flat = blockIdx.x;
+    unsigned int q_pos = wg_flat % seq_len;
+    unsigned int head = (wg_flat / seq_len) % heads;
+    unsigned int b = wg_flat / (seq_len * heads);
+    if (b >= batch) return;
+
+    extern __shared__ float shared[];
+    float* q_shared = shared;
+    float* score_tile = shared + dim;
+
+    unsigned int tid = threadIdx.x;
+    size_t head_stride = seq_len * dim;
+    size_t batch_stride = heads * head_stride;
+    size_t q_off = b * batch_stride + head * head_stride + q_pos * dim;
+    size_t kv_base = b * batch_stride + head * head_stride;
+    float scale_inv = 1.0f / scale;
+
+    // Load Q row
+    if (tid < dim) q_shared[tid] = q[q_off + tid];
+    __syncthreads();
+
+    // Precompute scores and softmax for all positions
+    float* scores = shared + 2 * dim;
+    for (unsigned int kv_pos = 0; kv_pos < seq_len; kv_pos++) {{
+        if (causal && kv_pos > q_pos) {{ scores[kv_pos] = -INFINITY; continue; }}
+        float s = 0.0f;
+        for (unsigned int d_i = tid; d_i < dim; d_i += blockDim.x) {{
+            s += q_shared[d_i] * k[kv_base + kv_pos * dim + d_i];
+        }}
+        // Warp reduction
+        for (unsigned int off = 16; off > 0; off >>= 1)
+            s += __shfl_xor_sync(0xFFFFFFFF, s, off);
+        if (tid == 0) scores[kv_pos] = s * scale;
+        __syncthreads();
+    }}
+
+    // Online softmax
+    float m = -INFINITY, d = 0.0f;
+    for (unsigned int kv_pos = 0; kv_pos < seq_len; kv_pos++) {{
+        float s = scores[kv_pos];
+        if (s <= -INFINITY / 2) continue;
+        float m_new = fmaxf(m, s);
+        float old_scale = expf(m - m_new);
+        d = old_scale * d + expf(s - m_new);
+        m = m_new;
+    }}
+
+    // dV: grad * softmax_weight
+    for (unsigned int kv_pos = tid; kv_pos < seq_len; kv_pos += blockDim.x) {{
+        float attn = expf(scores[kv_pos] - m) / d;
+        for (unsigned int d_i = 0; d_i < dim; d_i++) {{
+            float g_val = grad[(b * heads + head) * head_stride + q_pos * dim + d_i];
+            atomicAdd(&dv[kv_base + kv_pos * dim + d_i], attn * g_val * scale_inv);
+        }}
+    }}
+
+    // dK: grad * softmax * q_weighted
+    for (unsigned int kv_pos = tid; kv_pos < seq_len; kv_pos += blockDim.x) {{
+        float attn = expf(scores[kv_pos] - m) / d;
+        float g_dot_q = 0.0f;
+        for (unsigned int d_i = 0; d_i < dim; d_i++) {{
+            unsigned int g_off = (b * heads + head) * head_stride + q_pos * dim + d_i;
+            g_dot_q += grad[g_off] * q_shared[d_i];
+        }}
+        // Warp reduction for g_dot_q
+        for (unsigned int off = 16; off > 0; off >>= 1)
+            g_dot_q += __shfl_xor_sync(0xFFFFFFFF, g_dot_q, off);
+        if (tid == 0) {{
+            for (unsigned int d_i = 0; d_i < dim; d_i++) {{
+                float g_val = grad[(b * heads + head) * head_stride + q_pos * dim + d_i];
+                atomicAdd(&dk[kv_base + kv_pos * dim + d_i],
+                    (g_val - attn * g_dot_q * scale_inv * q_shared[d_i]) * scale_inv);
+            }}
+        }}
+        __syncthreads();
+    }}
+
+    // dQ
+    for (unsigned int d_i = tid; d_i < dim; d_i += blockDim.x) {{
+        float sum_gk = 0.0f;
+        for (unsigned int kv_pos = 0; kv_pos < seq_len; kv_pos++) {{
+            if (causal && kv_pos > q_pos) continue;
+            float attn = expf(scores[kv_pos] - m) / d;
+            float gv = grad[(b * heads + head) * head_stride + q_pos * dim + d_i];
+            float k_val = k[kv_base + kv_pos * dim + d_i];
+            float v_val = v[kv_base + kv_pos * dim + d_i];
+            sum_gk += attn * k_val * (gv - attn * v_val * scale_inv);
+        }}
+        dq[q_off + d_i] = sum_gk * scale;
+    }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let total_wgs = (batch * heads * seq_len) as u32;
+        let shared_size = (2 * dim + seq_len) as u32;
+        let cfg = LaunchConfig { grid: total_wgs, block: block_size, shared_mem_bytes: shared_size * 4 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut dq); b.arg(&mut dk); b.arg(&mut dv);
+            b.arg(q.buffer()); b.arg(k.buffer()); b.arg(v.buffer()); b.arg(grad.buffer());
+            b.arg(&batch); b.arg(&heads); b.arg(&seq_len); b.arg(&dim); b.arg(&scale); b.arg(&causal_u32);
+            b.launch(cfg).map_err(|e| format!("attn_bwd launch: {e}"))?;
+        }
+        Ok((CudaTensor { shape: q_shape.clone(), buffer: dq, device_id: self.device_id },
+            CudaTensor { shape: q_shape.clone(), buffer: dk, device_id: self.device_id },
+            CudaTensor { shape: q_shape.clone(), buffer: dv, device_id: self.device_id }))
+    }
+
+    // ── Helper: scalar unary (a[i] OP scalar) ───────────────────────
+
+    fn elementwise_unary_scalar_impl(&self, a: &CudaTensor, op: &str, expr: &str, scalar: f32) -> Result<CudaTensor, String> {
+        let numel = a.numel();
+        let kernel_name = format!("elem_scalar_{}", op);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, float scalar, size_t numel) {{
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) {{ out[i] = {expr}; }}
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let mut out = self.scratch_f32(numel).map_err(|e| format!("scalar {} scratch: {e}", op))?;
+        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut out); b.arg(a.buffer()); b.arg(&scalar); b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("scalar {} launch: {e}", op))?;
+        }
+        Ok(CudaTensor { shape: a.shape.clone(), buffer: out, device_id: self.device_id })
+    }
+
+    // ── Misc ────────────────────────────────────────────────────────
+
+    pub fn leaky_relu(&self, input: &CudaTensor, negative_slope: f32) -> Result<CudaTensor, String> {
+        self.elementwise_unary_scalar_impl(input, "leaky_relu",
+            "a[i] >= 0.0f ? a[i] : a[i] * scalar", negative_slope)
+    }
+
+    pub fn swiglu(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
+        self.elementwise_unary(input, "swiglu", "a[i] / (1.0f + expf(-a[i])) * a[i]")
+    }
+
+    pub fn binary_cross_entropy(&self, input: &CudaTensor, target: &CudaTensor) -> Result<CudaTensor, String> {
+        let numel = input.numel();
+        let mut scratch = self.scratch_f32(numel).map_err(|e| format!("bce scratch: {e}"))?;
+        let func = compile_simple!(self, "binary_ce_f32", r#"
+extern "C" __global__ void binary_ce_f32(float* __restrict__ out,
+    const float* __restrict__ input, const float* __restrict__ target, size_t numel) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numel) return;
+    float p = fminf(fmaxf(input[i], 1e-7f), 1.0f - 1e-7f);
+    float t = target[i];
+    out[i] = -(t * logf(p) + (1.0f - t) * logf(1.0f - p));
+}"#)?;
+        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("bce out scratch: {e}"))?;
+        // Compute per-element BCE first
+        let cfg1 = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func);
+            b.arg(&mut scratch); b.arg(input.buffer()); b.arg(target.buffer()); b.arg(&numel);
+            b.launch(cfg1).map_err(|e| format!("bce elem launch: {e}"))?;
+        }
+        // Then sum
+        let sum_func = compile_simple!(self, "bce_sum_f32", r#"
+extern "C" __global__ void bce_sum_f32(float* __restrict__ out,
+    const float* __restrict__ a, size_t numel) {
+    extern __shared__ float shared[];
+    unsigned int tid = threadIdx.x;
+    float val = 0.0f;
+    for (unsigned int i = tid; i < numel; i += blockDim.x) val += a[i];
+    shared[tid] = val;
+    __syncthreads();
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) shared[tid] += shared[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) out[0] = shared[0];
+}"#)?;
+        let cfg2 = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&sum_func);
+            b.arg(&mut out); b.arg(&scratch); b.arg(&numel);
+            b.launch(cfg2).map_err(|e| format!("bce sum launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+    }
+
+    // ── Causal attention (thin wrapper calling fused_attention) ─────
+
+    pub fn causal_attention(&self, q: &CudaTensor, k: &CudaTensor, v: &CudaTensor, scale: f32) -> Result<CudaTensor, String> {
+        self.fused_attention(q, k, v, scale, true)
     }
 }

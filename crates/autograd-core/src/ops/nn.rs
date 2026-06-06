@@ -5,8 +5,71 @@ use super::super::tensor::Tensor;
 use super::math;
 #[cfg(feature = "gpu")]
 use crate::{tensor::next_tensor_id, Storage};
+#[cfg(feature = "cuda")]
+use crate::gpu::CudaRuntime;
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if axis == input.ndim() - 1 {
+                let orig_shape = input.shape().to_vec();
+                let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
+                let dim = orig_shape[orig_shape.len() - 1];
+                if let Ok(cu_2d) = cu_input.reshape(vec![batch, dim]) {
+                    if let Ok(ctx) = CudaRuntime::global() {
+                        match ctx.softmax(&cu_2d) {
+                            Ok(cuda_result_2d) => {
+                                let cu_result = match cuda_result_2d.reshape(orig_shape.clone()) {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        warn!("softmax CUDA reshape back failed: {e}");
+                                        return Tensor::new(input.data());
+                                    }
+                                };
+                                if !input.requires_grad() {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cu_result, id, false);
+                                }
+                                let result_2d_cpu = cu_2d.clone();
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cu_result,
+                                    vec![input.clone()],
+                                    vec![],
+                                    Box::new(move |grad, _saved| {
+                                        let soft = result_2d_cpu.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                        let g_vec: Vec<f32> = grad.iter().copied().collect();
+                                        let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                        let dim = orig_shape[orig_shape.len() - 1];
+                                        let n = grad.len();
+                                        let mut dx = vec![0.0f32; n];
+                                        for b in 0..batch {
+                                            let base = b * dim;
+                                            let mut sum_sg = 0.0;
+                                            for j in 0..dim {
+                                                sum_sg += soft[base + j] * g_vec[base + j];
+                                            }
+                                            for j in 0..dim {
+                                                let idx = base + j;
+                                                dx[idx] = soft[idx] * (g_vec[idx] - sum_sg);
+                                            }
+                                        }
+                                        vec![ArrayD::from_shape_vec(orig_shape.clone(), dx)
+                                            .unwrap_or_else(|e| {
+                                                debug!("shape encoding failed: {e}");
+                                                ArrayD::zeros(vec![0])
+                                            })]
+                                    }),
+                                );
+                            }
+                            Err(e) => warn!("CUDA softmax failed: {e}"),
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let storage = input.storage();
@@ -177,6 +240,75 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
 }
 
 pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if axis == input.ndim() - 1 {
+                let orig_shape = input.shape().to_vec();
+                let batch: usize = orig_shape.iter().take(orig_shape.len() - 1).product();
+                let dim = orig_shape[orig_shape.len() - 1];
+                if let Ok(cu_2d) = cu_input.reshape(vec![batch, dim]) {
+                    if let Ok(ctx) = CudaRuntime::global() {
+                        match ctx.softmax(&cu_2d) {
+                            Ok(soft_2d) => {
+                                let soft_for_cpu = soft_2d.clone();
+                                match ctx.ln(&soft_2d) {
+                                    Ok(cuda_result_2d) => {
+                                        let cu_result = match cuda_result_2d.reshape(orig_shape.clone()) {
+                                            Ok(r) => r,
+                                            Err(e) => {
+                                                warn!("log_softmax CUDA reshape back failed: {e}");
+                                                return Tensor::new(input.data());
+                                            }
+                                        };
+                                        if !input.requires_grad() {
+                                            let id = next_tensor_id();
+                                            return Tensor::from_cuda(cu_result, id, false);
+                                        }
+                                        let soft_cpu = soft_for_cpu.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                        return Tensor::from_cuda_with_grad_fn(
+                                            cu_result,
+                                            vec![input.clone()],
+                                            vec![soft_cpu.into_dyn()],
+                                            Box::new(move |grad, saved| {
+                                                let soft = &saved[0];
+                                                let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
+                                                let dim = orig_shape[orig_shape.len() - 1];
+                                                let g_vec: Vec<f32> = grad.iter().copied().collect();
+                                                let s_vec: Vec<f32> = soft.iter().copied().collect();
+                                                let mut sum_g = vec![0.0f32; batch];
+                                                for b in 0..batch {
+                                                    let base = b * dim;
+                                                    for j in 0..dim {
+                                                        sum_g[b] += g_vec[base + j];
+                                                    }
+                                                }
+                                                let mut dx = vec![0.0f32; grad.len()];
+                                                for b in 0..batch {
+                                                    let base = b * dim;
+                                                    for j in 0..dim {
+                                                        let idx = base + j;
+                                                        dx[idx] = g_vec[idx] - s_vec[idx] * sum_g[b];
+                                                    }
+                                                }
+                                                vec![ArrayD::from_shape_vec(orig_shape.clone(), dx).unwrap_or_else(|e| {
+                                                    debug!("shape encoding failed (infallible): {e}");
+                                                    ArrayD::zeros(vec![0])
+                                                })]
+                                            }),
+                                        );
+                                    }
+                                    Err(e) => warn!("CUDA log_softmax ln failed: {e}"),
+                                }
+                            }
+                            Err(e) => warn!("CUDA log_softmax softmax failed: {e}"),
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let storage = input.storage();
@@ -333,8 +465,77 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
         return Tensor::new(input.data());
     }
 
-    let data = input.data();
     let scale = 1.0 / (1.0 - rate);
+
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if let Ok(ctx) = CudaRuntime::global() {
+                let shape = cu_input.shape().to_vec();
+                if let Ok(mask) = CudaTensor::zeros(&ctx.device, shape.clone()) {
+                    let seed = rand::random::<u32>();
+                    if ctx.dropout_mask(&mask, rate, scale, seed).is_ok() {
+                        if let Ok(cu_result) = ctx.mul(cu_input, &mask) {
+                            if !input.requires_grad() {
+                                return Tensor::from_cuda(cu_result, next_tensor_id(), false);
+                            }
+                            let mask_cpu = mask.to_cpu_vec(&ctx.device).unwrap_or_default();
+                            return Tensor::from_cuda_with_grad_fn(
+                                cu_result,
+                                vec![input.clone()],
+                                vec![mask_cpu.into_dyn()],
+                                Box::new(|grad, saved| {
+                                    vec![grad * &saved[0]]
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    {
+        let storage = input.storage();
+        if let Storage::Gpu(gpu_input) = &storage {
+            if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                let shape = gpu_input.shape().to_vec();
+                let seed = rand::random::<u32>();
+                if let Ok(mask) = crate::gpu::GpuTensor::zeros(&shape) {
+                    if ctx.dropout_mask(&mask, rate, scale, seed).is_ok() {
+                        if let Ok(gpu_result) = ctx.mul(gpu_input, &mask) {
+                            if !input.requires_grad() {
+                                return Tensor::from_gpu(gpu_result, next_tensor_id(), false);
+                            }
+                            let mask_for_cpu = mask.clone();
+                            return Tensor::from_gpu_with_grad_fn(
+                                gpu_result,
+                                vec![input.clone()],
+                                vec![],
+                                vec![mask],
+                                Box::new(move |grad, _saved| {
+                                    let m = mask_for_cpu.to_cpu().unwrap_or_else(|e| {
+                                        tracing::warn!("GPU CPU-backward readback failed in dropout: {e}");
+                                        ndarray::ArrayD::zeros(&shape)
+                                    });
+                                    vec![grad * &m]
+                                }),
+                                Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
+                                    let m = &saved_gpu[0];
+                                    let da = ctx.mul(grad_gpu, m).map_err(|e| format!("dropout backward: {e}"))?;
+                                    Ok(vec![da])
+                                })),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let data = input.data();
     let mut rng = rand::thread_rng();
     let mask: Vec<f32> = (0..data.len())
         .map(|_| {
@@ -371,6 +572,80 @@ pub fn layer_norm_2d(
     bias: Option<&Tensor>,
     eps: f32,
 ) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let in_storage = input.storage();
+        if let Storage::Cuda(cu_in) = &in_storage {
+            if let (Some(w), Some(b)) = (weight, bias) {
+                if let (Storage::Cuda(cu_w), Storage::Cuda(cu_b)) = (&w.storage(), &b.storage()) {
+                    if let Ok(ctx) = CudaRuntime::global() {
+                        match ctx.layer_norm(cu_in, cu_w, cu_b, eps) {
+                            Ok(cuda_result) => {
+                                let requires_grad = input.requires_grad() || w.requires_grad() || b.requires_grad();
+                                if !requires_grad {
+                                    let id = next_tensor_id();
+                                    return Tensor::from_cuda(cuda_result, id, false);
+                                }
+                                let orig = input.data();
+                                let mean_arr = orig.outer_iter().map(|row| row.mean().unwrap_or(0.0)).collect::<Vec<_>>();
+                                let std_arr = orig.outer_iter().zip(mean_arr.iter()).map(|(row, &m)| {
+                                    let v = row.iter().map(|&x| (x - m).powi(2)).sum::<f32>() / orig.shape()[1] as f32;
+                                    (v + eps).sqrt()
+                                }).collect::<Vec<_>>();
+                                let n = orig.shape()[1] as f32;
+                                let gpu_in_saved = cu_in.clone();
+                                let gpu_w_saved = cu_w.clone();
+                                let gpu_b_saved = cu_b.clone();
+                                return Tensor::from_cuda_with_grad_fn(
+                                    cuda_result,
+                                    vec![input.clone(), w.clone(), b.clone()],
+                                    vec![
+                                        orig,
+                                        ArrayD::from_shape_vec(vec![input.shape()[0]], mean_arr).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) }),
+                                        ArrayD::from_shape_vec(vec![input.shape()[0]], std_arr).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) }),
+                                        ArrayD::from_elem(vec![1], n),
+                                    ],
+                                    Box::new(move |grad, saved| {
+                                        let x = &saved[0];
+                                        let mean = &saved[1];
+                                        let std = &saved[2];
+                                        let n_val = saved[3].iter().copied().next().unwrap_or(1.0);
+                                        let batch = x.shape()[0];
+                                        let dim = x.shape()[1];
+                                        let gs: Vec<f32> = grad.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| grad.iter().copied().collect());
+                                        let xs: Vec<f32> = x.as_slice().map(|s| s.to_vec()).unwrap_or_else(|| x.iter().copied().collect());
+                                        let mut dx = grad.clone();
+                                        for b in 0..batch {
+                                            let m = mean[b];
+                                            let s = std[b];
+                                            let mut sum_dy = 0.0;
+                                            let mut sum_dy_xhat = 0.0;
+                                            for j in 0..dim {
+                                                let idx = b * dim + j;
+                                                let xhat = (xs[idx] - m) / s;
+                                                sum_dy += gs[idx];
+                                                sum_dy_xhat += gs[idx] * xhat;
+                                            }
+                                            let inv_s = 1.0 / s;
+                                            if let Some(dx_s) = dx.as_slice_mut() {
+                                                for j in 0..dim {
+                                                    let idx = b * dim + j;
+                                                    let xhat = (xs[idx] - m) / s;
+                                                    dx_s[idx] = inv_s * (gs[idx] - sum_dy / n_val - xhat * sum_dy_xhat / n_val);
+                                                }
+                                            }
+                                        }
+                                        vec![dx]
+                                    }),
+                                );
+                            }
+                            Err(e) => warn!("CUDA layer_norm failed: {e}"),
+                        }
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let in_storage = input.storage();
@@ -655,6 +930,44 @@ pub fn layer_norm_2d(
 }
 
 pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let in_storage = input.storage();
+        let t_storage = target.storage();
+        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_t)) = (&in_storage, &t_storage) {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.binary_cross_entropy(cu_in, cu_t) {
+                    Ok(cuda_result) => {
+                        if !input.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let in_cpu = cu_in.to_cpu_vec(&ctx.device).unwrap_or_default();
+                        let t_cpu = cu_t.to_cpu_vec(&ctx.device).unwrap_or_default();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![in_cpu.into_dyn(), t_cpu.into_dyn()],
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let t = &saved[1];
+                                let mut dx_data = vec![0.0f32; x.len()];
+                                for (i, (&g, (&xv, &tv))) in grad.iter().zip(x.iter().zip(t.iter())).enumerate() {
+                                    let p = xv.clamp(1e-7, 1.0 - 1e-7);
+                                    dx_data[i] = g * (p - tv) / (p * (1.0 - p)).max(1e-12);
+                                }
+                                vec![ArrayD::from_shape_vec(x.shape(), dx_data).unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                })]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA binary_cross_entropy failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let in_storage = input.storage();
@@ -803,6 +1116,56 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let in_storage = input.storage();
+        let t_storage = target.storage();
+        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_t)) = (&in_storage, &t_storage) {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.cross_entropy(cu_in, cu_t) {
+                    Ok(cuda_result) => {
+                        if !input.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let cu_in_saved = cu_in.clone();
+                        let cu_t_saved = cu_t.clone();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone()],
+                            vec![],
+                            Box::new(move |grad, _saved| {
+                                let data = cu_in_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                let tgt = cu_t_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                let batch = cu_in_saved.shape()[0];
+                                let classes = cu_in_saved.shape()[1];
+                                let mut lsm = vec![0.0f32; data.len()];
+                                for b in 0..batch {
+                                    let mut mx = f32::NEG_INFINITY;
+                                    for c in 0..classes { mx = mx.max(data[b * classes + c]); }
+                                    let mut sum_exp = 0.0;
+                                    for c in 0..classes { sum_exp += (data[b * classes + c] - mx).exp(); }
+                                    let log_sum = sum_exp.ln();
+                                    for c in 0..classes { lsm[b * classes + c] = (data[b * classes + c] - mx) - log_sum; }
+                                }
+                                let mut dx = vec![0.0f32; batch * classes];
+                                for b in 0..batch {
+                                    let t = tgt[b] as usize;
+                                    let g = grad[b];
+                                    for c in 0..classes {
+                                        let p = lsm[b * classes + c].exp();
+                                        dx[b * classes + c] = g * if c == t { p - 1.0 } else { p };
+                                    }
+                                }
+                                vec![ArrayD::from_shape_vec(vec![batch, classes], dx).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) })]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA cross_entropy failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let in_storage = input.storage();
@@ -988,6 +1351,43 @@ pub fn mse_loss(input: &Tensor, target: &Tensor) -> Tensor {
 }
 
 pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let ids_storage = input_ids.storage();
+        let w_storage = weight.storage();
+        if let (Storage::Cuda(cu_ids), Storage::Cuda(cu_w)) = (&ids_storage, &w_storage) {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.embedding(cu_ids, cu_w) {
+                    Ok(cuda_result) => {
+                        if !weight.requires_grad() {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let w_shape = weight.shape().to_vec();
+                        let cu_ids_saved = cu_ids.clone();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input_ids.clone(), weight.clone()],
+                            vec![],
+                            Box::new(move |grad, _saved| {
+                                let ids_arr = cu_ids_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                let d = grad.shape()[1];
+                                let vocab_size = w_shape[0];
+                                let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
+                                for i in 0..ids_arr.len() {
+                                    let idx = ids_arr[i] as usize;
+                                    if idx >= vocab_size { continue; }
+                                    for j in 0..d { d_weight[[idx, j]] += grad[[i, j]]; }
+                                }
+                                vec![ArrayD::zeros(grad.shape()), d_weight.into_dyn()]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA embedding failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let ids_storage = input_ids.storage();
@@ -1111,6 +1511,61 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
 }
 
 pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let in_storage = input.storage();
+        let w_storage = weight.storage();
+        if let (Storage::Cuda(cu_in), Storage::Cuda(cu_w)) = (&in_storage, &w_storage) {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.rms_norm(cu_in, cu_w, eps) {
+                    Ok(cuda_result) => {
+                        let requires_grad = input.requires_grad() || weight.requires_grad();
+                        if !requires_grad {
+                            let id = next_tensor_id();
+                            return Tensor::from_cuda(cuda_result, id, false);
+                        }
+                        let cpu_x = input.data();
+                        let cpu_w = weight.data();
+                        let gpu_in_saved = cu_in.clone();
+                        let gpu_w_saved = cu_w.clone();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_result,
+                            vec![input.clone(), weight.clone()],
+                            vec![cpu_x.clone(), cpu_w.clone()],
+                            Box::new(move |grad, saved| {
+                                let x = &saved[0];
+                                let w = &saved[1];
+                                let hidden = x.shape()[1] as f32;
+                                let dim = x.shape()[1];
+                                let batch = x.shape()[0];
+                                let mut dx_data = vec![0.0f32; x.len()];
+                                let mut dw_data = vec![0.0f32; dim];
+                                for b in 0..batch {
+                                    let mut ssq = 0.0f32;
+                                    for j in 0..dim { ssq += x[[b, j]] * x[[b, j]]; }
+                                    let rms = (ssq / hidden + eps).sqrt();
+                                    let inv_rms = 1.0 / rms;
+                                    let mut sum_x_g = 0.0f32;
+                                    for k in 0..dim { sum_x_g += x[[b, k]] * grad[[b, k]]; }
+                                    let rms_grad_factor = -inv_rms.powi(3) * (1.0 / hidden);
+                                    for j in 0..dim {
+                                        let xv = x[[b, j]]; let wv = w[[j]]; let g = grad[[b, j]];
+                                        dx_data[b * dim + j] = g * wv * inv_rms + wv * xv * rms_grad_factor * sum_x_g;
+                                        dw_data[j] += g * xv * inv_rms;
+                                    }
+                                }
+                                vec![
+                                    ArrayD::from_shape_vec(x.shape(), dx_data).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) }),
+                                    ArrayD::from_shape_vec(vec![dim], dw_data).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) }),
+                                ]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA rms_norm failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let in_storage = input.storage();
@@ -1375,6 +1830,44 @@ fn attention_backward_cpu(
 }
 
 pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let q_storage = q.storage();
+        let k_storage = k.storage();
+        let v_storage = v.storage();
+        if let (Storage::Cuda(cq), Storage::Cuda(ck), Storage::Cuda(cv)) = (&q_storage, &k_storage, &v_storage) {
+            if q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 {
+                if let Ok(ctx) = CudaRuntime::global() {
+                    match ctx.fused_attention(cq, ck, cv, scale, true) {
+                        Ok(cuda_result) => {
+                            if !q.requires_grad() && !k.requires_grad() && !v.requires_grad() {
+                                let id = next_tensor_id();
+                                return Tensor::from_cuda(cuda_result, id, false);
+                            }
+                            let cq_saved = cq.clone();
+                            let ck_saved = ck.clone();
+                            let cv_saved = cv.clone();
+                            return Tensor::from_cuda_with_grad_fn(
+                                cuda_result,
+                                vec![q.clone(), k.clone(), v.clone()],
+                                vec![],
+                                Box::new(move |grad, _saved| {
+                                    let qs = cq_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                    let ks = ck_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                    let vs = cv_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                    let qs_arr = ArrayD::from_shape_vec(cq_saved.shape(), qs).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                                    let ks_arr = ArrayD::from_shape_vec(ck_saved.shape(), ks).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                                    let vs_arr = ArrayD::from_shape_vec(cv_saved.shape(), vs).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                                    attention_backward_cpu(grad, &qs_arr, &ks_arr, &vs_arr, scale)
+                                }),
+                            );
+                        }
+                        Err(e) => warn!("CUDA causal_attention failed: {e}"),
+                    }
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let q_storage = q.storage();
@@ -1502,6 +1995,47 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
 }
 
 pub fn causal_softmax(input: &Tensor) -> Tensor {
+    #[cfg(feature = "cuda")]
+    {
+        let storage = input.storage();
+        if let Storage::Cuda(cu_input) = &storage {
+            if let Ok(ctx) = CudaRuntime::global() {
+                match ctx.causal_softmax(cu_input) {
+                    Ok(cuda_out) => {
+                        let requires_grad = input.requires_grad();
+                        if !requires_grad {
+                            return Tensor::from_cuda(cuda_out, next_tensor_id(), false);
+                        }
+                        let soft_cpu = cuda_out.to_cpu_vec(&ctx.device).unwrap_or_default();
+                        return Tensor::from_cuda_with_grad_fn(
+                            cuda_out,
+                            vec![input.clone()],
+                            vec![soft_cpu.into_dyn()],
+                            Box::new(move |grad, saved| {
+                                let soft = &saved[0];
+                                let seq = soft.shape()[0];
+                                let mut dx = vec![0.0f32; soft.len()];
+                                for i in 0..seq {
+                                    let mut sum_sg = 0.0f32;
+                                    for j in 0..=i {
+                                        sum_sg += soft[[i, j]] * grad[[i, j]];
+                                    }
+                                    for j in 0..=i {
+                                        dx[i * seq + j] = soft[[i, j]] * (grad[[i, j]] - sum_sg);
+                                    }
+                                }
+                                vec![ArrayD::from_shape_vec(soft.shape(), dx).unwrap_or_else(|e| {
+                                    debug!("shape encoding failed (infallible): {e}");
+                                    ArrayD::zeros(vec![0])
+                                })]
+                            }),
+                        );
+                    }
+                    Err(e) => warn!("CUDA causal_softmax failed: {e}"),
+                }
+            }
+        }
+    }
     #[cfg(feature = "gpu")]
     {
         let storage = input.storage();
