@@ -1,5 +1,4 @@
 use ndarray::{Array1, Array2};
-use nexora_autograd::attention_workspace::{global_pool, WorkspacePool};
 use nexora_autograd::ops::{causal_softmax, embedding, rms_norm_2d};
 use nexora_autograd::{self, Tensor, TensorOps};
 
@@ -18,7 +17,7 @@ pub struct TrainingConfig {
     /// Enable activation checkpointing (recompute during backward)
     pub activation_checkpointing: bool,
     /// Workspace pool for reusable buffers
-    pub workspace_pool: Option<WorkspacePool>,
+    pub workspace_pool: Option<()>,
 }
 
 impl Default for TrainingConfig {
@@ -371,8 +370,6 @@ impl TrainableCausalLM {
         let head_dim = hidden / n_heads;
         let num_groups = n_heads / n_kv_heads;
         let cfg = &self.training_config;
-        let _pool = cfg.workspace_pool.as_ref().unwrap_or_else(|| global_pool());
-
         let mut h = embedding(input_ids, &self.token_embedding);
 
         for block in &self.blocks {
@@ -392,9 +389,9 @@ impl TrainableCausalLM {
                 self.chunked_attention_forward(
                     &q_proj, &k_proj, &v_proj,
                     seq_len, q_total, k_total, head_dim, n_heads, n_kv_heads, num_groups,
-                    cfg, _pool,
-                )
-            } else {
+                cfg,
+            )
+        } else {
                 // Original per-head GQA for short sequences (≤ chunk_size)
                 self.per_head_attention_forward(
                     &q_proj, &k_proj, &v_proj,
@@ -447,7 +444,6 @@ impl TrainableCausalLM {
         _n_kv_heads: usize,
         num_groups: usize,
         cfg: &TrainingConfig,
-        _pool: &WorkspacePool,
     ) -> Tensor {
         let mut attn_out = Tensor::zeros(&[seq_len, q_total], false);
 

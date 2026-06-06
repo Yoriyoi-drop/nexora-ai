@@ -1,27 +1,21 @@
-//! NXR Model Series — model architecture definitions and agent-based implementations.
+//! NXR Model Series — re-export crate.
 //!
-//! All model types (Omnis, Vortex, Aether, …) are backed by the same CausalLM with
-//! a different `TransformerConfig` size via `foundation` crate.
-//! Per-model delegation modules inject classifiers (real MLP) and route to subsystems
-//! (SACA reasoning, MoE gating, Caffeine multimodal, Oracle verifiers).
-//!
-//! Legacy `simulated-models` feature removed — all inference uses real neural networks.
+//! Re-exports all 10 model crates under their canonical names
+//! (omnis, vortex, aether, …) and provides the `wire_model` function
+//! for injecting a CausalLM into all delegation singletons.
 
-// Re-export shared components from nexora-shared
-pub use nexora_shared::*;
+pub use nexora_model_core::*;
+pub use nexora_model_omnis as omnis;
+pub use nexora_model_vortex as vortex;
+pub use nexora_model_aether as aether;
+pub use nexora_model_axiom as axiom;
+pub use nexora_model_cipher as cipher;
+pub use nexora_model_genesis as genesis;
+pub use nexora_model_kronos as kronos;
+pub use nexora_model_nexum as nexum;
+pub use nexora_model_spectra as spectra;
+pub use nexora_model_swift as swift;
 
-pub mod classifier_util;
-pub mod foundation;
-pub mod aether;
-pub mod axiom;
-pub mod cipher;
-pub mod genesis;
-pub mod kronos;
-pub mod nexum;
-pub mod omnis;
-pub mod spectra;
-pub mod swift;
-pub mod vortex;
 pub mod specialist;
 
 use std::sync::Arc;
@@ -43,30 +37,4 @@ pub fn wire_model(model_id: NxrModelId, model_arc: Arc<CausalLM>) {
         NxrModelId::Kronos => kronos::delegation::inject_model(model_arc),
         NxrModelId::Genesis => genesis::delegation::inject_model(model_arc),
     }
-}
-
-// ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
-// Nyata: quantized weight storage untuk model weights
-fn _models_quantize(weights: &ndarray::Array2<f32>, dtype: nexora_quantization::QuantizedDtype) -> nexora_quantization::QuantizedTensor {
-    nexora_quantization::quantize_linear(weights, dtype)
-}
-
-// Nyata: database untuk model registry persistence
-fn _models_db() -> nexora_database::DatabaseManager {
-    nexora_database::DatabaseManager::new()
-}
-
-// Nyata: monitoring untuk model serving metrics
-fn _models_monitoring() -> nexora_monitoring::MonitoringSystem {
-    nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())
-}
-
-// Nyata: memory for model context management
-fn _models_memory() -> nexora_memory::MemoryManager {
-    nexora_memory::MemoryManager::new()
-}
-
-// Nyata: utils for text processing in models
-fn _models_utils() -> nexora_utils::UtilsManager {
-    nexora_utils::UtilsManager::default()
 }

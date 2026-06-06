@@ -33,7 +33,7 @@ nexora-oracle = { path = "../oracle" }
 nexora-training = { path = "../training" }
 nexora-multimodal = { path = "../multimodal" }
 nexora-reasoning = { path = "../reasoning" }
-nexora-models = { path = "../models", features = ["hallucination"] }
+nexora-models = { path = "../models" }
 nexora-quantization = { path = "../quantization" }
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }

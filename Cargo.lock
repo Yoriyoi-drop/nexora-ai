@@ -3979,6 +3979,243 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-model-aether"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-multimodal",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-axiom"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-oracle",
+ "nexora-reasoning",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-cipher"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-oracle",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ndarray 0.15.6",
+ "nexora-core",
+ "nexora-hallucination",
+ "nexora-quantization",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-genesis"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-reasoning",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-kronos"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-reasoning",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-nexum"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-alignment",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-oracle",
+ "nexora-reasoning",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-omnis"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-erp",
+ "nexora-hallucination",
+ "nexora-has-moe-ffn",
+ "nexora-model-core",
+ "nexora-shared",
+ "nexora-transformer",
+ "nexora-vogp",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-spectra"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-model-core",
+ "nexora-multimodal",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-swift"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-hallucination",
+ "nexora-has-moe-ffn",
+ "nexora-model-core",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-model-vortex"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "ndarray 0.15.6",
+ "nexora-core",
+ "nexora-hallucination",
+ "nexora-has-moe-ffn",
+ "nexora-model-core",
+ "nexora-oracle",
+ "nexora-shared",
+ "nexora-transformer",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "nexora-models"
 version = "0.2.0"
 dependencies = [
@@ -3986,24 +4223,20 @@ dependencies = [
  "chrono",
  "futures",
  "ndarray 0.15.6",
- "nexora-alignment",
  "nexora-core",
- "nexora-database",
- "nexora-erp",
- "nexora-hallucination",
- "nexora-has-moe-ffn",
- "nexora-isolation",
- "nexora-memory",
- "nexora-monitoring",
- "nexora-multimodal",
- "nexora-oracle",
- "nexora-quantization",
- "nexora-reasoning",
+ "nexora-model-aether",
+ "nexora-model-axiom",
+ "nexora-model-cipher",
+ "nexora-model-core",
+ "nexora-model-genesis",
+ "nexora-model-kronos",
+ "nexora-model-nexum",
+ "nexora-model-omnis",
+ "nexora-model-spectra",
+ "nexora-model-swift",
+ "nexora-model-vortex",
  "nexora-shared",
  "nexora-transformer",
- "nexora-utils",
- "nexora-validation",
- "nexora-vogp",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -4200,6 +4433,7 @@ dependencies = [
  "bytemuck",
  "ndarray 0.15.6",
  "nexora-autograd",
+ "nexora-autograd-training",
  "nexora-evaluation",
  "nexora-monitoring",
  "nexora-quantization",

@@ -1,0 +1,22 @@
+[package]
+name = "nexora-model-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core model infrastructure — foundation model implementations and classifier utilities"
+
+[dependencies]
+nexora-shared = { path = "../shared" }
+nexora-transformer = { path = "../transformer" }
+nexora-quantization = { path = "../quantization" }
+nexora-core = { path = "../core" }
+nexora-hallucination = { path = "../hallucination" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+ndarray.workspace = true
+rand.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+tokio = { workspace = true, features = ["full"] }
+

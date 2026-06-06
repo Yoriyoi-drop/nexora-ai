@@ -7,6 +7,7 @@ description = "Training pipeline for Nexora - gradient accumulation, LR scheduli
 [dependencies]
 nexora-transformer = { path = "../transformer" }
 nexora-autograd = { path = "../autograd" }
+nexora-autograd-training = { path = "../autograd-training" }
 nexora-evaluation = { path = "../evaluation" }
 ndarray.workspace = true
 serde.workspace = true
@@ -19,5 +20,5 @@ nexora-utils = { path = "../infrastructure/utils" }
 nexora-quantization = { path = "../quantization" }
 
 [features]
-default = ["gpu"]
+default = []
 gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]

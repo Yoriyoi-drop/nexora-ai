@@ -2,41 +2,31 @@
 name = "nexora-models"
 version = "0.2.0"
 edition = "2021"
-description = "NXR Model Series implementations - 10 model types with agent-based architectures"
+description = "NXR Model Series — re-export crate for all 10 model types"
 
 [dependencies]
-nexora-core = { path = "../core" }
+nexora-model-core = { path = "../model-core" }
+nexora-model-omnis = { path = "../model-omnis" }
+nexora-model-vortex = { path = "../model-vortex" }
+nexora-model-aether = { path = "../model-aether" }
+nexora-model-axiom = { path = "../model-axiom" }
+nexora-model-cipher = { path = "../model-cipher" }
+nexora-model-genesis = { path = "../model-genesis" }
+nexora-model-kronos = { path = "../model-kronos" }
+nexora-model-nexum = { path = "../model-nexum" }
+nexora-model-spectra = { path = "../model-spectra" }
+nexora-model-swift = { path = "../model-swift" }
 nexora-shared = { path = "../shared" }
-nexora-erp = { path = "../erp" }
-nexora-vogp = { path = "../vogp" }
-nexora-has-moe-ffn = { path = "../has-moe-ffn" }
-nexora-multimodal = { path = "../multimodal" }
-nexora-oracle = { path = "../oracle" }
-nexora-reasoning = { path = "../reasoning" }
 nexora-transformer = { path = "../transformer" }
-nexora-alignment = { path = "../alignment" }
-nexora-hallucination = { path = "../hallucination" }
-nexora-database = { path = "../database" }
-nexora-monitoring = { path = "../monitoring" }
-nexora-utils = { path = "../infrastructure/utils" }
-nexora-validation = { path = "../validation" }
-nexora-quantization = { path = "../quantization" }
-nexora-isolation = { path = "../isolation" }
-nexora-memory = { path = "../memory" }
+nexora-core = { path = "../core" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-uuid = { workspace = true, features = ["v4"] }
-chrono = { workspace = true, features = ["serde"] }
-ndarray = { workspace = true }
+ndarray.workspace = true
 rand.workspace = true
 tracing.workspace = true
+async-trait.workspace = true
 tokio = { workspace = true, features = ["full"] }
-async-trait = { workspace = true }
-futures = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+futures.workspace = true
 
-[features]
-default = []
-
-# Hallucination detection and mitigation pipelines for production inference
-# Activated via nexora-hallucination dependency (not empty feature gate)
-hallucination = []

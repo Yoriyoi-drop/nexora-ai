@@ -1,0 +1,24 @@
+[package]
+name = "nexora-model-axiom"
+version = "0.1.0"
+edition = "2021"
+description = "NXR-AXIOM Model"
+
+[dependencies]
+nexora-model-core = { path = "../model-core" }
+nexora-shared = { path = "../shared" }
+nexora-transformer = { path = "../transformer" }
+nexora-reasoning = { path = "../reasoning" }
+nexora-oracle = { path = "../oracle" }
+nexora-hallucination = { path = "../hallucination" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+ndarray.workspace = true
+rand.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["full"] }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+futures.workspace = true
+

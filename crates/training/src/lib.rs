@@ -6,25 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ndarray::ArrayD;
-use nexora_autograd::compute_grad_norm;
-#[cfg(feature = "gpu")]
-use nexora_autograd::device::Storage;
-#[cfg(feature = "gpu")]
-use nexora_autograd::gpu_grad_clip::GpuGradClipResult;
+use nexora_autograd_training::compute_grad_norm;
 use nexora_autograd::ops::cross_entropy_loss;
-#[cfg(feature = "gpu")]
-use nexora_autograd::Device;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
 use tracing::{info, warn};
-
-#[cfg(feature = "gpu")]
-use nexora_autograd::data_parallel::gpu_allreduce_gradients;
-#[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
-#[cfg(feature = "gpu")]
-use nexora_autograd::gpu_adam::GpuAdam;
-#[cfg(feature = "gpu")]
-use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
 
