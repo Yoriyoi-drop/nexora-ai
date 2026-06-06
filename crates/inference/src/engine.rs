@@ -122,6 +122,11 @@ pub struct InferenceEngine {
     memory: Option<Arc<Mutex<MemoryManager>>>,
     distributed: Option<Arc<DistributedRouter>>,
     erp: Option<nexora_erp::ERPEngine>,
+    monitoring: nexora_monitoring::MonitoringSystem,
+    text_utils: nexora_utils::UtilsManager,
+    reasoning: nexora_cognition::reasoning::ReasoningChain,
+    db: nexora_database::DatabaseManager,
+    quant: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -188,6 +193,11 @@ impl InferenceEngine {
             memory: None,
             distributed: None,
             erp: None,
+            monitoring: crate::init_inference_monitoring(),
+            text_utils: crate::inference_text_utils(),
+            reasoning: crate::inference_reasoning(),
+            db: crate::inference_db(),
+            quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
         }
     }
 
@@ -234,6 +244,11 @@ impl InferenceEngine {
             memory: None,
             distributed: None,
             erp: None,
+            monitoring: crate::init_inference_monitoring(),
+            text_utils: crate::inference_text_utils(),
+            reasoning: crate::inference_reasoning(),
+            db: crate::inference_db(),
+            quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
         }
     }
 
