@@ -121,7 +121,7 @@ impl SourceProvider for HackerNewsProvider {
             };
             samples.push(DataSample {
                 id: Uuid::new_v4(),
-                text: content,
+                text: content.into(),
                 token_ids: None,
                 metadata: {
                     let mut m = HashMap::new();
@@ -187,7 +187,7 @@ impl SourceProvider for WikipediaProvider {
                         if let Some(extract) = fetch_wikipedia_extract(&client, title).await {
                             samples.push(DataSample {
                                 id: Uuid::new_v4(),
-                                text: format!("[Wikipedia] {} - {}", title, extract),
+                                text: format!("[Wikipedia] {} - {}", title, extract).into(),
                                 token_ids: None,
                                 metadata: {
                                     let mut m = HashMap::new();
@@ -340,7 +340,7 @@ impl SourceProvider for RedditProvider {
                     );
                     samples.push(DataSample {
                         id: Uuid::new_v4(),
-                        text: content,
+                        text: content.into(),
                         token_ids: None,
                         metadata: {
                             let mut m = HashMap::new();

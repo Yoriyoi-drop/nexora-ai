@@ -18,5 +18,5 @@ tracing.workspace = true
 async-trait.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["rt"] }
 

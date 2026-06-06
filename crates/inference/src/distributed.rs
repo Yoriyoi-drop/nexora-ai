@@ -189,22 +189,17 @@ impl DistributedRouter {
                                 if data == "[DONE]" {
                                     return;
                                 }
-                                if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
-                                    let text = val
-                                        .get("token")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string();
-                                    let pos = val
-                                        .get("position")
-                                        .and_then(|v| v.as_u64())
-                                        .unwrap_or(0) as usize;
-
+                                #[derive(serde::Deserialize)]
+                                struct StreamTokenPayload {
+                                    token: String,
+                                    position: usize,
+                                }
+                                if let Ok(payload) = serde_json::from_str::<StreamTokenPayload>(data) {
                                     let token = Arc::new(GeneratedToken {
                                         token_id: 0,
-                                        token_text: text.into(),
+                                        token_text: payload.token.into(),
                                         log_prob: 0.0,
-                                        position: pos,
+                                        position: payload.position,
                                         metadata: Default::default(),
                                     });
 

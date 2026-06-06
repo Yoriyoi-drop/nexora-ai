@@ -287,7 +287,7 @@ fn make_sample(text: String, source: &SourceInfo) -> DataSample {
     let word_count = text.split_whitespace().count();
     DataSample {
         id: Uuid::new_v4(),
-        text,
+        text: text.into(),
         token_ids: None,
         metadata: Default::default(),
         source: source.clone(),
@@ -665,8 +665,8 @@ mod tests {
         };
         let samples = load_csv(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
-        assert_eq!(samples[0].text, "Hello world");
-        assert_eq!(samples[1].text, "Foo bar");
+        assert_eq!(samples[0].text, "Hello world".into());
+        assert_eq!(samples[1].text, "Foo bar".into());
     }
 
     #[test]
@@ -683,8 +683,8 @@ mod tests {
         };
         let samples = load_json(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
-        assert_eq!(samples[0].text, "Hello");
-        assert_eq!(samples[1].text, "World");
+        assert_eq!(samples[0].text, "Hello".into());
+        assert_eq!(samples[1].text, "World".into());
     }
 
     #[test]
@@ -707,8 +707,8 @@ mod tests {
         };
         let samples = load_jsonl(&path, &src).unwrap();
         assert_eq!(samples.len(), 3);
-        assert_eq!(samples[0].text, "Line1");
-        assert_eq!(samples[2].text, "Line3");
+        assert_eq!(samples[0].text, "Line1".into());
+        assert_eq!(samples[2].text, "Line3".into());
     }
 
     #[test]
@@ -725,8 +725,8 @@ mod tests {
         };
         let samples = load_tsv(&path, &src).unwrap();
         assert_eq!(samples.len(), 2);
-        assert_eq!(samples[0].text, "Hello");
-        assert_eq!(samples[1].text, "World");
+        assert_eq!(samples[0].text, "Hello".into());
+        assert_eq!(samples[1].text, "World".into());
     }
 
     #[test]

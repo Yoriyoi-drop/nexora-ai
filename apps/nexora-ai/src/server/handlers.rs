@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use nexora_alignment::sparo::SparoSystem;
 use nexora_monitoring::MetricsCollector;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -711,10 +712,15 @@ pub async fn generate_text_stream(
             match rx.recv().await {
                 Some(token) => {
                     acc.push_str(&token.token_text);
-                    let data = serde_json::to_string(&json!({
-                        "token": token.token_text,
-                        "position": token.position,
-                    })).unwrap_or_else(|_| r#"{"token":"","position":0}"#.to_string());
+                    #[derive(Serialize)]
+                    struct StreamToken<'a> {
+                        token: &'a str,
+                        position: usize,
+                    }
+                    let data = serde_json::to_string(&StreamToken {
+                        token: &token.token_text,
+                        position: token.position,
+                    }).unwrap_or_else(|_| r#"{"token":"","position":0}"#.to_string());
                     Some((Ok::<_, anyhow::Error>(Event::default().data(data)), (rx, acc, false, prompt_arc)))
                 }
                 None => {

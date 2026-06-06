@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DataSample {
     pub id: Uuid,
-    pub text: String,
+    pub text: Arc<str>,
     pub token_ids: Option<Vec<u32>>,
     pub metadata: HashMap<String, String>,
     pub source: SourceInfo,

@@ -160,7 +160,7 @@ impl Iterator for ArrowBatchStream {
             };
             samples.push(DataSample {
                 id: Uuid::new_v4(),
-                text,
+                text: text.into(),
                 token_ids: None,
                 metadata: std::collections::HashMap::new(),
                 source: self.source.clone(),
@@ -212,7 +212,7 @@ impl Iterator for ArrowBytesStream {
             if let Some(text) = get_text_value(col, i) {
                 samples.push(DataSample {
                     id: Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids: None,
                     metadata: std::collections::HashMap::new(),
                     source: self.source.clone(),
@@ -301,6 +301,6 @@ mod tests {
         arrow_writer::write_arrow_file(&[sample], &path).unwrap();
         let samples = read_arrow_file(&path, source_info()).unwrap();
         assert_eq!(samples.len(), 1);
-        assert_eq!(samples[0].text, "roundtrip test content");
+        assert_eq!(samples[0].text, "roundtrip test content".into());
     }
 }

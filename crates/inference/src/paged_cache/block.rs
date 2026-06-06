@@ -136,6 +136,52 @@ impl BlockData {
         }
     }
 
+    /// Like `slice_rows` but extends an existing `Vec<f32>` — avoids
+    /// allocating + freeing the intermediate Vec for each block read.
+    pub(crate) fn slice_rows_into(&self, row_start: usize, count: usize, out: &mut Vec<f32>) {
+        let start_len = out.len();
+        match self {
+            BlockData::F32(a) => {
+                out.reserve(count * a.shape()[1]);
+                for r in row_start..row_start + count {
+                    if let Some(slice) = a.slice(s![r, ..]).as_slice() {
+                        out.extend_from_slice(slice);
+                    }
+                }
+            }
+            BlockData::F16(data, _bs, cols) => {
+                let start = row_start * cols;
+                let end = start + count * cols;
+                out.reserve(end - start);
+                out.extend(data[start..end].iter().map(|&b| crate::f16_bits_to_f32(b)));
+            }
+            BlockData::Q4(packed, scales, _bs, cols) => {
+                let kv_dim = *cols;
+                let num_kv_heads = scales.len();
+                let head_dim = if num_kv_heads > 0 { kv_dim / num_kv_heads } else { 1 };
+                out.reserve(count * kv_dim);
+                for r in row_start..row_start + count {
+                    for i in 0..kv_dim {
+                        let byte_idx = (r * kv_dim + i) / 2;
+                        let nibble = if (r * kv_dim + i) % 2 == 0 {
+                            (packed[byte_idx] >> 4) & 0x0F
+                        } else {
+                            packed[byte_idx] & 0x0F
+                        };
+                        let q_val = nibble as i8 - 8;
+                        let h = i / head_dim;
+                        let scale = if h < num_kv_heads { scales[h] } else { 1.0 };
+                        out.push(q_val as f32 * scale);
+                    }
+                }
+            }
+        }
+        debug_assert_eq!(out.len(), start_len + count * match self {
+            BlockData::F32(a) => a.shape()[1],
+            BlockData::F16(_, _, cols) | BlockData::Q4(_, _, _, cols) => *cols,
+        });
+    }
+
     pub(crate) fn slice_rows(&self, row_start: usize, count: usize) -> Vec<f32> {
         match self {
             BlockData::F32(a) => {

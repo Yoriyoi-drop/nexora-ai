@@ -77,7 +77,7 @@ docs-rs = { all-features = true }
 # Async runtime
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "sync", "macros", "net", "signal", "time"] }
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 # Error handling
 anyhow = "1.0"

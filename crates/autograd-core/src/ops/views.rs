@@ -52,7 +52,7 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
             let mut grads = Vec::with_capacity(sizes.len());
             for &len in &sizes {
                 let indices: Vec<usize> = (offset..offset + len).collect();
-                let g = grad.select(Axis(axis), &indices).to_owned().into_dyn();
+                let g = grad.select(Axis(axis), &indices).into_dyn();
                 grads.push(g);
                 offset += len;
             }
@@ -167,7 +167,7 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
             let mut grads = Vec::with_capacity(sizes.len());
             for &len in &sizes {
                 let indices: Vec<usize> = (offset..offset + len).collect();
-                let g = grad.select(Axis(axis), &indices).to_owned().into_dyn();
+                let g = grad.select(Axis(axis), &indices).into_dyn();
                 grads.push(g);
                 offset += len;
             }
@@ -276,7 +276,7 @@ fn cat_cuda(tensors: &[&Tensor], axis: usize) -> Tensor {
             let mut grads = Vec::with_capacity(sizes.len());
             for &len in &sizes {
                 let indices: Vec<usize> = (offset..offset + len).collect();
-                let g = grad.select(Axis(axis), &indices).to_owned().into_dyn();
+                let g = grad.select(Axis(axis), &indices).into_dyn();
                 grads.push(g);
                 offset += len;
             }

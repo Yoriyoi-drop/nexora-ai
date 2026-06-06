@@ -76,7 +76,7 @@ impl StreamIntakeEngine {
 
             let sample = DataSample {
                 id: Uuid::new_v4(),
-                text: content,
+                text: content.into(),
                 token_ids,
                 metadata: std::collections::HashMap::new(),
                 source,
@@ -129,7 +129,7 @@ impl StreamIntakeEngine {
 
                 let sample = DataSample {
                     id: Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids,
                     metadata: std::collections::HashMap::new(),
                     source,
@@ -202,7 +202,7 @@ impl StreamIntakeEngine {
 
                 let sample = DataSample {
                     id: Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids,
                     metadata: std::collections::HashMap::new(),
                     source: source.clone(),
@@ -240,7 +240,7 @@ impl StreamIntakeEngine {
                     s.id = Uuid::new_v4();
                 }
                 if s.text.is_empty() {
-                    s.text = String::new();
+                    s.text = String::new().into();
                 }
                 s
             })

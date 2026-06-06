@@ -722,7 +722,7 @@ impl crate::cli::commands::Cli {
         info!("  Mempersiapkan tokenizer...");
         let tokenizer_corpus: String = samples
             .iter()
-            .map(|s| s.text.as_str())
+            .map(|s| &*s.text)
             .collect::<Vec<&str>>()
             .join("\n");
         info!(

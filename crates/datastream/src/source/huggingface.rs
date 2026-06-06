@@ -270,7 +270,7 @@ impl SourceProvider for HuggingFaceDatasetProvider {
 
                 samples.push(DataSample {
                     id: Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids: None,
                     metadata,
                     source: source.clone(),

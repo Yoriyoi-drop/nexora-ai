@@ -117,7 +117,7 @@ async fn filter_dataset(samples: Vec<DataSample>) -> NexoraResult<Vec<String>> {
         }
         if result.is_accepted() {
             if let Some(sample) = result.sample() {
-                accepted.push(sample.text.clone());
+                accepted.push(sample.text.to_string());
             }
         }
     }

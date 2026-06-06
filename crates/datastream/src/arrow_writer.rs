@@ -30,7 +30,7 @@ pub fn write_arrow_file(samples: &[DataSample], path: &Path) -> Result<()> {
 
     for s in samples {
         ids.push(s.id.to_string());
-        texts.push(s.text.as_str());
+        texts.push(&s.text);
         source_names.push(s.source.name.as_str());
         source_urls.push(s.source.url.as_deref());
         source_cats.push(format!("{:?}", s.source.category));

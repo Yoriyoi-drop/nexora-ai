@@ -178,7 +178,7 @@ impl TrainingDeliveryLayer {
         let id_array =
             StringArray::from(batch.iter().map(|s| s.id.to_string()).collect::<Vec<_>>());
         let text_array =
-            StringArray::from(batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>());
+            StringArray::from(batch.iter().map(|s| &*s.text).collect::<Vec<_>>());
         let source_name_array = StringArray::from(
             batch
                 .iter()

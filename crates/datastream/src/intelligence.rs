@@ -179,7 +179,7 @@ mod tests {
     fn sample_with(domain: Domain, entropy: f64, quality: f64, text_len: usize) -> DataSample {
         DataSample {
             id: Uuid::new_v4(),
-            text: "x".repeat(text_len),
+            text: "x".repeat(text_len).into(),
             token_ids: None,
             metadata: std::collections::HashMap::new(),
             source: SourceInfo {

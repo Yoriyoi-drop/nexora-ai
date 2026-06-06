@@ -3359,7 +3359,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustc_version_runtime",
- "rustls-pemfile 1.0.4",
+ "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "sysinfo",
@@ -3887,12 +3887,10 @@ name = "nexora-intelligence"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "arboard",
  "async-trait",
  "axum",
  "chrono",
  "criterion",
- "crossterm",
  "fastrand",
  "futures",
  "half",
@@ -3919,7 +3917,6 @@ dependencies = [
  "proptest",
  "rand 0.8.6",
  "rand_distr",
- "ratatui",
  "rayon",
  "regex",
  "serde",
@@ -3933,7 +3930,6 @@ dependencies = [
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
- "tui-input",
  "uuid",
 ]
 
@@ -4145,7 +4141,6 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
  "uuid",
 ]
@@ -4240,7 +4235,6 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
  "uuid",
 ]
@@ -7033,7 +7027,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.2.0",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.3",

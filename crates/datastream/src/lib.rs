@@ -226,7 +226,7 @@ mod tests {
 
         let sample = DataSample {
             id: Uuid::new_v4(),
-            text: "The quick brown fox jumps over the lazy dog. This is a test sentence for the pipeline. We need enough words to pass the length filter and demonstrate quality.".to_string(),
+            text: "The quick brown fox jumps over the lazy dog. This is a test sentence for the pipeline. We need enough words to pass the length filter and demonstrate quality.".into(),
             token_ids: None,
             metadata: std::collections::HashMap::new(),
             source: types::SourceInfo {
@@ -255,7 +255,7 @@ mod tests {
         let clean = DataSample {
             id: Uuid::new_v4(),
             text: "This is a clean and respectful sentence about technology and science."
-                .to_string(),
+                .into(),
             token_ids: None,
             metadata: std::collections::HashMap::new(),
             source: types::SourceInfo {

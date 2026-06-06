@@ -492,10 +492,10 @@ async fn load_shard_integrated(
         let mut token_cache = TokenizerCache::new(token_cache_dir);
         for sample in &mut samples {
             if sample.text.len() < 10000 {
-                if let Some(cached) = token_cache.get(&sample.text) {
+                if let Some(cached) = token_cache.get(sample.text.as_ref()) {
                     sample.token_ids = Some(cached.clone());
                 } else if let Some(ref ids) = sample.token_ids {
-                    token_cache.insert(sample.text.clone(), ids.clone());
+                    token_cache.insert(sample.text.to_string(), ids.clone());
                 }
             }
         }
@@ -551,7 +551,7 @@ async fn load_shard_streaming(
                     if let Some(cached) = cache.get(&sample.text) {
                         sample.token_ids = Some(cached.clone());
                     } else if let Some(ref ids) = sample.token_ids {
-                        cache.insert(sample.text.clone(), ids.clone());
+                        cache.insert(sample.text.to_string(), ids.clone());
                     }
                 }
             }

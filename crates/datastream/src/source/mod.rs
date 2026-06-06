@@ -32,7 +32,7 @@ pub trait SourceProvider: Send + Sync {
             .into_iter()
             .map(|text| DataSample {
                 id: Uuid::new_v4(),
-                text,
+                text: text.into(),
                 token_ids: None,
                 metadata: HashMap::new(),
                 source: source.clone(),

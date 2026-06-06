@@ -49,6 +49,7 @@ pub async fn telemetry_agents(
 pub async fn telemetry_memory(
     _nexora: Extension<Arc<NexoraAI>>,
 ) -> Json<Value> {
+    // TODO: implement — wire real MemoryStore and return persistent memory graph
     Json(json!({
         "nodes": [],
         "summary": {
@@ -62,6 +63,7 @@ pub async fn telemetry_memory(
 pub async fn telemetry_pipeline(
     _nexora: Extension<Arc<NexoraAI>>,
 ) -> Json<Value> {
+    // TODO: implement — return active DataStream pipeline status and throughput
     let pipelines: Vec<Value> = vec![];
     Json(json!(pipelines))
 }
@@ -69,6 +71,7 @@ pub async fn telemetry_pipeline(
 pub async fn telemetry_hallucination(
     _nexora: Extension<Arc<NexoraAI>>,
 ) -> Json<Value> {
+    // TODO: implement — wire nexora-hallucination detector and return real stats
     Json(json!({
         "total_checked": 0,
         "total_blocked": 0,
@@ -105,6 +108,7 @@ pub async fn telemetry_training(
 pub async fn telemetry_models(
     _nexora: Extension<Arc<NexoraAI>>,
 ) -> Json<Value> {
+    // TODO: implement — read loaded models from model registry instead of hardcoded list
     let models: Vec<Value> = vec![
         json!({"id": "omnis", "name": "Omnis", "status": "loaded", "parameters": "7B"}),
         json!({"id": "swift", "name": "Swift", "status": "loaded", "parameters": "1B"}),

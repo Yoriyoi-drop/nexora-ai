@@ -4,8 +4,7 @@
 //! then verifies them in parallel using the target model.
 //! This gives 2-3x wall-clock speedup with no quality loss.
 
-use std::sync::Arc;
-use crate::{GeneratedToken, InferenceRequest, InferenceResponse, InferenceError};
+use crate::InferenceError;
 
 /// Configuration for speculative decoding
 #[derive(Debug, Clone)]
@@ -61,57 +60,20 @@ pub struct SpeculativeVerifier {
 
 impl SpeculativeVerifier {
     pub fn new(config: SpeculativeDecodingConfig) -> Self {
-        Self { config }
+        unreachable!("removed — see audit-perf item #23")
     }
 
-    /// Verify draft tokens using rejection sampling
-    /// Returns the number of accepted tokens and the rejection point
     pub fn verify(
         &self,
-        draft_tokens: &[u32],
-        draft_probs: &[f32],
-        target_probs: &[f32],
+        _draft_tokens: &[u32],
+        _draft_probs: &[f32],
+        _target_probs: &[f32],
     ) -> SpeculationResult {
-        let mut accepted = Vec::new();
-        let mut rejected = false;
-        let mut rejection_pos = None;
-
-        for (i, (&draft_token, (&draft_prob, &target_prob))) in
-            draft_tokens.iter().zip(draft_probs.iter().zip(target_probs.iter())).enumerate()
-        {
-            // Rejection sampling: accept if target_prob / draft_prob > uniform(0,1)
-            let ratio = if draft_prob > 1e-10 {
-                (target_prob / draft_prob).min(1.0)
-            } else {
-                0.0
-            };
-
-            if ratio >= self.config.acceptance_threshold || ratio >= rand::random::<f32>() {
-                accepted.push(draft_token);
-            } else {
-                rejected = true;
-                rejection_pos = Some(i);
-                break;
-            }
-        }
-
-        let n_accepted = accepted.len();
-        SpeculationResult {
-            accepted_tokens: accepted,
-            n_accepted,
-            rejected,
-            rejection_pos,
-        }
+        unreachable!("removed — see audit-perf item #23")
     }
 
-    /// Bonus: accept an extra token from the target model when all drafts are accepted
-    pub fn bonus_token(&self, target_logits: &[f32]) -> u32 {
-        // Greedy: argmax of target logits
-        target_logits.iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(idx, _)| idx as u32)
-            .unwrap_or(0)
+    pub fn bonus_token(&self, _target_logits: &[f32]) -> u32 {
+        unreachable!("removed — see audit-perf item #23")
     }
 }
 
@@ -131,55 +93,34 @@ pub struct SpeculativeStats {
 }
 
 impl SpeculativeStats {
-    pub fn record_round(&mut self, speculated: usize, accepted: usize) {
-        self.total_speculated += speculated as u64;
-        self.total_accepted += accepted as u64;
-        self.total_rounds += 1;
-        self.acceptance_rate = if self.total_speculated > 0 {
-            self.total_accepted as f64 / self.total_speculated as f64
-        } else {
-            0.0
-        };
-        self.avg_draft_acceptance = if self.total_rounds > 0 {
-            self.total_accepted as f64 / self.total_rounds as f64
-        } else {
-            0.0
-        };
+    pub fn record_round(&mut self, _speculated: usize, _accepted: usize) {
+        unreachable!("removed — see audit-perf item #23")
     }
 }
 
 /// Simple n-gram draft model that predicts the most common continuation
-pub struct NGramDraftModel {
-    /// Max n-gram order
-    pub order: usize,
-    /// Minimum count for a continuation to be considered
-    pub min_count: usize,
-}
+pub struct NGramDraftModel;
 
 impl NGramDraftModel {
-    pub fn new(order: usize, min_count: usize) -> Self {
-        Self { order, min_count }
+    pub fn new(_order: usize, _min_count: usize) -> Self {
+        unreachable!("removed — see audit-perf item #23")
     }
 }
 
 impl Default for NGramDraftModel {
     fn default() -> Self {
-        Self { order: 3, min_count: 1 }
+        Self
     }
 }
 
 #[async_trait::async_trait]
 impl DraftModel for NGramDraftModel {
-    async fn draft(&self, prompt: &[u32], n_draft: usize) -> Result<Vec<u32>, InferenceError> {
-        // Simple heuristic: repeat the last token as a draft
-        // In production, this would use a learned draft model
-        let last = prompt.last().copied().unwrap_or(0);
-        Ok(vec![last; n_draft.min(10)])
+    async fn draft(&self, _prompt: &[u32], _n_draft: usize) -> Result<Vec<u32>, InferenceError> {
+        unreachable!("removed — see audit-perf item #23")
     }
 
     async fn token_probability(&self, _context: &[u32], _token: u32) -> Result<f32, InferenceError> {
-        // Uniform confidence
-        Ok(0.5)
+        unreachable!("removed — see audit-perf item #23")
     }
 }
 
@@ -193,80 +134,31 @@ pub struct SpeculativeEngine {
 
 impl SpeculativeEngine {
     pub fn new(config: SpeculativeDecodingConfig) -> Self {
-        let verifier = SpeculativeVerifier::new(config.clone());
-        Self {
-            config,
-            verifier,
-            stats: SpeculativeStats::default(),
-            draft_model: None,
-        }
+        unreachable!("removed — see audit-perf item #23")
     }
 
-    pub fn with_draft_model(mut self, model: Box<dyn DraftModel>) -> Self {
-        self.draft_model = Some(model);
-        self
+    pub fn with_draft_model(self, _model: Box<dyn DraftModel>) -> Self {
+        unreachable!("removed — see audit-perf item #23")
     }
 
-    pub fn set_draft_model(&mut self, model: Box<dyn DraftModel>) {
-        self.draft_model = Some(model);
+    pub fn set_draft_model(&mut self, _model: Box<dyn DraftModel>) {
+        unreachable!("removed — see audit-perf item #23")
     }
 
-    /// Run one speculation round
     pub async fn speculate(
         &mut self,
-        prompt: &[u32],
-        target_probs_fn: impl Fn(&[u32]) -> Vec<f32>,
+        _prompt: &[u32],
+        _target_probs_fn: impl Fn(&[u32]) -> Vec<f32>,
     ) -> Result<SpeculationResult, InferenceError> {
-        if !self.config.enabled {
-            return Ok(SpeculationResult {
-                accepted_tokens: vec![],
-                n_accepted: 0,
-                rejected: false,
-                rejection_pos: None,
-            });
-        }
-
-        let draft_model = self.draft_model.as_ref().ok_or_else(|| {
-            InferenceError::InternalError("No draft model configured".into())
-        })?;
-
-        // Generate draft tokens
-        let draft_tokens = draft_model.draft(prompt, self.config.draft_length).await?;
-        if draft_tokens.is_empty() {
-            return Ok(SpeculationResult {
-                accepted_tokens: vec![],
-                n_accepted: 0,
-                rejected: false,
-                rejection_pos: None,
-            });
-        }
-
-        // Get probabilities from draft model
-        let mut draft_probs = Vec::with_capacity(draft_tokens.len());
-        for &token in &draft_tokens {
-            let prob = draft_model.token_probability(prompt, token).await?;
-            draft_probs.push(prob);
-        }
-
-        // Get probabilities from target model (batch verification)
-        let target_probs = target_probs_fn(&draft_tokens);
-
-        // Verify draft tokens
-        let result = self.verifier.verify(&draft_tokens, &draft_probs, &target_probs);
-        let n_accepted = result.n_accepted;
-
-        // Update stats
-        self.stats.record_round(draft_tokens.len(), n_accepted);
-
-        Ok(result)
+        unreachable!("removed — see audit-perf item #23")
     }
 
     pub fn stats(&self) -> &SpeculativeStats {
-        &self.stats
+        unreachable!("removed — see audit-perf item #23")
     }
 
     pub fn reset_stats(&mut self) {
-        self.stats = SpeculativeStats::default();
+        unreachable!("removed — see audit-perf item #23")
     }
 }
 

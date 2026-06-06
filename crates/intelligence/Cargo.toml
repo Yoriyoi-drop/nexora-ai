@@ -50,12 +50,6 @@ toml = "0.8"
 fastrand = "2.0"
 serde_yaml = "0.9"
 
-# Terminal UI dependencies
-ratatui = "0.26"
-crossterm = "0.27"
-tui-input = "0.8"
-arboard = "3.3"  # For clipboard access
-
 # GPU acceleration
 nexora-autograd = { path = "../autograd", optional = true }
 

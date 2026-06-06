@@ -605,7 +605,6 @@ pub fn layer_norm_2d(
             let dim = x.shape()[1];
 
             // dL/dx_i = (1/N * sigma) * (N * dL/dy_i - sum(dL/dy) - x_hat_i * sum(dL/dy * x_hat))
-            let mut dx = grad.clone();
             let g_slice = match grad.as_slice() {
                 Some(s) => s,
                 None => {
@@ -620,6 +619,7 @@ pub fn layer_norm_2d(
                     return vec![ArrayD::zeros(x.shape())];
                 }
             };
+            let mut dx = ArrayD::zeros(x.shape());
             for b in 0..batch {
                 let m = mean[b];
                 let s = std[b];

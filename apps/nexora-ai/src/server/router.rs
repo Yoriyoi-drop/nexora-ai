@@ -94,6 +94,20 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/static/*path", get(static_files))
         .layer(Extension(nexora));
 
+    #[cfg(feature = "server-telemetry")]
+    {
+        use super::telemetry_handlers::*;
+        app = app
+            .route("/telemetry/inference", get(telemetry_inference))
+            .route("/telemetry/agents", get(telemetry_agents))
+            .route("/telemetry/memory", get(telemetry_memory))
+            .route("/telemetry/pipeline", get(telemetry_pipeline))
+            .route("/telemetry/hallucination", get(telemetry_hallucination))
+            .route("/telemetry/training", get(telemetry_training))
+            .route("/telemetry/models", get(telemetry_models))
+            .route("/telemetry/token-flows", get(telemetry_token_flows));
+    }
+
     // Shard collective: POST /shard/reduce for HTTP-based all-reduce
     app = super::shard_collective::add_reduce_route(app);
 

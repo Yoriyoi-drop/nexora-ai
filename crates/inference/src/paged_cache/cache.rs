@@ -834,8 +834,8 @@ impl PagedKVCache {
         let total = num_tokens * cols;
 
         for layer in 0..self.config.num_layers {
-            let mut k_flat = vec![0f32; total];
-            let mut v_flat = vec![0f32; total];
+            let mut k_flat = Vec::with_capacity(total);
+            let mut v_flat = Vec::with_capacity(total);
 
             let mut pos = 0;
             while pos < num_tokens {
@@ -848,11 +848,8 @@ impl PagedKVCache {
                     if let Some(block) = self.blocks[layer].get(phys) {
                         let valid = tokens_in_block.min(block.filled.saturating_sub(offset));
                         if valid > 0 {
-                            let k_src = block.k.slice_rows(offset, valid);
-                            let v_src = block.v.slice_rows(offset, valid);
-                            let dst_start = pos * cols;
-                            k_flat[dst_start..dst_start + k_src.len()].copy_from_slice(&k_src);
-                            v_flat[dst_start..dst_start + v_src.len()].copy_from_slice(&v_src);
+                            block.k.slice_rows_into(offset, valid, &mut k_flat);
+                            block.v.slice_rows_into(offset, valid, &mut v_flat);
                         }
                     }
                 }

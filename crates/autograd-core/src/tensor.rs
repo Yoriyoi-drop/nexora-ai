@@ -519,7 +519,14 @@ impl Tensor {
                 inner.grad = Some(Storage::Cpu(Arc::new(existing)));
             }
             #[cfg(feature = "gpu")]
-            Some(Storage::Gpu(gpu)) => {
+            Some(Storage::Gpu(ref mut gpu)) => {
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    if let Ok(g_gpu) = Storage::from(grad.clone()).to_gpu(&ctx) {
+                        if ctx.add_inplace(gpu, &g_gpu).is_ok() {
+                            return;
+                        }
+                    }
+                }
                 let mut existing = match gpu.to_cpu() {
                     Ok(cpu) => cpu,
                     Err(e) => {
@@ -557,6 +564,12 @@ impl Tensor {
                 Ok(())
             }
             (Some(Storage::Gpu(existing)), Storage::Cpu(g)) => {
+                if let Ok(ctx) = crate::gpu::GpuContext::global() {
+                    if let Ok(g_gpu) = g.to_gpu(&ctx) {
+                        return ctx.add_inplace(existing, &g_gpu)
+                            .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()));
+                    }
+                }
                 let mut e = existing.to_cpu()?;
                 e += g.as_ref();
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));

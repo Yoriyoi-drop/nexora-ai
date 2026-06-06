@@ -115,7 +115,7 @@ pub fn read_arrow_mmap(
                 };
                 samples.push(DataSample {
                     id: uuid::Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids: None,
                     metadata: HashMap::new(),
                     source: source.clone(),
@@ -137,7 +137,7 @@ pub fn read_arrow_mmap(
                 };
                 samples.push(DataSample {
                     id: uuid::Uuid::new_v4(),
-                    text,
+                    text: text.into(),
                     token_ids: None,
                     metadata: HashMap::new(),
                     source: source.clone(),
