@@ -36,7 +36,6 @@ members = [
     "crates/autograd",
     # Source code merged into crates/autograd
     "crates/evaluation",
-    "crates/benchmark",
     "crates/transformer",
     "crates/vogp",
     "crates/quantization",
@@ -44,7 +43,6 @@ members = [
     "crates/star-x",
     "crates/gnac",
     "crates/echo-net",
-    "crates/foundation-types",
     "crates/model-core",
     "crates/model-omnis",
     "crates/model-vortex",

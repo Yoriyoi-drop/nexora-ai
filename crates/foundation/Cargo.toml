@@ -19,7 +19,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 # Internal dependencies
-nexora-foundation-types = { path = "../foundation-types" }
+
 nexora-atqs = { path = "../atqs" }
 nexora-erp = { path = "../erp" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }

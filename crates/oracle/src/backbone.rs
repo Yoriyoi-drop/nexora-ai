@@ -10,7 +10,7 @@ use nexora_autograd::{ops, Tensor, TensorOps};
 use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::GpuTensor;
+use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
 /// Konfigurasi ORACLE Backbone
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +60,10 @@ pub struct SparseMoELayer {
     pub gate: LinearLayer,
     /// Backward-compat experts for training Tensor checkpoint path
     pub experts: Vec<MLPExpert>,
+    #[cfg(feature = "gpu")]
+    gate_w_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    gate_b_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 impl SparseMoELayer {
@@ -80,6 +84,10 @@ impl SparseMoELayer {
             moe: HasMoeFFN::new(moe_config),
             gate: LinearLayer::new(config.d_model, config.n_experts),
             experts,
+            #[cfg(feature = "gpu")]
+            gate_w_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            gate_b_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -93,15 +101,127 @@ impl SparseMoELayer {
 
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
-        use anyhow::Context;
-        use nexora_autograd::gpu::GpuContext;
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
-        let x_arr = x.to_cpu()?;
-        let x_2d = x_arr.into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| anyhow::anyhow!("reshape: {}", e))?;
-        let result = self.moe.forward(&x_2d);
-        let result_data: Vec<f32> = result.iter().copied().collect();
-        GpuTensor::from_slice(vec![x.shape()[0], x.shape()[1]], &result_data)
+        let shape = x.shape();
+        let n = shape[0];
+        let d_model = shape[1];
+        let n_experts = self._config.n_experts;
+        let top_k = self._config.top_k;
+
+        // 1. Cache gate weights on GPU
+        let g_w = self
+            .gate_w_gpu
+            .get_or_init(|| {
+                let flat: Vec<f32> = self.gate.weight.iter().copied().collect();
+                let w = GpuTensor::from_slice(vec![d_model, n_experts], &flat).ok()?;
+                ctx.transpose(&w).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache gate weight"))?;
+
+        let g_b = self
+            .gate_b_gpu
+            .get_or_init(|| {
+                let flat: Vec<f32> = self.gate.bias.iter().copied().collect();
+                GpuTensor::from_slice(vec![1, n_experts], &flat).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache gate bias"))?;
+
+        // 2. Compute gate logits on GPU: [N, d_model] @ [d_model, n_experts] → [N, n_experts]
+        let gate_logits = ctx.matmul(x, g_w)?;
+        let gate_logits = ctx.add(&gate_logits, g_b)?;
+
+        // 3. Download gate scores only (tiny: [N, n_experts]) for CPU routing
+        let gate_arr = gate_logits.to_cpu()?;
+        let gate_data: Vec<f32> = gate_arr.iter().copied().collect();
+
+        // 4. Softmax + top-k routing on CPU
+        let mut gate_probs = vec![0.0f32; n * n_experts];
+        let mut max_vals = vec![f32::NEG_INFINITY; n];
+        let mut sum_exps = vec![0.0f32; n];
+        for i in 0..n {
+            for j in 0..n_experts {
+                let v = gate_data[i * n_experts + j];
+                if v > max_vals[i] {
+                    max_vals[i] = v;
+                }
+            }
+        }
+        for i in 0..n {
+            for j in 0..n_experts {
+                let e = (gate_data[i * n_experts + j] - max_vals[i]).exp();
+                gate_probs[i * n_experts + j] = e;
+                sum_exps[i] += e;
+            }
+        }
+        for i in 0..n {
+            if sum_exps[i] > 0.0 {
+                let inv = 1.0 / sum_exps[i];
+                for j in 0..n_experts {
+                    gate_probs[i * n_experts + j] *= inv;
+                }
+            }
+        }
+
+        // Top-k expert assignment per token
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n_experts];
+        for i in 0..n {
+            let mut indices: Vec<usize> = (0..n_experts).collect();
+            indices.sort_unstable_by(|&a, &b| {
+                gate_probs[i * n_experts + b]
+                    .partial_cmp(&gate_probs[i * n_experts + a])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for &e in indices.iter().take(top_k) {
+                let sc = gate_probs[i * n_experts + e];
+                if sc > 0.0 {
+                    expert_tokens[e].push((i, sc));
+                }
+            }
+        }
+
+        // 5. Download input once for CPU gather/scatter
+        let x_cpu = x.to_cpu()?;
+        let x_flat: Vec<f32> = x_cpu.iter().copied().collect();
+        let mut output_flat = vec![0.0f32; n * d_model];
+
+        // 6. Per-expert GPU forward with CPU gather/scatter
+        for (e_idx, tokens) in expert_tokens.iter().enumerate() {
+            if tokens.is_empty() {
+                continue;
+            }
+            let e_n = tokens.len();
+
+            // Gather token rows for this expert
+            let mut e_input = Vec::with_capacity(e_n * d_model);
+            let mut e_scores = Vec::with_capacity(e_n);
+            for &(ti, sc) in tokens {
+                e_scores.push(sc);
+                let src = ti * d_model;
+                e_input.extend_from_slice(&x_flat[src..src + d_model]);
+            }
+
+            // Upload → GPU forward → download
+            let e_x = GpuTensor::from_slice(vec![e_n, d_model], &e_input)?;
+            let e_out_gpu = self.experts[e_idx].forward_gpu(&e_x)?;
+            let e_out_arr = e_out_gpu.to_cpu()?;
+            let e_out_flat: Vec<f32> = e_out_arr.iter().copied().collect();
+
+            // Weight by gate score and scatter back
+            for k in 0..e_n {
+                let ti = tokens[k].0;
+                let sc = e_scores[k];
+                let dst = ti * d_model;
+                let src = k * d_model;
+                for d in 0..d_model {
+                    output_flat[dst + d] += e_out_flat[src + d] * sc;
+                }
+            }
+        }
+
+        // 7. Upload final output to GPU
+        GpuTensor::from_slice(vec![n, d_model], &output_flat)
             .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))
     }
 
@@ -182,8 +302,6 @@ impl MLPExpert {
     /// Lazily upload and cache GPU weights via OnceLock (uploaded once, reused forever).
     #[cfg(feature = "gpu")]
     fn ensure_weights_gpu(&self) -> Option<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor)> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().ok()?;
 
         let w1 = self.w1_gpu.get_or_init(|| {
@@ -218,11 +336,10 @@ impl MLPExpert {
         &self,
         x: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
 
-        let (w1_gpu, b1_gpu, w2_gpu, b2_gpu) = self.ensure_weights_gpu()
+        let (w1_gpu, b1_gpu, w2_gpu, b2_gpu) = self
+            .ensure_weights_gpu()
             .ok_or_else(|| anyhow::anyhow!("Failed to cache GPU weights"))?;
 
         let hidden = ctx.matmul(x, w1_gpu)?;
@@ -264,25 +381,20 @@ impl MultiHeadLatentAttention {
     pub fn forward(&self, x: &Array3<f32>, mask: Option<&Array2<f32>>) -> Result<Array3<f32>> {
         let (batch_size, seq_len, d_model) = (x.dim().0, x.dim().1, x.dim().2);
 
-        // Project to latent space
         let x_reshaped = x.view().into_shape((batch_size * seq_len, d_model))?;
         let latent = self.latent_projection.forward(&x_reshaped)?;
         let latent_3d = latent.into_shape((batch_size, seq_len, self.config.latent_dim))?;
 
-        // Compress latent representation
         let compressed = self.latent_compression.compress(&latent_3d, None)?;
 
-        // Multi-head attention in latent space
         let mut head_outputs = Vec::new();
         for head in &self.attention_heads {
             let head_output = head.forward(&compressed, mask)?;
             head_outputs.push(head_output);
         }
 
-        // Concatenate heads
         let concatenated = self.concatenate_heads(&head_outputs)?;
 
-        // Project back to original dimension
         let output_reshaped = concatenated
             .view()
             .into_shape((batch_size * seq_len, self.config.latent_dim))?;
@@ -291,170 +403,24 @@ impl MultiHeadLatentAttention {
         Ok(output.into_shape((batch_size, seq_len, d_model))?)
     }
 
-    /// GPU forward pass for Multi-head Latent Attention.
-    /// Avoids CPU round-trip by running all projections and attention on GPU.
+    /// GPU forward pass: per-head QKV projections + fused_attention, all GPU-resident.
+    /// Head outputs are summed (not concatenated) — zero CPU round-trips.
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
         x: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
-        let shape = x.shape();
-        let batch_size = shape[0];
-        let d_model = if shape.len() > 1 { shape[1] } else { 1 };
 
-        // 1. Project to latent space on GPU
         let latent = self.latent_projection.forward_gpu(x)?;
-        // latent: [B*S, latent_dim]
 
-        // 2. Compress latent representation (simplified on GPU — identity for now,
-        //    since compression is a learned top-k that requires CPU fallback)
-        //    The loss from skipping compression is acceptable for most inference.
-
-        // 3. Multi-head attention in latent space, all on GPU
-        let head_dim = self.config.d_model / self.config.n_heads;
-        let n_heads = self.config.n_heads;
-        let latent_dim = self.config.latent_dim;
-
-        // Stack all heads' Q, K, V, Out projections into single weight matrices
-        // This avoids per-head GPU kernel launches
-        let q_weights: Vec<Vec<f32>> = self
-            .attention_heads
-            .iter()
-            .map(|h| h.q_proj.weight.iter().copied().collect())
-            .collect();
-        let k_weights: Vec<Vec<f32>> = self
-            .attention_heads
-            .iter()
-            .map(|h| h.k_proj.weight.iter().copied().collect())
-            .collect();
-        let v_weights: Vec<Vec<f32>> = self
-            .attention_heads
-            .iter()
-            .map(|h| h.v_proj.weight.iter().copied().collect())
-            .collect();
-        let out_weights: Vec<Vec<f32>> = self
-            .attention_heads
-            .iter()
-            .map(|h| h.out_proj.weight.iter().copied().collect())
-            .collect();
-
-        // Concatenate weights along output dim: [latent_dim, n_heads * head_dim]
-        let q_stacked_flat: Vec<f32> = q_weights.iter().flat_map(|w| w.iter().copied()).collect();
-        let k_stacked_flat: Vec<f32> = k_weights.iter().flat_map(|w| w.iter().copied()).collect();
-        let v_stacked_flat: Vec<f32> = v_weights.iter().flat_map(|w| w.iter().copied()).collect();
-        let out_stacked_flat: Vec<f32> = out_weights.iter().flat_map(|w| w.iter().copied()).collect();
-
-        let stacked_shape = vec![latent_dim, n_heads * head_dim]; // = [latent_dim, latent_dim]
-
-        let q_gpu = GpuTensor::from_slice(stacked_shape.clone(), &q_stacked_flat)?;
-        let k_gpu = GpuTensor::from_slice(stacked_shape.clone(), &k_stacked_flat)?;
-        let v_gpu = GpuTensor::from_slice(stacked_shape.clone(), &v_stacked_flat)?;
-        let out_gpu = GpuTensor::from_slice(stacked_shape.clone(), &out_stacked_flat)?;
-
-        // Q, K, V projections: [B*S, latent_dim] @ [latent_dim, latent_dim] → [B*S, latent_dim]
-        // Since GpuTensor::matmul uses transposed weight convention (CUBLAS_OP_T),
-        // we need to check the convention. The existing LinearLayer::forward_gpu
-        // uploads weight as-is and does ctx.matmul(x, w_gpu). Looking at the implementation,
-        // LinearLayer stores weight as [input_dim, output_dim], uploads it, and calls
-        // ctx.matmul(x, w_gpu) where x is [N, input_dim]. So matmul(A, B) expects
-        // A: [N, K], B: [K, M] → [N, M]. Our stacked weights are [latent_dim, latent_dim]
-        // which is the correct layout.
-
-        // Transpose weights for fused_attention matmul convention
-        let q_t_gpu = ctx.transpose(&q_gpu)?;
-        let k_t_gpu = ctx.transpose(&k_gpu)?;
-        let v_t_gpu = ctx.transpose(&v_gpu)?;
-
-        let q_all = ctx.matmul(&latent, &q_t_gpu)?; // [B*S, latent_dim]
-        let k_all = ctx.matmul(&latent, &k_t_gpu)?; // [B*S, latent_dim]
-        let v_all = ctx.matmul(&latent, &v_t_gpu)?; // [B*S, latent_dim]
-
-        // Reshape to 4D for fused_attention: [B*S, n_heads*head_dim] → [batch, seq, n_heads, head_dim]
-        let latent_shape = latent.shape();
-        let n = latent_shape[0]; // B * S
-        let seq_len = n / batch_size;
-
-        // fused_attention expects [B, H, S, D], we have [B, S, H, D] from reshape.
-        // For seq_len == 1, both layouts are memory-equivalent (S=1).
-        // For seq_len > 1, we need a 4D permute. Do per-head attention instead.
-        if seq_len == 1 {
-            let q_4d = q_all.reshape(vec![batch_size, n_heads, 1, head_dim])?;
-            let k_4d = k_all.reshape(vec![batch_size, n_heads, 1, head_dim])?;
-            let v_4d = v_all.reshape(vec![batch_size, n_heads, 1, head_dim])?;
-            let scale = 1.0 / (head_dim as f32).sqrt();
-            let attn_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, scale, false)?;
-            let attn_flat = attn_4d.reshape(vec![n, n_heads * head_dim])?;
-            let attn_out = ctx.matmul(&attn_flat, &out_gpu)?;
-            // attn_out: [B*S, latent_dim]
-            self.output_projection.forward_gpu(&attn_out)
-        } else {
-            // seq_len > 1: process per-head individually to avoid 4D permute
-            let mut head_outputs: Vec<GpuTensor> = Vec::with_capacity(n_heads);
-            for h in 0..n_heads {
-                // Extract this head's Q, K, V from the stacked projection
-                // Each head occupies [latent_dim/n_heads = head_dim] columns
-                let h_start = h * head_dim;
-                let h_end = h_start + head_dim;
-                // Slice columns using elementwise GPU ops or CPU readback
-                // For simplicity, use CPU readback for this head extraction
-                let q_cpu: Vec<f32> = q_all.to_cpu()?.iter().copied().collect();
-                let k_cpu: Vec<f32> = k_all.to_cpu()?.iter().copied().collect();
-                let v_cpu: Vec<f32> = v_all.to_cpu()?.iter().copied().collect();
-                let latent_dim_full = n_heads * head_dim;
-
-                let q_h_data: Vec<f32> = q_cpu
-                    .chunks(latent_dim_full)
-                    .flat_map(|row| row[h_start..h_end].to_vec())
-                    .collect();
-                let k_h_data: Vec<f32> = k_cpu
-                    .chunks(latent_dim_full)
-                    .flat_map(|row| row[h_start..h_end].to_vec())
-                    .collect();
-                let v_h_data: Vec<f32> = v_cpu
-                    .chunks(latent_dim_full)
-                    .flat_map(|row| row[h_start..h_end].to_vec())
-                    .collect();
-
-                let q_h = GpuTensor::from_slice(vec![n, head_dim], &q_h_data)?;
-                let k_h = GpuTensor::from_slice(vec![n, head_dim], &k_h_data)?;
-                let v_h = GpuTensor::from_slice(vec![n, head_dim], &v_h_data)?;
-
-                let q_4d = q_h.reshape(vec![batch_size, 1, seq_len, head_dim])?;
-                let k_4d = k_h.reshape(vec![batch_size, 1, seq_len, head_dim])?;
-                let v_4d = v_h.reshape(vec![batch_size, 1, seq_len, head_dim])?;
-
-                let scale = 1.0 / (head_dim as f32).sqrt();
-                let attn_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, scale, false)?;
-                head_outputs.push(attn_4d);
-            }
-
-            // Concatenate all head outputs: each is [B, 1, S, head_dim] → [B, S, n_heads*head_dim]
-            // Read back to CPU, concatenate, upload back
-            let latent_dim_full = n_heads * head_dim;
-            let head_cpu: Vec<Vec<f32>> = head_outputs
-                .iter()
-                .map(|h| {
-                    let arr = h.to_cpu().unwrap();
-                    arr.iter().copied().collect()
-                })
-                .collect();
-            let mut concat = vec![0.0f32; n * latent_dim_full];
-            for i in 0..n {
-                for h in 0..n_heads {
-                    let src_start = i * head_dim;
-                    let dst_start = i * latent_dim_full + h * head_dim;
-                    for d in 0..head_dim {
-                        concat[dst_start + d] = head_cpu[h][src_start + d];
-                    }
-                }
-            }
-            let attn_concat = GpuTensor::from_slice(vec![n, latent_dim_full], &concat)?;
-            let attn_out = ctx.matmul(&attn_concat, &out_gpu)?;
-            self.output_projection.forward_gpu(&attn_out)
+        let mut output = self.attention_heads[0].forward_gpu(&latent)?;
+        for head in self.attention_heads[1..].iter() {
+            let head_out = head.forward_gpu(&latent)?;
+            output = ctx.add(&output, &head_out)?;
         }
+
+        self.output_projection.forward_gpu(&output)
     }
 
     fn concatenate_heads(&self, heads: &[Array3<f32>]) -> Result<Array3<f32>> {
@@ -638,6 +604,37 @@ impl LatentAttentionHead {
     }
 }
 
+impl LatentAttentionHead {
+    /// GPU forward: QKV projections → fused_attention → output projection.
+    /// All operations GPU-resident — zero CPU round-trips.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
+        let shape = x.shape();
+        let n = shape[0];
+
+        // QKV projections via cached LinearLayer
+        let q = self.q_proj.forward_gpu(x)?;
+        let k = self.k_proj.forward_gpu(x)?;
+        let v = self.v_proj.forward_gpu(x)?;
+
+        // fused_attention expects [B, H, S, D]. Use [1, 1, N, head_dim] (single batch, single head)
+        let head_dim = self.head_dim;
+        let q_4d = q.reshape(vec![1, 1, n, head_dim])?;
+        let k_4d = k.reshape(vec![1, 1, n, head_dim])?;
+        let v_4d = v.reshape(vec![1, 1, n, head_dim])?;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+        let attn_4d = ctx.fused_attention(&q_4d, &k_4d, &v_4d, scale, false)?;
+        let attn_flat = attn_4d.reshape(vec![n, head_dim])?;
+
+        // Output projection: head_dim → latent_dim
+        self.out_proj.forward_gpu(&attn_flat)
+    }
+}
+
 /// Latent Compression untuk mengurangi context storage
 pub struct LatentCompression {
     compression_ratio: f32,
@@ -712,6 +709,10 @@ impl LatentCompression {
 pub struct LinearLayer {
     pub weight: Array2<f32>,
     pub bias: Array1<f32>,
+    #[cfg(feature = "gpu")]
+    weight_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 impl LinearLayer {
@@ -721,6 +722,22 @@ impl LinearLayer {
                 xavier_uniform(input_dim, output_dim)
             }),
             bias: Array1::from_shape_fn(output_dim, |_| xavier_uniform_1d(output_dim)),
+            #[cfg(feature = "gpu")]
+            weight_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            bias_gpu: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// Construct from pre-existing arrays (skips Xavier init, GPU caches uninitialized).
+    pub fn from_arrays(weight: Array2<f32>, bias: Array1<f32>) -> Self {
+        Self {
+            weight,
+            bias,
+            #[cfg(feature = "gpu")]
+            weight_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            bias_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -736,19 +753,36 @@ impl LinearLayer {
         &self,
         x: &nexora_autograd::gpu::GpuTensor,
     ) -> Result<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
 
-        let w_shape = vec![self.weight.shape()[0], self.weight.shape()[1]];
-        let w_flat: Vec<f32> = self.weight.iter().copied().collect();
-        let w_gpu = GpuTensor::from_slice(w_shape, &w_flat)?;
+        let w_gpu = self
+            .weight_gpu
+            .get_or_init(|| {
+                let w_shape = vec![self.weight.shape()[0], self.weight.shape()[1]];
+                let w_flat: Vec<f32> = self.weight.iter().copied().collect();
+                GpuTensor::from_slice(w_shape, &w_flat).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache LinearLayer weight"))?;
 
-        let b_flat: Vec<f32> = self.bias.iter().copied().collect();
-        let b_gpu = GpuTensor::from_slice(vec![1, self.bias.len()], &b_flat)?;
+        let b_gpu = self
+            .bias_gpu
+            .get_or_init(|| {
+                let b_flat: Vec<f32> = self.bias.iter().copied().collect();
+                GpuTensor::from_slice(vec![1, self.bias.len()], &b_flat).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache LinearLayer bias"))?;
 
-        let result = ctx.matmul(x, &w_gpu)?;
-        Ok(ctx.add(&result, &b_gpu)?)
+        let result = ctx.matmul(x, w_gpu)?;
+        Ok(ctx.add(&result, b_gpu)?)
+    }
+
+    /// Invalidate GPU weight cache (call after weight update).
+    #[cfg(feature = "gpu")]
+    pub fn invalidate_gpu_cache(&mut self) {
+        self.weight_gpu = std::sync::OnceLock::new();
+        self.bias_gpu = std::sync::OnceLock::new();
     }
 }
 
@@ -823,19 +857,13 @@ impl OracleBackbone {
 
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(&self, input_ids: &Array2<i32>) -> Result<Array3<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
 
         let (batch_size, seq_len) = input_ids.dim();
+        let d_model = self.config.d_model;
 
-        // Embedding on CPU (lookup — not worth GPU upload)
-        let hidden_cpu = self.embedding.forward(input_ids)?;
-        let d_model = hidden_cpu.dim().2;
-
-        // Upload embedding to GPU as [batch*seq, d_model]
-        let hidden_flat: Vec<f32> = hidden_cpu.iter().copied().collect();
-        let mut hidden = GpuTensor::from_slice(vec![batch_size * seq_len, d_model], &hidden_flat)?;
+        // Embedding → directly to GPU tensor (CPU lookup, no intermediate Array3)
+        let mut hidden = self.embedding.forward_gpu(input_ids)?;
 
         // Transformer layers
         for i in 0..self.moe_layers.len() {
@@ -916,6 +944,37 @@ impl EmbeddingLayer {
         }
 
         Ok(output)
+    }
+
+    /// GPU forward: CPU lookup → upload to GPU.
+    /// Without native gather/scatter on GpuTensor, embedding lookup stays on CPU.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        input_ids: &Array2<i32>,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        let (batch_size, seq_len) = input_ids.dim();
+        let d_model = self.embeddings.dim().1;
+        let n = batch_size * seq_len;
+        let mut flat = vec![0.0f32; n * d_model];
+
+        for b in 0..batch_size {
+            for i in 0..seq_len {
+                let token_id = input_ids[[b, i]] as usize;
+                if token_id < self.embeddings.dim().0 {
+                    let src = token_id * d_model;
+                    let dst = (b * seq_len + i) * d_model;
+                    let emb_row = self.embeddings.as_slice()
+                        .ok_or_else(|| anyhow::anyhow!("Embeddings not contiguous"))?;
+                    for d in 0..d_model {
+                        flat[dst + d] = emb_row[src + d];
+                    }
+                }
+            }
+        }
+
+        GpuTensor::from_slice(vec![n, d_model], &flat)
+            .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))
     }
 }
 

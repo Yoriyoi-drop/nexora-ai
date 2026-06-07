@@ -12,6 +12,33 @@ pub mod planning;
 pub mod reasoning;
 pub mod reflection;
 
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub enum FoundationError {
+    Implementation(String),
+    Configuration(String),
+    Processing(String),
+    Resource(String),
+    Timeout,
+}
+
+impl fmt::Display for FoundationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FoundationError::Implementation(msg) => write!(f, "Implementation error: {msg}"),
+            FoundationError::Configuration(msg) => write!(f, "Configuration error: {msg}"),
+            FoundationError::Processing(msg) => write!(f, "Processing error: {msg}"),
+            FoundationError::Resource(msg) => write!(f, "Resource error: {msg}"),
+            FoundationError::Timeout => write!(f, "Timeout error"),
+        }
+    }
+}
+
+impl std::error::Error for FoundationError {}
+
+pub type FoundationResult<T> = Result<T, FoundationError>;
+
 pub use context::*;
 pub use planning::*;
 pub use reasoning::*;

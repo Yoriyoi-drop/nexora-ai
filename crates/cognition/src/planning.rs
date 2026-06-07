@@ -7,7 +7,7 @@
 //! - Plan optimisation by parallelising independent steps
 
 use async_trait::async_trait;
-use nexora_foundation_types::{FoundationError, FoundationResult};
+use crate::{FoundationError, FoundationResult};
 use std::collections::{HashMap, HashSet, VecDeque};
 use uuid::Uuid;
 

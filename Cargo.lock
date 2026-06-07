@@ -3414,15 +3414,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexora-benchmark"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
 name = "nexora-blaa"
 version = "0.2.0"
 dependencies = [
@@ -3452,7 +3443,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "nexora-foundation-types",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -3661,7 +3651,6 @@ dependencies = [
  "nexora-deeplearning",
  "nexora-echo-net",
  "nexora-erp",
- "nexora-foundation-types",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
  "nexora-hldva-t",
@@ -3696,13 +3685,6 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "uuid",
-]
-
-[[package]]
-name = "nexora-foundation-types"
-version = "0.1.0"
-dependencies = [
- "thiserror 1.0.69",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@
 //! - retrieve_relevant: TF-IDF cosine similarity without external embedding backend
 
 use async_trait::async_trait;
-use nexora_foundation_types::{FoundationError, FoundationResult};
+use crate::{FoundationError, FoundationResult};
 use std::collections::HashMap;
 use uuid::Uuid;
 

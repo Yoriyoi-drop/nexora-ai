@@ -101,14 +101,13 @@ impl QuantizedLinearLayer {
     }
 
     pub fn dequantize(&self) -> LinearLayer {
-        LinearLayer {
-            weight: self.weight.to_f32(),
-            bias: self
-                .bias
+        LinearLayer::from_arrays(
+            self.weight.to_f32(),
+            self.bias
                 .as_ref()
                 .map(|b| ndarray::Array1::from_vec(b.clone()))
                 .unwrap_or_else(|| ndarray::Array1::zeros(self.weight.shape.1)),
-        }
+        )
     }
 }
 

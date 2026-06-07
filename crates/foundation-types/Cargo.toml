@@ -1,8 +1,0 @@
-[package]
-name = "nexora-foundation-types"
-version = "0.1.0"
-edition = "2021"
-description = "Shared type definitions for Nexora Foundation — minimal dependency crate"
-
-[dependencies]
-thiserror.workspace = true

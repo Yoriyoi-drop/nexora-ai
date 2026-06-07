@@ -4,7 +4,32 @@
 //! for all AI frameworks in the Nexora ecosystem.
 //! Now includes NXR Model Series foundation implementations.
 
-pub use nexora_foundation_types::{FoundationError, FoundationResult};
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub enum FoundationError {
+    Implementation(String),
+    Configuration(String),
+    Processing(String),
+    Resource(String),
+    Timeout,
+}
+
+impl fmt::Display for FoundationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FoundationError::Implementation(msg) => write!(f, "Implementation error: {msg}"),
+            FoundationError::Configuration(msg) => write!(f, "Configuration error: {msg}"),
+            FoundationError::Processing(msg) => write!(f, "Processing error: {msg}"),
+            FoundationError::Resource(msg) => write!(f, "Resource error: {msg}"),
+            FoundationError::Timeout => write!(f, "Timeout error"),
+        }
+    }
+}
+
+impl std::error::Error for FoundationError {}
+
+pub type FoundationResult<T> = std::result::Result<T, FoundationError>;
 
 // Include framework modules
 

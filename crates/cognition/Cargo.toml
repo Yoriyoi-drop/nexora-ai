@@ -14,5 +14,3 @@ async-trait.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
-
-nexora-foundation-types = { path = "../foundation-types" }
