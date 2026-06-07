@@ -9,6 +9,16 @@ use ndarray::ArrayD;
 use nexora_autograd::compute_grad_norm;
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::{GpuContext, GpuTensor};
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu_adam::GpuAdam;
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu_grad_clip::GpuGradClipResult;
+#[cfg(feature = "gpu")]
+use nexora_autograd::{Device, Storage};
 use tracing::{info, warn};
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
@@ -191,7 +201,8 @@ impl Trainer {
                     for p in &params {
                         match GpuTensor::from_cpu(&p.data()) {
                             Ok(gpu_t) => {
-                                p.set_storage(nexora_autograd::Storage::Gpu(gpu_t));
+                                let shape = gpu_t.shape();
+                                p.set_storage(nexora_autograd::Storage::Gpu(gpu_t, shape));
                                 p.set_device(Device::Gpu(0));
                             }
                             Err(e) => {
@@ -207,7 +218,7 @@ impl Trainer {
                         let owned_gpu_params: Vec<GpuTensor> = params
                             .iter()
                             .filter_map(|p| match p.storage() {
-                                nexora_autograd::Storage::Gpu(g) => Some(g),
+                                nexora_autograd::Storage::Gpu(g, _) => Some(g),
                                 _ => {
                                     tracing::warn!(
                                         "Non-GPU tensor in GPU training optimizer setup — skipping"
@@ -775,7 +786,7 @@ fn train_batch_gpu(
 
     // ── Queue loss copy to staging INSIDE batch (overlaps copy with backward) ──
     let loss_gpu = match loss.storage() {
-        nexora_autograd::Storage::Gpu(g) => g,
+        nexora_autograd::Storage::Gpu(g, _) => g,
         _ => return None,
     };
     let loss_staging = ctx.create_readback_staging(loss_gpu.buffer(), 4, "loss");
@@ -791,7 +802,7 @@ fn train_batch_gpu(
         .parameters()
         .iter()
         .filter_map(|p| match p.storage() {
-            nexora_autograd::Storage::Gpu(g) => Some(g),
+            nexora_autograd::Storage::Gpu(g, _) => Some(g),
             _ => {
                 tracing::warn!("Non-GPU tensor in GPU backward train — skipping");
                 None
@@ -817,7 +828,7 @@ fn train_batch_gpu(
             .parameters()
             .iter()
             .filter_map(|p| match p.storage() {
-                nexora_autograd::Storage::Gpu(g) => Some(g),
+                nexora_autograd::Storage::Gpu(g, _) => Some(g),
                 _ => {
                     tracing::warn!("Non-GPU tensor in GPU gradient accumulation — skipping");
                     None
@@ -829,7 +840,7 @@ fn train_batch_gpu(
         let mut gpu_ok = true;
         for p in trainable.parameters().iter() {
             match p.grad_storage() {
-                Some(Storage::Gpu(g)) => grad_tensors.push(g),
+                Some(Storage::Gpu(g, _)) => grad_tensors.push(g),
                 _ => {
                     let arr = p.grad().unwrap_or_else(|| ArrayD::zeros(p.shape()));
                     match GpuTensor::from_cpu(&arr) {
@@ -879,7 +890,10 @@ fn train_batch_gpu(
 
         // Data-parallel gradient allreduce across model replicas
         if config.num_replicas > 1 && !grad_refs.is_empty() {
-            let _ = gpu_allreduce_gradients(ctx, &grad_refs);
+            tracing::warn!(
+                "Multi-replica gradient allreduce not yet implemented for GPU training (num_replicas={})",
+                config.num_replicas
+            );
         }
 
         let _ = gpu_opt.step(&ctx, &params, &grad_refs);
@@ -979,7 +993,7 @@ fn evaluate_loss_gpu(
             let loss = cross_entropy_loss(&logits, &target_t).mean();
 
             match loss.storage() {
-                nexora_autograd::Storage::Gpu(g) => {
+                nexora_autograd::Storage::Gpu(g, _) => {
                     let loss_cpu = g.to_cpu().unwrap_or_else(|e| {
                         tracing::warn!("Training eval GPU readback failed: {e}");
                         ndarray::ArrayD::zeros(vec![1])

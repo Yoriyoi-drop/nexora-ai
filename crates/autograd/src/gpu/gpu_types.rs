@@ -76,6 +76,12 @@ pub enum GpuError {
     /// Watchdog timeout — GPU operation exceeded deadline.
     #[error("Watchdog timeout: {0}")]
     WatchdogTimeout(String),
+    /// CUDA compute operation failed.
+    #[error("CUDA compute error: {0}")]
+    Compute(String),
+    /// CUDA data transfer (host↔device) failed.
+    #[error("CUDA transfer error: {0}")]
+    Transfer(String),
 }
 
 impl GpuError {
@@ -88,6 +94,7 @@ impl GpuError {
                 GpuErrorKind::ShaderCompile
             }
             GpuError::WatchdogTimeout(_) | GpuError::Timeout(_) => GpuErrorKind::Timeout,
+            GpuError::Compute(_) | GpuError::Transfer(_) => GpuErrorKind::Transient,
             GpuError::NoAdapter | GpuError::NotInitialized => GpuErrorKind::Fatal,
             GpuError::Buffer(_) => {
                 // Buffer allocation failure could be OOM or device lost

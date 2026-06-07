@@ -431,6 +431,22 @@ impl PatternCache {
             return 0.0; // Different dimensions, not similar
         }
 
+        // Try GPU-accelerated dot + norms
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let (Some(dot), Some(norm1), Some(norm2)) = (
+                crate::gpu_try!(gpu::try_dot(context1, context2)),
+                crate::gpu_try!(gpu::try_l2_norm(context1)),
+                crate::gpu_try!(gpu::try_l2_norm(context2)),
+            ) {
+                if norm1 > 0.0 && norm2 > 0.0 {
+                    return dot / (norm1 * norm2);
+                }
+                return 0.0;
+            }
+        }
+
         // Compute dot product
         let dot_product: f32 = context1
             .iter()
@@ -455,6 +471,18 @@ impl PatternCache {
     fn compute_euclidean_distance(&self, context1: &Array1<f32>, context2: &Array1<f32>) -> f32 {
         if context1.len() != context2.len() {
             return f32::INFINITY; // Different dimensions
+        }
+
+        // Try GPU-accelerated difference + sum of squares
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            let diff = crate::gpu_try!(gpu::try_elem_sub(context1, context2));
+            if let Some(d) = diff {
+                if let Some(sum_sq) = crate::gpu_try!(gpu::try_sum_squares(&d)) {
+                    return sum_sq.sqrt();
+                }
+            }
         }
 
         let sum_sq_diff: f32 = context1

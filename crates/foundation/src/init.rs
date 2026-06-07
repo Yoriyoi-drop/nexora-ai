@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tracing::{info, warn};
 
+use nexora_erp::{ERPConfig, CompressionMode};
 use nexora_models::foundation::transformer_config_for;
 use nexora_transformer::TransformerConfig;
 
@@ -21,6 +22,22 @@ fn tier_config(model_id: NxrModelId, vocab_size: usize) -> TransformerConfig {
     cfg
 }
 
+/// Per-model ERP compression mode — domain-specific tuning agar SEDC + ERP tidak bentrok.
+fn erp_config_for(model_id: NxrModelId) -> ERPConfig {
+    let mode = match model_id {
+        // Aether (emotion) + Cipher (security): conservative — precision-critical
+        NxrModelId::Aether | NxrModelId::Cipher => CompressionMode::Conservative,
+        // Swift (edge): aggressive — max compression untuk latency
+        NxrModelId::Swift => CompressionMode::Aggressive,
+        // Sisanya: balanced
+        _ => CompressionMode::Balanced,
+    };
+    ERPConfig {
+        compression_mode: mode,
+        ..ERPConfig::default()
+    }
+}
+
 /// Semua model standby di startup — satu shared backbone di-load lazy
 /// pas pertama kali ada request. Tidak ada tier, tidak ada eviction.
 
@@ -31,6 +48,7 @@ async fn register_causal_lm(
     vocab_size: usize,
     transformer_config: TransformerConfig,
     checkpoints: &HashMap<NxrModelId, String>,
+    gpu_available: bool,
 ) -> Result<(), RegistryError> {
     let registry = global_registry();
     let cfg = NxrModelConfig::for_model(model_id);
@@ -49,13 +67,22 @@ async fn register_causal_lm(
         model_id
     );
 
-    info!(
-        "SEDC weight compression — must be explicitly enabled for {}",
-        model_id
-    );
+    let erp_config = erp_config_for(model_id);
 
     let mut model = CausalLmModel::new(model_id, transformer_config.clone());
     model = model.with_echo_net(crate::causal_lm_model::EchoNetInjectionConfig::default());
+    model = model.with_erp_config(erp_config);
+
+    // SEDC: auto-enable jika GPU tersedia + model bukan Swift (edge — too small to benefit)
+    let sedc_enabled = gpu_available && model_id != NxrModelId::Swift;
+    if sedc_enabled {
+        model = model.with_sedc();
+        info!("SEDC weight compression enabled for {} (GPU available)", model_id);
+    } else {
+        info!("SEDC weight compression skipped for {} (GPU={}, model={})",
+            model_id, gpu_available, model_id);
+    }
+
     let mini_tok = MiniTokenizer::new(vocab_size);
     model.load_tokenizer(mini_tok).await;
 
@@ -103,6 +130,7 @@ async fn register_causal_lm(
 
 pub async fn initialize_foundation_models_with_checkpoints(
     checkpoints: HashMap<NxrModelId, String>,
+    gpu_available: bool,
 ) -> Result<(), RegistryError> {
     let vocab_size = 50257;
 
@@ -114,7 +142,7 @@ pub async fn initialize_foundation_models_with_checkpoints(
 
     for model_id in &model_ids {
         let tc = tier_config(*model_id, vocab_size);
-        register_causal_lm(*model_id, vocab_size, tc, &checkpoints).await?;
+        register_causal_lm(*model_id, vocab_size, tc, &checkpoints, gpu_available).await?;
     }
 
     wire_delegation_agents(&model_ids).await?;
@@ -125,7 +153,15 @@ pub async fn initialize_foundation_models_with_checkpoints(
 
 /// Backward-compatible: no checkpoint paths, all standby models remain empty.
 pub async fn initialize_foundation_models() -> Result<(), RegistryError> {
-    initialize_foundation_models_with_checkpoints(HashMap::new()).await
+    initialize_foundation_models_with_checkpoints(HashMap::new(), false).await
+}
+
+/// Initialize with explicit GPU availability — enables SEDC for GPU-capable models.
+pub async fn initialize_foundation_models_with_gpu(
+    checkpoints: HashMap<NxrModelId, String>,
+    gpu_available: bool,
+) -> Result<(), RegistryError> {
+    initialize_foundation_models_with_checkpoints(checkpoints, gpu_available).await
 }
 
 /// Wire ALL 10 delegation agents WITHOUT loading backbone.

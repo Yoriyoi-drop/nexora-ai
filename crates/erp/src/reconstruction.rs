@@ -142,6 +142,15 @@ impl ContextReconstructor {
         layer: &CompressedLayer,
         input: &Array1<f32>,
     ) -> Result<Array1<f32>, ERPError> {
+        // Try GPU matvec first
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let Some(Ok(result)) = gpu::try_matvec(&layer.compressed_weights, input) {
+                return Ok(result);
+            }
+        }
+
         // Gunakan compressed weights langsung
         let output = layer.compressed_weights.dot(input);
         Ok(output)
@@ -155,7 +164,23 @@ impl ContextReconstructor {
         gates: &GatePattern,
         target_sparsity: f32,
     ) -> Result<Array1<f32>, ERPError> {
-        let mut output = Array1::zeros(layer.compressed_weights.nrows());
+        let nrows = layer.compressed_weights.nrows();
+
+        // Try GPU full matvec then apply gates
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let Some(Ok(full_output)) = gpu::try_matvec(&layer.compressed_weights, input) {
+                let mut output = full_output;
+                for i in 0..nrows {
+                    output[i] *= gates.gates[i];
+                }
+                self.apply_sparse_regularization(&mut output, target_sparsity);
+                return Ok(output);
+            }
+        }
+
+        let mut output = Array1::zeros(nrows);
 
         // Hanya proses active neurons
         for &neuron_idx in &gates.active_neurons {
@@ -194,6 +219,36 @@ impl ContextReconstructor {
 
         // Proses top-k neurons sesuai budget
         let num_active = std::cmp::min(budget, prioritized_neurons.len());
+
+        // Try GPU matvec for active neurons only (extract sub-matrix)
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            use ndarray::Array2;
+            let active: Vec<usize> = prioritized_neurons
+                .iter()
+                .take(num_active)
+                .map(|(idx, _)| *idx)
+                .collect();
+            if !active.is_empty() {
+                let dim = input.len();
+                let mut sub_weights = Array2::zeros((active.len(), dim));
+                for (row, &neuron_idx) in active.iter().enumerate() {
+                    for col in 0..dim {
+                        sub_weights[[row, col]] = layer.compressed_weights[[neuron_idx, col]];
+                    }
+                }
+                if let Some(Ok(sub_output)) = gpu::try_matvec(&sub_weights, input) {
+                    for (row, &neuron_idx) in active.iter().enumerate() {
+                        if row < sub_output.len() {
+                            output[neuron_idx] = sub_output[row] * gates.gates[neuron_idx];
+                        }
+                    }
+                    return Ok(output);
+                }
+            }
+        }
+
         for (neuron_idx, _) in prioritized_neurons.iter().take(num_active) {
             let neuron_output = layer.compressed_weights.row(*neuron_idx).dot(input);
             output[*neuron_idx] = neuron_output * gates.gates[*neuron_idx];
@@ -345,10 +400,43 @@ impl GateNetwork {
         resonance_rep: &crate::compression::ResonanceRepresentation,
     ) -> f32 {
         // Compute weighted context signal
-        let context_signal = context_embedding.dot(&self.gate_weights) + self.gate_bias[0];
+        let context_signal = {
+            #[cfg(feature = "gpu")]
+            {
+                use crate::gpu;
+                let flat: Vec<f32> = self.gate_weights.iter().copied().collect();
+                let w = match ndarray::Array2::from_shape_vec((flat.len(), 1), flat) {
+                    Ok(w) => w,
+                    Err(_) => self.gate_weights.clone(),
+                };
+                let col: Vec<f32> = (0..self.gate_weights.nrows())
+                    .map(|i| self.gate_weights[[i, 0]])
+                    .collect();
+                let col_arr = match ndarray::Array2::from_shape_vec(
+                    (self.gate_weights.nrows(), 1),
+                    col,
+                ) {
+                    Ok(w) => w,
+                    Err(_) => self.gate_weights.clone(),
+                };
+                let ctx_dot = crate::gpu_try!(gpu::try_matvec(
+                    &col_arr,
+                    context_embedding,
+                ));
+                if let Some(val) = ctx_dot {
+                    val[0]
+                } else {
+                    context_embedding.dot(&self.gate_weights)[0] + self.gate_bias[0]
+                }
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                context_embedding.dot(&self.gate_weights)[0] + self.gate_bias[0]
+            }
+        };
 
         // Apply sigmoid activation
-        let gate_score = 1.0 / (1.0 + (-context_signal).mapv(|x| x.exp()).sum());
+        let gate_score = 1.0 / (1.0 + (-context_signal).exp());
 
         // Modulate dengan importance coefficients
         let avg_importance = resonance_rep.importance_coeffs.mean().unwrap_or(0.0);

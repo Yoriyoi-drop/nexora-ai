@@ -241,7 +241,7 @@ impl MixedPrecisionTrainer {
 
         // Readback loss for NaN check
         let loss_gpu = match loss.storage() {
-            Storage::Gpu(g) => g,
+            Storage::Gpu(g, _) => g,
             _ => return None,
         };
         let loss_staging = ctx.create_readback_staging(loss_gpu.buffer(), 4, "amp_loss");
@@ -272,7 +272,7 @@ impl MixedPrecisionTrainer {
         // ── Check gradients for overflow on GPU ──
         let mut overflow = false;
         for p in trainable.parameters().iter() {
-            if let Some(Storage::Gpu(g)) = p.grad_storage() {
+            if let Some(Storage::Gpu(g, _)) = p.grad_storage() {
                 if let Ok(val) = g.to_cpu_first_element() {
                     if !val.is_finite() {
                         overflow = true;
@@ -291,7 +291,7 @@ impl MixedPrecisionTrainer {
         // ── Unscale gradients on GPU: grad *= 1/scale ──
         let inv_scale = 1.0 / self.scaler.scale;
         for p in trainable.parameters().iter() {
-            if let Some(Storage::Gpu(g)) = p.grad_storage() {
+            if let Some(Storage::Gpu(g, _)) = p.grad_storage() {
                 let _ = ctx.scale_inplace(&g, inv_scale);
             }
         }
@@ -334,7 +334,7 @@ fn collect_gpu_params(
         .parameters()
         .iter()
         .filter_map(|p| match p.storage() {
-            Storage::Gpu(g) => Some(g),
+            Storage::Gpu(g, _) => Some(g),
             _ => None,
         })
         .collect()

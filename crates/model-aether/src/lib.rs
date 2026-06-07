@@ -171,7 +171,11 @@ impl NxrAetherModel {
             ),
             identity,
             capabilities,
-            components: FoundationComponents::new(),
+            components: FoundationComponents::new()
+                .with_erp_config(nexora_erp::ERPConfig {
+                    compression_mode: nexora_erp::CompressionMode::Conservative,
+                    ..nexora_erp::ERPConfig::default()
+                }),
             config,
             hallucination: Some(nexora_hallucination::HallucinationGuard::new(
                 nexora_hallucination::GuardConfig::default(),

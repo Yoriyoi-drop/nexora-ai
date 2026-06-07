@@ -76,6 +76,9 @@ pub fn backward_engine(output: &Tensor) {
                                     Storage::Cpu(arr) => {
                                         crate::gpu::GpuTensor::from_cpu(arr.as_ref())
                                     }
+                                    Storage::Cuda(_, _) => {
+                                        Err(crate::gpu::GpuError::Unsupported("Cuda grad in Gpu backward path".into()))
+                                    }
                                 };
                                 let used_gpu_inner = match grad_gpu_result {
                                     Ok(grad_gpu) => {
@@ -124,21 +127,15 @@ pub fn backward_engine(output: &Tensor) {
                                                                     }
                                                                 }
                                                             } else {
-                                                                match (
-                                                                    existing.to_cpu(),
-                                                                    gpu_grad.to_cpu(),
-                                                                ) {
-                                                                    (
-                                                                        Ok(ref mut e_cpu),
-                                                                        Ok(ref g_cpu),
-                                                                    ) => {
-                                                                        *e_cpu += g_cpu;
+                                                                let mut e_cpu = existing.to_cpu();
+                                                                match gpu_grad.to_cpu() {
+                                                                    Ok(ref g_cpu) => {
+                                                                        e_cpu += g_cpu;
                                                                         *existing = Storage::Cpu(
-                                                                            Arc::new(e_cpu.clone()),
+                                                                            Arc::new(e_cpu),
                                                                         );
                                                                     }
-                                                                    (Err(err), _)
-                                                                    | (_, Err(err)) => {
+                                                                    Err(err) => {
                                                                         tracing::warn!("GPU backward mixed storage readback failed: {err}");
                                                                     }
                                                                 }
@@ -191,10 +188,21 @@ pub fn backward_engine(output: &Tensor) {
                     let backward_fn = tape::with_tape_mut(|tap| tap.take_backward(fn_idx));
                     if let Some(backward) = backward_fn {
                         #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
-                        let grad_cpu = grad_out_storage.to_cpu().unwrap_or_else(|e| {
-                            tracing::warn!("Backward CPU fallback: Storage::to_cpu failed: {e}");
-                            ndarray::ArrayD::zeros(grad_out_storage.shape())
-                        });
+                        let grad_cpu = match &grad_out_storage {
+                            Storage::Cpu(arr) => arr.as_ref().clone(),
+                            #[cfg(feature = "device-gpu")]
+                            Storage::Gpu(g, _) => {
+                                g.to_cpu().unwrap_or_else(|e| {
+                                    tracing::warn!("Backward CPU fallback: GpuTensor readback failed: {e}");
+                                    ndarray::ArrayD::zeros(grad_out_storage.shape())
+                                })
+                            }
+                            #[cfg(feature = "device-cuda")]
+                            Storage::Cuda(_, _) => {
+                                tracing::warn!("Backward CPU fallback: CUDA readback not implemented");
+                                ndarray::ArrayD::zeros(grad_out_storage.shape())
+                            }
+                        };
                         #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
                         let grad_cpu = grad_out_storage.to_cpu();
                         let grad_inputs = backward(&grad_cpu, &saved);
@@ -240,6 +248,11 @@ pub fn backward_engine(output: &Tensor) {
                                                     tracing::warn!("Backward GPU context lost: {e}")
                                                 }
                                             }
+                                        }
+                                        Storage::Cuda(_, _) => {
+                                            let mut e_cpu = existing.to_cpu();
+                                            e_cpu += &g;
+                                            *existing = Storage::Cpu(Arc::new(e_cpu));
                                         }
                                     }
                                 } else {

@@ -2844,18 +2844,20 @@ impl GpuContext {
                             let mapped = slice.get_mapped_range();
                             let qkv_f32: &[f32] = bytemuck::cast_slice(&mapped);
 
-                            let q_cuda = CudaTensor::from_cpu(&cuda.device, q.shape().clone(), &qkv_f32[..q_len]);
-                            let k_cuda = CudaTensor::from_cpu(&cuda.device, k.shape().clone(), &qkv_f32[q_len..q_len + k_len]);
-                            let v_cuda = CudaTensor::from_cpu(&cuda.device, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len]);
+                            let q_cuda = CudaTensor::from_cpu(&cuda.stream, q.shape().clone(), &qkv_f32[..q_len], cuda.device_id);
+                            let k_cuda = CudaTensor::from_cpu(&cuda.stream, k.shape().clone(), &qkv_f32[q_len..q_len + k_len], cuda.device_id);
+                            let v_cuda = CudaTensor::from_cpu(&cuda.stream, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len], cuda.device_id);
 
                             drop(mapped);
                             staging.unmap();
 
-                            match (q_cuda, k_cuda, v_cuda) {
-                                (Ok(q), Ok(k), Ok(v)) => break (q, k, v),
-                                (e, _, _) => break Err(e.unwrap_err()),
-                                (_, e, _) => break Err(e.unwrap_err()),
-                                (_, _, e) => break Err(e.unwrap_err()),
+                            let err = q_cuda.as_ref().err()
+                                .or_else(|| k_cuda.as_ref().err())
+                                .or_else(|| v_cuda.as_ref().err())
+                                .cloned();
+                            match err {
+                                None => break Ok((q_cuda.unwrap(), k_cuda.unwrap(), v_cuda.unwrap())),
+                                Some(e) => break Err(GpuError::Transfer(e)),
                             }
                         }
                         Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -2906,11 +2908,13 @@ impl GpuContext {
                     });
                     match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                         Ok(Ok(())) => {
-                            let mut mapped = rslice.get_mapped_range_mut();
-                            let result_f32: &mut [f32] = bytemuck::cast_slice_mut(&mut mapped);
-                            cuda.device
-                                .dtoh_sync_copy(&result_cuda.buffer, result_f32)
+                            let mut cpu_buf = vec![0.0f32; numel];
+                            cuda.stream
+                                .memcpy_dtoh(&result_cuda.buffer, &mut cpu_buf)
                                 .map_err(|e| GpuError::Transfer(format!("CUDA result dtoh: {e}")))?;
+                            let cpu_bytes: &[u8] = bytemuck::cast_slice(&cpu_buf);
+                            let mut mapped = rslice.get_mapped_range_mut();
+                            mapped.copy_from_slice(cpu_bytes);
                             drop(mapped);
                             result_staging.unmap();
 

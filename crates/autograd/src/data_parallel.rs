@@ -248,6 +248,16 @@ fn get_storage_grad(p: &Tensor) -> Option<Storage> {
 fn storage_scale(s: &Storage, scale: f32) -> Storage {
     match s {
         Storage::Cpu(arr) => Storage::Cpu(Arc::new(arr.as_ref() * scale)),
+        #[cfg(feature = "device-gpu")]
+        Storage::Gpu(_, _) => {
+            tracing::warn!("storage_scale on GPU tensor - not supported, returning CPU zeros");
+            Storage::Cpu(Arc::new(ArrayD::zeros(vec![0])))
+        }
+        #[cfg(feature = "device-cuda")]
+        Storage::Cuda(_, _) => {
+            tracing::warn!("storage_scale on CUDA tensor - not supported, returning CPU zeros");
+            Storage::Cpu(Arc::new(ArrayD::zeros(vec![0])))
+        }
     }
 }
 
@@ -258,8 +268,17 @@ fn stash_add_inplace(stash: &mut HashMap<usize, Storage>, idx: usize, grad: Stor
     match stash.entry(idx) {
         Entry::Occupied(mut entry) => {
             let existing = entry.get_mut();
-            match (existing, &grad) {
-                (Storage::Cpu(ref mut e), Storage::Cpu(g)) => {
+            #[cfg(feature = "device-gpu")]
+            {
+                if let (Storage::Cpu(ref mut e), Storage::Cpu(g)) = (existing, &grad) {
+                    *e = Arc::new(e.as_ref() + g.as_ref());
+                } else {
+                    tracing::warn!("stash_add_inplace on GPU storage - not supported, overwriting");
+                }
+            }
+            #[cfg(not(feature = "device-gpu"))]
+            {
+                if let (Storage::Cpu(ref mut e), Storage::Cpu(g)) = (existing, &grad) {
                     *e = Arc::new(e.as_ref() + g.as_ref());
                 }
             }
@@ -275,6 +294,16 @@ fn stash_add_inplace(stash: &mut HashMap<usize, Storage>, idx: usize, grad: Stor
 fn set_storage_grad(p: &Tensor, g: &Storage) {
     match g {
         Storage::Cpu(arr) => p.set_grad(arr.as_ref().clone()),
+        #[cfg(feature = "device-gpu")]
+        Storage::Gpu(_, _) => {
+            tracing::warn!("set_storage_grad on GPU tensor - not supported, falling back to CPU zeros");
+            p.set_grad(ArrayD::zeros(vec![0]));
+        }
+        #[cfg(feature = "device-cuda")]
+        Storage::Cuda(_, _) => {
+            tracing::warn!("set_storage_grad on CUDA tensor - not supported, falling back to CPU zeros");
+            p.set_grad(ArrayD::zeros(vec![0]));
+        }
     }
 }
 

@@ -56,9 +56,9 @@ impl Device {
 pub enum Storage {
     Cpu(Arc<ArrayD<f32>>),
     #[cfg(feature = "device-gpu")]
-    Gpu(Box<dyn std::any::Any + Send + Sync>, Vec<usize>),
+    Gpu(crate::gpu::GpuTensor, Vec<usize>),
     #[cfg(feature = "device-cuda")]
-    Cuda(Box<dyn std::any::Any + Send + Sync>, Vec<usize>),
+    Cuda(crate::gpu::cuda::CudaTensor, Vec<usize>),
 }
 
 impl Clone for Storage {

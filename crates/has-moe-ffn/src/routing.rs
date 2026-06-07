@@ -286,7 +286,7 @@ impl Router {
             let hidden_size = self.config.hidden_size;
             let w = self.router_weights.as_ref()?;
             let flat: Vec<f32> = w.iter().flatten().copied().collect();
-            CudaTensor::from_cpu(&cuda.device, vec![num_experts, hidden_size], &flat).ok()
+            CudaTensor::from_cpu(&cuda.stream, vec![num_experts, hidden_size], &flat, cuda.device_id).ok()
         });
         entry.as_ref()
     }
@@ -310,16 +310,15 @@ impl Router {
         let dim = input.shape()[1];
         let input_flat: Vec<f32> = input.iter().copied().collect();
         let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.device, vec![n, dim], &input_flat,
+            &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
         ).ok()?;
 
         // scores = input @ weights → [batch, num_experts]  (cuBLAS handles transpose)
         let scores = cuda.matmul(&input_gpu, weights).ok()?;
         let probs = cuda.softmax(&scores).ok()?;
 
-        let out_cpu = probs.to_cpu_vec(&cuda.device).ok()?;
-        let out_shape = vec![n, self.config.num_experts];
-        ndarray::Array2::from_shape_vec(out_shape, out_cpu).ok()
+        let out_cpu = probs.to_cpu_vec(&cuda.stream).ok()?;
+        ndarray::Array2::from_shape_vec((n, self.config.num_experts), out_cpu).ok()
     }
 
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {

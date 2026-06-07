@@ -4,6 +4,11 @@ version = "0.2.0"
 edition = "2021"
 description = "Entropic Resonance Pruning (ERP) - Strengthened Architecture"
 
+[features]
+default = []
+gpu = ["nexora-autograd/gpu"]
+cuda = ["nexora-autograd/cuda"]
+
 [dependencies]
 ndarray.workspace = true
 ndarray-rand = "0.15"
@@ -13,3 +18,4 @@ thiserror.workspace = true
 tracing.workspace = true
 lru = "0.12"
 uuid.workspace = true
+nexora-autograd = { path = "../autograd" }

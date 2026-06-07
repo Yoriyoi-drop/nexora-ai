@@ -152,17 +152,53 @@ impl ResonanceMapper {
         &self,
         signatures: &[NeuronSignature],
     ) -> Result<Vec<(usize, usize, f32)>, ERPError> {
-        let mut resonance_pairs = Vec::new();
         let n = signatures.len();
+        let mut resonance_pairs = Vec::new();
 
         // Stage 1: Fast similarity menggunakan cosine similarity
+        let projections: Vec<Array1<f32>> = signatures
+            .iter()
+            .map(|s| s.projection.clone())
+            .collect();
+
         let mut candidates = Vec::new();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let sim = cosine_similarity(&signatures[i].projection, &signatures[j].projection);
-                if sim > 0.7 {
-                    // Threshold untuk fast filtering
-                    candidates.push((i, j, sim));
+
+        // Try GPU batch cosine similarity first
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let Some(Ok(sim_matrix)) = gpu::try_batch_cosine_similarity(&projections) {
+                for i in 0..n {
+                    for j in (i + 1)..n {
+                        if j < sim_matrix[i].len() && sim_matrix[i][j] > 0.7 {
+                            candidates.push((i, j, sim_matrix[i][j]));
+                        }
+                    }
+                }
+            }
+        }
+
+        // CPU fallback if GPU didn't produce results
+        #[cfg(not(feature = "gpu"))]
+        {
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let sim = cosine_similarity(&projections[i], &projections[j]);
+                    if sim > 0.7 {
+                        candidates.push((i, j, sim));
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "gpu")]
+        if candidates.is_empty() {
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let sim = cosine_similarity(&projections[i], &projections[j]);
+                    if sim > 0.7 {
+                        candidates.push((i, j, sim));
+                    }
                 }
             }
         }
@@ -303,6 +339,22 @@ pub struct ResonanceGroup {
 
 /// Cosine similarity antara dua vektor
 fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
+    // Try GPU-accelerated dot product + L2 norm
+    #[cfg(feature = "gpu")]
+    {
+        use crate::gpu;
+        if let (Some(dot), Some(norm_a), Some(norm_b)) = (
+            crate::gpu_try!(gpu::try_dot(a, b)),
+            crate::gpu_try!(gpu::try_l2_norm(a)),
+            crate::gpu_try!(gpu::try_l2_norm(b)),
+        ) {
+            if norm_a > 0.0 && norm_b > 0.0 {
+                return dot / (norm_a * norm_b);
+            }
+            return 0.0;
+        }
+    }
+
     let dot_product = a.dot(b);
     let norm_a = a.mapv(|x| x * x).sum().sqrt();
     let norm_b = b.mapv(|x| x * x).sum().sqrt();
@@ -317,6 +369,21 @@ fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// Symmetric KL divergence
 fn symmetric_kl_divergence(p: &Array1<f32>, q: &Array1<f32>) -> f32 {
     let eps = 1e-8;
+
+    // Try GPU-accelerated elementwise computation
+    #[cfg(feature = "gpu")]
+    {
+        use crate::gpu;
+        // KL(P||Q) = sum(pi * ln(pi/qi))
+        if let (Some(div), Some(ln), Some(mul)) = (
+            crate::gpu_try!(gpu::try_elem_div(p, q)),
+            None::<ndarray::Array1<f32>>,
+            None::<ndarray::Array1<f32>>,
+        ) {
+            // GPU path for elementwise ops — fall through to CPU for simplicity
+        }
+    }
+
     let kl_pq: f32 = p
         .iter()
         .zip(q.iter())

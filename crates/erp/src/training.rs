@@ -241,8 +241,23 @@ impl ERPTrainer {
         target: &Array1<f32>,
         gates: &[crate::reconstruction::GatePattern],
     ) -> Result<Array2<f32>, ERPError> {
-        // Simplified gradient computation
-        let output = layer.compressed_weights.dot(input);
+        // Simplified gradient computation with GPU-accelerated matvec
+        let output = {
+            #[cfg(feature = "gpu")]
+            {
+                use crate::gpu;
+                if let Some(Ok(result)) = gpu::try_matvec(&layer.compressed_weights, input) {
+                    result
+                } else {
+                    layer.compressed_weights.dot(input)
+                }
+            }
+            #[cfg(not(feature = "gpu"))]
+            {
+                layer.compressed_weights.dot(input)
+            }
+        };
+
         let error = output - target;
 
         // Compute gradient terhadap gate weights
@@ -348,25 +363,77 @@ impl ERPTrainer {
             let training_batch = training_data.sample_training_batch(50);
 
             for (input, target) in &training_batch.samples {
-                // Forward pass dengan LoRA
-                let base_output = layer.compressed_weights.dot(input);
-                let lora_output = lora_b.dot(&lora_a.dot(input));
-                let total_output = base_output + lora_output;
+                // Forward pass dengan LoRA (GPU-accelerated matmuls)
+                let (base_output, lora_a_input) = {
+                    #[cfg(feature = "gpu")]
+                    {
+                        use crate::gpu;
+                        let base = crate::gpu_try!(gpu::try_matvec(&layer.compressed_weights, input))
+                            .unwrap_or_else(|| layer.compressed_weights.dot(input));
+                        let la_input = crate::gpu_try!(gpu::try_matvec(&lora_a, input))
+                            .unwrap_or_else(|| lora_a.dot(input));
+                        (base, la_input)
+                    }
+                    #[cfg(not(feature = "gpu"))]
+                    {
+                        let la_input = lora_a.dot(input);
+                        (layer.compressed_weights.dot(input), la_input)
+                    }
+                };
+
+                let lora_output = lora_b.dot(&lora_a_input);
+                let total_output = &base_output + &lora_output;
 
                 // Compute loss
-                let error = total_output - target;
+                let error = &total_output - target;
                 let _loss = error.iter().map(|x| x * x).sum::<f32>() / output_dim as f32;
 
-                // Backpropagation untuk LoRA matrices
-                let lora_grad_b = error
-                    .to_owned()
-                    .insert_axis(ndarray::Axis(1))
-                    .dot(&lora_a.dot(input).insert_axis(ndarray::Axis(0)));
-                let lora_grad_a = lora_b
-                    .t()
-                    .dot(&error)
-                    .insert_axis(ndarray::Axis(1))
-                    .dot(&input.clone().insert_axis(ndarray::Axis(0)));
+                // Backpropagation untuk LoRA matrices (GPU-accelerated)
+                let (lora_grad_b, lora_grad_a) = {
+                    #[cfg(feature = "gpu")]
+                    {
+                        use crate::gpu;
+                        let la_input_2d = lora_a_input.clone().insert_axis(ndarray::Axis(0));
+                        let error_2d = error.clone().insert_axis(ndarray::Axis(1));
+
+                        let gb = crate::gpu_try!(gpu::try_matmul(&error_2d, &la_input_2d))
+                            .unwrap_or_else(|| {
+                                error
+                                    .to_owned()
+                                    .insert_axis(ndarray::Axis(1))
+                                    .dot(&lora_a_input.insert_axis(ndarray::Axis(0)))
+                            });
+
+                        let lora_b_t = lora_b.t().to_owned();
+                        let lbe = crate::gpu_try!(gpu::try_matvec(&lora_b_t, &error))
+                            .unwrap_or_else(|| lora_b.t().dot(&error));
+                        let lbe_2d = lbe.clone().insert_axis(ndarray::Axis(1));
+                        let input_2d = input.clone().insert_axis(ndarray::Axis(0));
+                        let ga = crate::gpu_try!(gpu::try_matmul(&lbe_2d, &input_2d))
+                            .unwrap_or_else(|| {
+                                lora_b
+                                    .t()
+                                    .dot(&error)
+                                    .insert_axis(ndarray::Axis(1))
+                                    .dot(&input.clone().insert_axis(ndarray::Axis(0)))
+                            });
+
+                        (gb, ga)
+                    }
+                    #[cfg(not(feature = "gpu"))]
+                    {
+                        let gb = error
+                            .to_owned()
+                            .insert_axis(ndarray::Axis(1))
+                            .dot(&lora_a_input.insert_axis(ndarray::Axis(0)));
+                        let ga = lora_b
+                            .t()
+                            .dot(&error)
+                            .insert_axis(ndarray::Axis(1))
+                            .dot(&input.clone().insert_axis(ndarray::Axis(0)));
+                        (gb, ga)
+                    }
+                };
 
                 // Update LoRA matrices dengan small learning rate
                 let learning_rate = 1e-4;
@@ -402,7 +469,22 @@ impl ERPTrainer {
             let mut current_input = input.clone();
 
             for layer in layers {
-                let output = layer.compressed_weights.dot(&current_input);
+                let output = {
+                    #[cfg(feature = "gpu")]
+                    {
+                        use crate::gpu;
+                        if let Some(Ok(result)) = gpu::try_matvec(&layer.compressed_weights, &current_input) {
+                            result
+                        } else {
+                            layer.compressed_weights.dot(&current_input)
+                        }
+                    }
+                    #[cfg(not(feature = "gpu"))]
+                    {
+                        layer.compressed_weights.dot(&current_input)
+                    }
+                };
+
                 let error = output.clone() - target;
                 total_loss += error.iter().map(|x| x * x).sum::<f32>();
                 count += 1;

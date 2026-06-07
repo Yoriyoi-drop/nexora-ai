@@ -5,6 +5,7 @@
 use crate::error::{NexoraError, NexoraResult};
 use chrono::Utc;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::RwLock;
@@ -408,20 +409,27 @@ impl NexoraAI {
 
         // Step 1: Initialize foundation models — all 10 NXR models get real CausalLM instances
         // Standby models may load from checkpoints if configured.
+        // SEDC auto-enabled untuk model yang GPU-capable.
         {
             let ckpt_map = config.models.resolved_checkpoints();
             if ckpt_map.is_empty() {
-                nexora_foundation::init::initialize_foundation_models()
-                    .await
-                    .map_err(|e| {
-                        NexoraError::system(format!("Failed to initialize foundation models: {}", e))
-                    })?;
+                nexora_foundation::init::initialize_foundation_models_with_gpu(
+                    HashMap::new(),
+                    gpu_ok,
+                )
+                .await
+                .map_err(|e| {
+                    NexoraError::system(format!("Failed to initialize foundation models: {}", e))
+                })?;
             } else {
-                nexora_foundation::init::initialize_foundation_models_with_checkpoints(ckpt_map)
-                    .await
-                    .map_err(|e| {
-                        NexoraError::system(format!("Failed to initialize foundation models: {}", e))
-                    })?;
+                nexora_foundation::init::initialize_foundation_models_with_gpu(
+                    ckpt_map,
+                    gpu_ok,
+                )
+                .await
+                .map_err(|e| {
+                    NexoraError::system(format!("Failed to initialize foundation models: {}", e))
+                })?;
             }
         }
 

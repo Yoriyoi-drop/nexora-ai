@@ -9,6 +9,8 @@ use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
 use nexora_autograd::{ops, Tensor, TensorOps};
 use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "gpu")]
+use nexora_autograd::gpu::GpuTensor;
 
 /// Konfigurasi ORACLE Backbone
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +94,7 @@ impl SparseMoELayer {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
         use anyhow::Context;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_autograd::gpu::GpuContext;
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
         let x_arr = x.to_cpu()?;
         let x_2d = x_arr.into_dimensionality::<ndarray::Ix2>()
@@ -431,6 +433,7 @@ impl MultiHeadLatentAttention {
 
             // Concatenate all head outputs: each is [B, 1, S, head_dim] → [B, S, n_heads*head_dim]
             // Read back to CPU, concatenate, upload back
+            let latent_dim_full = n_heads * head_dim;
             let head_cpu: Vec<Vec<f32>> = head_outputs
                 .iter()
                 .map(|h| {

@@ -6,6 +6,8 @@ use super::math;
 #[cfg(feature = "device-gpu")]
 use crate::{tensor::next_tensor_id, Storage};
 #[cfg(feature = "device-cuda")]
+use crate::gpu::cuda::CudaTensor;
+#[cfg(feature = "device-cuda")]
 use crate::gpu::CudaRuntime;
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
@@ -38,7 +40,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
                                     vec![input.clone()],
                                     vec![],
                                     Box::new(move |grad, _saved| {
-                                        let soft = result_2d_cpu.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                        let soft = result_2d_cpu.to_cpu_vec(&ctx.stream).unwrap_or_default();
                                         let g_vec: Vec<f32> = grad.iter().copied().collect();
                                         let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
                                         let dim = orig_shape[orig_shape.len() - 1];
@@ -266,11 +268,16 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
                                             let id = next_tensor_id();
                                             return Tensor::from_cuda(cu_result, id, false);
                                         }
-                                        let soft_cpu = soft_for_cpu.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                        let soft_shape = soft_for_cpu.shape.clone();
+                                        let soft_cpu = soft_for_cpu.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                                        let soft_arr = ArrayD::from_shape_vec(soft_shape, soft_cpu).unwrap_or_else(|e| {
+                                            debug!("log_softmax saved shape mismatch (infallible): {e}");
+                                            ArrayD::zeros(vec![0])
+                                        });
                                         return Tensor::from_cuda_with_grad_fn(
                                             cu_result,
                                             vec![input.clone()],
-                                            vec![soft_cpu.into_dyn()],
+                                            vec![soft_arr],
                                             Box::new(move |grad, saved| {
                                                 let soft = &saved[0];
                                                 let batch = orig_shape.iter().take(orig_shape.len() - 1).product::<usize>();
@@ -473,18 +480,23 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
         if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 let shape = cu_input.shape().to_vec();
-                if let Ok(mask) = CudaTensor::zeros(&ctx.device, shape.clone()) {
+                if let Ok(mask) = CudaTensor::zeros(&ctx.stream, shape.clone(), ctx.device_id) {
                     let seed = rand::random::<u32>();
                     if ctx.dropout_mask(&mask, rate, scale, seed).is_ok() {
                         if let Ok(cu_result) = ctx.mul(cu_input, &mask) {
                             if !input.requires_grad() {
                                 return Tensor::from_cuda(cu_result, next_tensor_id(), false);
                             }
-                            let mask_cpu = mask.to_cpu_vec(&ctx.device).unwrap_or_default();
+                            let mask_shape = cu_input.shape.clone();
+                            let mask_cpu = mask.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                            let mask_arr = ArrayD::from_shape_vec(mask_shape, mask_cpu).unwrap_or_else(|e| {
+                                debug!("dropout saved shape mismatch (infallible): {e}");
+                                ArrayD::zeros(vec![0])
+                            });
                             return Tensor::from_cuda_with_grad_fn(
                                 cu_result,
                                 vec![input.clone()],
-                                vec![mask_cpu.into_dyn()],
+                                vec![mask_arr],
                                 Box::new(|grad, saved| {
                                     vec![grad * &saved[0]]
                                 }),
@@ -504,7 +516,7 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
                 let shape = gpu_input.shape().to_vec();
                 let seed = rand::random::<u32>();
                 if let Ok(mask) = crate::gpu::GpuTensor::zeros(&shape) {
-                    if ctx.dropout_mask(&mask, rate, scale, seed).is_ok() {
+                    if ctx.generate_dropout_mask(&mask, rate, scale, seed).is_ok() {
                         if let Ok(gpu_result) = ctx.mul(gpu_input, &mask) {
                             if !input.requires_grad() {
                                 return Tensor::from_gpu(gpu_result, next_tensor_id(), false);
@@ -518,7 +530,7 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
                                 Box::new(move |grad, _saved| {
                                     let m = mask_for_cpu.to_cpu().unwrap_or_else(|e| {
                                         tracing::warn!("GPU CPU-backward readback failed in dropout: {e}");
-                                        ndarray::ArrayD::zeros(&shape)
+                                        ndarray::ArrayD::zeros(shape.clone())
                                     });
                                     vec![grad * &m]
                                 }),
@@ -942,12 +954,22 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
                             let id = next_tensor_id();
                             return Tensor::from_cuda(cuda_result, id, false);
                         }
-                        let in_cpu = cu_in.to_cpu_vec(&ctx.device).unwrap_or_default();
-                        let t_cpu = cu_t.to_cpu_vec(&ctx.device).unwrap_or_default();
+                        let in_shape = cu_in.shape.clone();
+                        let t_shape = cu_t.shape.clone();
+                        let in_cpu = cu_in.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                        let t_cpu = cu_t.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                        let in_arr = ArrayD::from_shape_vec(in_shape, in_cpu).unwrap_or_else(|e| {
+                            debug!("BCE saved in shape mismatch (infallible): {e}");
+                            ArrayD::zeros(vec![0])
+                        });
+                        let t_arr = ArrayD::from_shape_vec(t_shape, t_cpu).unwrap_or_else(|e| {
+                            debug!("BCE saved t shape mismatch (infallible): {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_result,
                             vec![input.clone()],
-                            vec![in_cpu.into_dyn(), t_cpu.into_dyn()],
+                            vec![in_arr, t_arr],
                             Box::new(move |grad, saved| {
                                 let x = &saved[0];
                                 let t = &saved[1];
@@ -1135,8 +1157,8 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
                             vec![input.clone()],
                             vec![],
                             Box::new(move |grad, _saved| {
-                                let data = cu_in_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
-                                let tgt = cu_t_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                let data = cu_in_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                                let tgt = cu_t_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
                                 let batch = cu_in_saved.shape()[0];
                                 let classes = cu_in_saved.shape()[1];
                                 let mut lsm = vec![0.0f32; data.len()];
@@ -1370,7 +1392,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
                             vec![input_ids.clone(), weight.clone()],
                             vec![],
                             Box::new(move |grad, _saved| {
-                                let ids_arr = cu_ids_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                let ids_arr = cu_ids_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
                                 let d = grad.shape()[1];
                                 let vocab_size = w_shape[0];
                                 let mut d_weight = ArrayD::<f32>::zeros(vec![vocab_size, d]);
@@ -1852,9 +1874,9 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
                                 vec![q.clone(), k.clone(), v.clone()],
                                 vec![],
                                 Box::new(move |grad, _saved| {
-                                    let qs = cq_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
-                                    let ks = ck_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
-                                    let vs = cv_saved.to_cpu_vec(&ctx.device).unwrap_or_default();
+                                    let qs = cq_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                                    let ks = ck_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                                    let vs = cv_saved.to_cpu_vec(&ctx.stream).unwrap_or_default();
                                     let qs_arr = ArrayD::from_shape_vec(cq_saved.shape(), qs).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
                                     let ks_arr = ArrayD::from_shape_vec(ck_saved.shape(), ks).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
                                     let vs_arr = ArrayD::from_shape_vec(cv_saved.shape(), vs).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
@@ -2006,11 +2028,16 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
                         if !requires_grad {
                             return Tensor::from_cuda(cuda_out, next_tensor_id(), false);
                         }
-                        let soft_cpu = cuda_out.to_cpu_vec(&ctx.device).unwrap_or_default();
+                        let soft_shape = cuda_out.shape().clone();
+                        let soft_cpu = cuda_out.to_cpu_vec(&ctx.stream).unwrap_or_default();
+                        let soft_arr = ArrayD::from_shape_vec(soft_shape, soft_cpu).unwrap_or_else(|e| {
+                            debug!("causal_softmax shape mismatch (infallible): {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_out,
                             vec![input.clone()],
-                            vec![soft_cpu.into_dyn()],
+                            vec![soft_arr],
                             Box::new(move |grad, saved| {
                                 let soft = &saved[0];
                                 let seq = soft.shape()[0];

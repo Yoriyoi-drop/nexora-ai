@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
 use cudarc::cublaslt::CudaBlasLT;
-use cudarc::driver::{CudaContext, CudaDevice, CudaSlice, CudaStream, CudaFunction, LaunchConfig};
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaFunction, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::compile_ptx;
 use once_cell::sync::OnceCell;
 
@@ -14,8 +14,8 @@ static CUDA_CTX: OnceCell<Arc<CudaRuntime>> = OnceCell::new();
 macro_rules! launch_1d {
     ($self:ident, $func:ident, $numel:expr, $out:ident $(, $arg:expr)*) => {{
         let cfg = LaunchConfig {
-            grid: (($numel as u32 + 255) / 256).max(1),
-            block: 256,
+            grid_dim: ((($numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -35,9 +35,8 @@ macro_rules! compile_simple {
 
 /// Global CUDA runtime singleton.
 pub struct CudaRuntime {
-    pub device: CudaDevice,
-    pub context: CudaContext,
-    pub stream: CudaStream,
+    pub context: Arc<CudaContext>,
+    pub stream: Arc<CudaStream>,
     pub blas: CudaBlas,
     pub blas_lt: CudaBlasLT,
     pub device_id: usize,
@@ -55,6 +54,7 @@ impl CudaRuntime {
     pub fn global() -> Result<&'static Self, String> {
         CUDA_CTX
             .get()
+            .map(|arc| arc.as_ref())
             .ok_or_else(|| "CUDA runtime not initialized. Call CudaRuntime::init() first".into())
     }
 
@@ -65,18 +65,14 @@ impl CudaRuntime {
     }
 
     fn new(device_id: usize) -> Result<Self, String> {
-        let device = CudaDevice::new(device_id)
-            .map_err(|e| format!("Failed to create CudaDevice({device_id}): {e}"))?;
-        let context = device.context().clone();
-        let stream = device
-            .default_stream()
-            .map_err(|e| format!("Failed to get default stream: {e}"))?;
+        let context = CudaContext::new(device_id)
+            .map_err(|e| format!("Failed to create CudaContext({device_id}): {e}"))?;
+        let stream = context.default_stream();
         let blas = CudaBlas::new(stream.clone())
             .map_err(|e| format!("Failed to create CudaBlas: {e}"))?;
         let blas_lt = CudaBlasLT::new(stream.clone())
             .map_err(|e| format!("Failed to create CudaBlasLT: {e}"))?;
         Ok(Self {
-            device,
             context,
             stream,
             blas,
@@ -222,8 +218,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             .map_err(|e| format!("CUDA elem {} scratch: {e}", op))?;
 
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -270,15 +266,15 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 
         let scalar = self
             .stream
-            .clone_dtoh_sync(b.buffer())
+            .clone_dtoh(b.buffer())
             .map_err(|e| format!("CUDA scalar {} readback: {e}", op))?
             .first()
             .copied()
             .unwrap_or(0.0);
 
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -352,8 +348,8 @@ extern "C" __global__ void add_broadcast_row(float* __restrict__ out,
             .scratch_f32(numel)
             .map_err(|e| format!("CUDA add_broadcast scratch: {e}"))?;
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         let bias_is_scalar: i32 = if b_flat { 1 } else { 0 };
@@ -452,13 +448,12 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
 
         let mut out = self
-            .stream
             .scratch_f32(numel)
             .map_err(|e| format!("CUDA powf scratch: {e}"))?;
 
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -502,8 +497,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             .map_err(|e| format!("CUDA {} scratch: {e}", op))?;
 
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -554,8 +549,8 @@ extern "C" __global__ void transpose_2d(float* __restrict__ out,
             .scratch_f32(numel)
             .map_err(|e| format!("CUDA transpose scratch: {e}"))?;
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -736,8 +731,8 @@ extern "C" __global__ void flash_attn(float* __restrict__ output,
         let shared_mem = (block_size + 2 * tile_size + block_size) as u32 * 4; // 4 bytes per float
 
         let cfg = LaunchConfig {
-            grid: total_wgs,
-            block: block_size,
+            grid_dim: (total_wgs, 1, 1),
+            block_dim: (block_size, 1, 1),
             shared_mem_bytes: shared_mem,
         };
         unsafe {
@@ -839,13 +834,12 @@ extern "C" __global__ void softmax_2d(float* __restrict__ out,
         )?;
 
         let mut out = self
-            .stream
             .scratch_f32(numel)
             .map_err(|e| format!("CUDA softmax scratch: {e}"))?;
 
         let cfg = LaunchConfig {
-            grid: rows as u32,
-            block: block_size as u32,
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block_size as u32, 1, 1),
             shared_mem_bytes: (block_size * 4) as u32,
         };
         unsafe {
@@ -911,8 +905,8 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
         )?;
 
         let cfg = LaunchConfig {
-            grid: ((numel + 255) / 256) as u32,
-            block: 256,
+            grid_dim: (((numel + 255) / 256) as u32, 1, 1),
+            block_dim: (256, 1, 1),
             shared_mem_bytes: 0,
         };
         unsafe {
@@ -952,7 +946,7 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
         let b_shape = b_packed.shape();
         let s_shape = scales.shape();
 
-        if a_shape != &vec![m, k] {
+        if *a_shape != vec![m, k] {
             return Err(format!(
                 "CUDA matmul_int4: A shape mismatch, expected [M={m}, K={k}], got {:?}",
                 a_shape
@@ -967,7 +961,7 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
             ));
         }
         let groups = k.div_ceil(group_size);
-        if s_shape != &vec![groups, n] {
+        if *s_shape != vec![groups, n] {
             return Err(format!(
                 "CUDA matmul_int4: scales shape mismatch, expected [{groups}, {n}], got {:?}",
                 s_shape
@@ -1037,8 +1031,8 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let func = self.get_or_compile_kernel(kernel_name, &source)?;
 
         let cfg = LaunchConfig {
-            grid: (grid_x, grid_y, 1),
-            block: block_size,
+            grid_dim: (grid_x, grid_y, 1),
+            block_dim: (block_size, 1, 1),
             shared_mem_bytes: 0,
         };
 
@@ -1074,7 +1068,7 @@ extern "C" __global__ void fill_zero_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = 0.0f;
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&t.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_zero: {e}"))?;
@@ -1089,7 +1083,7 @@ extern "C" __global__ void fill_constant_f32(float* buf, float val, size_t numel
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = val;
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&t.buffer); b.arg(&value); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_constant: {e}"))?;
@@ -1104,7 +1098,7 @@ extern "C" __global__ void scale_inplace_f32(float* buf, float scale, size_t num
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] *= scale;
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&t.buffer); b.arg(&scale); b.arg(&numel); b.launch(cfg).map_err(|e| format!("scale_inplace: {e}"))?;
@@ -1145,7 +1139,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let mut out_buf = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("reduce scratch: {e}"))?;
-        let cfg = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out_buf); b.arg(input.buffer()); b.arg(&numel);
@@ -1194,7 +1188,7 @@ extern "C" __global__ void l2_norm_f32(float* __restrict__ out,
 }"#;
         let func = self.get_or_compile_kernel(kernel_name, source)?;
         let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("l2_norm scratch: {e}"))?;
-        let cfg = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(input.buffer()); b.arg(&numel);
@@ -1247,7 +1241,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer());
@@ -1328,7 +1322,7 @@ extern "C" __global__ void {kernel_name}(
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut dx); b.arg(&mut dw);
@@ -1389,7 +1383,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 8) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 8) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer()); b.arg(bias.buffer());
@@ -1470,7 +1464,7 @@ extern "C" __global__ void {kernel_name}(
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 8) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 8) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut dx); b.arg(&mut dw); b.arg(&mut db);
@@ -1523,7 +1517,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ loss,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: 1, block: 32, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (32, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(logits.buffer()); b.arg(targets.buffer());
@@ -1558,7 +1552,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ dlogits,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut dlogits); b.arg(softmax.buffer()); b.arg(grad.buffer()); b.arg(targets.buffer());
@@ -1602,7 +1596,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let total = num_ids * dim;
-        let cfg = LaunchConfig { grid: ((total as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(ids.buffer()); b.arg(weight.buffer());
@@ -1639,7 +1633,7 @@ extern "C" __global__ void embedding_bwd_f32(float* __restrict__ dw,
     atomicAdd(&dw[token_id * dim + d], grad[i]);
 }"#)?;
         let total = num_ids * dim;
-        let cfg = LaunchConfig { grid: ((total as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut dw); b.arg(ids.buffer()); b.arg(grad_flat.buffer());
@@ -1711,7 +1705,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid: rows as u32, block: block as u32, shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
@@ -1746,7 +1740,7 @@ extern "C" __global__ void rotary_embedding_f32(float* __restrict__ out,
         out[i] = x[i] * cos_val + x_pair * sin_val;
     }
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(x.buffer()); b.arg(cos.buffer()); b.arg(sin.buffer());
@@ -1784,7 +1778,7 @@ extern "C" __global__ void repeat_heads_f32(float* __restrict__ out,
     size_t src_idx = ((b * kv_heads + src_h) * seq + s) * dim + d;
     out[i] = src[src_idx];
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(src.buffer()); b.arg(&batch); b.arg(&kv_heads);
@@ -1847,7 +1841,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols * 4) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols * 4) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&k);
@@ -1912,7 +1906,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols * 4) as u32 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols * 4) as u32 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&p);
@@ -1983,7 +1977,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: (cols.min(256).max(32) as u32 * 4) };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols.min(256).max(32) as u32 * 4) };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&seed);
@@ -2004,7 +1998,7 @@ extern "C" __global__ void dropout_mask_f32(float* __restrict__ mask,
     float r = (float)(rng & 0x7FFFFFFF) / (float)0x7FFFFFFF;
     mask[i] = (r >= rate) ? scale : 0.0f;
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mask.buffer); b.arg(&rate); b.arg(&scale); b.arg(&seed); b.arg(&numel);
@@ -2034,14 +2028,14 @@ extern "C" __global__ void grad_norm_sq_f32(float* __restrict__ out,
     }
     if (tid == 0) out[0] = shared[0];
 }"#)?;
-        let cfg1 = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        let cfg1 = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
         unsafe {
             let mut b = self.stream.launch_builder(&func1);
             b.arg(&mut norm_sq); b.arg(grads.buffer()); b.arg(&numel);
             b.launch(cfg1).map_err(|e| format!("norm_sq launch: {e}"))?;
         }
 
-        let norm_val: f32 = self.stream.clone_dtoh_sync(&norm_sq).map_err(|e| format!("clip norm readback: {e}"))?.first().copied().unwrap_or(0.0);
+        let norm_val: f32 = self.stream.clone_dtoh(&norm_sq).map_err(|e| format!("clip norm readback: {e}"))?.first().copied().unwrap_or(0.0);
         let norm_val = norm_val.sqrt();
         if norm_val <= max_norm || norm_val.abs() < 1e-8 { return Ok(()); }
         let scale = max_norm / norm_val;
@@ -2057,7 +2051,7 @@ extern "C" __global__ void grad_allreduce_f32(float* __restrict__ out,
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) out[i] += in[i] * inv_n;
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&out.buffer); b.arg(grad_buffers.buffer()); b.arg(&inv); b.arg(&numel);
@@ -2087,7 +2081,7 @@ extern "C" __global__ void adam_step_f32(
     float update = lr * m_hat / (sqrtf(v_hat) + eps);
     param[i] = param[i] - update + wd * param[i];
 }"#)?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&param.buffer); b.arg(grad.buffer());
@@ -2133,12 +2127,12 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: (m as u32, ((n as u32) + 15) / 16, 1), block: 16, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (m as u32, ((n as u32) + 15) / 16, 1), block_dim: (16, 1, 1), shared_mem_bytes: 0 };
         unsafe {
-            let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(a.buffer()); b.arg(b.buffer()); b.arg(bias.buffer());
-            b.arg(&m); b.arg(&n); b.arg(&k);
-            b.launch(cfg).map_err(|e| format!("fused_mm_bias launch: {e}"))?;
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b.buffer()); builder.arg(bias.buffer());
+            builder.arg(&m); builder.arg(&n); builder.arg(&k);
+            builder.launch(cfg).map_err(|e| format!("fused_mm_bias launch: {e}"))?;
         }
         Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
     }
@@ -2176,7 +2170,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 }}
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid: rows as u32, block: cols.min(256).max(32) as u32, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
@@ -2309,7 +2303,7 @@ extern "C" __global__ void {kernel_name}(
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let total_wgs = (batch * heads * seq_len) as u32;
         let shared_size = (2 * dim + seq_len) as u32;
-        let cfg = LaunchConfig { grid: total_wgs, block: block_size, shared_mem_bytes: shared_size * 4 };
+        let cfg = LaunchConfig { grid_dim: (total_wgs, 1, 1), block_dim: (block_size, 1, 1), shared_mem_bytes: shared_size * 4 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut dq); b.arg(&mut dk); b.arg(&mut dv);
@@ -2336,7 +2330,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 "#);
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let mut out = self.scratch_f32(numel).map_err(|e| format!("scalar {} scratch: {e}", op))?;
-        let cfg = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut out); b.arg(a.buffer()); b.arg(&scalar); b.arg(&numel);
@@ -2370,7 +2364,7 @@ extern "C" __global__ void binary_ce_f32(float* __restrict__ out,
 }"#)?;
         let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("bce out scratch: {e}"))?;
         // Compute per-element BCE first
-        let cfg1 = LaunchConfig { grid: ((numel as u32 + 255) / 256).max(1), block: 256, shared_mem_bytes: 0 };
+        let cfg1 = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
             b.arg(&mut scratch); b.arg(input.buffer()); b.arg(target.buffer()); b.arg(&numel);
@@ -2392,7 +2386,7 @@ extern "C" __global__ void bce_sum_f32(float* __restrict__ out,
     }
     if (tid == 0) out[0] = shared[0];
 }"#)?;
-        let cfg2 = LaunchConfig { grid: 1, block: 256, shared_mem_bytes: 256 * 4 };
+        let cfg2 = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
         unsafe {
             let mut b = self.stream.launch_builder(&sum_func);
             b.arg(&mut out); b.arg(&scratch); b.arg(&numel);

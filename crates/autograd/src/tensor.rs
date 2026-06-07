@@ -101,7 +101,7 @@ impl Tensor {
         if is_gpu_auto_create() {
             if let Ok(rt) = crate::gpu::CudaRuntime::init(0) {
                 let flat: Vec<f32> = data.iter().copied().collect();
-                match rt.stream.clone_htod_sync(&flat) {
+                match rt.stream.clone_htod(&flat) {
                     Ok(buf) => {
                         let cuda_t = crate::gpu::cuda::CudaTensor {
                             shape: data.shape().to_vec(),
@@ -150,6 +150,15 @@ impl Tensor {
             requires_grad,
             grad_fn_idx: None,
         })))
+    }
+
+    /// Clone the GPU buffer handle without cloning Storage.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn gpu_buffer(&self) -> Option<wgpu::Buffer> {
+        match &self.0.read().storage {
+            Storage::Gpu(gpu, _) => Some(gpu.buffer_arc()),
+            _ => None,
+        }
     }
 
     /// Create tensor from CUDA tensor (no grad tracking)
@@ -260,10 +269,22 @@ impl Tensor {
     /// Returns an owned copy of the tensor data (CPU clone or GPU readback).
     #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
     pub fn data(&self) -> ArrayD<f32> {
-        self.0.read().storage.to_cpu().unwrap_or_else(|e| {
-            error!("Tensor::data GPU readback failed: {e}");
-            ArrayD::zeros(vec![0])
-        })
+        let inner = self.0.read();
+        match &inner.storage {
+            Storage::Cpu(arr) => arr.as_ref().clone(),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(gpu, _) => {
+                gpu.to_cpu().unwrap_or_else(|e| {
+                    error!("Tensor::data GPU readback failed: {e}");
+                    ArrayD::zeros(vec![0])
+                })
+            }
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => {
+                error!("Tensor::data CUDA readback not implemented");
+                ArrayD::zeros(vec![0])
+            }
+        }
     }
 
     /// Returns an owned copy of the tensor data (CPU-only path).
@@ -275,13 +296,18 @@ impl Tensor {
     #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
     pub fn grad(&self) -> Option<ArrayD<f32>> {
         match self.0.read().grad.as_ref() {
-            Some(g) => match g.to_cpu() {
-                Ok(cpu) => Some(cpu),
-                Err(e) => {
-                    tracing::warn!("Tensor::grad GPU readback failed: {}", e);
-                    None
-                }
-            },
+            Some(Storage::Cpu(arr)) => Some(arr.as_ref().clone()),
+            #[cfg(feature = "device-gpu")]
+            Some(Storage::Gpu(gpu, _)) => {
+                gpu.to_cpu()
+                    .map_err(|e| tracing::warn!("Tensor::grad GPU readback failed: {}", e))
+                    .ok()
+            }
+            #[cfg(feature = "device-cuda")]
+            Some(Storage::Cuda(_, _)) => {
+                tracing::warn!("Tensor::grad CUDA readback not implemented");
+                None
+            }
             None => None,
         }
     }
@@ -305,14 +331,25 @@ impl Tensor {
             return self.clone();
         }
         #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
-        let cpu_data = inner.storage.to_cpu().unwrap_or_else(|e| {
-            error!("Tensor::to_device GPU readback failed: {e}, falling back to CPU");
-            ArrayD::zeros(vec![0])
-        });
+        let cpu_data = match &inner.storage {
+            Storage::Cpu(arr) => arr.as_ref().clone(),
+            #[cfg(feature = "device-gpu")]
+            Storage::Gpu(gpu, _) => {
+                gpu.to_cpu().unwrap_or_else(|e| {
+                    error!("Tensor::to_device GPU readback failed: {e}, falling back to CPU");
+                    ArrayD::zeros(vec![0])
+                })
+            }
+            #[cfg(feature = "device-cuda")]
+            Storage::Cuda(_, _) => {
+                error!("Tensor::to_device CUDA readback not implemented");
+                ArrayD::zeros(vec![0])
+            }
+        };
         #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
         let cpu_data = inner.storage.to_cpu();
         let requires_grad = inner.requires_grad;
-        let grad = inner.grad.clone();
+        let _grad = inner.grad.clone();
         let grad_fn_idx = inner.grad_fn_idx;
         drop(inner);
         match target {
@@ -521,7 +558,7 @@ impl Tensor {
 
     pub(crate) fn accumulate_grad(&self, grad: &ArrayD<f32>) {
         let mut inner = self.0.write();
-        match &inner.grad {
+        match &mut inner.grad {
             Some(Storage::Cpu(arr)) => {
                 let mut existing = arr.as_ref().clone();
                 existing += grad;
@@ -530,22 +567,19 @@ impl Tensor {
             #[cfg(feature = "device-gpu")]
             Some(Storage::Gpu(ref mut gpu, _)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    if let Ok(g_gpu) = Storage::from(grad.clone()).to_gpu(&ctx) {
-                        if ctx.add_inplace(gpu, &g_gpu).is_ok() {
-                            return;
+                    match crate::gpu::GpuTensor::from_cpu(grad) {
+                        Ok(g_gpu) => {
+                            if ctx.add_inplace(gpu, &g_gpu).is_ok() {
+                                return;
+                            }
                         }
+                        Err(e) => tracing::warn!("accumulate_grad GPU upload failed: {e}"),
                     }
                 }
-                let mut existing = match gpu.to_cpu() {
-                    Ok(cpu) => cpu,
-                    Err(e) => {
-                        error!("accumulate_grad GPU readback failed: {e}, skipping");
-                        inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
-                        return;
-                    }
-                };
-                existing += grad;
-                inner.grad = Some(Storage::Cpu(Arc::new(existing)));
+                inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
+            }
+            Some(Storage::Cuda(_, _)) => {
+                inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
             }
             None => {
                 inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
@@ -574,29 +608,38 @@ impl Tensor {
             }
             (Some(Storage::Gpu(existing, _)), Storage::Cpu(g)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    if let Ok(g_gpu) = g.to_gpu(&ctx) {
-                        return ctx.add_inplace(existing, &g_gpu)
-                            .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()));
+                    match crate::gpu::GpuTensor::from_cpu(g) {
+                        Ok(g_gpu) => {
+                            return ctx.add_inplace(existing, &g_gpu)
+                                .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()));
+                        }
+                        Err(e) => tracing::warn!("try_accumulate_grad_storage GPU upload failed: {e}"),
                     }
                 }
-                let mut e = existing.to_cpu()?;
-                e += g.as_ref();
+                let e = ArrayD::zeros(g.shape());
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));
                 Ok(())
             }
             (Some(Storage::Gpu(existing, _)), Storage::Gpu(g, _)) => {
                 if let Ok(ctx) = crate::gpu::GpuContext::global() {
-                    ctx.add_inplace(existing, g)
-                        .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()))
-                } else {
-                    let mut e = existing.to_cpu()?;
-                    e += &g.to_cpu()?;
-                    inner.grad = Some(Storage::Cpu(Arc::new(e)));
-                    Ok(())
+                    return ctx.add_inplace(existing, g)
+                        .map_err(|_| crate::gpu::GpuError::Unsupported("add_inplace failed".into()));
                 }
+                let e = ArrayD::zeros(g.shape());
+                inner.grad = Some(Storage::Cpu(Arc::new(e)));
+                Ok(())
+            }
+            (Some(Storage::Cuda(_, _)), g) => {
+                inner.grad = Some(g.clone());
+                Ok(())
             }
             (None, g) => {
                 inner.grad = Some(g.clone());
+                Ok(())
+            }
+            (&mut Some(Storage::Cpu(_)), Storage::Cuda(_, _)) | (&mut Some(Storage::Gpu(_, _)), Storage::Cuda(_, _)) => {
+                tracing::warn!("try_accumulate_grad_storage: mixing CPU/GPU grad with CUDA grad, overwriting");
+                inner.grad = Some(grad.clone());
                 Ok(())
             }
         }
@@ -625,9 +668,9 @@ impl Tensor {
         use crate::gpu::GpuContext;
         let mut inner = self.0.write();
         inner.grad = None;
-        if let Storage::Gpu(gpu_t, _) = &inner.storage {
+        if let Storage::Gpu(gpu, _) = &inner.storage {
             let ctx = GpuContext::global()?;
-            ctx.fill_zero(gpu_t)?;
+            ctx.fill_zero(gpu)?;
         }
         Ok(())
     }
@@ -660,10 +703,19 @@ impl Tensor {
     #[cfg(feature = "device-gpu")]
     pub fn subtract_from_data(&self, delta: &ArrayD<f32>) {
         let mut inner = self.0.write();
-        let current = match inner.storage.to_cpu() {
-            Ok(cpu) => cpu,
-            Err(e) => {
-                tracing::error!("subtract_from_data: GPU readback failed: {e}. Skipping.");
+        let current = match &inner.storage {
+            Storage::Cpu(arr) => arr.as_ref().clone(),
+            Storage::Gpu(gpu, _) => {
+                match gpu.to_cpu() {
+                    Ok(cpu) => cpu,
+                    Err(e) => {
+                        tracing::error!("subtract_from_data: GPU readback failed: {e}. Skipping.");
+                        return;
+                    }
+                }
+            }
+            Storage::Cuda(_, _) => {
+                tracing::error!("subtract_from_data: CUDA storage not supported in Gpu path. Skipping.");
                 return;
             }
         };
@@ -694,11 +746,18 @@ impl Tensor {
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.
 #[cfg(feature = "device-gpu")]
 pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
-    grad.as_ref().and_then(|s| {
-        s.to_cpu()
-            .map_err(|e| tracing::warn!("grad_as_cpu readback failed: {e}"))
-            .ok()
-    })
+    match grad.as_ref()? {
+        Storage::Cpu(arr) => Some(arr.as_ref().clone()),
+        Storage::Gpu(gpu, _) => {
+            gpu.to_cpu()
+                .map_err(|e| tracing::warn!("grad_as_cpu readback failed: {e}"))
+                .ok()
+        }
+        Storage::Cuda(_, _) => {
+            tracing::warn!("grad_as_cpu: CUDA storage encountered, returning zeros");
+            None
+        }
+    }
 }
 
 /// Helper: extract CPU gradient from Option<Storage>, used by training pipeline.

@@ -9,6 +9,7 @@ nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
 nexora-multimodal = { path = "../multimodal" }
+nexora-erp = { path = "../erp" }
 nexora-hallucination = { path = "../hallucination" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -230,6 +230,20 @@ impl ResonanceClusterer {
             }
 
             for _ in 0..30 {
+                // Try GPU-accelerated matrix-vector multiply
+                #[cfg(feature = "gpu")]
+                {
+                    use crate::gpu;
+                    if let Some(Ok(result)) = gpu::try_matvec(&shifted, &v) {
+                        v = result;
+                        let norm = v.mapv(|x| x * x).sum().sqrt();
+                        if norm > 1e-10 {
+                            v /= norm;
+                        }
+                        continue;
+                    }
+                }
+
                 v = shifted.dot(&v);
                 let norm = v.mapv(|x| x * x).sum().sqrt();
                 if norm > 1e-10 {
@@ -240,7 +254,6 @@ impl ResonanceClusterer {
             eigenvectors.push(v.to_vec());
 
             // Deflation: remove this eigenvector from the matrix
-            // shifted = shifted - λ·v·vᵀ
             let lambda = v.dot(&shifted.dot(&v));
             for i in 0..n {
                 for j in 0..n {
@@ -389,6 +402,21 @@ impl ResonanceClusterer {
     }
 
     fn euclidean_squared(&self, a: &[f32], b: &[f32]) -> f32 {
+        // Try GPU accelerated dot product of difference
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            use ndarray::Array1;
+            let a1 = Array1::from_vec(a.to_vec());
+            let b1 = Array1::from_vec(b.to_vec());
+            let diff = crate::gpu_try!(gpu::try_elem_sub(&a1, &b1));
+            if let Some(d) = diff {
+                if let Some(sum_sq) = crate::gpu_try!(gpu::try_sum_squares(&d)) {
+                    return sum_sq;
+                }
+            }
+        }
+
         a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
     }
 

@@ -190,6 +190,15 @@ impl SuperpositionCompressor {
 
     /// Compute adaptive importance coefficients
     fn compute_adaptive_importance_coefficients(&self, importance_scores: &[f32]) -> Array1<f32> {
+        // Try GPU softmax first
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let Some(Ok(result)) = gpu::try_softmax(importance_scores) {
+                return Array1::from_vec(result);
+            }
+        }
+
         // Apply softmax pada importance scores
         let max_score = importance_scores
             .iter()
@@ -352,6 +361,25 @@ impl SuperpositionCompressor {
         original_weights: &Array2<f32>,
     ) -> Result<(), ERPError> {
         let (_output_dim, _input_dim) = original_weights.dim();
+
+        // Try GPU sum of squares first
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            use ndarray::Array1;
+            let orig_1d = Array1::from_iter(original_weights.iter().copied());
+            let comp_1d = Array1::from_iter(compressed_weights.iter().copied());
+            if let (Some(orig_en), Some(comp_en)) = (
+                crate::gpu_try!(gpu::try_sum_squares(&orig_1d)),
+                crate::gpu_try!(gpu::try_sum_squares(&comp_1d)),
+            ) {
+                if comp_en > 0.0 {
+                    let energy_ratio = (orig_en / comp_en).sqrt();
+                    *compressed_weights *= energy_ratio;
+                }
+                return Ok(());
+            }
+        }
 
         // Compute original energy
         let original_energy: f32 = original_weights.iter().map(|&x| x * x).sum();

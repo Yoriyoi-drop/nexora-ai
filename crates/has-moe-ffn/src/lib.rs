@@ -378,7 +378,7 @@ impl HasMoeFFN {
                 batch_flat.extend_from_slice(row.as_slice().unwrap_or(&[]));
             }
             let input_group =
-                CudaTensor::from_cpu(&cuda.device, vec![n, hidden_size], &batch_flat).ok()?;
+                CudaTensor::from_cpu(&cuda.stream, vec![n, hidden_size], &batch_flat, cuda.device_id).ok()?;
 
             // Expert computation (all on GPU, no CPU readback between ops)
             let (w1, b1, w2, b2) = self.experts[expert_idx].ensure_weights_cuda(cuda)?;
@@ -391,15 +391,15 @@ impl HasMoeFFN {
             // Upload indices & weights for GPU scatter
             let indices: Vec<i32> = tokens.iter().map(|(idx, _)| *idx as i32).collect();
             let weights: Vec<f32> = tokens.iter().map(|(_, w)| *w).collect();
-            let indices_gpu: CudaSlice<i32> = cuda.device.htod_sync_copy(&indices).ok()?;
-            let weights_gpu: CudaSlice<f32> = cuda.device.htod_sync_copy(&weights).ok()?;
+            let indices_gpu: CudaSlice<i32> = cuda.stream.clone_htod(&indices).ok()?;
+            let weights_gpu: CudaSlice<f32> = cuda.stream.clone_htod(&weights).ok()?;
 
             cuda.scatter_add_weighted(&mut output_gpu, &expert_out, &indices_gpu, &weights_gpu)
                 .ok()?;
         }
 
         // Single readback
-        let out_vec = output_gpu.to_cpu_vec(&cuda.device).ok()?;
+        let out_vec = output_gpu.to_cpu_vec(&cuda.stream).ok()?;
         ndarray::Array2::from_shape_vec((batch_size, hidden_size), out_vec).ok()
     }
 

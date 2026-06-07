@@ -468,6 +468,11 @@ impl GpuTensor {
         &self.buffer
     }
 
+    /// Clone the underlying wgpu::Buffer handle (cheap — internally ref-counted).
+    pub fn buffer_arc(&self) -> wgpu::Buffer {
+        self.buffer.clone()
+    }
+
     /// GPU max element reduction
     pub fn max_element_gpu(&self) -> Result<f32, GpuError> {
         let ctx = Self::ctx()?;

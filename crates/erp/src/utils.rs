@@ -403,6 +403,22 @@ pub mod utils {
             return 0.0;
         }
 
+        // Try GPU-accelerated dot + L2 norm
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let (Some(dot), Some(norm_a), Some(norm_b)) = (
+                crate::gpu_try!(gpu::try_dot(a, b)),
+                crate::gpu_try!(gpu::try_l2_norm(a)),
+                crate::gpu_try!(gpu::try_l2_norm(b)),
+            ) {
+                if norm_a > 0.0 && norm_b > 0.0 {
+                    return dot / (norm_a * norm_b);
+                }
+                return 0.0;
+            }
+        }
+
         let dot_product = a.dot(b);
         let norm_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         let norm_b = b.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -443,6 +459,15 @@ pub mod utils {
 
     /// Apply softmax ke array
     pub fn softmax(arr: &Array1<f32>) -> Array1<f32> {
+        // Try GPU-accelerated softmax
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            if let Some(Ok(result)) = gpu::try_softmax(arr.as_slice().unwrap_or(&[])) {
+                return Array1::from_vec(result);
+            }
+        }
+
         let max_val = arr.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let exp_vals: Vec<f32> = arr.iter().map(|x| (x - max_val).exp()).collect();
         let sum_exp: f32 = exp_vals.iter().sum();
@@ -492,6 +517,17 @@ pub mod utils {
 
     /// Compute Frobenius norm
     pub fn frobenius_norm(matrix: &Array2<f32>) -> f32 {
+        // Try GPU-accelerated sum of squares
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gpu;
+            use ndarray::Array1;
+            let flat = Array1::from_iter(matrix.iter().copied());
+            if let Some(sum_sq) = crate::gpu_try!(gpu::try_sum_squares(&flat)) {
+                return sum_sq.sqrt();
+            }
+        }
+
         matrix.iter().map(|x| x * x).sum::<f32>().sqrt()
     }
 

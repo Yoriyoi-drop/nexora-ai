@@ -9,6 +9,7 @@
 pub mod cache;
 pub mod compression;
 pub mod core;
+pub mod gpu;
 pub mod reconstruction;
 pub mod resonance;
 pub mod training;

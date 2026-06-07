@@ -491,18 +491,18 @@ impl Expert {
         let w1 = self.fc1_cuda.get_or_init(|| {
             let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
             // Store transposed: [hidden_size, intermediate_size]
-            CudaTensor::from_cpu(&cuda.device, vec![fc1_w.len(), self.config.hidden_size], &flat).ok()
+            CudaTensor::from_cpu(&cuda.stream, vec![fc1_w.len(), self.config.hidden_size], &flat, cuda.device_id).ok()
         }).as_ref()?;
         let b1 = self.fc1_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.device, vec![1, fc1_b.len()], fc1_b).ok()
+            CudaTensor::from_cpu(&cuda.stream, vec![1, fc1_b.len()], fc1_b, cuda.device_id).ok()
         }).as_ref()?;
         let w2 = self.fc2_cuda.get_or_init(|| {
             let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
             // Store transposed: [intermediate_size, hidden_size]
-            CudaTensor::from_cpu(&cuda.device, vec![fc2_w.len(), self.config.intermediate_size], &flat).ok()
+            CudaTensor::from_cpu(&cuda.stream, vec![fc2_w.len(), self.config.intermediate_size], &flat, cuda.device_id).ok()
         }).as_ref()?;
         let b2 = self.fc2_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.device, vec![1, fc2_b.len()], fc2_b).ok()
+            CudaTensor::from_cpu(&cuda.stream, vec![1, fc2_b.len()], fc2_b, cuda.device_id).ok()
         }).as_ref()?;
         Some((w1, b1, w2, b2))
     }
@@ -528,7 +528,7 @@ impl Expert {
             |s| s.to_vec(),
         );
         let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.device, vec![n, dim], &input_data,
+            &cuda.stream, vec![n, dim], &input_data, cuda.device_id,
         ).ok()?;
 
         // fc1: [n, dim] @ [inter, dim] → [n, inter]
@@ -543,10 +543,9 @@ impl Expert {
         let output = cuda.add(&output, b2).ok()?;
 
         // Readback
-        let out_cpu = output.to_cpu_vec(&cuda.device).ok()?;
-        let out_shape = vec![n, self.config.hidden_size];
+        let out_cpu = output.to_cpu_vec(&cuda.stream).ok()?;
         let out_flat: Vec<f32> = out_cpu;
-        ndarray::Array2::from_shape_vec(out_shape, out_flat).ok()
+        ndarray::Array2::from_shape_vec((n, self.config.hidden_size), out_flat).ok()
     }
 
     /// CPU batched forward via Q4 quantized weights.

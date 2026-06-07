@@ -14,6 +14,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use nexora_erp::ERPConfig;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
 
@@ -40,6 +41,7 @@ pub struct CausalLmModel {
     echo_net_config: Option<EchoNetInjectionConfig>,
     sedc_enabled: bool,
     sedc_report: Arc<RwLock<Option<String>>>,
+    erp_config: ERPConfig,
 }
 
 impl CausalLmModel {
@@ -77,6 +79,7 @@ impl CausalLmModel {
             echo_net_config: None,
             sedc_enabled: false,
             sedc_report: Arc::new(RwLock::new(None)),
+            erp_config: ERPConfig::default(),
         }
     }
 
@@ -87,6 +90,11 @@ impl CausalLmModel {
 
     pub fn with_sedc(mut self) -> Self {
         self.sedc_enabled = true;
+        self
+    }
+
+    pub fn with_erp_config(mut self, config: ERPConfig) -> Self {
+        self.erp_config = config;
         self
     }
 
@@ -164,10 +172,31 @@ impl CausalLmModel {
                         info!("SEDC compression stored in model ✓");
                     }
                     Ok(None) => {
-                        info!("SEDC compression skipped");
+                        info!("SEDC compression skipped (no GPU context)");
                     }
                     Err(e) => {
                         warn!("SEDC compression failed: {}", e);
+                    }
+                }
+            }
+
+            // ERP Layer 2: resonance pruning on SEDC-compressed weights
+            // Berjalan setelah SEDC agar ERP menganalisis weights yang sudah
+            // dikompresi secara numerik — tidak bentrok karena ERP bekerja
+            // di level neuron grouping, bukan modifikasi numerik.
+            let mut erp = nexora_erp::ERPEngine::new(self.erp_config.clone());
+            let weights = model.collect_weights_for_sedc().0;
+            if !weights.is_empty() {
+                match erp.apply_pruning(&weights) {
+                    Ok(layers) => {
+                        info!(
+                            "ERP resonance pruning applied on SEDC-compressed model: {} layers ({} groups)",
+                            layers.len(),
+                            layers.iter().map(|l| l.resonance_representations.len()).sum::<usize>(),
+                        );
+                    }
+                    Err(e) => {
+                        warn!("ERP resonance pruning skipped (non-fatal): {}", e);
                     }
                 }
             }

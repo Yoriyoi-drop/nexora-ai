@@ -401,16 +401,20 @@ impl InferenceEngine {
         self.reasoning = crate::inference_reasoning();
         self.db = crate::inference_db();
         self.quant = crate::check_quantized(nexora_quantization::QuantizedDtype::Int8);
-        self.erp = Some(crate::inference_erp());
+        if self.erp.is_none() {
+            self.erp = Some(crate::inference_erp());
+        }
 
-        // Apply ERP weight pruning if engine is configured
+        // Apply ERP weight pruning if engine is configured.
+        // Model weights mungkin sudah di-SEDC-compress dari model load time —
+        // ERP resonance grouping jalan di atas weights yang sudah dikompresi.
         if let Some(erp) = &mut self.erp {
             let weights = self.model.collect_weights_for_sedc().0;
             if !weights.is_empty() {
                 match erp.apply_pruning(&weights) {
                     Ok(layers) => {
                         info!(
-                            "ERP pruning applied: {} layers compressed (resonance groups formed)",
+                            "ERP pruning applied: {} layers compressed (resonance groups formed) — post-SEDC weights",
                             layers.len()
                         );
                     }
