@@ -1107,8 +1107,16 @@ impl InferenceEngine {
             .map(|p| p.seq_id());
 
         // Restore KV cache from prefix match if available — avoids recomputing K/V for prefix tokens
+        // For paged cache providers, import directly into blocks (avoids to_flat_cache()).
+        // For flat cache providers, restore via as_cpu_entries() as before.
         if !prefix_kv_cache.is_empty() {
-            if let Some(cpu_entries) = kv_state.as_cpu_entries() {
+            if let Some(paged) = kv_state.as_any_mut().downcast_mut::<PagedKVCacheProvider>() {
+                paged.import_prefix_kv_cache(&prefix_kv_cache);
+                debug!(
+                    "Imported KV cache for {} matched prefix tokens into paged blocks",
+                    prefix_len
+                );
+            } else if let Some(cpu_entries) = kv_state.as_cpu_entries() {
                 *cpu_entries = prefix_kv_cache;
                 debug!("Restored KV cache for {} matched prefix tokens", prefix_len);
             }

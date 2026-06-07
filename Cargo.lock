@@ -3284,6 +3284,7 @@ dependencies = [
  "nexora-datastream",
  "nexora-deeplearning",
  "nexora-foundation",
+ "nexora-hallucination",
  "nexora-inference",
  "nexora-infrastructure",
  "nexora-intelligence",

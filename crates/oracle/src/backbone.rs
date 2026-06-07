@@ -84,15 +84,8 @@ impl SparseMoELayer {
 
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
-        let x_arr = x.to_cpu()?;
-        let x_2d = x_arr
-            .into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| anyhow::anyhow!("reshape: {}", e))?;
-        let out = self.moe.forward(&x_2d);
-        let flat: Vec<f32> = out.iter().copied().collect();
-        let shape = out.shape().to_vec();
-        GpuTensor::from_slice(shape, &flat)
-            .map_err(|e| anyhow::anyhow!("GPU upload in MoE forward: {}", e))
+        self.moe.forward_gpu(x)
+            .map_err(|e| anyhow::anyhow!("HasMoeFFN GPU forward: {e}"))
     }
 
     pub fn get_expert_usage<S>(&self, _x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>

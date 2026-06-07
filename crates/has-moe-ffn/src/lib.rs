@@ -453,6 +453,195 @@ impl HasMoeFFN {
         }
     }
 
+    /// GPU-native forward: takes GPU tensor, returns GPU tensor.
+    /// Eliminates CPU round-trips by keeping computation on GPU.
+    /// Falls back to CPU forward + re-upload when GPU unavailable.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(&self, x: &nexora_autograd::gpu::GpuTensor) -> Result<nexora_autograd::gpu::GpuTensor, String> {
+        use nexora_autograd::gpu::GpuTensor;
+
+        let shape = x.shape();
+        if shape.len() != 2 {
+            return Err(format!("forward_gpu expects 2D input, got {:?}D", shape.len()));
+        }
+        let (batch_size, hidden_size) = (shape[0], shape[1]);
+
+        // Try CUDA fused path — keeps everything on GPU
+        #[cfg(feature = "cuda")]
+        if let Some(result) = self.forward_cuda_fused_gpu(x, batch_size, hidden_size) {
+            return Ok(result);
+        }
+
+        // Try wgpu fused path
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_wgpu_fused_gpu(x, batch_size, hidden_size) {
+            return Ok(result);
+        }
+
+        // CPU fallback: download → CPU forward → re-upload
+        let x_arr = x.to_cpu().map_err(|e| format!("to_cpu: {e}"))?;
+        let x_2d = x_arr.into_dimensionality::<ndarray::Ix2>()
+            .map_err(|e| format!("reshape: {e}"))?;
+        let out = self.forward(&x_2d);
+        let flat: Vec<f32> = out.iter().copied().collect();
+        GpuTensor::from_slice(out.shape().to_vec(), &flat)
+            .map_err(|e| format!("forward_gpu upload: {e}"))
+    }
+
+    /// CUDA fused forward from GPU input: keeps everything on GPU, single readback.
+    #[cfg(feature = "cuda")]
+    fn forward_cuda_fused_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+        batch_size: usize,
+        hidden_size: usize,
+    ) -> Option<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::cuda::{CudaSlice, CudaTensor};
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+
+        // Download input once for CPU routing
+        let x_cpu: ndarray::Array2<f32> = x.to_cpu().ok()?
+            .into_dimensionality::<ndarray::Ix2>().ok()?;
+
+        // Upload input to CUDA
+        let x_flat: Vec<f32> = x_cpu.iter().copied().collect();
+        let input_gpu = CudaTensor::from_cpu(
+            &cuda.stream, vec![batch_size, hidden_size], &x_flat, cuda.device_id,
+        ).ok()?;
+
+        // Router: CUDA matmul + softmax (no transpose needed)
+        let routing_weights_cpu = self.router.forward(&x_cpu);
+        let routing_weights = ndarray::Array2::from_shape_vec(
+            (batch_size, self.config.num_experts),
+            routing_weights_cpu.iter().copied().collect(),
+        ).ok()?;
+
+        let num_experts = self.config.num_experts;
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); num_experts];
+        for i in 0..batch_size {
+            let top_experts = self.get_top_experts(&routing_weights, i);
+            for &expert_idx in &top_experts {
+                let weight = routing_weights[[i, expert_idx]];
+                expert_tokens[expert_idx].push((i, weight));
+            }
+        }
+
+        let output_buffer = cuda.stream.alloc_zeros::<f32>(batch_size * hidden_size).ok()?;
+        let mut output_gpu = CudaTensor {
+            shape: vec![batch_size, hidden_size],
+            buffer: output_buffer,
+            device_id: cuda.device_id,
+        };
+
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            let n = tokens.len();
+            if n == 0 { continue; }
+
+            let mut batch_flat = Vec::with_capacity(n * hidden_size);
+            for &(token_idx, _) in tokens.iter() {
+                let row = x_cpu.row(token_idx);
+                batch_flat.extend_from_slice(row.as_slice().unwrap_or(&[]));
+            }
+            let input_group = CudaTensor::from_cpu(
+                &cuda.stream, vec![n, hidden_size], &batch_flat, cuda.device_id,
+            ).ok()?;
+
+            let (w1, b1, w2, b2) = self.experts[expert_idx].ensure_weights_cuda(cuda)?;
+            let mut hidden = cuda.matmul(&input_group, w1).ok()?;
+            hidden = cuda.add(&hidden, b1).ok()?;
+            cuda.gelu_inplace(&mut hidden).ok()?;
+            let mut expert_out = cuda.matmul(&hidden, w2).ok()?;
+            expert_out = cuda.add(&expert_out, b2).ok()?;
+
+            let indices: Vec<i32> = tokens.iter().map(|(idx, _)| *idx as i32).collect();
+            let weights: Vec<f32> = tokens.iter().map(|(_, w)| *w).collect();
+            let indices_gpu: CudaSlice<i32> = cuda.stream.clone_htod(&indices).ok()?;
+            let weights_gpu: CudaSlice<f32> = cuda.stream.clone_htod(&weights).ok()?;
+            cuda.scatter_add_weighted(&mut output_gpu, &expert_out, &indices_gpu, &weights_gpu).ok()?;
+        }
+
+        let out_vec = output_gpu.to_cpu_vec(&cuda.stream).ok()?;
+        let gpu = GpuTensor::from_cpu(
+            &ndarray::ArrayD::from_shape_vec(
+                ndarray::IxDyn(&[batch_size, hidden_size]), out_vec
+            ).ok()?
+        ).ok()?;
+        Some(gpu)
+    }
+
+    /// wgpu fused forward from GPU input: keeps everything on GPU, single readback.
+    #[cfg(feature = "gpu")]
+    fn forward_wgpu_fused_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+        batch_size: usize,
+        hidden_size: usize,
+    ) -> Option<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+
+        let ctx = GpuContext::global().ok()?;
+        let x_cpu: ndarray::Array2<f32> = x.to_cpu().ok()?
+            .into_dimensionality::<ndarray::Ix2>().ok()?;
+        let routing_weights = self.router.forward(&x_cpu);
+
+        let num_experts = self.config.num_experts;
+        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); num_experts];
+        for i in 0..batch_size {
+            let top_experts = self.get_top_experts(&routing_weights, i);
+            for &expert_idx in &top_experts {
+                let weight = routing_weights[[i, expert_idx]];
+                expert_tokens[expert_idx].push((i, weight));
+            }
+        }
+
+        ctx.begin_batch_mode();
+        struct GpuExpertResult {
+            tokens: Vec<(usize, f32)>,
+            output_gpu: GpuTensor,
+        }
+        let mut gpu_results: Vec<GpuExpertResult> = Vec::new();
+
+        for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
+            let n = tokens.len();
+            if n == 0 { continue; }
+
+            let mut batch_input = ndarray::Array2::zeros((n, hidden_size));
+            for (k, &(token_idx, _)) in tokens.iter().enumerate() {
+                let row_view = x_cpu.row(token_idx);
+                batch_input.row_mut(k).assign(&row_view);
+            }
+
+            let expert_out = self.experts[expert_idx]
+                .forward_batched_gpu_keep_gpu(&batch_input)?;
+            gpu_results.push(GpuExpertResult {
+                tokens: tokens.clone(),
+                output_gpu: expert_out,
+            });
+        }
+
+        ctx.end_batch_mode();
+
+        let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
+        for result in &gpu_results {
+            let cpu_d = result.output_gpu.to_cpu().ok()?;
+            let batch_output = cpu_d.into_dimensionality::<ndarray::Ix2>().ok()?;
+            for (k, &(token_idx, weight)) in result.tokens.iter().enumerate() {
+                let out_row = batch_output.row(k);
+                for j in 0..hidden_size {
+                    output[[token_idx, j]] += out_row[j] * weight;
+                }
+            }
+        }
+
+        let flat: Vec<f32> = output.iter().copied().collect();
+        GpuTensor::from_slice(vec![batch_size, hidden_size], &flat).ok()
+    }
+
     /// Get configuration
     pub fn config(&self) -> &HasMoeFFNConfig {
         &self.config

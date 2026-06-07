@@ -398,6 +398,53 @@ impl PagedKVCacheProvider {
             }
         }
     }
+
+    /// Import prefix KV cache from flat KVCacheEntry format into paged cache blocks.
+    /// This avoids calling to_flat_cache() when restoring a prefix cache hit —
+    /// the prefix data is written directly into paged blocks so forward_paged()
+    /// can read it without any flat cache allocation.
+    pub fn import_prefix_kv_cache(&mut self, prefix_kv: &[KVCacheEntry]) {
+        if prefix_kv.is_empty() {
+            return;
+        }
+        let prefix_tokens = prefix_kv[0].k.len() / prefix_kv[0].kv_dim.max(1);
+        if prefix_tokens == 0 {
+            return;
+        }
+
+        let mut guard = match self.cache.write() {
+            Ok(g) => g,
+            Err(e) => {
+                warn!("paged cache lock poisoned in import_prefix_kv_cache: {}", e);
+                return;
+            }
+        };
+
+        for (layer, entry) in prefix_kv.iter().enumerate() {
+            if layer >= self.num_layers {
+                break;
+            }
+            let kv_dim = entry.kv_dim;
+            if kv_dim == 0 {
+                continue;
+            }
+            for pos in 0..prefix_tokens {
+                let start = pos * kv_dim;
+                let end = start + kv_dim;
+                if end > entry.k.len() || end > entry.v.len() {
+                    break;
+                }
+                let k_row = &entry.k[start..end];
+                let v_row = &entry.v[start..end];
+                guard.append(self.seq_id, layer, pos, k_row, v_row);
+            }
+        }
+        drop(guard);
+
+        self.total_tokens = self.total_tokens.max(prefix_tokens);
+        self.shared_prefix_tokens = prefix_tokens;
+        self.dirty = true;
+    }
 }
 
 impl KVCacheProvider for PagedKVCacheProvider {

@@ -2,7 +2,7 @@ use nexora_model_core::classifier_util;
 use nexora_model_core::foundation::NxrSpectraModel;
 use crate::classifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
-use nexora_multimodal::MultiModalInputs;
+use nexora_multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
 use nexora_multimodal::MultimodalResult;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -56,6 +56,15 @@ fn unique_word_ratio(s: &str) -> f64 {
 }
 
 pub async fn delegate(prompt: &str) -> String {
+    delegate_multimodal(prompt, None, None, None).await
+}
+
+pub async fn delegate_multimodal(
+    prompt: &str,
+    image: Option<ImageInput>,
+    audio: Option<AudioInput>,
+    video: Option<VideoInput>,
+) -> String {
     init_classifier();
     let styles = classify_style(prompt);
     let primary = styles.first().map(|(s, _)| s.as_str()).unwrap_or("narrative");
@@ -64,14 +73,14 @@ pub async fn delegate(prompt: &str) -> String {
 
     let mut mm = CaffeineProcessor::with_caffeine(CaffeineConfig::default()).unwrap_or_default();
     let multimodal = MultiModalInputs {
-        text: Some(nexora_multimodal::TextInput {
+        text: Some(TextInput {
             text: prompt.to_string(),
             tokens: None,
             language: "en".into(),
         }),
-        image: None,
-        audio: None,
-        video: None,
+        image,
+        audio,
+        video,
         context: None,
     };
     let mm_result = mm.process_multimodal(&multimodal).await.unwrap_or_else(|e| {
