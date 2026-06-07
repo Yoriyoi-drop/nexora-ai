@@ -11,7 +11,7 @@ pub mod schedule;
 
 use crate::{
     config::{DDPMConfig, NoiseScheduleType},
-    types::*,
+    gpu_ops, types::*,
 };
 use nexora_atqs::Tensor;
 
@@ -44,7 +44,7 @@ impl DDPM {
         self.sampler.get_timesteps(num_steps)
     }
 
-    /// Add noise (forward process)
+    /// Add noise (forward process) — GPU accelerated
     pub fn add_noise(
         &self,
         original: &Tensor,
@@ -52,23 +52,23 @@ impl DDPM {
         timestep: Timestep,
     ) -> HLDVAResult<Tensor> {
         let (alpha_bar, _) = self.noise_schedule.get_alpha_bar(timestep);
+        let sqrt_ab = alpha_bar.sqrt();
+        let sqrt_1m_ab = (1.0 - alpha_bar).sqrt();
+
+        if gpu_ops::gpu_available() {
+            // noisy = sqrt(alpha_bar) * original + sqrt(1-alpha_bar) * noise
+            let s_orig = gpu_ops::gpu_scale(original, sqrt_ab)?;
+            let s_noise = gpu_ops::gpu_scale(noise, sqrt_1m_ab)?;
+            return gpu_ops::gpu_add(&s_orig, &s_noise);
+        }
 
         let original_data = original.data();
         let noise_data = noise.data();
-
         let mut noisy = Vec::with_capacity(original_data.len());
-
         for i in 0..original_data.len() {
-            let noise_val = if i < noise_data.len() {
-                noise_data[i]
-            } else {
-                0.0
-            };
-            let noisy_val =
-                (alpha_bar.sqrt() * original_data[i]) + ((1.0 - alpha_bar).sqrt() * noise_val);
-            noisy.push(noisy_val);
+            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            noisy.push(sqrt_ab * original_data[i] + sqrt_1m_ab * nv);
         }
-
         Ok(Tensor::new(noisy, original.shape().to_vec()))
     }
 
@@ -292,7 +292,7 @@ impl DDPM_Sampler {
         (0..num_steps).map(|i| Timestep(i * step_size)).collect()
     }
 
-    /// DDPM step
+    /// DDPM step — GPU accelerated
     pub fn step(
         &self,
         noisy_latent: Tensor,
@@ -301,39 +301,35 @@ impl DDPM_Sampler {
         noise_schedule: &NoiseSchedule,
     ) -> HLDVAResult<Tensor> {
         let t = timestep.0;
-
         if t == 0 {
-            // Final step: return denoised latent
             return Ok(noisy_latent);
+        }
+
+        let posterior_variance = noise_schedule.posterior_variance(timestep);
+        let c1 = noise_schedule.posterior_mean_coef1(timestep);
+        let c2 = noise_schedule.posterior_mean_coef2(timestep);
+        let noise_std = posterior_variance.sqrt();
+
+        if gpu_ops::gpu_available() {
+            // mean = c1 * noisy + c2 * noise_pred
+            let s1 = gpu_ops::gpu_scale(&noisy_latent, c1)?;
+            let s2 = gpu_ops::gpu_scale(&predicted_noise, c2)?;
+            let mean = gpu_ops::gpu_add(&s1, &s2)?;
+            // generate noise on CPU, upload, add
+            let noise_data: Vec<f32> = (0..noisy_latent.data().len()).map(|_| self.randn()).collect();
+            let noise_t = Tensor::new(noise_data, noisy_latent.shape().to_vec());
+            let scaled_noise = gpu_ops::gpu_scale(&noise_t, noise_std)?;
+            return gpu_ops::gpu_add(&mean, &scaled_noise);
         }
 
         let noisy_data = noisy_latent.data();
         let noise_data = predicted_noise.data();
-
-        // Get schedule values
-        let _beta_t = noise_schedule.get_beta(timestep);
-        let _sqrt_one_minus_alpha_bar_t = noise_schedule.get_alpha_bar(timestep).1;
-        let posterior_variance = noise_schedule.posterior_variance(timestep);
-        let posterior_mean_coef1 = noise_schedule.posterior_mean_coef1(timestep);
-        let posterior_mean_coef2 = noise_schedule.posterior_mean_coef2(timestep);
-
         let mut denoised = Vec::with_capacity(noisy_data.len());
 
         for i in 0..noisy_data.len() {
-            let noise_val = if i < noise_data.len() {
-                noise_data[i]
-            } else {
-                0.0
-            };
-
-            // Compute posterior mean
-            let mean = posterior_mean_coef1 * noisy_data[i] + posterior_mean_coef2 * noise_val;
-
-            // Add noise for stochastic sampling
-            let noise = self.randn();
-            let sample = mean + noise * posterior_variance.sqrt();
-
-            denoised.push(sample);
+            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            let mean = c1 * noisy_data[i] + c2 * nv;
+            denoised.push(mean + self.randn() * noise_std);
         }
 
         Ok(Tensor::new(denoised, noisy_latent.shape().to_vec()))
@@ -371,7 +367,7 @@ impl DDPMLoss {
         })
     }
 
-    /// Add noise (forward process)
+    /// Add noise (forward process) — GPU accelerated
     pub fn add_noise(
         &self,
         original: &Tensor,
@@ -379,17 +375,21 @@ impl DDPMLoss {
         timestep: Timestep,
     ) -> HLDVAResult<Tensor> {
         let (alpha_bar, _) = self.noise_schedule.get_alpha_bar(timestep);
+        let sqrt_ab = alpha_bar.sqrt();
+        let sqrt_1m_ab = (1.0 - alpha_bar).sqrt();
+
+        if gpu_ops::gpu_available() {
+            let s_orig = gpu_ops::gpu_scale(original, sqrt_ab)?;
+            let s_noise = gpu_ops::gpu_scale(noise, sqrt_1m_ab)?;
+            return gpu_ops::gpu_add(&s_orig, &s_noise);
+        }
 
         let original_data = original.data();
         let noise_data = noise.data();
-
         let mut noisy_data = Vec::with_capacity(original_data.len());
         for i in 0..original_data.len().min(noise_data.len()) {
-            noisy_data.push(
-                original_data[i] * alpha_bar.sqrt() + noise_data[i] * (1.0 - alpha_bar).sqrt(),
-            );
+            noisy_data.push(original_data[i] * sqrt_ab + noise_data[i] * sqrt_1m_ab);
         }
-
         Ok(Tensor::new(noisy_data, original.shape().to_vec()))
     }
 
@@ -424,12 +424,10 @@ impl DDPMLoss {
 
         let mut mse = 0.0;
         let count = noise_data.len().min(predicted_data.len());
-
         for i in 0..count {
             let diff = noise_data[i] - predicted_data[i];
             mse += diff * diff;
         }
-
         Ok(mse / count as f32)
     }
 
@@ -454,23 +452,20 @@ impl ClassifierFreeGuidance {
         Self { guidance_scale }
     }
 
-    /// Apply classifier-free guidance
+    /// Apply classifier-free guidance — GPU accelerated
     pub fn apply(&self, cond_noise: &Tensor, uncond_noise: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            let diff = gpu_ops::gpu_sub(cond_noise, uncond_noise)?;
+            let scaled = gpu_ops::gpu_scale(&diff, self.guidance_scale)?;
+            return gpu_ops::gpu_add(uncond_noise, &scaled);
+        }
         let cond_data = cond_noise.data();
         let uncond_data = uncond_noise.data();
-
         let mut guided = Vec::with_capacity(cond_data.len());
-
         for i in 0..cond_data.len() {
-            let uncond_val = if i < uncond_data.len() {
-                uncond_data[i]
-            } else {
-                0.0
-            };
-            let guided_val = uncond_val + self.guidance_scale * (cond_data[i] - uncond_val);
-            guided.push(guided_val);
+            let uv = if i < uncond_data.len() { uncond_data[i] } else { 0.0 };
+            guided.push(uv + self.guidance_scale * (cond_data[i] - uv));
         }
-
         Ok(Tensor::new(guided, cond_noise.shape().to_vec()))
     }
 

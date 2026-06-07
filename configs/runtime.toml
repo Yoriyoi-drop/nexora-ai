@@ -3,20 +3,22 @@
 # ==================================================
 
 [scheduler]
-max_concurrent_tasks = 1000
+max_concurrent_tasks = 10000
 task_timeout_seconds = 300
 queue_size = 50000
 
 [executor]
-thread_pool_size = 32
-max_blocking_threads = 128
+# H200 node: many CPU cores for data loading & orchestration
+thread_pool_size = 64
+max_blocking_threads = 256
 keep_alive_seconds = 120
 
 [resource]
-max_memory_mb = 65536
-max_gpu_memory_mb = 0
+# H200: 141GB HBM3e GPU + high system RAM
+max_memory_mb = 262144
+max_gpu_memory_mb = 140000
 enable_gpu = true
-gpu_device_ids = []
+gpu_device_ids = [0]
 
 [monitoring]
 enable_metrics = true

@@ -1,0 +1,161 @@
+[core]
+enable_ml_intent = true
+enable_coordination = true
+enable_error_recovery = true
+enable_monitoring = true
+max_concurrent_requests = 1000
+request_timeout_ms = 120000
+enable_distributed = false
+distributed_listen_address = "0.0.0.0:8080"
+distributed_seed_nodes = []
+distributed_gossip_interval_ms = 1000
+
+[tokenizer]
+vocab_size = 50000
+min_frequency = 2
+enable_unicode_normalization = true
+model_path = "./checkpoints/tokenizer.json"
+cache_size = 10000
+
+[models]
+vocab_size = 32000
+d_model = 768
+n_heads = 12
+n_layers = 12
+
+[memory]
+short_term_capacity = 5000
+session_capacity = 20000
+long_term_capacity = 100000
+knowledge_capacity = 500000
+enable_compression = true
+compression_threshold = 0.8
+enable_persistence = true
+persistence_path = "./data/memory"
+cleanup_interval_seconds = 300
+max_age_hours = 168
+eviction_strategy = "LruTtl"
+max_memory_mb = 4096
+
+[utils]
+enable_crypto = true
+enable_text_processing = true
+enable_file_operations = true
+crypto_algorithm = "aes-256-gcm"
+text_processing_language = "en"
+file_operations_max_size_mb = 100
+
+[server]
+host = "0.0.0.0"
+port = 8080
+enable_tls = false
+max_connections = 10000
+request_timeout_seconds = 120
+enable_cors = true
+cors_origins = ["*"]
+api_keys = []
+enable_auth = false
+rate_limit_rpm = 1000
+
+[api]
+base_url = "http://0.0.0.0:8080"
+timeout_seconds = 120
+max_retries = 3
+enable_rate_limiting = true
+requests_per_minute = 1000
+
+[logging]
+level = "info"
+format = "compact"
+enable_file_logging = true
+file_path = "./logs/nexora.log"
+max_file_size_mb = 100
+max_files = 30
+enable_console_logging = true
+enable_structured_logging = true
+enable_tracing = true
+
+[isolation.global]
+cluster_name = "nexora-h200"
+api_gateway_enabled = true
+orchestrator_enabled = true
+monitoring_enabled = true
+storage_isolation = true
+scheduler_isolation = true
+security_core_enabled = true
+service_mesh = "None"
+observability_backend = "Prometheus"
+
+[isolation.mode]
+enabled = true
+default_network_policy = "DenyAll"
+default_memory_quota_mb = 65536
+
+[isolation.mode.default_gpu_quota]
+count = 1
+memory_mb = 140000
+share = true
+
+[isolation.agent]
+enabled = true
+separate_pod_per_agent = false
+dedicated_memory_buffer = true
+dedicated_runtime = false
+max_agents_per_mode = 50
+agent_communication = "FirewallWithAudit"
+
+[isolation.tool]
+enabled = true
+sandbox_per_tool = false
+tool_gateway_enabled = true
+allowed_tools = ["python", "browser", "terminal", "filesystem"]
+max_tool_execution_seconds = 300
+tool_network_access = false
+
+[isolation.runtime]
+enabled = true
+sandbox_kind = "NamespaceOnly"
+restricted_linux = true
+seccomp_profile = "restricted.json"
+read_only_root = false
+drop_capabilities = ["ALL"]
+
+[isolation.cognitive]
+enabled = true
+isolate_memory_per_agent = true
+isolate_reasoning_chains = true
+max_chain_isolation_depth = 10
+auto_quarantine_on_anomaly = true
+hallucination_spread_prevention = true
+
+[isolation.permission]
+enabled = true
+rbac_enabled = true
+capability_based_access = true
+default_action = "Deny"
+audit_all_access = true
+
+[isolation.firewall]
+enabled = true
+default_egress = "AuditDeny"
+default_ingress = "Deny"
+rate_limit_per_agent = 100
+max_message_size_bytes = 1048576
+audit_all_messages = true
+filter_suspicious = true
+
+[isolation.kill_switch]
+enabled = true
+confirm_before_kill = true
+grace_period_seconds = 30
+auto_kill_on_anomaly = false
+kill_scope = "SingleAgent"
+
+[isolation.multi_cluster]
+enabled = false
+max_regional_clusters = 10
+max_mode_clusters = 100
+max_agent_clusters = 1000
+max_micro_vms = 10000
+auto_scaling = true
+cross_cluster_sync = true

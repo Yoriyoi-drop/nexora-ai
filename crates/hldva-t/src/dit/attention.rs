@@ -1,7 +1,9 @@
 //! Attention Mechanisms for DiT
 //!
-//! Implementasi multi-head attention dan cross-attention untuk DiT
+//! GPU-accelerated multi-head attention, cross-attention,
+//! linear projections, layer norm, and activations.
 
+use crate::gpu_ops;
 use crate::types::*;
 use nexora_atqs::Tensor;
 
@@ -11,13 +13,11 @@ pub struct MultiHeadAttention {
     num_heads: usize,
     head_dim: usize,
 
-    // Linear projections
     q_projection: Linear,
     k_projection: Linear,
     v_projection: Linear,
     out_projection: Linear,
 
-    // Dropout
     _dropout: f32,
 }
 
@@ -42,56 +42,62 @@ impl MultiHeadAttention {
         })
     }
 
-    pub fn q_projection(&self) -> &Linear {
-        &self.q_projection
-    }
+    pub fn q_projection(&self) -> &Linear { &self.q_projection }
+    pub fn k_projection(&self) -> &Linear { &self.k_projection }
+    pub fn v_projection(&self) -> &Linear { &self.v_projection }
+    pub fn out_projection(&self) -> &Linear { &self.out_projection }
 
-    pub fn k_projection(&self) -> &Linear {
-        &self.k_projection
-    }
-
-    pub fn v_projection(&self) -> &Linear {
-        &self.v_projection
-    }
-
-    pub fn out_projection(&self) -> &Linear {
-        &self.out_projection
-    }
-
-    /// Forward pass untuk multi-head attention
     pub fn forward(&self, query: &Tensor, key: &Tensor, value: &Tensor) -> HLDVAResult<Tensor> {
-        // Step 1: Project to Q, K, V
         let q = self.q_projection.forward(query)?;
         let k = self.k_projection.forward(key)?;
         let v = self.v_projection.forward(value)?;
 
-        // Step 2: Reshape untuk multi-head
         let q_heads = self.reshape_to_heads(&q)?;
         let k_heads = self.reshape_to_heads(&k)?;
         let v_heads = self.reshape_to_heads(&v)?;
 
-        // Step 3: Scaled dot-product attention
         let attention_output = self.scaled_dot_product_attention(&q_heads, &k_heads, &v_heads)?;
 
-        // Step 4: Reshape back dan final projection
         let concatenated = self.reshape_from_heads(&attention_output)?;
         let output = self.out_projection.forward(&concatenated)?;
 
         Ok(output)
     }
 
-    /// Scaled dot-product attention
-    fn scaled_dot_product_attention(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        v: &Tensor,
-    ) -> HLDVAResult<Tensor> {
-        #[cfg(feature = "gpu")]
-        if let Some(result) = self.scaled_dot_product_attention_gpu(q, k, v) {
-            return Ok(result);
+    /// GPU-accelerated scaled dot-product attention via fused_attention.
+    /// Falls back to CPU if GPU unavailable.
+    fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return self.scaled_dot_product_attention_gpu(q, k, v);
+        }
+        self.scaled_dot_product_attention_cpu(q, k, v)
+    }
+
+    /// GPU fused attention — all heads batched in one call
+    fn scaled_dot_product_attention_gpu(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
+        let q_data = q.data();
+        let seq_len = q_data.len() / (self.num_heads * self.head_dim);
+        let scale = (self.head_dim as f32).sqrt();
+
+        // Check seq_len — fused_attention on GPU needs at least 1 token and handles it
+        if seq_len == 0 {
+            return Ok(q.clone());
         }
 
+        // Reshape to [B=1, H, S, D]
+        let q_4d = Tensor::new(q_data.to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
+        let k_4d = Tensor::new(k.data().to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
+        let v_4d = Tensor::new(v.data().to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
+
+        let out = gpu_ops::gpu_fused_attention(&q_4d, &k_4d, &v_4d, 1.0 / scale, false)?;
+
+        // Reshape back to [num_heads, seq_len, head_dim]
+        let out_data = out.data();
+        Ok(Tensor::new(out_data.to_vec(), q.shape().to_vec()))
+    }
+
+    /// CPU fallback attention (per-head dot-product)
+    fn scaled_dot_product_attention_cpu(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
         let q_data = q.data();
         let k_data = k.data();
         let v_data = v.data();
@@ -100,19 +106,14 @@ impl MultiHeadAttention {
 
         let mut output = Vec::with_capacity(q_data.len());
 
-        // Process each head
         for head in 0..self.num_heads {
             let head_start = head * self.head_dim * seq_len;
-            let _head_end = (head + 1) * self.head_dim * seq_len;
 
-            // Calculate attention scores
             for i in 0..seq_len {
                 let q_start = head_start + i * self.head_dim;
                 let q_end = q_start + self.head_dim;
 
                 let mut attention_scores = Vec::with_capacity(seq_len);
-
-                // Score dengan semua keys
                 for j in 0..seq_len {
                     let k_start = head_start + j * self.head_dim;
                     let k_end = k_start + self.head_dim;
@@ -124,10 +125,8 @@ impl MultiHeadAttention {
                     attention_scores.push(score / scale);
                 }
 
-                // Softmax
-                let softmax_scores = self.softmax(&attention_scores);
+                let softmax_scores = self.softmax_cpu(&attention_scores);
 
-                // Weighted sum dari values
                 for dim in 0..self.head_dim {
                     let mut weighted_sum = 0.0;
                     for (j, &score) in softmax_scores.iter().enumerate() {
@@ -142,201 +141,42 @@ impl MultiHeadAttention {
         Ok(Tensor::new(output, q.shape().to_vec()))
     }
 
-    /// Softmax function
-    fn softmax(&self, scores: &[f32]) -> Vec<f32> {
-        // Find max untuk numerical stability
+    fn softmax_cpu(&self, scores: &[f32]) -> Vec<f32> {
         let max_score = scores.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-
-        // Exponential dan sum
         let exp_scores: Vec<f32> = scores.iter().map(|&x| (x - max_score).exp()).collect();
         let sum_exp: f32 = exp_scores.iter().sum();
-
-        // Normalize
         exp_scores.iter().map(|&x| x / sum_exp).collect()
     }
 
-    /// GPU-accelerated scaled dot-product attention — all heads batched in one GPU call
-    #[cfg(feature = "gpu")]
-    fn scaled_dot_product_attention_gpu(
-        &self,
-        q: &Tensor,
-        k: &Tensor,
-        v: &Tensor,
-    ) -> Option<Tensor> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-        use tracing::warn;
-
-        let ctx = match GpuContext::global() {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("GPU context creation failed: {}", e);
-                return None;
-            }
-        };
-        let q_data = q.data();
-        let k_data = k.data();
-        let v_data = v.data();
-        let seq_len = q_data.len() / (self.num_heads * self.head_dim);
-        let scale = (self.head_dim as f32).sqrt();
-        let total_heads = self.num_heads;
-
-        // Helper to log Result error and convert to Option
-        macro_rules! log_ok {
-            ($expr:expr, $msg:expr) => {
-                match $expr {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!("{}: {}", $msg, e);
-                        return None;
-                    }
-                }
-            };
-        }
-
-        // Upload full Q, K, V as [total_heads * seq_len, head_dim]
-        let q_gpu = log_ok!(
-            GpuTensor::from_cpu(&log_ok!(
-                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], q_data.to_vec()),
-                "Shape error for Q"
-            )),
-            "GPU upload error for Q"
-        );
-        let k_gpu = log_ok!(
-            GpuTensor::from_cpu(&log_ok!(
-                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], k_data.to_vec()),
-                "Shape error for K"
-            )),
-            "GPU upload error for K"
-        );
-        let v_gpu = log_ok!(
-            GpuTensor::from_cpu(&log_ok!(
-                ArrayD::from_shape_vec(vec![total_heads * seq_len, self.head_dim], v_data.to_vec()),
-                "Shape error for V"
-            )),
-            "GPU upload error for V"
-        );
-
-        // Batched scores = Q @ K^T: [total_heads*seq_len, total_heads*seq_len]
-        // Each head attends within itself: reshape to [total_heads, seq_len, head_dim]
-        // Use per-head matmul via GPU — batch-process all heads
-        let mut output = Vec::with_capacity(q_data.len());
-
-        for head in 0..total_heads {
-            // Slice views on GPU: take [seq_len, head_dim] for this head
-            let q_h = q_gpu.view_as(vec![seq_len, self.head_dim]);
-            let k_h = k_gpu.view_as(vec![seq_len, self.head_dim]);
-            let v_h = v_gpu.view_as(vec![seq_len, self.head_dim]);
-
-            let kt_h = log_ok!(
-                ctx.transpose(&k_h),
-                format!("GPU transpose failed for head {head}")
-            );
-            let mut scores_h = log_ok!(
-                ctx.matmul(&q_h, &kt_h),
-                format!("GPU matmul failed for head {head}")
-            );
-
-            let scale_gpu = log_ok!(
-                GpuTensor::from_cpu(&log_ok!(
-                    ArrayD::from_shape_vec(vec![1], vec![1.0 / scale]),
-                    "Shape error for scale"
-                )),
-                "GPU upload error for scale"
-            );
-            scores_h = log_ok!(
-                ctx.mul(&scores_h, &scale_gpu),
-                format!("GPU mul failed for head {head}")
-            );
-
-            // Softmax on GPU (via element-wise ops)
-            let max_val = log_ok!(
-                scores_h.max_element_gpu(),
-                format!("GPU max_element failed for head {head}")
-            );
-            let max_gpu = log_ok!(
-                GpuTensor::from_cpu(&log_ok!(
-                    ArrayD::from_shape_vec(vec![1], vec![max_val]),
-                    "Shape error for max"
-                )),
-                "GPU upload error for max"
-            );
-            let shifted = log_ok!(
-                ctx.sub(&scores_h, &max_gpu),
-                format!("GPU sub failed for head {head}")
-            );
-            let exp_scores = log_ok!(ctx.exp(&shifted), format!("GPU exp failed for head {head}"));
-            let sum_exp = log_ok!(
-                exp_scores.sum_gpu(),
-                format!("GPU sum failed for head {head}")
-            );
-            let sum_gpu = log_ok!(
-                GpuTensor::from_cpu(&log_ok!(
-                    ArrayD::from_shape_vec(vec![1], vec![sum_exp]),
-                    "Shape error for sum"
-                )),
-                "GPU upload error for sum"
-            );
-            let softmax_scores = log_ok!(
-                ctx.div(&exp_scores, &sum_gpu),
-                format!("GPU div failed for head {head}")
-            );
-
-            // attention = softmax(scores) @ V: [seq_len, head_dim]
-            let attn_h = log_ok!(
-                ctx.matmul(&softmax_scores, &v_h),
-                format!("GPU attention matmul failed for head {head}")
-            );
-
-            let attn_cpu = log_ok!(
-                attn_h.to_cpu(),
-                format!("GPU readback failed for head {head}")
-            );
-            output.extend(attn_cpu.iter().copied());
-        }
-
-        Some(Tensor::new(output, q.shape().to_vec()))
-    }
-
-    /// Reshape tensor ke multi-head format
     fn reshape_to_heads(&self, tensor: &Tensor) -> HLDVAResult<Tensor> {
         let data = tensor.data();
         let seq_len = data.len() / self.hidden_dim;
 
         let mut reshaped = Vec::with_capacity(data.len());
-
         for head in 0..self.num_heads {
             for pos in 0..seq_len {
                 for dim in 0..self.head_dim {
                     let idx = pos * self.hidden_dim + head * self.head_dim + dim;
-                    if idx < data.len() {
-                        reshaped.push(data[idx]);
-                    }
+                    reshaped.push(if idx < data.len() { data[idx] } else { 0.0 });
                 }
             }
         }
-
         Ok(Tensor::new(reshaped, tensor.shape().to_vec()))
     }
 
-    /// Reshape dari multi-head format
     fn reshape_from_heads(&self, tensor: &Tensor) -> HLDVAResult<Tensor> {
         let data = tensor.data();
         let seq_len = data.len() / (self.num_heads * self.head_dim);
 
         let mut reshaped = Vec::with_capacity(data.len());
-
         for pos in 0..seq_len {
             for head in 0..self.num_heads {
                 for dim in 0..self.head_dim {
                     let idx = head * seq_len * self.head_dim + pos * self.head_dim + dim;
-                    if idx < data.len() {
-                        reshaped.push(data[idx]);
-                    }
+                    reshaped.push(if idx < data.len() { data[idx] } else { 0.0 });
                 }
             }
         }
-
         Ok(Tensor::new(reshaped, tensor.shape().to_vec()))
     }
 }
@@ -345,14 +185,10 @@ impl MultiHeadAttention {
 pub struct CrossAttention {
     hidden_dim: usize,
     num_heads: usize,
-
-    // Projections
     q_projection: Linear,
     k_projection: Linear,
     v_projection: Linear,
     out_projection: Linear,
-
-    // Untuk CLIP conditioning
     conditioning_projection: Linear,
 }
 
@@ -375,18 +211,14 @@ impl CrossAttention {
         })
     }
 
-    /// Forward pass untuk cross-attention
     pub fn forward(&self, hidden: &Tensor, conditioning: &Tensor) -> HLDVAResult<Tensor> {
-        // Project conditioning untuk cross-attention
         let processed_conditioning = self.conditioning_projection.forward(conditioning)?;
-
-        // Standard multi-head attention dengan conditioning sebagai K dan V
         let attention = MultiHeadAttention::new(self.hidden_dim, self.num_heads)?;
         attention.forward(hidden, &processed_conditioning, &processed_conditioning)
     }
 }
 
-/// Linear Layer
+/// GPU-accelerated Linear Layer
 pub struct Linear {
     in_features: usize,
     out_features: usize,
@@ -396,43 +228,73 @@ pub struct Linear {
 
 impl Linear {
     pub fn new(in_features: usize, out_features: usize) -> HLDVAResult<Self> {
-        // Initialize weight dengan Xavier initialization
         let weight_data = Self::xavier_init(in_features, out_features);
         let weight = Tensor::new(weight_data, vec![out_features, in_features]);
+        let bias = Some(Tensor::new(vec![0.0; out_features], vec![out_features]));
 
-        let bias_data = vec![0.0; out_features];
-        let bias = Some(Tensor::new(bias_data, vec![out_features]));
-
-        Ok(Self {
-            in_features,
-            out_features,
-            weight,
-            bias,
-        })
+        Ok(Self { in_features, out_features, weight, bias })
     }
 
-    pub fn weight(&self) -> &Tensor {
-        &self.weight
-    }
+    pub fn weight(&self) -> &Tensor { &self.weight }
+    pub fn weight_mut(&mut self) -> &mut Tensor { &mut self.weight }
+    pub fn bias(&self) -> Option<&Tensor> { self.bias.as_ref() }
+    pub fn bias_mut(&mut self) -> Option<&mut Tensor> { self.bias.as_mut() }
 
-    pub fn weight_mut(&mut self) -> &mut Tensor {
-        &mut self.weight
-    }
-
-    pub fn bias(&self) -> Option<&Tensor> {
-        self.bias.as_ref()
-    }
-
-    pub fn bias_mut(&mut self) -> Option<&mut Tensor> {
-        self.bias.as_mut()
-    }
-
+    /// Forward pass: y = x @ W^T + b
+    /// Uses GPU matmul when available, CPU fallback otherwise.
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
-        #[cfg(feature = "gpu")]
-        if let Some(result) = self.forward_gpu(input) {
-            return Ok(result);
+        if gpu_ops::gpu_available() {
+            return self.forward_gpu(input);
         }
+        self.forward_cpu(input)
+    }
 
+    /// GPU forward: upload input → matmul on GPU → add bias on GPU → readback
+    fn forward_gpu(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+        let input_data = input.data();
+        let input_2d = if input_data.len() == self.in_features {
+            Tensor::new(input_data.to_vec(), vec![1, self.in_features])
+        } else {
+            input.clone()
+        };
+
+        // W is [out, in], we need input @ W^T → result is [batch, out]
+        // Use GPU matmul: input [1, in] × W^T [in, out] → [1, out]
+        // For higher dims, reshape first
+        let w_data = self.weight.data();
+        let w_t_data: Vec<f32> = if self.weight.shape() == vec![self.out_features, self.in_features] {
+            // Transpose on CPU then upload
+            let mut w_t = Vec::with_capacity(self.in_features * self.out_features);
+            for i in 0..self.in_features {
+                for o in 0..self.out_features {
+                    w_t.push(w_data[o * self.in_features + i]);
+                }
+            }
+            w_t
+        } else {
+            w_data.to_vec()
+        };
+
+        let w_t = Tensor::new(w_t_data, vec![self.in_features, self.out_features]);
+        let result = gpu_ops::gpu_matmul(&input_2d, &w_t)?;
+
+        if let Some(ref bias) = self.bias {
+            let mut result_data = result.data().to_vec();
+            let bias_data = bias.data();
+            for i in 0..result_data.len() {
+                let b_idx = i % self.out_features;
+                if b_idx < bias_data.len() {
+                    result_data[i] += bias_data[b_idx];
+                }
+            }
+            Ok(Tensor::new(result_data, vec![self.out_features]))
+        } else {
+            Ok(result)
+        }
+    }
+
+    /// CPU fallback forward
+    fn forward_cpu(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let input_data = input.data();
         let weight_data = self.weight.data();
 
@@ -448,73 +310,27 @@ impl Linear {
                     }
                 }
             }
-
-            // Add bias jika ada
             if let Some(ref bias) = self.bias {
                 let bias_data = bias.data();
                 if out_idx < bias_data.len() {
                     sum += bias_data[out_idx];
                 }
             }
-
             output.push(sum);
         }
 
         Ok(Tensor::new(output, vec![self.out_features]))
     }
 
-    /// GPU-accelerated forward pass
-    #[cfg(feature = "gpu")]
-    fn forward_gpu(&self, input: &Tensor) -> Option<Tensor> {
-        use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
-
-        let ctx = GpuContext::global().ok()?;
-        let input_data = input.data();
-
-        let input_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![1, self.in_features], input_data.to_vec()).ok()?,
-        )
-        .ok()?;
-
-        let w_data = self.weight.data();
-        let w_gpu = GpuTensor::from_cpu(
-            &ArrayD::from_shape_vec(vec![self.out_features, self.in_features], w_data.to_vec())
-                .ok()?,
-        )
-        .ok()?;
-        let wt_gpu = ctx.transpose(&w_gpu).ok()?;
-
-        let mut out_gpu = ctx.matmul(&input_gpu, &wt_gpu).ok()?;
-
-        if let Some(ref bias) = self.bias {
-            let bias_gpu = GpuTensor::from_cpu(
-                &ArrayD::from_shape_vec(vec![1, self.out_features], bias.data().to_vec()).ok()?,
-            )
-            .ok()?;
-            out_gpu = ctx.add(&out_gpu, &bias_gpu).ok()?;
-        }
-
-        let out_cpu = out_gpu.to_cpu().ok()?;
-        let result: Vec<f32> = out_cpu.iter().copied().collect();
-        Some(Tensor::new(result, vec![self.out_features]))
-    }
-
-    /// Xavier initialization
     fn xavier_init(in_features: usize, out_features: usize) -> Vec<f32> {
         let limit = (6.0 / (in_features + out_features) as f32).sqrt();
-        let mut weights = Vec::with_capacity(in_features * out_features);
-
-        for _ in 0..(in_features * out_features) {
-            let weight = rand::random::<f32>() * 2.0 * limit - limit;
-            weights.push(weight);
-        }
-
-        weights
+        (0..in_features * out_features)
+            .map(|_| rand::random::<f32>() * 2.0 * limit - limit)
+            .collect()
     }
 }
 
-/// Layer Normalization
+/// GPU-accelerated Layer Normalization
 pub struct LayerNorm {
     _hidden_dim: usize,
     weight: Tensor,
@@ -526,45 +342,41 @@ impl LayerNorm {
     pub fn new(hidden_dim: usize) -> HLDVAResult<Self> {
         let weight = Tensor::new(vec![1.0; hidden_dim], vec![hidden_dim]);
         let bias = Tensor::new(vec![0.0; hidden_dim], vec![hidden_dim]);
-
-        Ok(Self {
-            _hidden_dim: hidden_dim,
-            weight,
-            bias,
-            eps: 1e-6,
-        })
+        Ok(Self { _hidden_dim: hidden_dim, weight, bias, eps: 1e-6 })
     }
 
+    /// GPU layer_norm when available, CPU fallback
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_layer_norm(input, &self.weight, &self.bias, self.eps);
+        }
+        self.forward_cpu(input)
+    }
+
+    fn forward_cpu(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let input_data = input.data();
         let weight_data = self.weight.data();
         let bias_data = self.bias.data();
 
-        // Calculate mean
         let mean: f32 = input_data.iter().sum::<f32>() / input_data.len() as f32;
+        let variance: f32 = input_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / input_data.len() as f32;
 
-        // Calculate variance
-        let variance: f32 =
-            input_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / input_data.len() as f32;
-
-        // Normalize
         let mut output = Vec::with_capacity(input_data.len());
         for (i, &x) in input_data.iter().enumerate() {
             let normalized = (x - mean) / (variance + self.eps).sqrt();
-            let weighted =
-                normalized * weight_data[i % weight_data.len()] + bias_data[i % bias_data.len()];
-            output.push(weighted);
+            let w = weight_data[i % weight_data.len()];
+            let b = bias_data[i % bias_data.len()];
+            output.push(normalized * w + b);
         }
 
         Ok(Tensor::new(output, input.shape().to_vec()))
     }
 }
 
-/// Feed-Forward Network
+/// GPU-accelerated Feed-Forward Network
 pub struct FeedForward {
     hidden_dim: usize,
     intermediate_dim: usize,
-
     linear1: Linear,
     linear2: Linear,
     activation: GELU,
@@ -572,54 +384,42 @@ pub struct FeedForward {
 
 impl FeedForward {
     pub fn new(hidden_dim: usize) -> HLDVAResult<Self> {
-        let intermediate_dim = hidden_dim * 4; // Standard 4x expansion
-
+        let intermediate_dim = hidden_dim * 4;
         let linear1 = Linear::new(hidden_dim, intermediate_dim)?;
         let linear2 = Linear::new(intermediate_dim, hidden_dim)?;
-
-        Ok(Self {
-            hidden_dim,
-            intermediate_dim,
-            linear1,
-            linear2,
-            activation: GELU,
-        })
+        Ok(Self { hidden_dim, intermediate_dim, linear1, linear2, activation: GELU })
     }
 
-    pub fn linear1(&self) -> &Linear {
-        &self.linear1
-    }
-
-    pub fn linear2(&self) -> &Linear {
-        &self.linear2
-    }
+    pub fn linear1(&self) -> &Linear { &self.linear1 }
+    pub fn linear2(&self) -> &Linear { &self.linear2 }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let hidden = self.linear1.forward(input)?;
         let activated = self.activation.forward(&hidden)?;
-        let output = self.linear2.forward(&activated)?;
-
-        Ok(output)
+        self.linear2.forward(&activated)
     }
 }
 
-/// GELU Activation
+/// GELU Activation — GPU accelerated
 pub struct GELU;
 
 impl GELU {
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_gelu(input);
+        }
+        self.forward_cpu(input)
+    }
+
+    fn forward_cpu(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let input_data = input.data();
         let mut output = Vec::with_capacity(input_data.len());
-
         for &x in input_data {
-            // Approximate GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
             let x3 = x * x * x;
-            let tanh_arg = 0.7978845608 * (x + 0.044715 * x3); // sqrt(2/pi) ≈ 0.7978845608
-            let tanh_val = tanh_arg.tanh();
-            let gelu_val = 0.5 * x * (1.0 + tanh_val);
+            let tanh_arg = 0.7978845608 * (x + 0.044715 * x3);
+            let gelu_val = 0.5 * x * (1.0 + tanh_arg.tanh());
             output.push(gelu_val);
         }
-
         Ok(Tensor::new(output, input.shape().to_vec()))
     }
 }

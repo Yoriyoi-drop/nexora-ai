@@ -3,6 +3,7 @@
 //! Implementasi patch embedding, time embedding, dan position embedding
 
 pub use crate::types::HLDVAResult;
+use crate::gpu_ops;
 use crate::types::*;
 use nexora_atqs::Tensor;
 
@@ -183,35 +184,24 @@ impl PositionEmbedding {
         })
     }
 
-    /// Add position embedding ke input
+    /// Add position embedding ke input — GPU accelerated
     pub fn add_to(&self, input: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_add(input, &self.embeddings);
+        }
         let input_data = input.data();
         let embedding_data = self.embeddings.data();
-
         let seq_len = input_data.len() / self.hidden_dim;
         let mut output = Vec::with_capacity(input_data.len());
-
         for pos in 0..seq_len.min(self.max_seq_len) {
             for dim in 0..self.hidden_dim {
                 let input_idx = pos * self.hidden_dim + dim;
                 let embedding_idx = pos * self.hidden_dim + dim;
-
-                let input_val = if input_idx < input_data.len() {
-                    input_data[input_idx]
-                } else {
-                    0.0
-                };
-
-                let embedding_val = if embedding_idx < embedding_data.len() {
-                    embedding_data[embedding_idx]
-                } else {
-                    0.0
-                };
-
-                output.push(input_val + embedding_val);
+                let iv = if input_idx < input_data.len() { input_data[input_idx] } else { 0.0 };
+                let ev = if embedding_idx < embedding_data.len() { embedding_data[embedding_idx] } else { 0.0 };
+                output.push(iv + ev);
             }
         }
-
         Ok(Tensor::new(output, input.shape().to_vec()))
     }
 
@@ -348,29 +338,20 @@ impl ClipConditioningProjection {
         Ok(output)
     }
 
-    /// Combine text and image features
+    /// Combine text and image features — GPU accelerated
     fn combine_features(&self, text: &Tensor, image: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            let sum = gpu_ops::gpu_add(text, image)?;
+            return gpu_ops::gpu_scale(&sum, 0.5);
+        }
         let text_data = text.data();
         let image_data = image.data();
-
         let mut combined = Vec::with_capacity(self.hidden_dim);
-
         for i in 0..self.hidden_dim {
-            let text_val = if i < text_data.len() {
-                text_data[i]
-            } else {
-                0.0
-            };
-            let image_val = if i < image_data.len() {
-                image_data[i]
-            } else {
-                0.0
-            };
-
-            // Simple averaging - bisa diganti dengan metode lain
-            combined.push((text_val + image_val) / 2.0);
+            let tv = if i < text_data.len() { text_data[i] } else { 0.0 };
+            let iv = if i < image_data.len() { image_data[i] } else { 0.0 };
+            combined.push((tv + iv) / 2.0);
         }
-
         Ok(Tensor::new(combined, vec![self.hidden_dim]))
     }
 }

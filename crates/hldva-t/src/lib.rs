@@ -23,6 +23,7 @@ pub mod config;
 pub mod ddpm;
 pub mod dit;
 pub mod evaluation;
+pub mod gpu_ops;
 pub mod training;
 pub mod types;
 pub mod vaed;

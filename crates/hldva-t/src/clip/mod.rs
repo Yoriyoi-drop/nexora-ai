@@ -9,7 +9,7 @@ pub mod alignment;
 pub mod attention;
 pub mod encoder;
 
-use crate::{config::ClipConfig, types::*};
+use crate::{config::ClipConfig, gpu_ops, types::*};
 use nexora_atqs::Tensor;
 
 /// Main CLIP Encoder
@@ -68,25 +68,23 @@ impl ClipEncoder {
         Ok(self.cosine_similarity(&text_embedding.text_features, &image_embedding))
     }
 
-    /// Cosine similarity
+    /// Cosine similarity — GPU accelerated
     fn cosine_similarity(&self, text_features: &Tensor, image_features: &Tensor) -> f32 {
+        if let Ok(cos) = gpu_ops::gpu_cosine_similarity(text_features, image_features) {
+            return cos;
+        }
         let text_data = text_features.data();
         let image_data = image_features.data();
-
-        // Calculate dot product
         let mut dot_product = 0.0;
         let mut text_norm_sq = 0.0;
         let mut image_norm_sq = 0.0;
-
         for i in 0..text_data.len().min(image_data.len()) {
             dot_product += text_data[i] * image_data[i];
             text_norm_sq += text_data[i] * text_data[i];
             image_norm_sq += image_data[i] * image_data[i];
         }
-
         let text_norm = text_norm_sq.sqrt();
         let image_norm = image_norm_sq.sqrt();
-
         if text_norm > 0.0 && image_norm > 0.0 {
             dot_product / (text_norm * image_norm)
         } else {

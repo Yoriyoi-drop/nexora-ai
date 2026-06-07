@@ -3,13 +3,13 @@
 # ==================================================
 
 [episodic]
-max_entries = 100000
-retention_days = 180
+max_entries = 1000000
+retention_days = 365
 importance_threshold = 0.7
 
 [semantic]
 embedding_dim = 1536
-max_vector_entries = 1000000
+max_vector_entries = 10000000
 similarity_threshold = 0.75
 
 [working]

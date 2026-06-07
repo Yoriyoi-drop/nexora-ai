@@ -46,6 +46,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(ca, _), Storage::Cuda(cb, _)) = (&a_storage, &b_storage) {
             if let Ok(rt) = CudaRuntime::global() {
                 match rt.matmul(ca, cb) {

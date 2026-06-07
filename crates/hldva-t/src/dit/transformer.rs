@@ -2,6 +2,7 @@
 //!
 //! Implementasi transformer blocks dan komponen terkait
 
+use crate::gpu_ops;
 use crate::types::*;
 use nexora_atqs::Tensor;
 
@@ -38,23 +39,19 @@ impl ResidualConnection {
     }
 
     pub fn forward(&self, x: &Tensor, sublayer_output: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() && self.dropout == 0.0 {
+            // No dropout → pure GPU add
+            return gpu_ops::gpu_add(x, sublayer_output);
+        }
+
         let x_data = x.data();
         let sub_data = sublayer_output.data();
-
         let mut output = Vec::with_capacity(x_data.len());
 
         for (i, &x_val) in x_data.iter().enumerate() {
             let sub_val = if i < sub_data.len() { sub_data[i] } else { 0.0 };
-
-            // Residual connection + dropout
             let residual = x_val + sub_val;
-            let final_val = if rand::random::<f32>() < self.dropout {
-                0.0
-            } else {
-                residual
-            };
-
-            output.push(final_val);
+            output.push(if rand::random::<f32>() < self.dropout { 0.0 } else { residual });
         }
 
         Ok(Tensor::new(output, x.shape().to_vec()))
@@ -269,6 +266,9 @@ impl AdaptiveComputationTime {
     }
 
     fn weight_output(&self, output: &Tensor, weight: f32) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_scale(output, weight);
+        }
         let data = output.data();
         let weighted: Vec<f32> = data.iter().map(|&x| x * weight).collect();
         Ok(Tensor::new(weighted, output.shape().to_vec()))
@@ -364,21 +364,24 @@ impl MixtureOfExperts {
     }
 
     fn weight_output(&self, output: &Tensor, weight: f32) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_scale(output, weight);
+        }
         let data = output.data();
         let weighted: Vec<f32> = data.iter().map(|&x| x * weight).collect();
         Ok(Tensor::new(weighted, output.shape().to_vec()))
     }
 
     fn add_outputs(&self, a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_add(a, b);
+        }
         let a_data = a.data();
         let b_data = b.data();
-
         let mut sum = Vec::with_capacity(a_data.len());
         for i in 0..a_data.len() {
-            let b_val = if i < b_data.len() { b_data[i] } else { 0.0 };
-            sum.push(a_data[i] + b_val);
+            sum.push(a_data[i] + if i < b_data.len() { b_data[i] } else { 0.0 });
         }
-
         Ok(Tensor::new(sum, a.shape().to_vec()))
     }
 

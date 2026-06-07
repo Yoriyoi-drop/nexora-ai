@@ -8,7 +8,7 @@
 
 use crate::{
     cascaded::CascadedModel, clip::ClipEncoder, config::HLDVAConfig, ddpm::DDPM, dit::DiTModel,
-    types::*, vaed::VAEDecoder,
+    gpu_ops, types::*, vaed::VAEDecoder,
 };
 use nexora_atqs::Tensor;
 use std::time::Instant;
@@ -32,7 +32,12 @@ pub struct HLDVAPipeline {
 impl HLDVAPipeline {
     /// Create new HLDVA-T pipeline
     pub fn new(config: HLDVAConfig) -> HLDVAResult<Self> {
-        let device = "cuda".to_string(); // Default ke CUDA
+        // Init GPU context (wgpu). Graceful if unavailable — CPU fallback active.
+        if let Err(e) = gpu_ops::init_gpu() {
+            tracing::warn!("GPU init failed (CPU fallback): {}", e);
+        }
+
+        let device = if gpu_ops::gpu_available() { "gpu" } else { "cpu" }.to_string();
         let dtype = "float32".to_string();
 
         // Inisialisasi komponen
@@ -465,7 +470,9 @@ mod tests {
     fn test_hldva_pipeline_new() {
         let cfg = HLDVAConfig::default();
         let pipeline = HLDVAPipeline::new(cfg).unwrap();
-        assert_eq!(pipeline.device(), "cuda");
+        let d = pipeline.device();
+        // Device is "gpu" if GPU available, "cpu" otherwise
+        assert!(d == "gpu" || d == "cpu");
         assert_eq!(pipeline.dtype(), "float32");
     }
 

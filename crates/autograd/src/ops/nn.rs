@@ -14,6 +14,7 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
@@ -245,6 +246,7 @@ pub fn log_softmax(input: &Tensor, axis: usize) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if axis == input.ndim() - 1 {
                 let orig_shape = input.shape().to_vec();
@@ -477,6 +479,7 @@ pub fn dropout(input: &Tensor, rate: f32, training: bool) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 let shape = cu_input.shape().to_vec();
@@ -587,8 +590,10 @@ pub fn layer_norm_2d(
     #[cfg(feature = "device-cuda")]
     {
         let in_storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_in, _) = &in_storage {
             if let (Some(w), Some(b)) = (weight, bias) {
+                #[cfg(feature = "device-cuda")]
                 if let (Storage::Cuda(cu_w, _), Storage::Cuda(cu_b, _)) = (&w.storage(), &b.storage()) {
                     if let Ok(ctx) = CudaRuntime::global() {
                         match ctx.layer_norm(cu_in, cu_w, cu_b, eps) {
@@ -946,6 +951,7 @@ pub fn binary_cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.binary_cross_entropy(cu_in, cu_t) {
@@ -1142,6 +1148,7 @@ pub fn cross_entropy_loss(input: &Tensor, target: &Tensor) -> Tensor {
     {
         let in_storage = input.storage();
         let t_storage = target.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_t, _)) = (&in_storage, &t_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.cross_entropy(cu_in, cu_t) {
@@ -1377,6 +1384,7 @@ pub fn embedding(input_ids: &Tensor, weight: &Tensor) -> Tensor {
     {
         let ids_storage = input_ids.storage();
         let w_storage = weight.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(cu_ids, _), Storage::Cuda(cu_w, _)) = (&ids_storage, &w_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.embedding(cu_ids, cu_w) {
@@ -1537,6 +1545,7 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
     {
         let in_storage = input.storage();
         let w_storage = weight.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(cu_in, _), Storage::Cuda(cu_w, _)) = (&in_storage, &w_storage) {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.rms_norm(cu_in, cu_w, eps) {
@@ -1857,6 +1866,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32) -> Tenso
         let q_storage = q.storage();
         let k_storage = k.storage();
         let v_storage = v.storage();
+        #[cfg(feature = "device-cuda")]
         if let (Storage::Cuda(cq, _), Storage::Cuda(ck, _), Storage::Cuda(cv, _)) = (&q_storage, &k_storage, &v_storage) {
             if q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 {
                 if let Ok(ctx) = CudaRuntime::global() {
@@ -2020,6 +2030,7 @@ pub fn causal_softmax(input: &Tensor) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.causal_softmax(cu_input) {

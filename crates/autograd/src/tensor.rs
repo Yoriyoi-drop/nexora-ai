@@ -111,6 +111,7 @@ impl Tensor {
                         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
                         return Tensor(Arc::new(RwLock::new(TensorInner {
                             id,
+                            #[cfg(feature = "device-cuda")]
                             storage: Storage::Cuda(cuda_t, data.shape().to_vec()),
                             device: Device::Cuda(0),
                             dtype: DType::F32,
@@ -172,6 +173,7 @@ impl Tensor {
         let shape = cuda_tensor.shape.clone();
         Self(Arc::new(RwLock::new(TensorInner {
             id,
+            #[cfg(feature = "device-cuda")]
             storage: Storage::Cuda(cuda_tensor, shape),
             device: Device::Cuda(device_id),
             dtype: DType::F32,
@@ -195,6 +197,7 @@ impl Tensor {
         let id = TENSOR_COUNTER.fetch_add(1, Ordering::SeqCst);
         Self(Arc::new(RwLock::new(TensorInner {
             id,
+            #[cfg(feature = "device-cuda")]
             storage: Storage::Cuda(cuda_tensor, shape),
             device: Device::Cuda(device_id),
             dtype: DType::F32,
@@ -578,6 +581,7 @@ impl Tensor {
                 }
                 inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
             }
+            #[cfg(feature = "device-cuda")]
             Some(Storage::Cuda(_, _)) => {
                 inner.grad = Some(Storage::Cpu(Arc::new(grad.clone())));
             }
@@ -629,6 +633,7 @@ impl Tensor {
                 inner.grad = Some(Storage::Cpu(Arc::new(e)));
                 Ok(())
             }
+            #[cfg(feature = "device-cuda")]
             (Some(Storage::Cuda(_, _)), g) => {
                 inner.grad = Some(g.clone());
                 Ok(())
@@ -637,6 +642,7 @@ impl Tensor {
                 inner.grad = Some(g.clone());
                 Ok(())
             }
+            #[cfg(feature = "device-cuda")]
             (&mut Some(Storage::Cpu(_)), Storage::Cuda(_, _)) | (&mut Some(Storage::Gpu(_, _)), Storage::Cuda(_, _)) => {
                 tracing::warn!("try_accumulate_grad_storage: mixing CPU/GPU grad with CUDA grad, overwriting");
                 inner.grad = Some(grad.clone());
@@ -714,6 +720,7 @@ impl Tensor {
                     }
                 }
             }
+            #[cfg(feature = "device-cuda")]
             Storage::Cuda(_, _) => {
                 tracing::error!("subtract_from_data: CUDA storage not supported in Gpu path. Skipping.");
                 return;
@@ -753,6 +760,7 @@ pub fn grad_as_cpu(grad: &Option<Storage>) -> Option<ArrayD<f32>> {
                 .map_err(|e| tracing::warn!("grad_as_cpu readback failed: {e}"))
                 .ok()
         }
+        #[cfg(feature = "device-cuda")]
         Storage::Cuda(_, _) => {
             tracing::warn!("grad_as_cpu: CUDA storage encountered, returning zeros");
             None

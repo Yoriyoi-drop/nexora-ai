@@ -13,7 +13,7 @@ pub mod upsampler;
 use crate::{
     config::{CascadedConfig, UpsamplerConfig},
     dit::{DiTModel, LayerNorm, Linear, GELU},
-    types::*,
+    gpu_ops, types::*,
 };
 use nexora_atqs::Tensor;
 
@@ -241,7 +241,7 @@ impl UpsamplerStage {
         Ok(current_latent)
     }
 
-    /// Simple denoising step
+    /// Simple denoising step — GPU accelerated
     fn simple_denoise_step(
         &self,
         noisy_latent: Tensor,
@@ -249,23 +249,20 @@ impl UpsamplerStage {
         step: usize,
         total_steps: usize,
     ) -> HLDVAResult<Tensor> {
-        let noisy_data = noisy_latent.data();
-        let noise_data = predicted_noise.data();
-
-        // Simple linear interpolation (simplified DDPM)
         let alpha = (total_steps - step) as f32 / total_steps as f32;
 
-        let mut denoised = Vec::with_capacity(noisy_data.len());
-        for i in 0..noisy_data.len() {
-            let noise_val = if i < noise_data.len() {
-                noise_data[i]
-            } else {
-                0.0
-            };
-            let denoised_val = noisy_data[i] - alpha * noise_val;
-            denoised.push(denoised_val);
+        if gpu_ops::gpu_available() {
+            let scaled_noise = gpu_ops::gpu_scale(&predicted_noise, alpha)?;
+            return gpu_ops::gpu_sub(&noisy_latent, &scaled_noise);
         }
 
+        let noisy_data = noisy_latent.data();
+        let noise_data = predicted_noise.data();
+        let mut denoised = Vec::with_capacity(noisy_data.len());
+        for i in 0..noisy_data.len() {
+            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            denoised.push(noisy_data[i] - alpha * nv);
+        }
         Ok(Tensor::new(denoised, noisy_latent.shape().to_vec()))
     }
 
@@ -406,7 +403,7 @@ impl NoiseConditioningAugmentation {
         })
     }
 
-    /// Apply noise conditioning augmentation
+    /// Apply noise conditioning augmentation — GPU accelerated
     pub fn apply(&self, latent: &LatentSpace, stage_idx: usize) -> HLDVAResult<LatentSpace> {
         let noise_level = if stage_idx < self.noise_levels.len() {
             self.noise_levels[stage_idx]
@@ -414,15 +411,18 @@ impl NoiseConditioningAugmentation {
             self.noise_levels[self.noise_levels.len() - 1]
         };
 
-        let latent_data = latent.data.data();
-        let mut noisy_data = latent_data.to_vec();
-
-        // Add Gaussian noise
-        for i in 0..noisy_data.len() {
-            let noise = self.randn() * noise_level;
-            noisy_data[i] += noise;
+        if gpu_ops::gpu_available() {
+            let noise_data: Vec<f32> = (0..latent.data.data().len()).map(|_| self.randn() * noise_level).collect();
+            let noise_t = Tensor::new(noise_data, latent.data.shape().to_vec());
+            let noisy = gpu_ops::gpu_add(&latent.data, &noise_t)?;
+            return Ok(LatentSpace::new(noisy, latent.resolution, latent.channels));
         }
 
+        let latent_data = latent.data.data();
+        let mut noisy_data = latent_data.to_vec();
+        for i in 0..noisy_data.len() {
+            noisy_data[i] += self.randn() * noise_level;
+        }
         Ok(LatentSpace::new(
             Tensor::new(noisy_data.clone(), vec![noisy_data.len()]),
             latent.resolution,

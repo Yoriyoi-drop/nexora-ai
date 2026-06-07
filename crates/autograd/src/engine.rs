@@ -76,6 +76,7 @@ pub fn backward_engine(output: &Tensor) {
                                     Storage::Cpu(arr) => {
                                         crate::gpu::GpuTensor::from_cpu(arr.as_ref())
                                     }
+                                    #[cfg(feature = "device-cuda")]
                                     Storage::Cuda(_, _) => {
                                         Err(crate::gpu::GpuError::Unsupported("Cuda grad in Gpu backward path".into()))
                                     }
@@ -249,6 +250,7 @@ pub fn backward_engine(output: &Tensor) {
                                                 }
                                             }
                                         }
+                                        #[cfg(feature = "device-cuda")]
                                         Storage::Cuda(_, _) => {
                                             let mut e_cpu = existing.to_cpu();
                                             e_cpu += &g;

@@ -13,6 +13,7 @@ pub fn sum(input: &Tensor) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.sum(cu_input) {
@@ -151,6 +152,7 @@ pub fn mean(input: &Tensor) -> Tensor {
     #[cfg(feature = "device-cuda")]
     {
         let storage = input.storage();
+        #[cfg(feature = "device-cuda")]
         if let Storage::Cuda(cu_input, _) = &storage {
             if let Ok(ctx) = CudaRuntime::global() {
                 match ctx.mean(cu_input) {
