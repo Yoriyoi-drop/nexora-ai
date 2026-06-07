@@ -134,7 +134,13 @@ impl CrossModalAttention {
     }
 
     /// Project input through weight matrix: output[b,i,o] = sum_d input[b,i,d] * W[d,o]
+    /// Tries GPU first, falls back to CPU
     fn project(&self, input: &[f32], weight: &[f32], n: usize, d_in: usize, d_out: usize) -> Vec<f32> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.project_gpu(input, weight, n, d_in, d_out) {
+            return result;
+        }
+
         let mut out = vec![0.0f32; n * d_out];
         for i in 0..n {
             for o in 0..d_out {
@@ -148,7 +154,14 @@ impl CrossModalAttention {
         out
     }
 
-    /// Compute cross-modal self-attention using proper Q/K/V projections
+    /// GPU-accelerated projection
+    #[cfg(feature = "gpu")]
+    fn project_gpu(&self, input: &[f32], weight: &[f32], n: usize, _d_in: usize, d_out: usize) -> Option<Vec<f32>> {
+        use crate::caffeine::gpu_compute;
+        gpu_compute::try_gpu_matmul(input, weight, 1, n, _d_in, d_out)
+    }
+
+    /// Compute cross-modal self-attention — GPU-accelerated when available
     pub fn compute_cross_attention(
         &self,
         features: &[f32],
@@ -165,23 +178,25 @@ impl CrossModalAttention {
         let nh = self.num_heads;
         let dh = self.head_dim;
 
-        // 1. Project Q, K, V from the same input (self-attention between queries)
+        // Try GPU-accelerated path first
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.compute_cross_attention_gpu(features, n, d, nh, dh) {
+            return Ok(result);
+        }
+
+        // CPU fallback
         let q = self.project(features, &self.q_proj, n, d, d);
         let k = self.project(features, &self.k_proj, n, d, d);
         let v = self.project(features, &self.v_proj, n, d, d);
 
-        // 2. Per-head scaled dot-product attention
         let mut head_outputs = Vec::with_capacity(nh * n * dh);
 
         for h in 0..nh {
             let hd = h * dh;
-
-            // Slice Q_h, K_h, V_h: each is [n × dh]
             let qh = &q[hd * n..][..n * dh];
             let kh = &k[hd * n..][..n * dh];
             let vh = &v[hd * n..][..n * dh];
 
-            // 3. Compute attention scores: S[i,j] = Q[i,:] · K[j,:] / sqrt(dh)
             let scale = (dh as f32).sqrt().recip();
             let mut attn = vec![0.0f32; n * n];
 
@@ -195,7 +210,6 @@ impl CrossModalAttention {
                 }
             }
 
-            // 4. Softmax over j for each i
             for i in 0..n {
                 let row_start = i * n;
                 let mut max_val = attn[row_start];
@@ -212,7 +226,6 @@ impl CrossModalAttention {
                 }
             }
 
-            // 5. Weighted sum of V: out[i,d] = sum_j A[i,j] * V[j,d]
             for i in 0..n {
                 for d in 0..dh {
                     let mut acc = 0.0f32;
@@ -224,8 +237,6 @@ impl CrossModalAttention {
             }
         }
 
-        // 6. Concatenate heads and project through output weights
-        // head_outputs layout: [h, n, dh] → flat [n, d] via concatenation
         let mut concat = vec![0.0f32; n * d];
         for h in 0..nh {
             let h_offset = h * n * dh;
@@ -238,6 +249,58 @@ impl CrossModalAttention {
 
         let result = self.project(&concat, &self.o_proj, n, d, d);
         Ok(result)
+    }
+
+    /// GPU-accelerated cross-attention path
+    #[cfg(feature = "gpu")]
+    fn compute_cross_attention_gpu(
+        &self,
+        features: &[f32],
+        n: usize,
+        d: usize,
+        nh: usize,
+        dh: usize,
+    ) -> Option<Vec<f32>> {
+        use crate::caffeine::gpu_compute;
+
+        // Project Q, K, V via GPU matmul — treat all tokens as a single batch
+        let q = gpu_compute::try_gpu_matmul(features, &self.q_proj, 1, n, d, d)?;
+        let k = gpu_compute::try_gpu_matmul(features, &self.k_proj, 1, n, d, d)?;
+        let v = gpu_compute::try_gpu_matmul(features, &self.v_proj, 1, n, d, d)?;
+
+        // Reshape Q/K/V from [1, n, d] -> [1, nh, n, dh] per-head layout
+        let mut q_4d = vec![0.0f32; nh * n * dh];
+        let mut k_4d = vec![0.0f32; nh * n * dh];
+        let mut v_4d = vec![0.0f32; nh * n * dh];
+        for h in 0..nh {
+            for i in 0..n {
+                for dd in 0..dh {
+                    let src = i * d + h * dh + dd;
+                    let dst = h * n * dh + i * dh + dd;
+                    q_4d[dst] = q[src];
+                    k_4d[dst] = k[src];
+                    v_4d[dst] = v[src];
+                }
+            }
+        }
+
+        // Fused attention (non-causal self-attention)
+        let attended = gpu_compute::try_gpu_attention(&q_4d, &k_4d, &v_4d, 1, n, nh, dh, false)?;
+
+        // attended layout: [1, nh, n, dh] -> concat heads: [n, d]
+        let mut concat = vec![0.0f32; n * d];
+        for h in 0..nh {
+            for i in 0..n {
+                for dd in 0..dh {
+                    let src = h * n * dh + i * dh + dd;
+                    let dst = i * d + h * dh + dd;
+                    concat[dst] = attended[src];
+                }
+            }
+        }
+
+        // Output projection via GPU
+        gpu_compute::try_gpu_matmul(&concat, &self.o_proj, 1, n, d, d)
     }
 
     /// Apply modality-specific projection with optimized computation
@@ -281,7 +344,7 @@ impl CrossModalAttention {
         }
     }
 
-    /// Optimized projection computation with reduced nested loops
+    /// Optimized projection computation — GPU-accelerated when available
     fn compute_projection_optimized(
         &self,
         features: &ArrayD<f32>,
@@ -291,21 +354,25 @@ impl CrossModalAttention {
         input_dim: usize,
         output_dim: usize,
     ) -> Result<Vec<f32>> {
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.compute_projection_gpu(
+            features, weights, batch_size, seq_len, input_dim, output_dim,
+        ) {
+            return Ok(result);
+        }
+
         let mut projected = vec![0.0f32; batch_size * seq_len * output_dim];
 
-        // Pre-compute weight matrix for better cache locality
         let weight_matrix: Vec<&[f32]> = (0..output_dim)
             .map(|o| &weights[o * input_dim..(o + 1) * input_dim])
             .collect();
 
-        // Optimized computation with better memory access patterns
         for b in 0..batch_size {
             for i in 0..seq_len {
                 for o in 0..output_dim {
                     let output_idx = b * seq_len * output_dim + i * output_dim + o;
                     let weight_row = weight_matrix[o];
 
-                    // Vectorized dot product
                     let mut sum = 0.0f32;
                     for d in 0..input_dim {
                         if let Some(&input_val) = features.get([b, i, d]) {
@@ -319,6 +386,25 @@ impl CrossModalAttention {
         }
 
         Ok(projected)
+    }
+
+    /// GPU-accelerated projection
+    #[cfg(feature = "gpu")]
+    fn compute_projection_gpu(
+        &self,
+        features: &ArrayD<f32>,
+        weights: &[f32],
+        batch_size: usize,
+        seq_len: usize,
+        input_dim: usize,
+        output_dim: usize,
+    ) -> Option<Vec<f32>> {
+        use crate::caffeine::gpu_compute;
+        let input_slice = features.as_slice()?;
+        gpu_compute::try_gpu_matmul(
+            input_slice, weights,
+            batch_size, seq_len, input_dim, output_dim,
+        )
     }
 
     /// Compute modality fusion weights

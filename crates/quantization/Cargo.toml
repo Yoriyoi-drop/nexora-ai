@@ -8,3 +8,9 @@ description = "Weight quantization helpers — INT8 and INT4 (packed/groupwise)"
 ndarray.workspace = true
 serde.workspace = true
 tracing.workspace = true
+
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = []
+gpu = ["nexora-autograd/gpu"]

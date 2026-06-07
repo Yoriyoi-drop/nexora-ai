@@ -34,6 +34,26 @@ impl FramePatchMLP {
         });
         gelu.dot(&self.w2) + &self.b2
     }
+
+    #[cfg(feature = "gpu")]
+    fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
+        use crate::caffeine::gpu_compute;
+        let batch = inputs.len();
+        if batch == 0 { return None; }
+        let input_dim = inputs[0].len();
+        let hidden_dim = self.w1.shape()[1];
+        let output_dim = self.w2.shape()[1];
+        let flat_input: Vec<f32> = inputs.iter().flat_map(|i| i.iter().copied()).collect();
+        let w1_slice: Vec<f32> = self.w1.iter().copied().collect();
+        let b1_slice: Vec<f32> = self.b1.iter().copied().collect();
+        let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
+        let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
+        let result = gpu_compute::try_gpu_mlp_forward(
+            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
+            batch, input_dim, hidden_dim, output_dim,
+        )?;
+        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+    }
 }
 
 struct TemporalAttention {
@@ -67,6 +87,13 @@ impl TemporalAttention {
     }
 
     fn forward(&self, x: &[f32], seq_len: usize, embed_dim: usize) -> Vec<f32> {
+        // Try GPU-accelerated path first
+        #[cfg(feature = "gpu")]
+        if let Some(result) = self.forward_gpu(x, seq_len, embed_dim) {
+            return result;
+        }
+
+        // CPU fallback
         let head_dim = embed_dim / self.num_heads;
         let scale = 1.0 / (head_dim as f32).sqrt();
         let mut output = vec![0.0f32; seq_len * embed_dim];
@@ -103,9 +130,69 @@ impl TemporalAttention {
 
         matmul_flat(&output, &self.wo, seq_len, embed_dim, embed_dim)
     }
+
+    #[cfg(feature = "gpu")]
+    fn forward_gpu(&self, x: &[f32], seq_len: usize, embed_dim: usize) -> Option<Vec<f32>> {
+        use crate::caffeine::gpu_compute;
+        let nh = self.num_heads;
+        let dh = embed_dim / nh;
+        let wq_slice: Vec<f32> = self.wq.iter().copied().collect();
+        let wk_slice: Vec<f32> = self.wk.iter().copied().collect();
+        let wv_slice: Vec<f32> = self.wv.iter().copied().collect();
+        let wo_slice: Vec<f32> = self.wo.iter().copied().collect();
+
+        // QKV projections via GPU matmul
+        let q = gpu_compute::try_gpu_matmul(x, &wq_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let k = gpu_compute::try_gpu_matmul(x, &wk_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let v = gpu_compute::try_gpu_matmul(x, &wv_slice, 1, seq_len, embed_dim, embed_dim)?;
+
+        // Reshape to [1, nh, S, dh]
+        let mut q_4d = vec![0.0f32; nh * seq_len * dh];
+        let mut k_4d = vec![0.0f32; nh * seq_len * dh];
+        let mut v_4d = vec![0.0f32; nh * seq_len * dh];
+        for h in 0..nh {
+            for i in 0..seq_len {
+                for d in 0..dh {
+                    let src = i * embed_dim + h * dh + d;
+                    let dst = h * seq_len * dh + i * dh + d;
+                    q_4d[dst] = q[src];
+                    k_4d[dst] = k[src];
+                    v_4d[dst] = v[src];
+                }
+            }
+        }
+
+        // Fused attention
+        let attended = gpu_compute::try_gpu_attention(&q_4d, &k_4d, &v_4d, 1, seq_len, nh, dh, false)?;
+
+        // attended: [1, nh, S, dh] -> concat heads: [S, d]
+        let mut concat = vec![0.0f32; seq_len * embed_dim];
+        for h in 0..nh {
+            for i in 0..seq_len {
+                for d in 0..dh {
+                    let src = h * seq_len * dh + i * dh + d;
+                    let dst = i * embed_dim + h * dh + d;
+                    concat[dst] = attended[src];
+                }
+            }
+        }
+
+        // Output projection via GPU
+        gpu_compute::try_gpu_matmul(&concat, &wo_slice, 1, seq_len, embed_dim, embed_dim)
+    }
 }
 
 fn matmul_flat(a: &[f32], w: &Array2<f32>, m: usize, k: usize, n: usize) -> Vec<f32> {
+    #[cfg(feature = "gpu")]
+    let gpu_result = {
+        let w_slice: Vec<f32> = w.iter().copied().collect();
+        crate::caffeine::gpu_compute::try_gpu_matmul(a, &w_slice, 1, m, k, n)
+    };
+    #[cfg(feature = "gpu")]
+    if let Some(result) = gpu_result {
+        return result;
+    }
+
     let mut out = vec![0.0f32; m * n];
     for i in 0..m {
         for j in 0..n {
@@ -210,7 +297,8 @@ impl VideoEncoder {
             1
         };
 
-        let mut features = vec![0.0f32; num_patches * embed_dim];
+        // Collect all patch vectors
+        let mut patch_vecs: Vec<Array1<f32>> = Vec::with_capacity(num_patches);
         for p in 0..num_patches {
             let patch_col = p % cols;
             let patch_row = p / cols;
@@ -241,9 +329,29 @@ impl VideoEncoder {
             while patch_vec.len() < patch_size * patch_size * 3 {
                 patch_vec.push(0.0);
             }
+            patch_vecs.push(Array1::from_vec(patch_vec));
+        }
 
-            let patch_arr = Array1::from_vec(patch_vec);
-            let projected = self.patch_projection.forward(&patch_arr);
+        // Try GPU batched MLP first, fall back to per-patch CPU
+        let mut features = vec![0.0f32; num_patches * embed_dim];
+        #[cfg(feature = "gpu")]
+        if let Some(gpu_results) = self.patch_projection.forward_batched_gpu(&patch_vecs) {
+            for (p, projected) in gpu_results.iter().enumerate() {
+                for d in 0..embed_dim {
+                    features[p * embed_dim + d] = projected[d];
+                }
+            }
+        } else {
+            for (p, patch_arr) in patch_vecs.iter().enumerate() {
+                let projected = self.patch_projection.forward(patch_arr);
+                for d in 0..embed_dim {
+                    features[p * embed_dim + d] = projected[d];
+                }
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        for (p, patch_arr) in patch_vecs.iter().enumerate() {
+            let projected = self.patch_projection.forward(patch_arr);
             for d in 0..embed_dim {
                 features[p * embed_dim + d] = projected[d];
             }

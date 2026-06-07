@@ -4221,6 +4221,7 @@ dependencies = [
  "async-trait",
  "ndarray 0.15.6",
  "nexora-atqs",
+ "nexora-autograd",
  "nexora-has-moe-ffn",
  "nexora-shared",
  "rand 0.8.6",
@@ -4262,6 +4263,7 @@ name = "nexora-quantization"
 version = "0.2.0"
 dependencies = [
  "ndarray 0.15.6",
+ "nexora-autograd",
  "serde",
  "tracing",
 ]

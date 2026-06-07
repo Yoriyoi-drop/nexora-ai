@@ -40,6 +40,26 @@ impl AudioMLP {
         });
         gelu.dot(&self.w2) + &self.b2
     }
+
+    #[cfg(feature = "gpu")]
+    fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
+        use crate::caffeine::gpu_compute;
+        let batch = inputs.len();
+        if batch == 0 { return None; }
+        let input_dim = inputs[0].len();
+        let hidden_dim = self.w1.shape()[1];
+        let output_dim = self.w2.shape()[1];
+        let flat_input: Vec<f32> = inputs.iter().flat_map(|i| i.iter().copied()).collect();
+        let w1_slice: Vec<f32> = self.w1.iter().copied().collect();
+        let b1_slice: Vec<f32> = self.b1.iter().copied().collect();
+        let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
+        let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
+        let result = gpu_compute::try_gpu_mlp_forward(
+            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
+            batch, input_dim, hidden_dim, output_dim,
+        )?;
+        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+    }
 }
 
 /// Cooley-Tukey FFT O(n log n) for spectrogram computation.
@@ -289,24 +309,41 @@ impl AudioEncoder {
         let n_mels = shape[2];
         let embed_dim = self.config.output_dim;
 
-        let mut encoded = vec![0.0f32; batch_size * seq_len * embed_dim];
-
+        // Collect all frame vectors
+        let mut frames: Vec<Array1<f32>> = Vec::with_capacity(batch_size * seq_len);
         for b in 0..batch_size {
             for t in 0..seq_len {
-                // Extract mel frame as 1D array
                 let mut frame = Vec::with_capacity(n_mels);
                 for m in 0..n_mels {
                     let idx = b * seq_len * n_mels + t * n_mels + m;
                     frame.push(mel_spec[idx]);
                 }
-                let frame_arr = Array1::from_vec(frame);
+                frames.push(Array1::from_vec(frame));
+            }
+        }
 
-                // Project through 2-layer MLP
-                let projected = self.mel_projection.forward(&frame_arr);
-                let out_base = b * seq_len * embed_dim + t * embed_dim;
+        // Try GPU batched MLP first, fall back to per-frame CPU
+        let mut encoded = vec![0.0f32; batch_size * seq_len * embed_dim];
+        #[cfg(feature = "gpu")]
+        if let Some(gpu_results) = self.mel_projection.forward_batched_gpu(&frames) {
+            for (idx, projected) in gpu_results.iter().enumerate() {
                 for d in 0..embed_dim {
-                    encoded[out_base + d] = projected[d];
+                    encoded[idx * embed_dim + d] = projected[d];
                 }
+            }
+        } else {
+            for (idx, frame_arr) in frames.iter().enumerate() {
+                let projected = self.mel_projection.forward(frame_arr);
+                for d in 0..embed_dim {
+                    encoded[idx * embed_dim + d] = projected[d];
+                }
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        for (idx, frame_arr) in frames.iter().enumerate() {
+            let projected = self.mel_projection.forward(frame_arr);
+            for d in 0..embed_dim {
+                encoded[idx * embed_dim + d] = projected[d];
             }
         }
 

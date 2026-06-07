@@ -20,3 +20,4 @@ async-trait.workspace = true
 
 [features]
 oracle = ["nexora-oracle"]
+gpu = ["nexora-autograd/gpu"]

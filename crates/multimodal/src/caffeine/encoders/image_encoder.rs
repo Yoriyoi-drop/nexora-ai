@@ -41,6 +41,26 @@ impl PatchMLP {
         });
         gelu.dot(&self.w2) + &self.b2
     }
+
+    #[cfg(feature = "gpu")]
+    fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
+        use crate::caffeine::gpu_compute;
+        let batch = inputs.len();
+        if batch == 0 { return None; }
+        let input_dim = inputs[0].len();
+        let hidden_dim = self.w1.shape()[1];
+        let output_dim = self.w2.shape()[1];
+        let flat_input: Vec<f32> = inputs.iter().flat_map(|i| i.iter().copied()).collect();
+        let w1_slice: Vec<f32> = self.w1.iter().copied().collect();
+        let b1_slice: Vec<f32> = self.b1.iter().copied().collect();
+        let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
+        let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
+        let result = gpu_compute::try_gpu_mlp_forward(
+            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
+            batch, input_dim, hidden_dim, output_dim,
+        )?;
+        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+    }
 }
 
 /// Image encoder based on CLIP ViT
@@ -104,14 +124,12 @@ impl ImageEncoder {
             })
             .collect();
 
-        let mut data = vec![0.0f32; batch_size * seq_len * embed_dim];
-
-        // Patch embedding through MLP projection (not sinusoidal)
+        // Collect all patch vectors
+        let mut patch_vecs: Vec<Array1<f32>> = Vec::with_capacity(seq_len);
         for p in 0..seq_len {
             let py = p / num_patches_x;
             let px = p % num_patches_x;
 
-            // Extract patch pixels
             let mut patch_vec = Vec::with_capacity(patch_size * patch_size * channels);
             for j in 0..patch_size {
                 for i in 0..patch_size {
@@ -131,10 +149,29 @@ impl ImageEncoder {
                     }
                 }
             }
+            patch_vecs.push(Array1::from_vec(patch_vec));
+        }
 
-            // Project patch through MLP
-            let patch_arr = Array1::from_vec(patch_vec);
-            let projected = self.patch_projection.forward(&patch_arr);
+        // Try GPU batched MLP first, fall back to per-patch CPU
+        let mut data = vec![0.0f32; batch_size * seq_len * embed_dim];
+        #[cfg(feature = "gpu")]
+        if let Some(gpu_results) = self.patch_projection.forward_batched_gpu(&patch_vecs) {
+            for (p, projected) in gpu_results.iter().enumerate() {
+                for d in 0..embed_dim {
+                    data[p * embed_dim + d] = projected[d];
+                }
+            }
+        } else {
+            for (p, patch_arr) in patch_vecs.iter().enumerate() {
+                let projected = self.patch_projection.forward(patch_arr);
+                for d in 0..embed_dim {
+                    data[p * embed_dim + d] = projected[d];
+                }
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
+        for (p, patch_arr) in patch_vecs.iter().enumerate() {
+            let projected = self.patch_projection.forward(patch_arr);
             for d in 0..embed_dim {
                 data[p * embed_dim + d] = projected[d];
             }

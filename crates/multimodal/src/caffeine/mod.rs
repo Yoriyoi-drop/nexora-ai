@@ -14,7 +14,7 @@ pub mod cache;
 pub mod config;
 pub mod encoders;
 pub mod error;
-pub mod prelude;
+pub mod gpu_compute;
 pub mod qformer;
 pub mod tokenizer;
 pub mod types;

@@ -11,6 +11,8 @@
 //! real quantized compute. GPU can also consume Q4 directly.
 
 pub mod gemm;
+#[cfg(feature = "gpu")]
+pub mod gpu_gemm;
 
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};

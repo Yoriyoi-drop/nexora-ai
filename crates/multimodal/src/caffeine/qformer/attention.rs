@@ -47,7 +47,7 @@ impl MultiHeadAttention {
         })
     }
 
-    /// Forward pass
+    /// Forward pass — GPU-accelerated when available
     pub fn forward(
         &self,
         query: &ArrayD<f32>,
@@ -57,8 +57,14 @@ impl MultiHeadAttention {
         let shape = query.shape();
         let batch_size = shape[0];
         let seq_len = shape[1];
+        let d = shape[2];
 
-        // Project to Q, K, V for each head
+        // Try GPU-accelerated path first
+        if let Some(result) = self.forward_gpu(query, key, value, batch_size, seq_len, d) {
+            return Ok(result);
+        }
+
+        // CPU fallback: project Q, K, V for each head
         let mut head_outputs = Vec::new();
 
         for head in 0..self.num_heads {
@@ -66,17 +72,86 @@ impl MultiHeadAttention {
             let k_head = self.linear_projection(key, &self.key_weights[head])?;
             let v_head = self.linear_projection(value, &self.value_weights[head])?;
 
-            // Compute attention for this head
             let attention_output = self.scaled_dot_product_attention(&q_head, &k_head, &v_head)?;
             head_outputs.push(attention_output);
         }
 
-        // Concatenate heads and project output
         let concatenated = self.concatenate_heads(&head_outputs, batch_size, seq_len)?;
         let output = self.linear_projection(&concatenated, &self.output_weights)?;
 
         Ok(output)
     }
+
+    /// GPU-accelerated forward path — batched QKV + fused attention
+    #[cfg(feature = "gpu")]
+    fn forward_gpu(
+        &self,
+        query: &ArrayD<f32>,
+        key: &ArrayD<f32>,
+        value: &ArrayD<f32>,
+        batch_size: usize,
+        seq_len: usize,
+        _hidden_dim: usize,
+    ) -> Option<ArrayD<f32>> {
+        use crate::caffeine::gpu_compute;
+
+        let q_slice = query.as_slice()?;
+        let k_slice = key.as_slice()?;
+        let v_slice = value.as_slice()?;
+        let nh = self.num_heads;
+        let dh = self.head_dim;
+        let n = batch_size * seq_len;
+
+        // Batch all heads: project Q/K/V per head
+        // layout per head: [batch*seq, hidden_dim] @ [hidden_dim, head_dim] = [batch*seq, head_dim]
+        let mut q_all = Vec::with_capacity(n * nh * dh);
+        let mut k_all = Vec::with_capacity(n * nh * dh);
+        let mut v_all = Vec::with_capacity(n * nh * dh);
+
+        for h in 0..nh {
+            q_all.extend(gpu_compute::try_gpu_matmul(q_slice, &self.query_weights[h],
+                batch_size, seq_len, self.hidden_dim, dh)?);
+            k_all.extend(gpu_compute::try_gpu_matmul(k_slice, &self.key_weights[h],
+                batch_size, seq_len, self.hidden_dim, dh)?);
+            v_all.extend(gpu_compute::try_gpu_matmul(v_slice, &self.value_weights[h],
+                batch_size, seq_len, self.hidden_dim, dh)?);
+        }
+
+        // Fused attention: [B, H, S, D] layout
+        let attended = gpu_compute::try_gpu_attention(
+            &q_all, &k_all, &v_all,
+            batch_size, seq_len, nh, dh, false,
+        )?;
+
+        // attended layout: [B, H, S, D] -> concat heads: [B, S, H*D]
+        let mut concat = vec![0.0f32; batch_size * seq_len * nh * dh];
+        for b in 0..batch_size {
+            for h in 0..nh {
+                for s in 0..seq_len {
+                    for d in 0..dh {
+                        let src_idx = b * nh * seq_len * dh + h * seq_len * dh + s * dh + d;
+                        let dst_idx = b * seq_len * nh * dh + s * nh * dh + h * dh + d;
+                        concat[dst_idx] = attended[src_idx];
+                    }
+                }
+            }
+        }
+
+        // Output projection
+        let output = gpu_compute::try_gpu_matmul(
+            &concat, &self.output_weights,
+            batch_size, seq_len, nh * dh, self.hidden_dim,
+        )?;
+
+        let shape = vec![batch_size, seq_len, self.hidden_dim];
+        ArrayD::from_shape_vec(shape, output).ok()
+    }
+
+    #[cfg(not(feature = "gpu"))]
+    fn forward_gpu(
+        &self, _query: &ArrayD<f32>, _key: &ArrayD<f32>, _value: &ArrayD<f32>,
+        _batch_size: usize, _seq_len: usize, _hidden_dim: usize,
+    ) -> Option<ArrayD<f32>> { None }
 
     /// Scaled dot-product attention — streaming per-query to avoid O(S²) memory
     fn scaled_dot_product_attention(
