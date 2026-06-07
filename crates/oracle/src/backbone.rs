@@ -60,10 +60,6 @@ pub struct SparseMoELayer {
     pub gate: LinearLayer,
     /// Backward-compat experts for training Tensor checkpoint path
     pub experts: Vec<MLPExpert>,
-    #[cfg(feature = "gpu")]
-    gate_w_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
-    #[cfg(feature = "gpu")]
-    gate_b_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 impl SparseMoELayer {
@@ -84,10 +80,6 @@ impl SparseMoELayer {
             moe: HasMoeFFN::new(moe_config),
             gate: LinearLayer::new(config.d_model, config.n_experts),
             experts,
-            #[cfg(feature = "gpu")]
-            gate_w_gpu: std::sync::OnceLock::new(),
-            #[cfg(feature = "gpu")]
-            gate_b_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -101,128 +93,15 @@ impl SparseMoELayer {
 
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
-        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
-        let shape = x.shape();
-        let n = shape[0];
-        let d_model = shape[1];
-        let n_experts = self._config.n_experts;
-        let top_k = self._config.top_k;
-
-        // 1. Cache gate weights on GPU
-        let g_w = self
-            .gate_w_gpu
-            .get_or_init(|| {
-                let flat: Vec<f32> = self.gate.weight.iter().copied().collect();
-                let w = GpuTensor::from_slice(vec![d_model, n_experts], &flat).ok()?;
-                ctx.transpose(&w).ok()
-            })
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Failed to cache gate weight"))?;
-
-        let g_b = self
-            .gate_b_gpu
-            .get_or_init(|| {
-                let flat: Vec<f32> = self.gate.bias.iter().copied().collect();
-                GpuTensor::from_slice(vec![1, n_experts], &flat).ok()
-            })
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Failed to cache gate bias"))?;
-
-        // 2. Compute gate logits on GPU: [N, d_model] @ [d_model, n_experts] → [N, n_experts]
-        let gate_logits = ctx.matmul(x, g_w)?;
-        let gate_logits = ctx.add(&gate_logits, g_b)?;
-
-        // 3. Download gate scores only (tiny: [N, n_experts]) for CPU routing
-        let gate_arr = gate_logits.to_cpu()?;
-        let gate_data: Vec<f32> = gate_arr.iter().copied().collect();
-
-        // 4. Softmax + top-k routing on CPU
-        let mut gate_probs = vec![0.0f32; n * n_experts];
-        let mut max_vals = vec![f32::NEG_INFINITY; n];
-        let mut sum_exps = vec![0.0f32; n];
-        for i in 0..n {
-            for j in 0..n_experts {
-                let v = gate_data[i * n_experts + j];
-                if v > max_vals[i] {
-                    max_vals[i] = v;
-                }
-            }
-        }
-        for i in 0..n {
-            for j in 0..n_experts {
-                let e = (gate_data[i * n_experts + j] - max_vals[i]).exp();
-                gate_probs[i * n_experts + j] = e;
-                sum_exps[i] += e;
-            }
-        }
-        for i in 0..n {
-            if sum_exps[i] > 0.0 {
-                let inv = 1.0 / sum_exps[i];
-                for j in 0..n_experts {
-                    gate_probs[i * n_experts + j] *= inv;
-                }
-            }
-        }
-
-        // Top-k expert assignment per token
-        let mut expert_tokens: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n_experts];
-        for i in 0..n {
-            let mut indices: Vec<usize> = (0..n_experts).collect();
-            indices.sort_unstable_by(|&a, &b| {
-                gate_probs[i * n_experts + b]
-                    .partial_cmp(&gate_probs[i * n_experts + a])
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            for &e in indices.iter().take(top_k) {
-                let sc = gate_probs[i * n_experts + e];
-                if sc > 0.0 {
-                    expert_tokens[e].push((i, sc));
-                }
-            }
-        }
-
-        // 5. Download input once for CPU gather/scatter
-        let x_cpu = x.to_cpu()?;
-        let x_flat: Vec<f32> = x_cpu.iter().copied().collect();
-        let mut output_flat = vec![0.0f32; n * d_model];
-
-        // 6. Per-expert GPU forward with CPU gather/scatter
-        for (e_idx, tokens) in expert_tokens.iter().enumerate() {
-            if tokens.is_empty() {
-                continue;
-            }
-            let e_n = tokens.len();
-
-            // Gather token rows for this expert
-            let mut e_input = Vec::with_capacity(e_n * d_model);
-            let mut e_scores = Vec::with_capacity(e_n);
-            for &(ti, sc) in tokens {
-                e_scores.push(sc);
-                let src = ti * d_model;
-                e_input.extend_from_slice(&x_flat[src..src + d_model]);
-            }
-
-            // Upload → GPU forward → download
-            let e_x = GpuTensor::from_slice(vec![e_n, d_model], &e_input)?;
-            let e_out_gpu = self.experts[e_idx].forward_gpu(&e_x)?;
-            let e_out_arr = e_out_gpu.to_cpu()?;
-            let e_out_flat: Vec<f32> = e_out_arr.iter().copied().collect();
-
-            // Weight by gate score and scatter back
-            for k in 0..e_n {
-                let ti = tokens[k].0;
-                let sc = e_scores[k];
-                let dst = ti * d_model;
-                let src = k * d_model;
-                for d in 0..d_model {
-                    output_flat[dst + d] += e_out_flat[src + d] * sc;
-                }
-            }
-        }
-
-        // 7. Upload final output to GPU
-        GpuTensor::from_slice(vec![n, d_model], &output_flat)
-            .map_err(|e| anyhow::anyhow!("GPU upload: {}", e))
+        let x_arr = x.to_cpu()?;
+        let x_2d = x_arr
+            .into_dimensionality::<ndarray::Ix2>()
+            .map_err(|e| anyhow::anyhow!("reshape: {}", e))?;
+        let out = self.moe.forward(&x_2d);
+        let flat: Vec<f32> = out.iter().copied().collect();
+        let shape = out.shape().to_vec();
+        GpuTensor::from_slice(shape, &flat)
+            .map_err(|e| anyhow::anyhow!("GPU upload in MoE forward: {}", e))
     }
 
     pub fn get_expert_usage<S>(&self, _x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
@@ -239,14 +118,6 @@ pub struct MLPExpert {
     pub w2: Array2<f32>,
     pub b1: Array1<f32>,
     pub b2: Array1<f32>,
-    #[cfg(feature = "gpu")]
-    w1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
-    #[cfg(feature = "gpu")]
-    w2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
-    #[cfg(feature = "gpu")]
-    b1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
-    #[cfg(feature = "gpu")]
-    b2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 fn xavier_uniform(in_dim: usize, out_dim: usize) -> f32 {
@@ -270,14 +141,6 @@ impl MLPExpert {
             }),
             b1: Array1::from_shape_fn(hidden_dim, |_| xavier_uniform_1d(hidden_dim)),
             b2: Array1::from_shape_fn(input_dim, |_| xavier_uniform_1d(input_dim)),
-            #[cfg(feature = "gpu")]
-            w1_gpu: std::sync::OnceLock::new(),
-            #[cfg(feature = "gpu")]
-            w2_gpu: std::sync::OnceLock::new(),
-            #[cfg(feature = "gpu")]
-            b1_gpu: std::sync::OnceLock::new(),
-            #[cfg(feature = "gpu")]
-            b2_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -297,56 +160,6 @@ impl MLPExpert {
             let x3 = x * x * x;
             0.5 * x * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x3)).tanh())
         })
-    }
-
-    /// Lazily upload and cache GPU weights via OnceLock (uploaded once, reused forever).
-    #[cfg(feature = "gpu")]
-    fn ensure_weights_gpu(&self) -> Option<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor)> {
-        let ctx = GpuContext::global().ok()?;
-
-        let w1 = self.w1_gpu.get_or_init(|| {
-            let shape = vec![self.w1.shape()[0], self.w1.shape()[1]];
-            let flat: Vec<f32> = self.w1.iter().copied().collect();
-            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
-            ctx.transpose(&gpu).ok()
-        }).as_ref()?;
-
-        let b1 = self.b1_gpu.get_or_init(|| {
-            let flat: Vec<f32> = self.b1.iter().copied().collect();
-            GpuTensor::from_slice(vec![1, self.b1.len()], &flat).ok()
-        }).as_ref()?;
-
-        let w2 = self.w2_gpu.get_or_init(|| {
-            let shape = vec![self.w2.shape()[0], self.w2.shape()[1]];
-            let flat: Vec<f32> = self.w2.iter().copied().collect();
-            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
-            ctx.transpose(&gpu).ok()
-        }).as_ref()?;
-
-        let b2 = self.b2_gpu.get_or_init(|| {
-            let flat: Vec<f32> = self.b2.iter().copied().collect();
-            GpuTensor::from_slice(vec![1, self.b2.len()], &flat).ok()
-        }).as_ref()?;
-
-        Some((w1, b1, w2, b2))
-    }
-
-    #[cfg(feature = "gpu")]
-    pub fn forward_gpu(
-        &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
-        let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
-
-        let (w1_gpu, b1_gpu, w2_gpu, b2_gpu) = self
-            .ensure_weights_gpu()
-            .ok_or_else(|| anyhow::anyhow!("Failed to cache GPU weights"))?;
-
-        let hidden = ctx.matmul(x, w1_gpu)?;
-        let hidden_bias = ctx.add(&hidden, b1_gpu)?;
-        let activated = ctx.gelu(&hidden_bias)?;
-        let output = ctx.matmul(&activated, w2_gpu)?;
-        Ok(ctx.add(&output, b2_gpu)?)
     }
 }
 

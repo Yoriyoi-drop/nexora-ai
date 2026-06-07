@@ -30,7 +30,7 @@ use nexora_memory::MemoryManager;
 use nexora_tokenizer::BpeTokenizer;
 #[cfg(feature = "gpu")]
 use nexora_transformer::GpuKVCache;
-use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, TransformerConfig};
+use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, PagedCacheReader, TransformerConfig};
 
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -1097,6 +1097,15 @@ impl InferenceEngine {
             &self.shared_paged,
         );
 
+        // Extract paged cache info BEFORE moving kv_state into the spawn_blocking closure.
+        // For paged providers, this gives us direct block access that avoids the 2GB
+        // to_flat_cache() allocation. When not paged, both remain None.
+        let paged_arc = self.shared_paged.clone();
+        let paged_seq_id = kv_state
+            .as_any_mut()
+            .downcast_mut::<PagedKVCacheProvider>()
+            .map(|p| p.seq_id());
+
         // Restore KV cache from prefix match if available — avoids recomputing K/V for prefix tokens
         if !prefix_kv_cache.is_empty() {
             if let Some(cpu_entries) = kv_state.as_cpu_entries() {
@@ -1202,6 +1211,8 @@ impl InferenceEngine {
                     prefix_logits,
                     generation_timeout,
                     include_kv_cache,
+                    paged_arc.as_deref(),
+                    paged_seq_id,
                 )
             })
             .await
@@ -1685,6 +1696,41 @@ fn token_id_to_text_fallback(token_id: u32) -> String {
 /// If `prefix_len > 0`, skips prefill for the cached prefix tokens and
 /// uses `prefix_logits` as the starting logits (warm-start).
 /// Returns generated tokens and whether a timeout occurred.
+/// Try paged forward first; when paged cache is available this avoids the 2GB
+/// `to_flat_cache()` allocation by reading K/V directly from paged blocks.
+/// Falls back to `ModelForward::forward()` when paged is unavailable or fails.
+fn forward_paged_or_fallback(
+    model: &CausalLM,
+    input_ids: &[u32],
+    kv_state: &mut dyn KVCacheProvider,
+    paged_cache: Option<&StdRwLock<PagedKVCache>>,
+    paged_seq_id: Option<u64>,
+) -> Array1<f32> {
+    if let (Some(paged_lock), Some(seq_id)) = (paged_cache, paged_seq_id) {
+        match paged_lock.write() {
+            Ok(mut guard) => {
+                let reader: &mut dyn PagedCacheReader = &mut *guard;
+                match model.forward_paged(input_ids, reader, seq_id) {
+                    Ok(logits) => {
+                        crate::inference_trait::PAGED_FORWARD_SUCCESSES
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return logits;
+                    }
+                    Err(e) => {
+                        crate::inference_trait::PAGED_FORWARD_FALLBACKS
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        tracing::warn!("Paged forward failed: {e}, falling back to flat cache");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Paged cache lock poisoned: {e}, falling back to flat cache");
+            }
+        }
+    }
+    ModelForward::forward(model, input_ids, kv_state)
+}
+
 fn run_generation_loop(
     model: &CausalLM,
     prompt_ids: &[u32],
@@ -1696,6 +1742,11 @@ fn run_generation_loop(
     prefix_logits: Vec<f32>,
     generation_timeout: Duration,
     include_kv_cache: bool,
+    // Optional paged cache — when set, bypasses to_flat_cache() and reads K/V
+    // directly from paged blocks via CausalLM::forward_paged(). This eliminates
+    // the ~2GB allocation that would otherwise happen every forward pass.
+    paged_cache: Option<&StdRwLock<PagedKVCache>>,
+    paged_seq_id: Option<u64>,
 ) -> (Vec<GeneratedToken>, Vec<f32>, bool, Vec<KVCacheEntry>) {
     let start = std::time::Instant::now();
     let mut all_ids = Vec::with_capacity(prompt_ids.len() + max_gen);
@@ -1751,7 +1802,7 @@ fn run_generation_loop(
                     log_prob = 0.0;
                     used_gpu = true;
                 } else {
-                    let arr = ModelForward::forward(model, input, kv_state);
+                    let arr = forward_paged_or_fallback(model, input, kv_state, paged_cache, paged_seq_id);
                     let logits_slice = arr.as_slice().unwrap_or(&[]);
                     let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
                     let lp = logits_slice
@@ -1787,7 +1838,7 @@ fn run_generation_loop(
                 log_prob = 0.0;
                 used_gpu = true;
             } else {
-                let arr = ModelForward::forward(model, input, kv_state);
+                let arr = forward_paged_or_fallback(model, input, kv_state, paged_cache, paged_seq_id);
                 let logits_slice = arr.as_slice().unwrap_or(&[]);
                 let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
                 let lp = logits_slice
@@ -1979,6 +2030,13 @@ impl InferenceEngineHandle {
 
                 let mut kv_state = InferenceEngine::make_kv_provider(&model, use_gpu_cache, &shared_paged);
 
+                // Extract paged cache info for direct block-based forward
+                let batch_paged_arc = shared_paged.clone();
+                let batch_paged_seq_id = kv_state
+                    .as_any_mut()
+                    .downcast_mut::<PagedKVCacheProvider>()
+                    .map(|p| p.seq_id());
+
                 // Restore KV cache from prefix match if available
                 if !prefix_kv_cache.is_empty() {
                     if let Some(cpu_entries) = kv_state.as_cpu_entries() {
@@ -2010,6 +2068,8 @@ impl InferenceEngineHandle {
                         prefix_logits,
                         generation_timeout,
                         false,
+                        batch_paged_arc.as_deref(),
+                        batch_paged_seq_id,
                     )
                 })
                 .await;

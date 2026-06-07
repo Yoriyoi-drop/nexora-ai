@@ -19,6 +19,13 @@ pub static GPU_FORWARD_ERRORS: AtomicU64 = AtomicU64::new(0);
 /// Global counter of GPU→CPU fallback events (sampler fallback, forward fallback, etc.).
 pub static GPU_CPU_FALLBACKS: AtomicU64 = AtomicU64::new(0);
 
+/// Global counter of successful paged (block-based) forward passes.
+/// Each success avoids the ~2GB to_flat_cache() allocation.
+pub static PAGED_FORWARD_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+
+/// Global counter of paged forward → flat cache fallback events.
+pub static PAGED_FORWARD_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+
 /// Global counter of GPU-resident generation path used successfully.
 pub static GPU_RESIDENT_SUCCESSES: AtomicU64 = AtomicU64::new(0);
 
