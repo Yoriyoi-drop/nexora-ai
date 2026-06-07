@@ -1,4 +1,5 @@
 use super::plan::{BillingPlan, TierName};
+use super::usage::UsageRecord;
 use super::usage::UsageTracker;
 use std::sync::Arc;
 
@@ -62,5 +63,26 @@ impl QuotaEnforcer {
         let monthly_remaining = self.usage_tracker.get_monthly_remaining(api_key, monthly_quota).await;
 
         (daily_remaining, monthly_remaining)
+    }
+
+    /// Provision a subscription after successful Stripe checkout.
+    /// Creates a usage record for the customer email (used as API key).
+    pub async fn provision_subscription(&self, customer_email: &str, plan_name: &str) -> Result<(), String> {
+        let tier = TierName::from_str(plan_name).ok_or_else(|| format!("Unknown plan: {}", plan_name))?;
+        let _plan = BillingPlan::find(&tier).ok_or_else(|| format!("Plan config not found: {}", plan_name))?;
+        self.usage_tracker.register_subscriber(customer_email).await;
+        tracing::info!("Subscription provisioned for {} on plan {}", customer_email, plan_name);
+        Ok(())
+    }
+
+    /// Update subscription tier when Stripe webhook fires.
+    pub async fn update_subscription_tier(&self, customer_email: &str, status: &str) -> Result<(), String> {
+        if status == "deleted" || status == "canceled" || status == "unpaid" {
+            self.usage_tracker.remove_subscriber(customer_email).await;
+            tracing::info!("Subscription removed for {} (status: {})", customer_email, status);
+        } else {
+            tracing::info!("Subscription {} status updated to {}", customer_email, status);
+        }
+        Ok(())
     }
 }

@@ -1,8 +1,15 @@
 use crate::types::{AuditEntry, RiskLevel};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::error;
+
+/// Global monitor shared across all HallucinationGuard instances.
+/// Provides aggregated stats to the telemetry endpoint.
+pub static GLOBAL_HALLUCINATION_MONITOR: LazyLock<Monitor> = LazyLock::new(|| {
+    Monitor::new(MonitorConfig::default())
+});
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
@@ -88,6 +95,22 @@ impl Monitor {
             log.pop_front();
         }
         log.push_back(entry);
+    }
+
+    pub fn total_checked(&self) -> u64 {
+        self.total_checked.load(Ordering::Relaxed)
+    }
+
+    pub fn total_blocked(&self) -> u64 {
+        self.total_blocked.load(Ordering::Relaxed)
+    }
+
+    pub fn total_flagged(&self) -> u64 {
+        self.total_flagged.load(Ordering::Relaxed)
+    }
+
+    pub fn total_passed(&self) -> u64 {
+        self.total_passed.load(Ordering::Relaxed)
     }
 
     pub fn get_stats(&self) -> serde_json::Value {

@@ -2,11 +2,15 @@ use nexora_model_core::classifier_util;
 use nexora_model_core::foundation::NxrSwiftModel;
 use crate::classifier;
 use nexora_has_moe_ffn::Router;
+use nexora_atqs::compression::AtqsCompression;
+use nexora_erp::{ERPEngine, ERPConfig, CompressionMode};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static ATQS: OnceLock<AtqsCompression> = OnceLock::new();
+static ERP: OnceLock<std::sync::Mutex<ERPEngine>> = OnceLock::new();
 
 fn foundation() -> &'static NxrSwiftModel {
     static F: OnceLock<NxrSwiftModel> = OnceLock::new();
@@ -80,16 +84,44 @@ pub async fn delegate(prompt: &str) -> String {
         }
     };
 
+    let edge_insight = {
+        let atqs = ATQS.get_or_init(AtqsCompression::new);
+        match atqs.compress(prompt.as_bytes()).await {
+            Ok(cr) if cr.compression_ratio < 0.9 => {
+                format!("edge_compression: {:.2}x", 1.0 / cr.compression_ratio)
+            }
+            _ => String::new(),
+        }
+    };
+
+    let erp_insight = {
+        let cfg = ERPConfig {
+            compression_mode: CompressionMode::Aggressive,
+            ..ERPConfig::default()
+        };
+        let erp = ERP.get_or_init(|| std::sync::Mutex::new(ERPEngine::new(cfg)));
+        match erp.lock() {
+            Ok(_engine) => "erp: aggressive".to_string(),
+            Err(_) => String::new(),
+        }
+    };
+
     let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let optimization_tag = if !edge_insight.is_empty() || !erp_insight.is_empty() {
+        format!("[{} | {}]", edge_insight, erp_insight)
+    } else {
+        String::new()
+    };
+
     let framed = if let Some(route) = expert_route {
         format!(
-            "[Swift task | type: {primary} | moe_route: {route}]\n\
+            "[Swift task | type: {primary} | moe_route: {route}]{optimization_tag}\n\
              Process this input efficiently:\n\
              {sanitized_prompt}"
         )
     } else {
         format!(
-            "[Swift task | type: {primary}]\n\
+            "[Swift task | type: {primary}]{optimization_tag}\n\
              Process this input efficiently:\n\
              {sanitized_prompt}"
         )

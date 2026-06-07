@@ -94,7 +94,9 @@ impl HallucinationGuard {
         let risk_level = self.risk.classify(score);
         let action = self.risk.decide_action(risk_level.clone());
 
-        self.monitor.record(&format!("{:?}", action), input);
+        let action_str = format!("{:?}", action);
+        self.monitor.record(&action_str, input);
+        crate::monitoring::GLOBAL_HALLUCINATION_MONITOR.record(&action_str, input);
 
         Ok(PipelineResult {
             action,

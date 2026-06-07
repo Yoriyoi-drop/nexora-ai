@@ -65,7 +65,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "rate(nexora_inference_requests_total[5m])",
+          "expr": "rate(nexora_requests_total[5m])",
           "legendFormat": "Inference RPS",
           "refId": "A"
         }
@@ -135,12 +135,12 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(nexora_inference_latency_seconds_bucket[5m])) * 1000",
+          "expr": "histogram_quantile(0.95, rate(nexora_request_latency_seconds_bucket[5m])) * 1000",
           "legendFormat": "P95 Latency",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.50, rate(nexora_inference_latency_seconds_bucket[5m])) * 1000",
+          "expr": "histogram_quantile(0.50, rate(nexora_request_latency_seconds_bucket[5m])) * 1000",
           "legendFormat": "P50 Latency",
           "refId": "B"
         }
@@ -269,7 +269,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_utilization_percent",
+          "expr": "nexora_gpu_utilization_percent",
           "legendFormat": "GPU Utilization",
           "refId": "A"
         }
@@ -339,17 +339,12 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "redis_memory_used_bytes",
-          "legendFormat": "Redis Memory",
+          "expr": "nexora_memory_usage_bytes",
+          "legendFormat": "App Memory",
           "refId": "A"
-        },
-        {
-          "expr": "postgres_cache_size_bytes",
-          "legendFormat": "PostgreSQL Cache",
-          "refId": "B"
         }
       ],
-      "title": "Database Memory Usage",
+      "title": "Memory Usage",
       "type": "timeseries"
     },
     {
@@ -414,7 +409,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "rate(nexora_inference_cache_hits_total[5m]) / (rate(nexora_inference_cache_hits_total[5m]) + rate(nexora_inference_cache_misses_total[5m])) * 100",
+          "expr": "nexora_cache_hit_ratio * 100",
           "legendFormat": "KV Cache Hit Rate",
           "refId": "A"
         }

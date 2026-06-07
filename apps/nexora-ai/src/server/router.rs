@@ -95,7 +95,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
         .route("/static/*path", get(static_files))
         .layer(Extension(nexora));
 
-    #[cfg(feature = "server-telemetry")]
+    // Telemetry endpoints — always exposed for /metrics and Grafana
     {
         use super::telemetry_handlers::*;
         app = app

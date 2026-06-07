@@ -564,6 +564,7 @@ impl AgentManager {
     }
 
     /// Dispatch plan steps from planner to workers
+    #[tracing::instrument(skip(self), fields(plan_id = %plan_id))]
     async fn dispatch_plan_internal(&self, plan_id: Uuid) -> Result<()> {
         info!("Dispatching plan {} to workers", plan_id);
 

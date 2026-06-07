@@ -137,8 +137,14 @@ pub async fn get_subscription(
 /// Map plan name to Stripe Price ID (must be a real Stripe Price ID like price_XXXXXXX)
 fn stripe_price_id(plan_name: &str) -> Option<&'static str> {
     match plan_name {
-        "pro" => Some("price_1PRO_MONTHLY_PLACEHOLDER"),
-        "enterprise" => Some("price_1ENT_MONTHLY_PLACEHOLDER"),
+        "pro" => {
+            tracing::info!("Using Stripe price ID for pro plan — replace 'price_1PRO_MONTHLY_PLACEHOLDER' with your real Stripe price ID in production");
+            Some("price_1PRO_MONTHLY_PLACEHOLDER")
+        }
+        "enterprise" => {
+            tracing::info!("Using Stripe price ID for enterprise plan — replace 'price_1ENT_MONTHLY_PLACEHOLDER' with your real Stripe price ID in production");
+            Some("price_1ENT_MONTHLY_PLACEHOLDER")
+        }
         _ => None,
     }
 }
@@ -358,10 +364,23 @@ pub async fn stripe_webhook(
                     "Checkout completed: email={}, plan={}",
                     customer_email, plan_name
                 );
-                // In production, provision the subscription here:
-                // 1. Create/update customer record
-                // 2. Map to internal tier
-                // 3. Assign API key / update quota
+                let customer_email = session
+                    .get("customer_email")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let plan_name = session
+                    .get("metadata")
+                    .and_then(|m| m.get("plan"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("free");
+                info!(
+                    "Provisioning subscription for {} on plan {}",
+                    customer_email, plan_name
+                );
+                match nexora.billing.enforcer.provision_subscription(customer_email, plan_name).await {
+                    Ok(_) => info!("Subscription provisioned successfully for {}", customer_email),
+                    Err(e) => warn!("Failed to provision subscription: {}", e),
+                }
             }
         }
         "customer.subscription.updated" | "customer.subscription.deleted" => {
@@ -375,11 +394,18 @@ pub async fn stripe_webhook(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
+                let customer_email = sub
+                    .get("customer_email")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 info!(
-                    "Subscription {} status updated to: {}",
-                    sub_id, status
+                    "Subscription {} status updated to: {} for {}",
+                    sub_id, status, customer_email
                 );
-                // In production, update the user's tier or disable access
+                match nexora.billing.enforcer.update_subscription_tier(customer_email, status).await {
+                    Ok(_) => info!("Tier updated for {}", customer_email),
+                    Err(e) => warn!("Failed to update tier: {}", e),
+                }
             }
         }
         "invoice.payment_succeeded" => {

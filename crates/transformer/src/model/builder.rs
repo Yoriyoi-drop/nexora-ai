@@ -5,7 +5,7 @@ use crate::block::TransformerBlock;
 use crate::embedding_registry;
 use crate::lora::LayerLoRA;
 use crate::rope::RoPE;
-use crate::{LayerInjector, TransformerConfig};
+use crate::{LayerInjector, TransformerConfig, TransformerError, TransformerResult};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
@@ -113,6 +113,16 @@ pub struct CausalLM {
     /// Applied on-the-fly in forward pass: Wx + A·B·x·scaling.
     pub lora_adapters: Option<Arc<Vec<LayerLoRA>>>,
 
+    /// ATQS compressed weight cache (AWQ 4-bit).
+    /// When `use_atqs` is true, weights are stored in this cache
+    /// and can be freed from f32 memory. Call `compress_atqs()`
+    /// to populate, then `free_weights()` to drop f32 copies.
+    /// Call `restore_weights()` before forward when freed.
+    pub atqs_compressed: Option<crate::atqs::WeightsAtqs>,
+    /// If true, use ATQS compressed weights. Requires manual
+    /// `compress_atqs()` + `free_weights()` / `restore_weights()`.
+    pub use_atqs: bool,
+
     #[cfg(feature = "gpu")]
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
@@ -145,6 +155,8 @@ impl Clone for CausalLM {
             collective: self.collective.clone(),
             weight_tied: self.weight_tied,
             lora_adapters: self.lora_adapters.clone(),
+            atqs_compressed: self.atqs_compressed.clone(),
+            use_atqs: self.use_atqs,
         }
     }
 }
@@ -171,6 +183,8 @@ impl Clone for CausalLM {
             collective: self.collective.clone(),
             weight_tied: self.weight_tied,
             lora_adapters: self.lora_adapters.clone(),
+            atqs_compressed: self.atqs_compressed.clone(),
+            use_atqs: self.use_atqs,
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
         }
@@ -265,6 +279,7 @@ impl CausalLM {
 
         let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..});
         let hp = config.use_half_precision;
+        let use_atqs = matches!(config.quantization, QFormat::Q4 {..});
 
         Self {
             config,
@@ -294,6 +309,8 @@ impl CausalLM {
             collective,
             weight_tied: false,
             lora_adapters: None,
+            atqs_compressed: None,
+            use_atqs,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
@@ -361,10 +378,94 @@ impl CausalLM {
             collective,
             weight_tied: false,
             lora_adapters: None,
+            atqs_compressed: None,
+            use_atqs: false,
             #[cfg(feature = "gpu")]
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
         }
+    }
+
+    /// Compress all f32 weights using ATQS AWQ 4-bit quantization.
+    /// Stores compressed weights in `atqs_compressed` cache.
+    /// Requires `atqs` feature. No-op without the feature.
+    #[cfg(feature = "atqs")]
+    pub fn compress_atqs(&mut self) -> TransformerResult<()> {
+        use crate::atqs::WeightsAtqs;
+        let start = std::time::Instant::now();
+        let weights = WeightsAtqs::compress(self)?;
+        let elapsed = start.elapsed();
+        let num_weights = 2 + self.blocks.len() * 7
+            + self.blocks.iter().filter_map(|b| b.experts.as_ref()).map(|e| e.len() * 3).sum::<usize>();
+        tracing::info!(
+            "ATQS: compressed {} weight matrices in {:.2}s",
+            num_weights,
+            elapsed.as_secs_f32()
+        );
+        self.atqs_compressed = Some(weights);
+        Ok(())
+    }
+
+    /// Drop all f32 weight arrays (token_embedding, lm_head, block weights).
+    /// Only safe if `atqs_compressed` is populated (call `compress_atqs()` first).
+    /// Reduces memory usage by ~75% for weights.
+    pub fn free_weights(&mut self) {
+        self.token_embedding = None;
+        self.lm_head = None;
+        for block in &mut self.blocks {
+            block.attention.wq = None;
+            block.attention.wk = None;
+            block.attention.wv = None;
+            block.attention.wo = None;
+            block.ffn.w1 = None;
+            block.ffn.w2 = None;
+            block.ffn.w3 = None;
+            if let Some(ref mut experts) = block.experts {
+                for expert in experts {
+                    expert.w1 = None;
+                    expert.w2 = None;
+                    expert.w3 = None;
+                }
+            }
+        }
+        tracing::info!("ATQS: freed f32 weight memory");
+    }
+
+    /// Restore all f32 weights from the ATQS compressed cache.
+    /// Requires `atqs` feature and `atqs_compressed` to be populated.
+    /// No-op without the feature or without cached weights.
+    #[cfg(feature = "atqs")]
+    pub fn restore_weights(&mut self) -> TransformerResult<()> {
+        use crate::atqs::WeightsAtqs;
+        let cache = self.atqs_compressed.take().ok_or_else(|| {
+            TransformerError::Implementation(
+                "ATQS: restore_weights called but atqs_compressed is None. Call compress_atqs() first.".into()
+            )
+        })?;
+        let start = std::time::Instant::now();
+        let num_weights = 2 + self.blocks.len() * 7
+            + self.blocks.iter().filter_map(|b| b.experts.as_ref()).map(|e| e.len() * 3).sum::<usize>();
+        cache.restore(self)?;
+        self.atqs_compressed = Some(cache);
+        let elapsed = start.elapsed();
+        tracing::info!(
+            "ATQS: restored {} f32 weight matrices in {:.2}s",
+            num_weights,
+            elapsed.as_secs_f32()
+        );
+        Ok(())
+    }
+
+    /// One-shot: compress, free, and flag for ATQS usage.
+    /// After this call, f32 weights are freed and only compressed cache remains.
+    /// Call `restore_weights()` before any forward pass.
+    #[cfg(feature = "atqs")]
+    pub fn enable_atqs(&mut self) -> TransformerResult<()> {
+        self.compress_atqs()?;
+        self.free_weights();
+        self.use_atqs = true;
+        tracing::info!("ATQS: enabled — f32 weights freed, compressed cache active");
+        Ok(())
     }
 }

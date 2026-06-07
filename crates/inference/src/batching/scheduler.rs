@@ -625,6 +625,7 @@ where
             .collect()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn step(&mut self) -> StepResult {
         let step_start = Instant::now();
         let mut completed = Vec::with_capacity(self.max_batch_size.min(self.sequences.len()));

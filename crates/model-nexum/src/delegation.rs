@@ -3,12 +3,16 @@ use nexora_model_core::foundation::NxrNexumModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
+use nexora_cognition::planning::{HierarchicalPlanner, PlanningStrategy};
+use nexora_alignment::SparoNexumIntegration;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
+static PLANNER: OnceLock<HierarchicalPlanner> = OnceLock::new();
+static ALIGNMENT: OnceLock<SparoNexumIntegration> = OnceLock::new();
 
 fn foundation() -> &'static NxrNexumModel {
     static F: OnceLock<NxrNexumModel> = OnceLock::new();
@@ -84,19 +88,29 @@ pub async fn delegate(prompt: &str) -> String {
     }
 
     let subtasks = if primary == "complex" || primary == "multi_domain" {
-        let engine = SACA.get_or_init(SacaEngine::new);
-        match engine.reason(prompt, strategy).await {
-            Ok(r) if r.conclusion.len() > 20 => {
-                let tasks: Vec<String> = r.conclusion
-                    .split('\n')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| s.len() > 15)
-                    .collect();
-                if tasks.len() > 1 { tasks } else { decompose(prompt, primary) }
+        let planner = PLANNER.get_or_init(HierarchicalPlanner::new);
+        match planner.create_plan(prompt, serde_json::json!({"strategy": strategy})).await {
+            Ok(plan) if plan.steps.len() > 1 => {
+                let tasks: Vec<String> = plan.steps.iter().map(|s| s.action.clone()).collect();
+                tracing::debug!("nexum hierarchical planner decomposed into {} subtasks", tasks.len());
+                tasks
             }
             _ => {
-                tracing::warn!("nexum SACA reasoning unavailable, using naive decomposition");
-                decompose(prompt, primary)
+                let engine = SACA.get_or_init(SacaEngine::new);
+                match engine.reason(prompt, strategy).await {
+                    Ok(r) if r.conclusion.len() > 20 => {
+                        let tasks: Vec<String> = r.conclusion
+                            .split('\n')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| s.len() > 15)
+                            .collect();
+                        if tasks.len() > 1 { tasks } else { decompose(prompt, primary) }
+                    }
+                    _ => {
+                        tracing::warn!("nexum planner & SACA unavailable, using naive decomposition");
+                        decompose(prompt, primary)
+                    }
+                }
             }
         }
     } else {
@@ -148,10 +162,20 @@ pub async fn delegate(prompt: &str) -> String {
     if needs_synthesis {
         let merged: String = results.iter().map(|(r, _)| r.as_str()).collect::<Vec<_>>().join("\n");
         let avg_quality: f32 = results.iter().map(|(_, q)| q).sum::<f32>() / results.len() as f32;
+
+        let aligner = ALIGNMENT.get_or_init(SparoNexumIntegration::new);
+        let alignment_check = aligner.enhanced_alignment(&merged, &format!("nexum synthesis, avg_quality: {avg_quality:.2}")).await;
+        let alignment_insight = match alignment_check {
+            Ok(ref result) if !result.combined_insights.is_empty() => {
+                format!("\n[alignment: {}]", result.combined_insights.join("; "))
+            }
+            _ => String::new(),
+        };
+
         let synthesis = nexora_model_core::foundation::call_model(
             foundation(),
             &format!(
-                "[Nexum synthesis | multi-domain | avg quality: {avg_quality:.2}]\n\
+                "[Nexum synthesis | multi-domain | avg quality: {avg_quality:.2}]{alignment_insight}\n\
                  Synthesize these partial results into a coherent response.\n\
                  Some results may have lower quality — prioritize high-quality ones.\n\n\
                  {merged}",

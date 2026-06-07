@@ -33,6 +33,9 @@ pub struct MetricsCollector {
     pub pcie_write_bytes: Counter,
     pub kv_internal_frag_ratio: Gauge,
     pub kv_external_frag_ratio: Gauge,
+    pub training_loss: Gauge,
+    pub training_learning_rate: Gauge,
+    pub training_grad_norm: Gauge,
 }
 
 impl MetricsCollector {
@@ -135,6 +138,18 @@ impl MetricsCollector {
             "nexora_kv_external_frag_ratio",
             "KV cache external fragmentation ratio (0-1)",
         )?;
+        let training_loss = Gauge::new(
+            "nexora_training_loss",
+            "Current training loss",
+        )?;
+        let training_learning_rate = Gauge::new(
+            "nexora_training_learning_rate",
+            "Current training learning rate",
+        )?;
+        let training_grad_norm = Gauge::new(
+            "nexora_training_grad_norm",
+            "Current training gradient norm",
+        )?;
 
         registry.register(Box::new(request_counter.clone()))?;
         registry.register(Box::new(request_failures.clone()))?;
@@ -166,6 +181,9 @@ impl MetricsCollector {
         registry.register(Box::new(pcie_write_bytes.clone()))?;
         registry.register(Box::new(kv_internal_frag_ratio.clone()))?;
         registry.register(Box::new(kv_external_frag_ratio.clone()))?;
+        registry.register(Box::new(training_loss.clone()))?;
+        registry.register(Box::new(training_learning_rate.clone()))?;
+        registry.register(Box::new(training_grad_norm.clone()))?;
 
         Ok(Self {
             registry,
@@ -199,6 +217,9 @@ impl MetricsCollector {
             pcie_write_bytes,
             kv_internal_frag_ratio,
             kv_external_frag_ratio,
+            training_loss,
+            training_learning_rate,
+            training_grad_norm,
         })
     }
 
@@ -316,6 +337,18 @@ impl MetricsCollector {
 
     pub fn set_kv_external_frag_ratio(&self, ratio: f64) {
         self.kv_external_frag_ratio.set(ratio);
+    }
+
+    pub fn set_training_loss(&self, loss: f64) {
+        self.training_loss.set(loss);
+    }
+
+    pub fn set_training_learning_rate(&self, lr: f64) {
+        self.training_learning_rate.set(lr);
+    }
+
+    pub fn set_training_grad_norm(&self, norm: f64) {
+        self.training_grad_norm.set(norm);
     }
 
     pub fn gather_prometheus(&self) -> String {

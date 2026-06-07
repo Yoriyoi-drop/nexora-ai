@@ -1,3 +1,4 @@
+pub mod atqs;
 pub mod backbone_registry;
 pub mod block;
 pub mod embedding_registry;
@@ -18,6 +19,7 @@ pub mod safetensors;
 pub mod swiglu;
 pub mod trainable;
 
+pub use atqs::{WeightsAtqs, BlockCompressedWeights, RawCompressedWeight};
 pub use lora::{LayerLoRA, LoraWeights};
 
 pub use backbone_registry::{resolve_single_backbone, resolve_single_backbone_with_config, resolve_tier_backbone, resolve_tier_backbone_with_config, clear_all_backbones, has_tier_backbone, tier_parameter_count, unload_tier_backbone, get_loaded_tiers, tier_vram_estimate_mb};

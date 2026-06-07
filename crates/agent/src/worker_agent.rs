@@ -256,6 +256,7 @@ impl WorkerAgent {
         }
     }
 
+    #[tracing::instrument(skip(self, work), fields(step_type = ?work.step.step_type, description = %work.step.description))]
     async fn process_step_inner(&self, work: &WorkItem) -> Result<Value> {
         let engine = self.inference_engine.as_ref();
 

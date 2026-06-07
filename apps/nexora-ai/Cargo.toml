@@ -52,9 +52,9 @@ tempfile.workspace = true
 once_cell.workspace = true
 rand.workspace = true
 argon2.workspace = true
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
 sysinfo = "0.30"
 # psutil removed — sysinfo covers system stats
 reqwest.workspace = true
@@ -62,20 +62,18 @@ arrow = { version = "53", default-features = false, features = ["ipc", "ipc_comp
 blas-src = { version = "0.14.0", optional = true }
 openblas-src = { version = "0.10.16", optional = true }
 mimalloc = { version = "0.1", optional = true }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "9", optional = true }
 ndarray.workspace = true
 
 [features]
-default = ["gpu", "legacy-fastpath"]
+default = ["gpu"]
 production = ["mimalloc"]
 blas = ["blas-src", "openblas-src"]
-legacy-fastpath = []
-tokenizer-train = []
-server-auth = []
-server-billing = []
+server-auth = ["dep:jsonwebtoken"]
+server-billing = ["dep:hmac", "dep:sha2", "dep:hex"]
 server-dashboard = []
 server-gossip = []
-server-telemetry = []
+tokenizer-train = []
 gpu = [
     "nexora-deeplearning/gpu",
     "nexora-transformer/gpu",

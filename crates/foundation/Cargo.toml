@@ -75,9 +75,8 @@ bincode = "1.3"
 # Cache dependencies
 
 [features]
-default = ["gpu", "legacy-fastpath"]
+default = ["gpu"]
 gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
-legacy-fastpath = []
 
 [dev-dependencies]
 mockall.workspace = true

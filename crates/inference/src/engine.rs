@@ -1922,6 +1922,7 @@ struct InferenceEngineHandle {
 impl InferenceEngineHandle {
     /// Process a batch of requests in parallel using tokio::spawn.
     /// Each request runs in its own task and results are fanned out individually.
+    #[tracing::instrument(skip(self), fields(batch_id = %batch.batch_id, size = batch.requests.len()))]
     pub async fn process_batch(&self, batch: crate::batching::Batch) -> Result<()> {
         let batch_size = batch.requests.len();
         if batch_size == 0 {

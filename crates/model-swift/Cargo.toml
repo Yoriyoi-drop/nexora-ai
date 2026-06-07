@@ -10,6 +10,7 @@ nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-erp = { path = "../erp" }
+nexora-atqs = { path = "../atqs" }
 nexora-hallucination = { path = "../hallucination" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

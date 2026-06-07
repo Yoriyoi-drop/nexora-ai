@@ -1,7 +1,33 @@
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tracing::debug;
 
 use crate::server::handlers::metrics_collector;
+
+struct TrainingSnapshot {
+    loss: f64,
+    learning_rate: f64,
+    grad_norm: f64,
+}
+
+static TRAINING: once_cell::sync::Lazy<Mutex<TrainingSnapshot>> =
+    once_cell::sync::Lazy::new(|| {
+        Mutex::new(TrainingSnapshot {
+            loss: 0.0,
+            learning_rate: 0.0,
+            grad_norm: 0.0,
+        })
+    });
+
+/// Update training metrics from CLI or training subsystem.
+/// Thread-safe: can be called from any tokio task.
+pub fn update_training_metrics(loss: f64, learning_rate: f64, grad_norm: f64) {
+    if let Ok(mut t) = TRAINING.lock() {
+        t.loss = loss;
+        t.learning_rate = learning_rate;
+        t.grad_norm = grad_norm;
+    }
+}
 
 /// Background metrics collector that periodically syncs GPU, system, and cache metrics
 /// into the Prometheus monitoring registry.
@@ -115,6 +141,13 @@ impl BackgroundMetricsCollector {
             0.0
         };
         collector.set_memory_fragmentation(fragmentation);
+
+        // Training metrics
+        if let Ok(t) = TRAINING.lock() {
+            collector.set_training_loss(t.loss);
+            collector.set_training_learning_rate(t.learning_rate);
+            collector.set_training_grad_norm(t.grad_norm);
+        }
 
         let math_fallbacks = nexora_deeplearning::autograd::ops::math::gpu_math_fallback_count();
         collector.set_gpu_math_fallbacks(math_fallbacks);

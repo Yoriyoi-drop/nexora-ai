@@ -2,11 +2,13 @@ use nexora_model_core::classifier_util;
 use nexora_model_core::foundation::NxrKronosModel;
 use crate::classifier;
 use nexora_reasoning::SacaEngine;
+use nexora_memory::{MemoryManager, MemoryLayer};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static MEMORY: OnceLock<MemoryManager> = OnceLock::new();
 
 fn foundation() -> &'static NxrKronosModel {
     static F: OnceLock<NxrKronosModel> = OnceLock::new();
@@ -53,8 +55,19 @@ pub async fn delegate(prompt: &str) -> String {
     let framing = classifier::temporal_framing(primary);
     let context = format!("mode: {primary} | current time: {now}\n{framing}");
 
+    let memory = MEMORY.get_or_init(MemoryManager::new);
+    let _ = memory.store(MemoryLayer::Session, &format!("input:{}", prompt), prompt).await;
+
+    let historical = memory.retrieve(MemoryLayer::Long, &format!("kronos:{}", primary)).await.unwrap_or_default();
+    let history_context = match historical {
+        Some(ref h) if h.len() > 10 => format!("\n[historical context for {primary}]: {h}"),
+        _ => String::new(),
+    };
+
+    let full_prompt = format!("{context}{history_context}\nInput: {prompt}\nTemporal response:");
+
     let engine = SACA.get_or_init(SacaEngine::new);
-    match engine.reason(prompt, &context).await {
+    let result = match engine.reason(prompt, &full_prompt).await {
         Ok(r) if !r.conclusion.is_empty() => {
             tracing::debug!("kronos SACA reasoning succeeded (mode: {primary})");
             r.conclusion
@@ -64,7 +77,7 @@ pub async fn delegate(prompt: &str) -> String {
             let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
             let framed = format!(
                 "[Kronos temporal | mode: {primary} | current time: {now}]\n\
-                 {framing}\n\n\
+                 {framing}{history_context}\n\n\
                  Input: {sanitized_prompt}\n\
                  Temporal analysis and response:"
             );
@@ -73,5 +86,10 @@ pub async fn delegate(prompt: &str) -> String {
                 format!("[kronos inference error: {}]", e)
             })
         }
-    }
+    };
+
+    let _ = memory.store(MemoryLayer::Long, &format!("kronos:{}", primary), &result).await;
+    let _ = memory.store(MemoryLayer::Session, &format!("output:{}", primary), &result).await;
+
+    result
 }

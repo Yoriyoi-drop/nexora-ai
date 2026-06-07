@@ -51,15 +51,12 @@ impl Default for OracleBackboneConfig {
 /// Sparse Mixture of Experts Layer
 ///
 /// Inference: delegates to HasMoeFFN (nexora-has-moe-ffn).
-/// Training/checkpoint: keeps `gate` + `experts` mirror fields for autograd Tensor path.
+/// Training params are extracted from HasMoeFFN at training time —
+/// no redundant ndarray mirror.
 pub struct SparseMoELayer {
     pub _config: OracleBackboneConfig,
     /// Forward/inference — HasMoeFFN
     pub moe: HasMoeFFN,
-    /// Backward-compat gate for training Tensor checkpoint path
-    pub gate: LinearLayer,
-    /// Backward-compat experts for training Tensor checkpoint path
-    pub experts: Vec<MLPExpert>,
 }
 
 impl SparseMoELayer {
@@ -71,15 +68,9 @@ impl SparseMoELayer {
             intermediate_size: config.mlp_hidden,
             ..Default::default()
         };
-        let mut experts = Vec::with_capacity(config.n_experts);
-        for _ in 0..config.n_experts {
-            experts.push(MLPExpert::new(config.d_model, config.mlp_hidden));
-        }
         Self {
             _config: config.clone(),
             moe: HasMoeFFN::new(moe_config),
-            gate: LinearLayer::new(config.d_model, config.n_experts),
-            experts,
         }
     }
 
@@ -110,14 +101,115 @@ impl SparseMoELayer {
     {
         Ok(vec![0.0; self._config.n_experts])
     }
-}
 
-/// Individual Expert (MLP)
-pub struct MLPExpert {
-    pub w1: Array2<f32>,
-    pub w2: Array2<f32>,
-    pub b1: Array1<f32>,
-    pub b2: Array1<f32>,
+    /// Collect MoE parameters in Oracle checkpoint format:
+    /// [gate_w, gate_b, (expert_w1, expert_b1, expert_w2, expert_b2) × n_experts]
+    /// gate_w: [d_model, n_experts], gate_b: [n_experts]
+    /// expert_w1: [d_model, mlp_hidden], expert_b1: [mlp_hidden]
+    /// expert_w2: [mlp_hidden, d_model], expert_b2: [d_model]
+    ///
+    /// Reads from HasMoeFFN and transposes to Oracle layout.
+    pub fn collect_training_params(&self) -> Vec<(Vec<f32>, Vec<usize>)> {
+        let ne = self._config.n_experts;
+
+        let moe_params = self.moe.collect_params();
+        let mut out = Vec::with_capacity(2 + 4 * ne);
+
+        // moe_params[0] = router_weights [ne, h] → gate_w [h, ne]
+        let (ref flat_rw, ref shape_rw) = moe_params[0];
+        let nh = shape_rw[1];
+        let nne = shape_rw[0];
+        let mut gate_w = vec![0.0f32; nh * nne];
+        for r in 0..nne {
+            for c in 0..nh {
+                gate_w[c * nne + r] = flat_rw[r * nh + c];
+            }
+        }
+        out.push((gate_w, vec![nh, nne]));
+        out.push((vec![0.0f32; nne], vec![nne])); // gate_b (no bias in Router)
+
+        for e in 0..ne {
+            let base = 1 + 4 * e;
+            // fc1 [i, h] → expert_w1 [h, i]
+            let (ref flat_fc1, ref shape_fc1) = moe_params[base];
+            let ni = shape_fc1[0];
+            let nh2 = shape_fc1[1];
+            let mut w1 = vec![0.0f32; nh2 * ni];
+            for r in 0..ni {
+                for c in 0..nh2 {
+                    w1[c * ni + r] = flat_fc1[r * nh2 + c];
+                }
+            }
+            out.push((w1, vec![nh2, ni]));
+            // fc1_bias
+            out.push(moe_params[base + 1].clone());
+            // fc2 [h, i] → expert_w2 [i, h]
+            let (ref flat_fc2, ref shape_fc2) = moe_params[base + 2];
+            let nh3 = shape_fc2[0];
+            let ni2 = shape_fc2[1];
+            let mut w2 = vec![0.0f32; ni2 * nh3];
+            for r in 0..nh3 {
+                for c in 0..ni2 {
+                    w2[c * nh3 + r] = flat_fc2[r * ni2 + c];
+                }
+            }
+            out.push((w2, vec![ni2, nh3]));
+            // fc2_bias
+            out.push(moe_params[base + 3].clone());
+        }
+
+        out
+    }
+
+    /// Sync parameters from Oracle checkpoint format into HasMoeFFN.
+    /// Inverse of `collect_training_params`.
+    pub fn sync_training_params(&mut self, params: &[(Vec<f32>, Vec<usize>)]) {
+        let ne = self._config.n_experts;
+
+        let mut moe_params: Vec<(Vec<f32>, Vec<usize>)> = Vec::with_capacity(1 + 4 * ne);
+
+        // gate_w [h, ne] → router_weights [ne, h]
+        let (ref gate_w, ref shape_gw) = params[0];
+        let h_sz = shape_gw[0];
+        let ne_sz = shape_gw[1];
+        let mut rw = vec![0.0f32; ne_sz * h_sz];
+        for c in 0..h_sz {
+            for r in 0..ne_sz {
+                rw[r * h_sz + c] = gate_w[c * ne_sz + r];
+            }
+        }
+        moe_params.push((rw, vec![ne_sz, h_sz]));
+
+        for e in 0..ne {
+            let base = 2 + 4 * e;
+            // expert_w1 [h, i] → fc1 [i, h]
+            let (ref ow1, ref shape_ow1) = params[base];
+            let h2 = shape_ow1[0];
+            let i_sz = shape_ow1[1];
+            let mut fc1 = vec![0.0f32; i_sz * h2];
+            for c in 0..h2 {
+                for r in 0..i_sz {
+                    fc1[r * h2 + c] = ow1[c * i_sz + r];
+                }
+            }
+            moe_params.push((fc1, vec![i_sz, h2]));
+            moe_params.push(params[base + 1].clone()); // b1
+            // expert_w2 [i, h] → fc2 [h, i]
+            let (ref ow2, ref shape_ow2) = params[base + 2];
+            let i2 = shape_ow2[0];
+            let h3 = shape_ow2[1];
+            let mut fc2 = vec![0.0f32; h3 * i2];
+            for c in 0..i2 {
+                for r in 0..h3 {
+                    fc2[r * i2 + c] = ow2[c * h3 + r];
+                }
+            }
+            moe_params.push((fc2, vec![h3, i2]));
+            moe_params.push(params[base + 3].clone()); // b2
+        }
+
+        self.moe.sync_params(&moe_params);
+    }
 }
 
 fn xavier_uniform(in_dim: usize, out_dim: usize) -> f32 {
@@ -128,39 +220,6 @@ fn xavier_uniform(in_dim: usize, out_dim: usize) -> f32 {
 fn xavier_uniform_1d(dim: usize) -> f32 {
     let limit = (6.0 / dim as f32).sqrt();
     rand::random::<f32>() * 2.0 * limit - limit
-}
-
-impl MLPExpert {
-    pub fn new(input_dim: usize, hidden_dim: usize) -> Self {
-        Self {
-            w1: Array2::from_shape_fn((input_dim, hidden_dim), |_| {
-                xavier_uniform(input_dim, hidden_dim)
-            }),
-            w2: Array2::from_shape_fn((hidden_dim, input_dim), |_| {
-                xavier_uniform(hidden_dim, input_dim)
-            }),
-            b1: Array1::from_shape_fn(hidden_dim, |_| xavier_uniform_1d(hidden_dim)),
-            b2: Array1::from_shape_fn(input_dim, |_| xavier_uniform_1d(input_dim)),
-        }
-    }
-
-    pub fn forward<S>(&self, x: &ArrayBase<S, ndarray::Ix1>) -> Result<Array1<f32>>
-    where
-        S: Data<Elem = f32>,
-    {
-        let hidden = x.dot(&self.w1) + &self.b1;
-        let activated = self.gelu(&hidden);
-        let output = activated.dot(&self.w2) + &self.b2;
-        Ok(output)
-    }
-
-    fn gelu(&self, x: &Array1<f32>) -> Array1<f32> {
-        let sqrt_2_over_pi = (2.0 / std::f32::consts::PI).sqrt();
-        x.mapv(|x| {
-            let x3 = x * x * x;
-            0.5 * x * (1.0 + (sqrt_2_over_pi * (x + 0.044715 * x3)).tanh())
-        })
-    }
 }
 
 /// Router untuk expert selection
@@ -680,29 +739,21 @@ impl OracleBackbone {
 
         // Transformer layers
         for i in 0..self.moe_layers.len() {
-            // LayerNorm on GPU (no CPU round-trip)
-            let norm_weight: Vec<f32> = self.norm_layers[i].weight.iter().copied().collect();
-            let norm_bias: Vec<f32> = self.norm_layers[i].bias.iter().copied().collect();
-            let gpu_weight = GpuTensor::from_slice(vec![d_model], &norm_weight)?;
-            let gpu_bias = GpuTensor::from_slice(vec![d_model], &norm_bias)?;
-            let gpu_normed = ctx.layer_norm(&hidden, &gpu_weight, &gpu_bias, 1e-5)?;
+            // LayerNorm on GPU — weight cached via OnceLock in LayerNorm
+            let gpu_normed = self.norm_layers[i].forward_gpu(&hidden, &ctx, d_model)?;
 
-            // MoE layer on GPU
+            // MoE layer — HasMoeFFN handles GPU internally if available
             let moe_out = self.moe_layers[i].forward_gpu(&gpu_normed)?;
             hidden = ctx.add(&gpu_normed, &moe_out)?;
 
-            // Attention via MLA GPU forward (no CPU round-trip)
-            let norm2_weight: Vec<f32> = self.norm_layers[i + 1].weight.iter().copied().collect();
-            let norm2_bias: Vec<f32> = self.norm_layers[i + 1].bias.iter().copied().collect();
-            let gpu_norm2_weight = GpuTensor::from_slice(vec![d_model], &norm2_weight)?;
-            let gpu_norm2_bias = GpuTensor::from_slice(vec![d_model], &norm2_bias)?;
-            let gpu_normed2 = ctx.layer_norm(&hidden, &gpu_norm2_weight, &gpu_norm2_bias, 1e-5)?;
+            // Attention via MLA GPU forward (weight cache via LinearLayer OnceLock)
+            let gpu_normed2 = self.norm_layers[i + 1].forward_gpu(&hidden, &ctx, d_model)?;
 
             let attn_gpu = self.attention_layers[i].forward_gpu(&gpu_normed2)?;
             hidden = ctx.add(&gpu_normed2, &attn_gpu)?;
         }
 
-        // Output projection on GPU
+        // Output projection on GPU (weight cache via LinearLayer OnceLock)
         let logits_gpu = self.output_projection.forward_gpu(&hidden)?;
         let logits_arr = logits_gpu.to_cpu()?;
         let vocab_size = self.output_projection.weight.dim().1;
@@ -796,6 +847,10 @@ pub struct LayerNorm {
     pub weight: Array1<f32>,
     pub bias: Array1<f32>,
     pub eps: f32,
+    #[cfg(feature = "gpu")]
+    weight_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
 }
 
 impl LayerNorm {
@@ -804,6 +859,10 @@ impl LayerNorm {
             weight: Array1::ones(d_model),
             bias: Array1::zeros(d_model),
             eps: 1e-6,
+            #[cfg(feature = "gpu")]
+            weight_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            bias_gpu: std::sync::OnceLock::new(),
         }
     }
 
@@ -829,6 +888,43 @@ impl LayerNorm {
         }
 
         Ok(output)
+    }
+
+    /// GPU layer norm on existing GpuTensor. Weight/bias are cached and only
+    /// uploaded once (lazy via OnceLock), eliminating redundant per-call uploads.
+    #[cfg(feature = "gpu")]
+    pub fn forward_gpu(
+        &self,
+        x: &nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        d_model: usize,
+    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        let w_gpu = self
+            .weight_gpu
+            .get_or_init(|| {
+                let w_flat: Vec<f32> = self.weight.iter().copied().collect();
+                nexora_autograd::gpu::GpuTensor::from_slice(vec![d_model], &w_flat).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm weight"))?;
+
+        let b_gpu = self
+            .bias_gpu
+            .get_or_init(|| {
+                let b_flat: Vec<f32> = self.bias.iter().copied().collect();
+                nexora_autograd::gpu::GpuTensor::from_slice(vec![d_model], &b_flat).ok()
+            })
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm bias"))?;
+
+        Ok(ctx.layer_norm(x, w_gpu, b_gpu, 1e-5)?)
+    }
+
+    /// Invalidate GPU weight cache (call after weight update).
+    #[cfg(feature = "gpu")]
+    pub fn invalidate_gpu_cache(&mut self) {
+        self.weight_gpu = std::sync::OnceLock::new();
+        self.bias_gpu = std::sync::OnceLock::new();
     }
 }
 
@@ -872,41 +968,9 @@ impl OracleBackbone {
                 tensors.push(mk_tensor(&d, &s));
             }
 
-            // MoE gate weight + bias
-            {
-                let d: Vec<f32> = self.moe_layers[i].gate.weight.iter().copied().collect();
-                let s = self.moe_layers[i].gate.weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
-            }
-            {
-                let d: Vec<f32> = self.moe_layers[i].gate.bias.iter().copied().collect();
-                let s = self.moe_layers[i].gate.bias.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
-            }
-
-            // Experts
-            for e in 0..self.config.n_experts {
-                let exp = &self.moe_layers[i].experts[e];
-                {
-                    let d: Vec<f32> = exp.w1.iter().copied().collect();
-                    let s = exp.w1.shape().to_vec();
-                    tensors.push(mk_tensor(&d, &s));
-                }
-                {
-                    let d: Vec<f32> = exp.b1.iter().copied().collect();
-                    let s = exp.b1.shape().to_vec();
-                    tensors.push(mk_tensor(&d, &s));
-                }
-                {
-                    let d: Vec<f32> = exp.w2.iter().copied().collect();
-                    let s = exp.w2.shape().to_vec();
-                    tensors.push(mk_tensor(&d, &s));
-                }
-                {
-                    let d: Vec<f32> = exp.b2.iter().copied().collect();
-                    let s = exp.b2.shape().to_vec();
-                    tensors.push(mk_tensor(&d, &s));
-                }
+            // MoE parameters — read from HasMoeFFN via bridge
+            for (data, shape) in self.moe_layers[i].collect_training_params() {
+                tensors.push(mk_tensor(&data, &shape));
             }
 
             // norm2_weight, norm2_bias
@@ -980,23 +1044,18 @@ impl OracleBackbone {
             copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i].bias);
             idx += 1;
 
-            // gate
-            copy_tensor_to_arr2(&tensors[idx].data(), &mut self.moe_layers[i].gate.weight);
-            idx += 1;
-            copy_tensor_to_arr1(&tensors[idx].data(), &mut self.moe_layers[i].gate.bias);
-            idx += 1;
-
-            // experts
-            for e in 0..self.config.n_experts {
-                let exp = &mut self.moe_layers[i].experts[e];
-                copy_tensor_to_arr2(&tensors[idx].data(), &mut exp.w1);
-                idx += 1;
-                copy_tensor_to_arr1(&tensors[idx].data(), &mut exp.b1);
-                idx += 1;
-                copy_tensor_to_arr2(&tensors[idx].data(), &mut exp.w2);
-                idx += 1;
-                copy_tensor_to_arr1(&tensors[idx].data(), &mut exp.b2);
-                idx += 1;
+            // MoE parameters — sync into HasMoeFFN via bridge
+            {
+                let n_moe = 2 + 4 * self.config.n_experts;
+                let mut moe_slice = Vec::with_capacity(n_moe);
+                for j in 0..n_moe {
+                    let arr = tensors[idx + j].data();
+                    let d: Vec<f32> = arr.iter().copied().collect();
+                    let s = tensors[idx + j].shape().to_vec();
+                    moe_slice.push((d, s));
+                }
+                self.moe_layers[i].sync_training_params(&moe_slice);
+                idx += n_moe;
             }
 
             // norm2

@@ -2,12 +2,13 @@ use nexora_model_core::classifier_util;
 use nexora_model_core::foundation::NxrGenesisModel;
 use crate::classifier;
 use nexora_reasoning::SacaEngine;
+use nexora_cognition::reflection::{DefaultReflector, ReflectionEngine, Action, ReflectionType};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
 
 const MAX_REFINEMENT_ITERATIONS: usize = 3;
-const QUALITY_THRESHOLD: f32 = 0.6;
+const QUALITY_CONFIDENCE: f32 = 0.65;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -36,6 +37,7 @@ fn init_classifier() {
 }
 
 static SACA: OnceLock<SacaEngine> = OnceLock::new();
+static REFLECTOR: OnceLock<DefaultReflector> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
     let f = foundation();
@@ -46,6 +48,13 @@ fn token_ids(text: &str) -> Vec<u32> {
 fn classify_quality(text: &str) -> Vec<(String, f32)> {
     let ids = token_ids(text);
     classifier::detect_quality_focus(text, &ids)
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 pub async fn delegate(prompt: &str) -> String {
@@ -73,37 +82,51 @@ pub async fn delegate(prompt: &str) -> String {
         return current;
     }
 
-    for iteration in 0..MAX_REFINEMENT_ITERATIONS {
-        let q = classify_quality(&current);
-        if let Some((weakest, score)) = q.first() {
-            if *score >= QUALITY_THRESHOLD {
-                tracing::debug!("genesis quality threshold met (iter {iteration}, {weakest}: {score:.2})");
-                break;
-            }
-            let refocus = classifier::refinement_focus(weakest);
-            tracing::info!("genesis refinement iter {iteration}: focusing on {weakest} ({score:.2})");
+    let reflector = REFLECTOR.get_or_init(DefaultReflector::new);
 
-            match engine.reason(&current, refocus).await {
-                Ok(r) if !r.conclusion.is_empty() => {
-                    current = r.conclusion;
-                }
-                _ => {
-                    let sanitized_current = classifier_util::sanitize_prompt(&current);
-                    let improved = nexora_model_core::foundation::call_model(
-                        foundation(),
-                        &format!(
-                            "[Genesis refinement | focus: {weakest}]\n\
-                             {refocus}\n\n\
-                             Original:\n{sanitized_current}\n\n\
-                             Refined version:"
-                        ),
-                        256,
-                        0.6,
-                    )
-                    .await
-                    .unwrap_or(current.clone());
-                    current = improved;
-                }
+    for iteration in 0..MAX_REFINEMENT_ITERATIONS {
+        let actions = vec![Action {
+            action_type: format!("genesis_generate_{primary}"),
+            input: prompt.to_string(),
+            output: current.clone(),
+            timestamp: now_unix(),
+            success: current.len() > 20,
+        }];
+
+        let reflection = match reflector.reflect(&actions, &format!("quality refinement iteration {iteration}, focus: {primary}")).await {
+            Ok(r) => r,
+            Err(_) => break,
+        };
+
+        if reflection.confidence >= QUALITY_CONFIDENCE {
+            tracing::debug!("genesis quality confidence met (iter {iteration}, confidence: {:.2})", reflection.confidence);
+            break;
+        }
+
+        let improvements = reflector.suggest_improvements(&reflection).await.unwrap_or_default();
+        let refinement_hint = improvements.first().map(|s| s.as_str()).unwrap_or("improve clarity");
+
+        tracing::info!("genesis refinement iter {iteration}: confidence {:.2}, focus: {refinement_hint}", reflection.confidence);
+
+        match engine.reason(&current, refinement_hint).await {
+            Ok(r) if !r.conclusion.is_empty() => {
+                current = r.conclusion;
+            }
+            _ => {
+                let sanitized_current = classifier_util::sanitize_prompt(&current);
+                let improved = nexora_model_core::foundation::call_model(
+                    foundation(),
+                    &format!(
+                        "[Genesis refinement | iter {iteration} | focus: {refinement_hint}]\n\
+                         Original:\n{sanitized_current}\n\n\
+                         Refined version:"
+                    ),
+                    256,
+                    0.6,
+                )
+                .await
+                .unwrap_or(current.clone());
+                current = improved;
             }
         }
     }

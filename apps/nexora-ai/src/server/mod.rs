@@ -28,7 +28,6 @@ pub mod billing_handlers;
 pub mod dashboard_handlers;
 #[cfg(feature = "server-gossip")]
 pub mod gossip_handlers;
-#[cfg(feature = "server-telemetry")]
 pub mod telemetry_handlers;
 #[cfg(feature = "server-telemetry")]
 pub mod telemetry_middleware;

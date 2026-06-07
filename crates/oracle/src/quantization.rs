@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
-use crate::backbone::{LinearLayer, MLPExpert, OracleBackbone, OracleBackboneConfig};
+use crate::backbone::{LinearLayer, OracleBackboneConfig};
 
 /// Skema kuantisasi
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,158 +111,7 @@ impl QuantizedLinearLayer {
     }
 }
 
-/// Expert MLP terkuantisasi
-#[derive(Debug, Clone)]
-pub struct QuantizedMLPExpert {
-    pub w1: Q8Weight,
-    pub w2: Q8Weight,
-    pub b1: Vec<f32>,
-    pub b2: Vec<f32>,
-}
 
-impl QuantizedMLPExpert {
-    pub fn from_expert(expert: &MLPExpert) -> Self {
-        Self {
-            w1: Q8Weight::from_f32(&expert.w1),
-            w2: Q8Weight::from_f32(&expert.w2),
-            b1: expert.b1.clone().into_raw_vec(),
-            b2: expert.b2.clone().into_raw_vec(),
-        }
-    }
-
-    pub fn memory_bytes(&self) -> usize {
-        self.w1.memory_bytes() + self.w2.memory_bytes()
-            + self.b1.len() * 4 + self.b2.len() * 4
-    }
-}
-
-/// OracleBackbone dengan bobot terkuantisasi Q8
-pub struct QuantizedOracleBackbone {
-    pub config: OracleBackboneConfig,
-    pub vocab_size: usize,
-    pub quantized_embedding: Q8Weight,
-    pub quantized_moe_layers: Vec<Vec<QuantizedMLPExpert>>,
-    pub quantized_gate_layers: Vec<QuantizedLinearLayer>,
-    pub quantized_output: QuantizedLinearLayer,
-    quantization: QuantizationScheme,
-}
-
-impl QuantizedOracleBackbone {
-    /// Create quantized backbone langsung dari config — zero weight init.
-    /// Cuma nyimpen shape, cocok untuk memory estimation cepat.
-    pub fn from_config(config: OracleBackboneConfig, vocab_size: usize, scheme: QuantizationScheme) -> Self {
-        let n_layers = 12;
-        let d_model = config.d_model;
-        let mlp_hidden = config.mlp_hidden;
-        let n_experts = config.n_experts;
-        Self {
-            config,
-            vocab_size,
-            quantized_embedding: Q8Weight {
-                scales: vec![],
-                data: vec![],
-                shape: (vocab_size, d_model),
-            },
-            quantized_moe_layers: (0..n_layers)
-                .map(|_| {
-                    (0..n_experts)
-                        .map(|_| QuantizedMLPExpert {
-                            w1: Q8Weight { scales: vec![], data: vec![], shape: (d_model, mlp_hidden) },
-                            w2: Q8Weight { scales: vec![], data: vec![], shape: (mlp_hidden, d_model) },
-                            b1: vec![0.0; mlp_hidden],
-                            b2: vec![0.0; d_model],
-                        })
-                        .collect()
-                })
-                .collect(),
-            quantized_gate_layers: (0..n_layers)
-                .map(|_| QuantizedLinearLayer {
-                    weight: Q8Weight { scales: vec![], data: vec![], shape: (d_model, n_experts) },
-                    bias: Some(vec![0.0; n_experts]),
-                })
-                .collect(),
-            quantized_output: QuantizedLinearLayer {
-                weight: Q8Weight { scales: vec![], data: vec![], shape: (d_model, vocab_size) },
-                bias: Some(vec![0.0; vocab_size]),
-            },
-            quantization: scheme,
-        }
-    }
-
-    pub fn from_backbone(backbone: &OracleBackbone, scheme: QuantizationScheme) -> Self {
-        let vocab_size = backbone.embedding.embeddings.dim().0;
-        let quantized_embedding = Q8Weight::from_f32(&backbone.embedding.embeddings);
-
-        let quantized_moe_layers: Vec<Vec<QuantizedMLPExpert>> = backbone
-            .moe_layers
-            .iter()
-            .map(|layer| {
-                layer
-                    .experts
-                    .iter()
-                    .map(QuantizedMLPExpert::from_expert)
-                    .collect()
-            })
-            .collect();
-
-        let quantized_gate_layers: Vec<QuantizedLinearLayer> = backbone
-            .moe_layers
-            .iter()
-            .map(|layer| QuantizedLinearLayer::from_linear(&layer.gate))
-            .collect();
-
-        let quantized_output = QuantizedLinearLayer::from_linear(&backbone.output_projection);
-
-        Self {
-            config: backbone.config.clone(),
-            vocab_size,
-            quantized_embedding,
-            quantized_moe_layers,
-            quantized_gate_layers,
-            quantized_output,
-            quantization: scheme,
-        }
-    }
-
-    pub fn memory_savings_report(&self) -> QuantizationReport {
-        let f32_total = self.estimate_f32_size();
-        let q8_total = self.estimate_q8_size();
-        QuantizationReport {
-            f32_bytes: f32_total,
-            q8_bytes: q8_total,
-            savings_bytes: f32_total - q8_total,
-            savings_percent: if f32_total > 0 {
-                ((f32_total - q8_total) as f64 / f32_total as f64 * 100.0) as f32
-            } else {
-                0.0
-            },
-            scheme: self.quantization,
-        }
-    }
-
-    fn estimate_f32_size(&self) -> usize {
-        let mut total = self.vocab_size * self.config.d_model * 4;
-        for layer_experts in &self.quantized_moe_layers {
-            for expert in layer_experts {
-                total += expert.w1.shape.0 * expert.w1.shape.1 * 4;
-                total += expert.w2.shape.0 * expert.w2.shape.1 * 4;
-                total += expert.b1.len() * 4;
-                total += expert.b2.len() * 4;
-            }
-        }
-        total
-    }
-
-    fn estimate_q8_size(&self) -> usize {
-        let mut total = self.quantized_embedding.memory_bytes();
-        for layer_experts in &self.quantized_moe_layers {
-            for expert in layer_experts {
-                total += expert.memory_bytes();
-            }
-        }
-        total
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizationReport {
@@ -307,11 +156,5 @@ mod tests {
         assert_eq!(deq.weight.dim(), linear.weight.dim());
     }
 
-    #[test]
-    fn test_memory_report() {
-        let config = OracleBackboneConfig::default();
-        let qbb = QuantizedOracleBackbone::from_config(config, 50000, QuantizationScheme::Q8);
-        let report = qbb.memory_savings_report();
-        assert!(report.savings_percent > 50.0, "savings too low: {}%", report.savings_percent);
-    }
+
 }

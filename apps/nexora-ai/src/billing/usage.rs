@@ -247,6 +247,33 @@ impl UsageTracker {
     pub async fn get_all_usage_snapshots(&self) -> Vec<UsageRecord> {
         self.records.read().await.values().cloned().collect()
     }
+
+    /// Register a subscriber (called after successful Stripe checkout).
+    /// Creates an empty usage record so the customer is tracked.
+    pub async fn register_subscriber(&self, api_key: &str) {
+        let now = now_secs();
+        let mut records = self.records.write().await;
+        if !records.contains_key(api_key) {
+            records.insert(api_key.to_string(), UsageRecord {
+                api_key: api_key.to_string(),
+                tier_name: "pro".to_string(),
+                tokens_input: 0,
+                tokens_output: 0,
+                tokens_total: 0,
+                request_count: 0,
+                window_start: monthly_window(now),
+                last_access: now,
+            });
+        }
+    }
+
+    /// Remove a subscriber (called on subscription cancellation).
+    pub async fn remove_subscriber(&self, api_key: &str) {
+        let mut records = self.records.write().await;
+        records.remove(api_key);
+        let mut daily = self.daily_counts.write().await;
+        daily.remove(api_key);
+    }
 }
 
 impl Default for UsageTracker {

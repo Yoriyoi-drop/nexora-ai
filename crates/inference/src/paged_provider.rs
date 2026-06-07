@@ -40,6 +40,9 @@ pub struct PagedKVCacheProvider {
     num_layers: usize,
     /// Lazy flat mirror for `as_cpu_entries()`.
     flat: Vec<KVCacheEntry>,
+    /// Number of tokens already synced into `flat`. Only tokens at positions >=
+    /// `flat_synced_tokens` need to be appended on the next `ensure_flat_synced()`.
+    flat_synced_tokens: usize,
     dirty: bool,
     total_tokens: usize,
     /// Number of tokens from a shared prefix that were not computed.
@@ -73,6 +76,7 @@ impl PagedKVCacheProvider {
             cache: Arc::new(RwLock::new(cache)),
             num_layers: config.num_layers,
             flat: Vec::new(),
+            flat_synced_tokens: 0,
             dirty: false,
             total_tokens: 0,
             shared_prefix_tokens: 0,
@@ -121,6 +125,7 @@ impl PagedKVCacheProvider {
             cache,
             num_layers,
             flat: Vec::new(),
+            flat_synced_tokens: 0,
             dirty: false,
             total_tokens: 0,
             shared_prefix_tokens: 0,
@@ -162,22 +167,59 @@ impl PagedKVCacheProvider {
         #[cfg(feature = "gpu")]
         if self.gpu_primary && !self.gpu_entries.is_empty() && self.total_tokens > 0 {
             self.flat = self.read_flat_from_gpu();
+            self.flat_synced_tokens = self.total_tokens;
             self.dirty = false;
             return;
         }
 
-        // Fallback: read from paged cache blocks (CPU-only mode or after sync)
-        let guard = match self.cache.read() {
-            Ok(g) => g,
-            Err(e) => {
-                warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
-                return;
+        let kv_elems = self.kv_elements_per_layer();
+        if kv_elems == 0 {
+            // Lazy init: read config from cache
+        }
+
+        // Incremental sync: only append tokens not yet in flat
+        if self.flat.is_empty() || self.flat.len() != self.num_layers {
+            // First sync or layer count mismatch: full rebuild
+            let guard = match self.cache.read() {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
+                    return;
+                }
+            };
+            if let Some(entries) = guard.to_flat_cache(self.seq_id) {
+                self.flat = entries;
             }
-        };
-        if let Some(entries) = guard.to_flat_cache(self.seq_id) {
-            self.flat = entries;
+            self.flat_synced_tokens = self.total_tokens;
+        } else if self.flat_synced_tokens < self.total_tokens {
+            // Incremental: append only new token positions
+            let guard = match self.cache.read() {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
+                    return;
+                }
+            };
+            for pos in self.flat_synced_tokens..self.total_tokens {
+                for layer in 0..self.num_layers.min(self.flat.len()) {
+                    if let Some((k_row, v_row)) = guard.read(self.seq_id, layer, pos) {
+                        self.flat[layer].k.extend(k_row);
+                        self.flat[layer].v.extend(v_row);
+                        self.flat[layer].kv_dim = kv_elems;
+                    }
+                }
+            }
+            self.flat_synced_tokens = self.total_tokens;
         }
         self.dirty = false;
+    }
+
+    fn kv_elements_per_layer(&self) -> usize {
+        // Read from the underlying paged cache config
+        match self.cache.read() {
+            Ok(g) => g.config().num_kv_heads * g.config().head_dim,
+            Err(_) => 0,
+        }
     }
 
     /// Read all tokens from GPU entries into a flat Vec<KVCacheEntry>.
@@ -425,6 +467,7 @@ impl KVCacheProvider for PagedKVCacheProvider {
         guard.register_sequence(self.seq_id);
         drop(guard);
         self.flat.clear();
+        self.flat_synced_tokens = 0;
         self.total_tokens = 0;
         self.shared_prefix_tokens = 0;
         self.dirty = false;
