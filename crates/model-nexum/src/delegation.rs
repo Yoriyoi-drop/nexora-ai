@@ -163,13 +163,14 @@ pub async fn delegate(prompt: &str) -> String {
         let merged: String = results.iter().map(|(r, _)| r.as_str()).collect::<Vec<_>>().join("\n");
         let avg_quality: f32 = results.iter().map(|(_, q)| q).sum::<f32>() / results.len() as f32;
 
-        let aligner = ALIGNMENT.get_or_init(SparoNexumIntegration::new);
-        let alignment_check = aligner.enhanced_alignment(&merged, &format!("nexum synthesis, avg_quality: {avg_quality:.2}")).await;
-        let alignment_insight = match alignment_check {
-            Ok(ref result) if !result.combined_insights.is_empty() => {
-                format!("\n[alignment: {}]", result.combined_insights.join("; "))
+        let alignment_insight = {
+            let aligner = ALIGNMENT.get_or_init(SparoNexumIntegration::new);
+            match aligner.enhanced_alignment(&merged, &format!("nexum synthesis, avg_quality: {avg_quality:.2}")).await {
+                Ok(ref result) if !result.combined_insights.is_empty() => {
+                    format!("\n[alignment: {}]", result.combined_insights.join("; "))
+                }
+                _ => String::new(),
             }
-            _ => String::new(),
         };
 
         let synthesis = nexora_model_core::foundation::call_model(

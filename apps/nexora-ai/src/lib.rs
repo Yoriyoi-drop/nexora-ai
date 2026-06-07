@@ -908,6 +908,11 @@ impl NexoraAI {
         &self.isolation
     }
 
+    /// Check if distributed cluster mode is enabled
+    pub fn is_distributed(&self) -> bool {
+        self.config.core.enable_distributed
+    }
+
     pub fn memory_manager(&self) -> &Arc<MemoryManager> {
         &self.memory_manager
     }

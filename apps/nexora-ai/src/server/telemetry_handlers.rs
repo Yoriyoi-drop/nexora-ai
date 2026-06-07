@@ -51,7 +51,7 @@ pub async fn telemetry_memory(
     nexora: Extension<Arc<NexoraAI>>,
 ) -> Json<Value> {
     let snapshot = nexora_inference::inference_trait::observability_snapshot();
-    let total_nodes = if nexora.distributed().is_some() { 2 } else { 1 };
+    let total_nodes = if nexora.is_distributed() { 2 } else { 1 };
     Json(json!({
         "nodes": [],
         "summary": {
