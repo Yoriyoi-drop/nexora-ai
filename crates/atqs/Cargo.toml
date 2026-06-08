@@ -20,6 +20,10 @@ serde_json.workspace = true
 # Optional GPU acceleration via autograd's wgpu backend
 nexora-autograd = { path = "../autograd", optional = true }
 
+# Optional Oracle backbone teacher model for knowledge distillation
+nexora-oracle = { path = "../oracle", optional = true }
+
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu"]
+teacher = ["nexora-oracle"]

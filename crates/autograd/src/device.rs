@@ -66,9 +66,9 @@ impl Clone for Storage {
         match self {
             Storage::Cpu(arr) => Storage::Cpu(Arc::clone(arr)),
             #[cfg(feature = "device-gpu")]
-            Storage::Gpu(_, _) => panic!("Storage::Gpu clone not supported - use explicit GPU tensor clone"),
+            Storage::Gpu(tensor, shape) => Storage::Gpu(tensor.clone(), shape.clone()),
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => panic!("Storage::Cuda clone not supported - use explicit CUDA tensor clone"),
+            Storage::Cuda(tensor, shape) => Storage::Cuda(tensor.clone(), shape.clone()),
         }
     }
 }

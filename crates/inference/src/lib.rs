@@ -173,7 +173,7 @@ pub fn f16_bits_to_f32(bits: u16) -> f32 {
     } else if exp == 31 {
         f32::from_bits(sign | (0xff << 23) | (mant << 13))
     } else {
-        f32::from_bits(sign | ((exp - 15 + 127) << 23) | (mant << 13))
+        f32::from_bits(sign | ((exp + 112) << 23) | (mant << 13))
     }
 }
 

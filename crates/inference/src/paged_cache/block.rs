@@ -241,6 +241,45 @@ impl BlockData {
         }
     }
 
+    /// Clone only the first `limit` rows instead of all rows.
+    /// If `limit` is 0, returns an empty block of the same storage type.
+    /// If `limit` exceeds available rows, caps at available rows.
+    pub(crate) fn clone_rows(&self, limit: usize) -> Self {
+        match self {
+            BlockData::F32(a) => {
+                let rows = limit.min(a.nrows());
+                if rows == 0 {
+                    BlockData::F32(Array2::zeros((0, a.shape()[1])))
+                } else {
+                    BlockData::F32(a.slice(s![..rows, ..]).to_owned())
+                }
+            }
+            BlockData::F16(d, bs, c) => {
+                let cols = *c;
+                let limit = limit.min(d.len() / cols);
+                if limit == 0 {
+                    BlockData::F16(Vec::new(), *bs, *c)
+                } else {
+                    let mut new_d = Vec::with_capacity(limit * cols);
+                    new_d.extend_from_slice(&d[..limit * cols]);
+                    BlockData::F16(new_d, *bs, *c)
+                }
+            }
+            BlockData::Q4(d, s, bs, c) => {
+                let limit = limit.min(*bs);
+                if limit == 0 {
+                    BlockData::Q4(Vec::new(), Vec::new(), *bs, *c)
+                } else {
+                    let kv_dim = *c;
+                    let num_vals = limit * kv_dim;
+                    let packed_len = (num_vals + 1) / 2;
+                    let new_d: Vec<u8> = d[..packed_len].to_vec();
+                    BlockData::Q4(new_d, s.clone(), *bs, *c)
+                }
+            }
+        }
+    }
+
     pub(crate) fn memory_bytes(&self) -> usize {
         match self {
             BlockData::F32(a) => a.len() * 4,
@@ -408,7 +447,21 @@ impl PhysicalBlock {
         self.ref_count == 0
     }
 
-    pub(crate) fn deep_copy(&self) -> Self {
+    /// Deep copy only `filled` rows (row-level COW).
+    /// When a shared block diverges, only the rows that are actually filled
+    /// are cloned — not all 64 rows.
+    pub(crate) fn deep_copy(&self, filled: usize) -> Self {
+        let limit = filled.min(self.filled);
+        Self {
+            k: self.k.clone_rows(limit),
+            v: self.v.clone_rows(limit),
+            filled: limit,
+            ref_count: 1,
+        }
+    }
+
+    /// Deep copy all rows (full-block clone, backward compat).
+    pub(crate) fn deep_copy_all(&self) -> Self {
         Self {
             k: self.k.clone_data(),
             v: self.v.clone_data(),

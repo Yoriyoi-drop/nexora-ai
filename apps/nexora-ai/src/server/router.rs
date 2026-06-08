@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderName, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use serde::Serialize;
@@ -112,6 +112,36 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     // Shard collective: POST /shard/reduce for HTTP-based all-reduce
     app = super::shard_collective::add_reduce_route(app);
 
+    #[cfg(feature = "server-billing")]
+    {
+        use super::billing_handlers::*;
+        app = app
+            .route("/billing/plans", get(list_billing_plans))
+            .route("/billing/usage", post(get_usage))
+            .route("/billing/subscription", post(get_subscription))
+            .route("/billing/subscribe", post(subscribe))
+            .route("/billing/webhook", post(stripe_webhook));
+    }
+
+    #[cfg(feature = "server-dashboard")]
+    {
+        use super::dashboard_handlers::*;
+        app = app
+            .route("/dashboard/stats", get(dashboard_stats))
+            .route("/dashboard/usage", get(dashboard_usage))
+            .route("/dashboard/events", get(dashboard_events))
+            .route("/dashboard/requests", get(dashboard_requests))
+            .route("/dashboard/metrics", get(dashboard_metrics));
+    }
+
+    #[cfg(feature = "server-gossip")]
+    {
+        use super::gossip_handlers::*;
+        app = app
+            .route("/cluster/gossip/push", post(gossip_push_handler))
+            .route("/cluster/gossip/pull", post(gossip_pull_handler));
+    }
+
     #[cfg(feature = "server-auth")]
     {
         use super::auth_handlers::*;
@@ -128,6 +158,8 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
             app = app.layer(Extension(auth));
         }
     }
+
+    app = app.layer(middleware::from_fn(super::telemetry_middleware::telemetry_middleware_layer));
 
     if config.enable_cors {
         app = add_cors_layer(app, config)?;

@@ -19,12 +19,13 @@ nexora-transformer = { path = "../../crates/transformer" }
 nexora-monitoring = { path = "../../crates/monitoring" }
 nexora-agent = { path = "../../crates/agent" }
 nexora-alignment = { path = "../../crates/alignment" }
-nexora-api = { path = "../../crates/api" }
 nexora-runtime = { path = "../../crates/runtime" }
 nexora-models = { path = "../../crates/models" }
 nexora-quantization = { path = "../../crates/quantization" }
 nexora-isolation = { path = "../../crates/isolation" }
 nexora-hallucination = { path = "../../crates/hallucination" }
+nexora-benchmark = { path = "../../crates/benchmark" }
+nexora-autograd = { path = "../../crates/autograd", default-features = false, features = ["std"] }
 
 tokio.workspace = true
 serde.workspace = true
@@ -67,19 +68,21 @@ jsonwebtoken = { version = "9" }
 ndarray.workspace = true
 
 [features]
-default = ["gpu"]
-production = ["mimalloc"]
+default = ["gpu", "cuda", "server-auth", "server-billing", "server-dashboard", "server-gossip"]
+production = ["mimalloc", "server-billing"]
 blas = ["blas-src", "openblas-src"]
 server-auth = []
 server-billing = ["dep:hmac", "dep:sha2", "dep:hex"]
 server-dashboard = []
 server-gossip = []
+server-telemetry = []
 tokenizer-train = []
 gpu = [
     "nexora-deeplearning/gpu",
     "nexora-transformer/gpu",
     "nexora-inference/gpu",
 ]
+cuda = ["gpu", "nexora-autograd/cuda"]
 
 [[bin]]
 name = "nexora"

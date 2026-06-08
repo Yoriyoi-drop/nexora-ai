@@ -71,7 +71,7 @@ fn test_config() -> InferenceConfig {
 
 // ── Golden Path 1: Non-streaming via InferenceEngine ────────────────────────────
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_golden_path_non_streaming() {
     let model = Arc::new(test_model());
     let tokenizer = Arc::new(Mutex::new(test_tokenizer()));
@@ -113,7 +113,7 @@ async fn test_golden_path_non_streaming() {
 
 // ── Golden Path 2: Streaming via InferenceEngine ────────────────────────────────
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_golden_path_streaming() {
     let model = Arc::new(test_model());
     let tokenizer = Arc::new(Mutex::new(test_tokenizer()));

@@ -5,6 +5,7 @@ use std::path::Path;
 use tracing::{debug, error, info, warn};
 
 use super::api::ApiConfig;
+use super::billing::BillingConfig;
 use super::core::CoreConfig;
 use super::logging::LoggingConfig;
 use super::memory::MemoryConfig;
@@ -54,6 +55,10 @@ pub struct NexoraConfig {
     /// Isolation configuration
     #[serde(default)]
     pub isolation: nexora_isolation::config::IsolationConfig,
+
+    /// Billing configuration
+    #[serde(default)]
+    pub billing: BillingConfig,
 }
 
 impl Default for NexoraConfig {
@@ -68,6 +73,7 @@ impl Default for NexoraConfig {
             api: ApiConfig::default(),
             logging: LoggingConfig::default(),
             isolation: nexora_isolation::config::IsolationConfig::default(),
+            billing: BillingConfig::default(),
         }
     }
 }

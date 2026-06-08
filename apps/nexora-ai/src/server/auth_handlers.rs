@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::router::ApiKey;
 use crate::auth::user::{LoginRequest, RegisterRequest, UserProfile};

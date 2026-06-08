@@ -3,7 +3,6 @@ resolver = "2"
 exclude = ["crates/Telemetry"]
 members = [
     "crates/agent",
-    "crates/api",
     "crates/atqs",
     "crates/blaa",
     "crates/core",
@@ -56,6 +55,7 @@ members = [
     "crates/model-swift",
     "apps/nexora-ai",
     "apps/dashboard",
+    "crates/benchmark",
 ]
 
 [workspace.package]

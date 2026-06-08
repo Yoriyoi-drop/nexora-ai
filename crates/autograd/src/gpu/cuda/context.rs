@@ -158,18 +158,19 @@ impl CudaRuntime {
                 return Ok(f.clone());
             }
         }
-        let ptx = match self.ptx_cache.load(name, source) {
+        let ptx: String = match self.ptx_cache.load(name, source) {
             Some(cached) => cached,
             None => {
                 let compiled =
                     compile_ptx(source).map_err(|e| format!("NVRTC compile '{name}': {e}"))?;
-                self.ptx_cache.save(name, source, &compiled);
-                compiled
+                let ptx_str = compiled.to_src();
+                self.ptx_cache.save(name, source, &ptx_str);
+                ptx_str
             }
         };
         let module = self
             .context
-            .load_module(ptx)
+            .load_module(cudarc::nvrtc::Ptx::from_src(ptx))
             .map_err(|e| format!("CUDA load module '{name}': {e}"))?;
         let func = module
             .load_function(name)

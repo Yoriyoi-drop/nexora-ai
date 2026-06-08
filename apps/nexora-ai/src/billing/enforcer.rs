@@ -69,7 +69,7 @@ impl QuotaEnforcer {
     /// Creates a usage record for the customer email (used as API key).
     pub async fn provision_subscription(&self, customer_email: &str, plan_name: &str) -> Result<(), String> {
         let tier = TierName::from_str(plan_name).ok_or_else(|| format!("Unknown plan: {}", plan_name))?;
-        let _plan = BillingPlan::find(&tier).ok_or_else(|| format!("Plan config not found: {}", plan_name))?;
+        let _plan = BillingPlan::find(tier.as_str()).ok_or_else(|| format!("Plan config not found: {}", plan_name))?;
         self.usage_tracker.register_subscriber(customer_email).await;
         tracing::info!("Subscription provisioned for {} on plan {}", customer_email, plan_name);
         Ok(())

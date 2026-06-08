@@ -131,7 +131,7 @@ impl ChatEngine {
     }
 
     /// Analyze chat message for intent and context
-    fn analyze_chat_message(&self, message: &str) -> ChatMessageAnalysis {
+    pub fn analyze_chat_message(&self, message: &str) -> ChatMessageAnalysis {
         let lower = message.to_lowercase();
 
         // Detect intent
@@ -215,7 +215,7 @@ impl ChatEngine {
     }
 
     /// Get conversation context with real turn tracking
-    async fn get_conversation_context(
+    pub async fn get_conversation_context(
         &self,
         conversation_id: &str,
     ) -> NexoraResult<ConversationContext> {
@@ -233,7 +233,7 @@ impl ChatEngine {
     }
 
     /// Store conversation turn in memory
-    async fn store_conversation_turn(
+    pub async fn store_conversation_turn(
         &self,
         conversation_id: &str,
         user_message: &str,

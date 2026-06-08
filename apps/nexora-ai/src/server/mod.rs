@@ -29,7 +29,6 @@ pub mod dashboard_handlers;
 #[cfg(feature = "server-gossip")]
 pub mod gossip_handlers;
 pub mod telemetry_handlers;
-#[cfg(feature = "server-telemetry")]
 pub mod telemetry_middleware;
 
 pub use crate::config::server::ServerConfig;

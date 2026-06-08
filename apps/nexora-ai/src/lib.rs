@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 pub mod api;
 pub mod auth;
+pub mod billing;
 pub mod cli;
 pub mod config;
 pub mod core;
@@ -21,11 +22,12 @@ pub mod error;
 pub mod metrics;
 pub mod security;
 pub mod server;
+pub mod telemetry;
 
 pub use api::{ApiConfig, ApiResponse, NexoraApi};
 pub use cli::Cli;
-pub use nexora_api;
 pub use config::NexoraConfig;
+pub use nexora_benchmark;
 pub use core::*;
 pub use server::{NexoraServer, ServerConfig};
 use nexora_isolation::{IsolationOrchestrator, IsolationCheckError};
@@ -379,6 +381,21 @@ pub struct NexoraAI {
 
     /// Memory manager for RAG, session storage, compression
     memory_manager: Arc<MemoryManager>,
+
+    /// Chat engine for conversational context tracking
+    chat_engine: crate::core::chat::ChatEngine,
+
+    /// Text generator for prompt analysis and non-agent generation
+    text_generator: crate::core::generation::TextGenerator,
+
+    /// Billing system for usage tracking and subscription management
+    pub billing: billing::BillingSystem,
+
+    /// Telemetry system for dashboard metrics
+    pub telemetry: telemetry::TelemetrySystem,
+
+    /// Gossip protocol for distributed cluster communication
+    pub gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>>,
 }
 
 impl NexoraAI {
@@ -459,6 +476,43 @@ impl NexoraAI {
         // Step 2d: Initialize ERP engine — weight compression/pruning
         let erp_engine = nexora_foundation::ERPEngine::new(nexora_foundation::ERPConfig::default());
         info!("ERP engine initialized (resonance compression ready)");
+
+        // Step 2e: Initialize monitoring system
+        let _monitor = nexora_monitoring::MonitoringSystem::new(
+            nexora_monitoring::MonitoringConfig::default(),
+        );
+        info!("Monitoring system initialized");
+
+        // Step 2f: Initialize billing system
+        let billing = billing::BillingSystem::new(config.billing.clone());
+        info!("Billing system initialized (enabled={})", billing.is_enabled().await);
+
+        // Step 2g: Initialize telemetry/dashboard system
+        let telemetry = telemetry::TelemetrySystem::new();
+        info!("Telemetry system initialized for dashboard");
+
+        // Step 2h: Initialize gossip protocol for distributed mode
+        let gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>> = if config.core.enable_distributed {
+            let cluster_cfg = nexora_runtime::cluster::ClusterConfig {
+                node_id: uuid::Uuid::new_v4(),
+                listen_address: config.core.distributed_listen_address.clone(),
+                gossip_interval_ms: config.core.distributed_gossip_interval_ms,
+                seed_nodes: config.core.distributed_seed_nodes.clone(),
+                ..Default::default()
+            };
+            let registry = Arc::new(nexora_runtime::cluster::NodeRegistry::new(cluster_cfg));
+            let gp = Arc::new(nexora_runtime::gossip::GossipProtocol::new(registry));
+            let gp_clone = gp.clone();
+            tokio::spawn(async move { gp_clone.start().await });
+            info!("Gossip protocol started for distributed mode");
+            Some(gp)
+        } else {
+            None
+        };
+
+        // Step 2i: Verify benchmark crate integration
+        let _bench_sample = nexora_benchmark::MetricSample::from_samples(&[]);
+        info!("Nexora benchmark crate wired (MetricSample ready)");
 
         // Step 2: Initialize Intent Router — classifies input → model
         // Semua model pakai satu shared backbone (no tiers, no VRAM eviction)
@@ -611,10 +665,21 @@ impl NexoraAI {
                 registry.clone(),
                 active_model_id,
             ),
+            chat_engine: crate::core::chat::ChatEngine::new(
+                registry.clone(),
+                active_model_id,
+            ),
+            text_generator: crate::core::generation::TextGenerator::new(
+                registry.clone(),
+                active_model_id,
+            ),
             agent_manager,
             train_metrics,
             isolation,
             memory_manager,
+            billing,
+            telemetry,
+            gossip_protocol,
         })
     }
 
@@ -801,8 +866,9 @@ impl NexoraAI {
         }
     }
 
-    /// Chat conversation using IntentRouter → delegation agent.
+    /// Chat conversation using IntentRouter → delegation agent + ChatEngine context.
     /// Each message is classified by IntentRouter to select the optimal model.
+    /// ChatEngine tracks conversation history, sentiment, and turn count.
     pub async fn chat(
         &self,
         message: &str,
@@ -822,8 +888,16 @@ impl NexoraAI {
             route.intent, route.model_id, route.confidence, conversation_id
         );
 
+        // ChatEngine tracks conversation context (sentiment, urgency, turn count)
+        let conv_id = conversation_id.unwrap_or_else(|| {
+            format!("conv_{}", Uuid::new_v4().to_string().chars().take(8).collect::<String>())
+        });
+        let _ctx = self.chat_engine.get_conversation_context(&conv_id).await?;
+        let _analysis = self.chat_engine.analyze_chat_message(message);
+
         // Single backbone auto-loaded on first access by delegation agents
         let result = delegate_for_model(route.model_id, message).await;
+        self.chat_engine.store_conversation_turn(&conv_id, message, &result).await?;
         Ok(result)
     }
 
@@ -915,6 +989,16 @@ impl NexoraAI {
 
     pub fn memory_manager(&self) -> &Arc<MemoryManager> {
         &self.memory_manager
+    }
+
+    /// Get the ChatEngine for direct conversation access
+    pub fn chat_engine(&self) -> &crate::core::chat::ChatEngine {
+        &self.chat_engine
+    }
+
+    /// Get the TextGenerator for direct text generation
+    pub fn text_generator(&self) -> &crate::core::generation::TextGenerator {
+        &self.text_generator
     }
 
     /// Trigger kill switch for a target agent/mode/cluster

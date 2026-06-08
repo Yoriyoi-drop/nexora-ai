@@ -18,7 +18,11 @@ pub struct GpuPageTable {
     pub head_dim: usize,
     pub max_pages: usize,
     free_count: u32,
+    /// CPU-side free list for O(1) allocation (pop from end).
     pub cpu_free: Vec<u32>,
+    /// Bitmap tracking which pages are free: bit=1 means free, bit=0 means allocated.
+    /// u64 words — 64 pages per word.
+    free_bitmap: Vec<u64>,
     /// True if cpu_free changed since last GPU sync.
     dirty: AtomicBool,
 }
@@ -47,6 +51,18 @@ impl GpuPageTable {
 
         let cpu_free: Vec<u32> = (0..max_pages).map(|i| i as u32).rev().collect();
 
+        let num_words = (max_pages + 63) / 64;
+        let mut free_bitmap = vec![0u64; num_words];
+        for i in 0..num_words {
+            let remaining = max_pages - i * 64;
+            let bits_in_word = 64.min(remaining);
+            free_bitmap[i] = if bits_in_word == 64 {
+                !0u64
+            } else {
+                (1u64 << bits_in_word) - 1
+            };
+        }
+
         Ok(Self {
             data,
             page_table,
@@ -57,6 +73,7 @@ impl GpuPageTable {
             max_pages,
             free_count: max_pages as u32,
             cpu_free,
+            free_bitmap,
             dirty: AtomicBool::new(false),
         })
     }
@@ -69,16 +86,27 @@ impl GpuPageTable {
     /// Allocate a page. Returns the page index, or None if OOM.
     pub fn alloc(&mut self) -> Option<u32> {
         let page = self.cpu_free.pop();
-        if page.is_some() {
+        if let Some(idx) = page {
+            let word = (idx as usize) / 64;
+            let bit = 1u64 << ((idx as usize) % 64);
+            self.free_bitmap[word] &= !bit;
+            self.free_count -= 1;
             self.dirty.store(true, Ordering::Release);
         }
         page
     }
 
-    /// Free a page index, returning it to the pool.
+    /// Free a page index, returning it to the pool. O(1) via bitmap.
     pub fn free(&mut self, page_idx: u32) {
-        if (page_idx as usize) < self.max_pages && !self.cpu_free.contains(&page_idx) {
+        if (page_idx as usize) >= self.max_pages {
+            return;
+        }
+        let word = (page_idx as usize) / 64;
+        let bit = 1u64 << ((page_idx as usize) % 64);
+        if self.free_bitmap[word] & bit == 0 {
+            self.free_bitmap[word] |= bit;
             self.cpu_free.push(page_idx);
+            self.free_count += 1;
             self.dirty.store(true, Ordering::Release);
         }
     }

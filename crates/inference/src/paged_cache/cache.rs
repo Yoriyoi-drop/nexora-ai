@@ -630,7 +630,8 @@ impl PagedKVCache {
             }
             if let Some(phys) = table.layers[layer][logical] {
                 if phys < self.blocks[layer].len() && self.blocks[layer][phys].ref_count > 1 {
-                    let copy = self.blocks[layer][phys].deep_copy();
+                    let filled_rows = self.blocks[layer][phys].filled;
+                    let copy = self.blocks[layer][phys].deep_copy(filled_rows);
                     self.blocks[layer][phys].ref_count -= 1;
                     let new_idx = self.blocks[layer].len();
                     self.blocks[layer].push(copy);

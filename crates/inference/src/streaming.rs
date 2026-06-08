@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex, RwLock};
+use parking_lot::Mutex as ParkingMutex;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -20,7 +21,7 @@ struct ActiveStream {
     sender: mpsc::Sender<Arc<GeneratedToken>>,
     token_count: AtomicUsize,
     created_at: Instant,
-    last_token_at: Mutex<Instant>,
+    last_token_at: ParkingMutex<Instant>,
 }
 
 pub struct StreamingEngine {
@@ -94,7 +95,7 @@ impl StreamingEngine {
                     sender: tx,
                     token_count: AtomicUsize::new(0),
                     created_at: Instant::now(),
-                    last_token_at: Mutex::new(Instant::now()),
+                    last_token_at: ParkingMutex::new(Instant::now()),
                 },
             );
         }
@@ -119,7 +120,7 @@ impl StreamingEngine {
                 let streams = self.active_streams.read().await;
                 if let Some(entry) = streams.get(&stream_id) {
                     entry.token_count.fetch_add(1, Ordering::Relaxed);
-                    *entry.last_token_at.lock().await = Instant::now();
+                    *entry.last_token_at.lock() = Instant::now();
                 }
                 Ok(())
             }
@@ -186,7 +187,7 @@ impl StreamingEngine {
     fn evict_stale_locked(&self, streams: &mut HashMap<Uuid, ActiveStream>) -> usize {
         let before = streams.len();
         streams.retain(|_, s| {
-            let guard = s.last_token_at.blocking_lock();
+            let guard = s.last_token_at.lock();
             guard.elapsed() < self.stream_timeout
         });
         let evicted = before - streams.len();

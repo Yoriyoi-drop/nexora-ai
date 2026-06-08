@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     Extension, Json,
 };
 use hmac::{Hmac, KeyInit, Mac};
@@ -223,7 +223,7 @@ pub async fn subscribe(
         }));
     };
 
-    let plan = BillingPlan::find(&tier);
+    let plan = BillingPlan::find(&plan_name);
     let plan = match plan {
         Some(p) => p,
         None => {
@@ -300,7 +300,7 @@ pub async fn stripe_webhook(
                     Ok(mac) => mac,
                     Err(e) => {
                         tracing::error!("HMAC key invalid: {e}. Skipping webhook signature verification.");
-                        return HttpResponse::Unauthorized().body("Invalid webhook configuration");
+                        return Json(json!({"success": false, "error": "Invalid webhook configuration"}));
                     }
                 };
                 expected.update(&body);
