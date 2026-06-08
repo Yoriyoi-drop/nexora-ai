@@ -3,7 +3,6 @@ use std::time::Duration;
 
 
 use super::gpu_types::*;
-#[cfg(feature = "cuda")]
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
@@ -127,6 +126,10 @@ impl GpuContext {
         ctx_mut.bind_group_layout_cache.clear();
         ctx_mut.pipelines.clear();
         *ctx_mut.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        #[cfg(feature = "cuda")]
+        {
+            let _ = ctx_mut.cuda_cache.lock().map(|mut c| c.clear());
+        }
 
         // 3. Recreate device + queue from new adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -215,5 +218,9 @@ impl GpuContext {
         });
         *ctx_mut.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
         ctx_mut.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+        #[cfg(feature = "cuda")]
+        {
+            let _ = ctx_mut.cuda_cache.lock().map(|mut c| c.clear());
+        }
     }
 }

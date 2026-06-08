@@ -4,7 +4,6 @@ use std::sync::Mutex;
 use crate::gpu_caps::GpuCapabilities;
 
 use super::gpu_types::*;
-#[cfg(feature = "cuda")]
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
@@ -195,6 +194,8 @@ impl GpuContext {
             rebuild_lock: Mutex::new(()),
             #[cfg(feature = "cuda")]
             cuda: cuda_runtime,
+            #[cfg(feature = "cuda")]
+            cuda_cache: Mutex::new(HashMap::new()),
         };
 
         ctx.compile_all_pipelines()?;

@@ -149,7 +149,7 @@ impl BackgroundMetricsCollector {
             collector.set_training_grad_norm(t.grad_norm);
         }
 
-        let math_fallbacks = nexora_deeplearning::autograd::ops::math::gpu_math_fallback_count();
+        let math_fallbacks = nexora_deeplearning::autograd::ops::gpu_math_fallback_count();
         collector.set_gpu_math_fallbacks(math_fallbacks);
 
         match nexora_inference::read_gpu_memory().await {

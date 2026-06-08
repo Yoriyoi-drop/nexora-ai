@@ -266,6 +266,14 @@ pub struct GpuContext {
     /// Uses `'static` lifetime because it borrows from the global singleton (`OnceCell<Arc<CudaRuntime>>`).
     #[cfg(feature = "cuda")]
     pub(crate) cuda: Option<&'static crate::gpu::cuda::CudaRuntime>,
+    /// CUDA tensor cache: maps wgpu::Buffer global_id → CudaTensor.
+    /// Eliminates CPU round-trip when the same tensor is reused across
+    /// multiple sequential CUDA operations.
+    /// Entries are invalidated when the wgpu buffer handle is dropped
+    /// (wgpu::Id is globally unique per device lifetime).
+    #[cfg(feature = "cuda")]
+    pub(crate) cuda_cache:
+        Mutex<HashMap<wgpu::Buffer, crate::gpu::cuda::CudaTensor>>,
 }
 
 impl GpuContext {

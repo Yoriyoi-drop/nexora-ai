@@ -2,10 +2,12 @@
 //!
 //! High-performance database abstraction layer replacing database.c
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(feature = "mysql")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod connection_pool;
 pub mod credentials;
@@ -136,6 +138,16 @@ mod mysql_impl {
                         .max(0) as u64,
                     ),
             ),
+            mysql::Value::Time(is_neg, d, h, m, s, us) => {
+                let total_secs = (d as u64) * 86400 + (h as u64) * 3600 + (m as u64) * 60 + s as u64;
+                let nanos = us * 1000;
+                let duration = std::time::Duration::new(total_secs, nanos);
+                if is_neg {
+                    Value::I64(-(total_secs as i64))
+                } else {
+                    Value::I64(total_secs as i64)
+                }
+            }
         }
     }
 
@@ -157,7 +169,7 @@ mod mysql_impl {
     }
 
     #[cfg(feature = "mysql")]
-    #[async_trait]
+    #[async_trait::async_trait]
     impl Database for MySQLDatabase {
         async fn connect(&self) -> Result<()> {
             let _conn = self.pool.get_conn()?;
@@ -171,17 +183,27 @@ mod mysql_impl {
                 .into_iter()
                 .map(|v| match v {
                     Value::String(s) => mysql::Value::from(s.as_str()),
-                    Value::Integer(i) => mysql::Value::from(i as i64),
-                    Value::Float(f) => mysql::Value::from(f),
-                    Value::Boolean(b) => mysql::Value::from(b),
+                    Value::I64(i) => mysql::Value::from(i),
+                    Value::I32(i) => mysql::Value::from(i as i64),
+                    Value::F32(f) => mysql::Value::from(f),
+                    Value::F64(f) => mysql::Value::from(f),
+                    Value::Bool(b) => mysql::Value::from(b),
                     Value::Null => mysql::Value::NULL,
-                    Value::Timestamp(ts) => mysql::Value::from(ts as i64),
+                    Value::Timestamp(ts) => {
+                        let secs = ts
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+                        mysql::Value::from(secs)
+                    }
+                    Value::Bytes(b) => mysql::Value::from(b),
+                    Value::Json(j) => mysql::Value::from(j.to_string()),
                 })
                 .collect();
 
             let result = conn.exec_iter(query, mysql_params)?;
             let affected = result.affected_rows() as u64;
-            let columns = result.columns().to_vec();
+            let columns: Vec<_> = result.columns().iter().cloned().collect();
 
             // Collect rows from result
             let rows: Vec<HashMap<String, Value>> = result
@@ -229,7 +251,7 @@ mod mysql_impl {
             Ok(ExecuteResult {
                 affected_rows: result.affected_rows() as u64,
                 execution_time_ms: 0,
-                last_insert_id: result.last_insert_id(),
+                last_insert_id: result.last_insert_id().map(|v| v as i64),
             })
         }
 
@@ -238,7 +260,7 @@ mod mysql_impl {
             conn.query("START TRANSACTION")
                 .map_err(|e| anyhow!("Gagal memulai transaksi MySQL: {}", e))?;
 
-            Ok(Transaction::new(conn))
+            Transaction::new_mysql(conn)
         }
 
         async fn get_info(&self) -> Result<DatabaseInfo> {
@@ -268,20 +290,18 @@ mod mysql_impl {
                 database_name: self.config.database.clone(),
                 version,
                 database_size_mb,
-                connection_count: self.pool.status().connections,
+                connection_count: self.config.pool_size as usize,
                 uptime_seconds: 0,
                 last_activity: Some(std::time::SystemTime::now()),
             })
         }
 
         async fn get_pool_status(&self) -> Result<PoolStatus> {
-            let pool_status = self.pool.status();
-
             Ok(PoolStatus {
-                total_connections: pool_status.connections,
-                active_connections: pool_status.connections,
+                total_connections: self.config.pool_size as usize,
+                active_connections: self.config.pool_size as usize,
                 idle_connections: 0,
-                max_connections: self.config.pool_size as u32,
+                max_connections: self.config.pool_size as usize,
                 waiting_requests: 0,
                 average_wait_time_ms: 0.0,
             })
@@ -487,6 +507,23 @@ impl Transaction {
             #[cfg(feature = "sqlite")]
             conn_sqlite: None,
         }
+    }
+
+    pub fn new_mysql(conn: mysql::PooledConn) -> Result<Self> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let connection_id = format!("mysql_conn_{}", id);
+
+        Ok(Self {
+            id,
+            connection_id,
+            is_active: true,
+            savepoints: Vec::new(),
+            conn: Some(conn.into_inner()),
+            #[cfg(feature = "postgres")]
+            client: None,
+            #[cfg(feature = "sqlite")]
+            conn_sqlite: None,
+        })
     }
 }
 
@@ -747,7 +784,7 @@ impl DatabaseFactory {
                     mysql_config.database
                 );
 
-                let pool = mysql::Pool::new(&connection_string).map_err(|e| {
+                let pool = mysql::Pool::new(connection_string.as_str()).map_err(|e| {
                     anyhow::anyhow!(
                         "Failed to create MySQL pool for user '{}' at {}:{}",
                         mysql_config.username,
@@ -755,7 +792,7 @@ impl DatabaseFactory {
                         mysql_config.port,
                     )
                 })?;
-                Ok(Arc::new(MySQLDatabase::new(pool, mysql_config)))
+                Ok(Arc::new(mysql_impl::MySQLDatabase::new(pool, mysql_config)))
             }
             #[cfg(not(feature = "mysql"))]
             DatabaseType::MySQL => Err(anyhow::anyhow!(

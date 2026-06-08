@@ -1,7 +1,6 @@
 
 
 use super::gpu_types::*;
-#[cfg(feature = "cuda")]
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches

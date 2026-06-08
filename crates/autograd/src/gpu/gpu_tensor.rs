@@ -95,6 +95,21 @@ impl GpuTensor {
             .write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
         crate::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = ctx.cuda {
+            match crate::gpu::cuda::CudaTensor::from_cpu(
+                &cuda.stream, shape.clone(), data_slice, cuda.device_id,
+            ) {
+                Ok(ct) => {
+                    ctx.cache_cuda(&buffer, ct);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to create CUDA tensor from CPU data: {e}");
+                }
+            }
+        }
+
         Ok(Self {
             shape,
             buffer,
@@ -199,6 +214,21 @@ impl GpuTensor {
         ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&data[..numel]));
         crate::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = ctx.cuda {
+            match crate::gpu::cuda::CudaTensor::from_cpu(
+                &cuda.stream, shape.clone(), &data[..numel], cuda.device_id,
+            ) {
+                Ok(ct) => {
+                    ctx.cache_cuda(&buffer, ct);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to create CUDA tensor from slice: {e}");
+                }
+            }
+        }
+
         Ok(Self {
             shape,
             buffer,
