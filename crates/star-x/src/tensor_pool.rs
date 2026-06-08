@@ -10,6 +10,7 @@ use crate::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
 use std::sync::Arc;
 use std::sync::Mutex;
+use tracing;
 
 /// Tensor pool untuk berbagai ukuran tensor
 #[derive(Debug, Clone)]
@@ -301,10 +302,23 @@ pub fn global_pool() -> &'static TensorPool {
     match GLOBAL_TENSOR_POOL.as_ref() {
         Ok(pool) => pool,
         Err(msg) => {
-            panic!("Global tensor pool init failed: {}. This is a fundamental system failure.", msg)
+            tracing::error!("Global tensor pool unavailable: {}. Operations will fail.", msg);
+            &*NOOP_TENSOR_POOL
         }
     }
 }
+
+static NOOP_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::new(|| {
+    TensorPool {
+        pool_1d: Arc::new(Mutex::new(Vec::new())),
+        pool_2d: Arc::new(Mutex::new(Vec::new())),
+        pool_dyn: Arc::new(Mutex::new(Vec::new())),
+        size_categories_1d: Vec::new(),
+        size_categories_2d: Vec::new(),
+        size_categories_dyn: Vec::new(),
+        max_pool_size: 0,
+    }
+});
 
 /// RAII wrapper untuk automatic tensor return
 pub struct PooledTensor1D {

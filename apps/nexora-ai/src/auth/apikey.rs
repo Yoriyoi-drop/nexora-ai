@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -6,6 +7,12 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::security::SecurityUtils;
+
+fn hash_api_key(key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    hex::encode(hasher.finalize())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyRecord {
@@ -141,15 +148,16 @@ impl ApiKeyStore for InMemoryApiKeyStore {
         self.keys_by_value
             .write()
             .await
-            .insert(raw_key, id);
+            .insert(hash_api_key(&raw_key), id);
         self.persist().await;
         record
     }
 
     async fn get_key(&self, key: &str) -> Option<ApiKeyRecord> {
+        let hashed = hash_api_key(key);
         let id = {
             let key_map = self.keys_by_value.read().await;
-            key_map.get(key).cloned()?
+            key_map.get(&hashed).cloned()?
         };
         let users = self.keys_by_user.read().await;
         for records in users.values() {
@@ -209,7 +217,7 @@ impl ApiKeyStore for InMemoryApiKeyStore {
         record.last_used_at = Some(now);
 
         let mut key_map = self.keys_by_value.write().await;
-        key_map.insert(new_raw, record.id.clone());
+        key_map.insert(hash_api_key(&new_raw), record.id.clone());
         self.persist().await;
 
         Some(record.clone())
@@ -220,9 +228,10 @@ impl ApiKeyStore for InMemoryApiKeyStore {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        let hashed = hash_api_key(key);
         let id = {
             let key_map = self.keys_by_value.read().await;
-            key_map.get(key).cloned()
+            key_map.get(&hashed).cloned()
         };
         let id = match id {
             Some(id) => id,

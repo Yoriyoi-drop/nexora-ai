@@ -2,7 +2,7 @@
 
 ## Overview
 
-Nexora AI is a Rust-based multi-model cognitive architecture with 21 workspace members (19 library crates + 2 binary crates). It implements 10 transformer-based models (NXR series), a custom autograd engine, reasoning frameworks, multimodal processing, safety alignment, and a full API server.
+Nexora AI is a Rust-based multi-model cognitive architecture with 52 workspace members (19 library crates + 2 binary crates). It implements 10 transformer-based models (NXR series), a custom autograd engine, reasoning frameworks, multimodal processing, safety alignment, and a full API server.
 
 ## Dependency Layers
 

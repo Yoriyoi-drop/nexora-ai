@@ -1,0 +1,16 @@
+# Infrastructure & security changes require team review
+.github/workflows/* @nexora-ai/security-team
+.github/dependabot.yml @nexora-ai/security-team
+Dockerfile @nexora-ai/security-team
+docker-compose.yml @nexora-ai/security-team
+nexora.toml @nexora-ai/security-team
+configs/ @nexora-ai/security-team
+
+# Core architecture changes
+Cargo.toml @nexora-ai/core-team
+crates/core/ @nexora-ai/core-team
+crates/foundation/ @nexora-ai/foundation-team
+
+# Authentication & authorization
+apps/nexora-ai/src/auth/ @nexora-ai/security-team
+apps/nexora-ai/src/server/ @nexora-ai/security-team

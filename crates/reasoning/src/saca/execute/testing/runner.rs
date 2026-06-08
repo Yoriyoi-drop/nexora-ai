@@ -5,8 +5,9 @@
 use super::generator::{TestCase, TestType};
 use crate::saca::error::*;
 use std::io::Write;
-use std::process::{Command, Stdio};
 use std::time::Duration;
+use tokio::process::Command;
+use tokio::io::AsyncWriteExt;
 
 /// Test runner for executing test cases
 pub struct TestRunner;
@@ -37,7 +38,7 @@ impl TestRunner {
         let start_time = std::time::Instant::now();
 
         let (passed, actual_output, error_message) =
-            self.run_test_execution(&test_case, implementation);
+            self.run_test_execution(&test_case, implementation).await;
         let execution_time = start_time.elapsed();
 
         Ok(TestResult {
@@ -53,7 +54,7 @@ impl TestRunner {
     }
 
     /// Run a test case against the implementation and compare output
-    fn run_test_execution(
+    async fn run_test_execution(
         &self,
         test_case: &TestCase,
         implementation: &str,
@@ -83,48 +84,61 @@ impl TestRunner {
             );
         }
 
-        let output = match Command::new("python3")
-            .arg(&file_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(mut child) => {
-                if let Some(mut stdin) = child.stdin.take() {
-                    let _ = stdin.write_all(test_case.input.as_bytes());
-                    let _ = stdin.flush();
+        let result = {
+            let mut cmd = Command::new("python3");
+            cmd.arg(&file_path)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .env_clear()
+                .env("PYTHONIOENCODING", "utf-8");
+
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                    return (
+                        false,
+                        String::new(),
+                        Some(format!("Failed to spawn python3: {}", e)),
+                    );
                 }
-                match child.wait_with_output() {
-                    Ok(output) => output,
-                    Err(e) => {
-                        let _ = std::fs::remove_dir_all(&temp_dir);
-                        return (
-                            false,
-                            String::new(),
-                            Some(format!("Failed to read child output: {}", e)),
-                        );
-                    }
-                }
+            };
+
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(test_case.input.as_bytes()).await;
+                let _ = stdin.flush().await;
             }
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&temp_dir);
-                return (
-                    false,
-                    String::new(),
-                    Some(format!("Failed to spawn python3: {}", e)),
-                );
+
+            match tokio::time::timeout(Duration::from_secs(30), child.wait_with_output()).await {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                    return (
+                        false,
+                        String::new(),
+                        Some(format!("Failed to read child output: {}", e)),
+                    );
+                }
+                Err(_) => {
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                    return (
+                        false,
+                        String::new(),
+                        Some("Test execution timed out after 30s".to_string()),
+                    );
+                }
             }
         };
 
         let _ = std::fs::remove_dir_all(&temp_dir);
 
-        let actual_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let actual_output = String::from_utf8_lossy(&result.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&result.stderr).to_string();
 
-        if !output.status.success() {
+        if !result.status.success() {
             let err_msg = if stderr.is_empty() {
-                format!("Process exited with code {:?}", output.status.code())
+                format!("Process exited with code {:?}", result.status.code())
             } else {
                 stderr
             };

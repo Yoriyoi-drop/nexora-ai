@@ -371,8 +371,57 @@ impl Default for MetricsCollector {
         match Self::new() {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("MetricsCollector::default() failed: {}", e);
-                panic!("MetricsCollector::default() failed: {}", e);
+                tracing::error!(
+                    "MetricsCollector::new() failed (using fallback registry): {}",
+                    e
+                );
+                let registry = prometheus::Registry::new();
+                let mc = |name: &str, help: &str| -> Counter {
+                    Counter::new(name, help).unwrap_or_else(|_| Counter::new("_fb", "fb").unwrap())
+                };
+                let mg = |name: &str, help: &str| -> Gauge {
+                    Gauge::new(name, help).unwrap_or_else(|_| Gauge::new("_fb_g", "fb").unwrap())
+                };
+                let mh = |name: &str, help: &str| -> Histogram {
+                    Histogram::with_opts(HistogramOpts::new(name, help))
+                        .unwrap_or_else(|_| Histogram::with_opts(HistogramOpts::new("_fb_h", "fb")).unwrap())
+                };
+                MetricsCollector {
+                    registry,
+                    request_counter: mc("fb_req_total", "fallback"),
+                    request_failures: mc("fb_req_fail", "fallback"),
+                    request_latency: mh("fb_req_lat", "fallback"),
+                    active_connections: mg("fb_conn", "fallback"),
+                    memory_usage: mg("fb_mem", "fallback"),
+                    cpu_usage: mg("fb_cpu", "fallback"),
+                    queue_depth: mg("fb_queue", "fallback"),
+                    gpu_forward_errors: mc("fb_gpu_err", "fallback"),
+                    gpu_cpu_fallbacks: mc("fb_gpu_cpu", "fallback"),
+                    gpu_resident_successes: mc("fb_gpu_ok", "fallback"),
+                    gpu_resident_fallbacks: mc("fb_gpu_res", "fallback"),
+                    gpu_tokens: mc("fb_gpu_tok", "fallback"),
+                    cpu_tokens: mc("fb_cpu_tok", "fallback"),
+                    gpu_alive: mg("fb_gpu_alive", "fallback"),
+                    gpu_memory_bytes: mg("fb_gpu_mem", "fallback"),
+                    gpu_memory_percent: mg("fb_gpu_mem_pct", "fallback"),
+                    cache_hit_ratio: mg("fb_cache_hit", "fallback"),
+                    gpu_math_fallbacks: mc("fb_gpu_math", "fallback"),
+                    inference_queue_depth: mg("fb_inf_q", "fallback"),
+                    throughput_tokens: mc("fb_tput", "fallback"),
+                    tokens_per_sec: mg("fb_tok_sec", "fallback"),
+                    gpu_utilization_pct: mg("fb_gpu_util", "fallback"),
+                    kv_cache_pressure: mg("fb_kv_press", "fallback"),
+                    scheduler_queue_depth: mg("fb_sched_q", "fallback"),
+                    batching_efficiency_pct: mg("fb_batch_eff", "fallback"),
+                    memory_fragmentation: mg("fb_mem_frag", "fallback"),
+                    pcie_read_bytes: mc("fb_pcie_r", "fallback"),
+                    pcie_write_bytes: mc("fb_pcie_w", "fallback"),
+                    kv_internal_frag_ratio: mg("fb_kv_int", "fallback"),
+                    kv_external_frag_ratio: mg("fb_kv_ext", "fallback"),
+                    training_loss: mg("fb_train_loss", "fallback"),
+                    training_learning_rate: mg("fb_train_lr", "fallback"),
+                    training_grad_norm: mg("fb_train_grad", "fallback"),
+                }
             }
         }
     }

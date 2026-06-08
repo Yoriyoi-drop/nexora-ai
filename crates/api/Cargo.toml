@@ -39,7 +39,7 @@ tls = ["tokio-rustls", "axum-server", "rustls-pemfile", "rcgen", "time"]
 rustls = ["tokio-rustls"]
 
 [dependencies.tokio-rustls]
-version = "0.24"
+version = "0.26"
 optional = true
 
 [dependencies.axum-server]

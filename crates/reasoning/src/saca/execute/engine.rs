@@ -10,9 +10,10 @@ use crate::saca::{config::*, error::*, types::*};
 // Re-export PerformanceMetrics from types
 pub use crate::saca::types::PerformanceMetrics;
 use nexora_core::async_executor::AsyncTaskExecutor;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
 /// Execute-Fail-Fix Loop engine
@@ -125,6 +126,11 @@ impl ExecuteEngine {
                     .partial_cmp(&b.confidence)
                     .unwrap_or(std::cmp::Ordering::Equal)
             }) {
+                // Re-validate security after fix generation (bypasses execution)
+                if let Err(e) = self.code_executor.validate_code(&best_fix.fixed_code) {
+                    warn!("Security re-validation failed for fix: {}", e);
+                    return Err(e);
+                }
                 candidate.implementation = best_fix.fixed_code.clone();
                 fix_attempts += 1;
                 debug!(
@@ -164,7 +170,8 @@ impl ExecuteEngine {
         // Execute code in sandbox
         let execution_output = self
             .code_executor
-            .execute(&candidate.implementation, &execution_env)?;
+            .execute(&candidate.implementation, &execution_env)
+            .await?;
 
         let execution_time = start_time.elapsed();
 
@@ -246,8 +253,10 @@ impl Clone for ExecuteEngine {
 }
 
 /// Trait for code executors
+#[async_trait::async_trait]
 pub trait CodeExecutor: Send + Sync {
-    fn execute(&self, code: &str, env: &ExecutionEnvironment) -> SACAResult<ExecutionOutput>;
+    async fn execute(&self, code: &str, env: &ExecutionEnvironment) -> SACAResult<ExecutionOutput>;
+    fn validate_code(&self, code: &str) -> SACAResult<()>;
 }
 
 /// Execution environment
@@ -475,10 +484,10 @@ impl SandboxCodeExecutor {
     }
 
     /// Execute code in a controlled sandbox environment
-    fn execute_in_sandbox(
+    async fn execute_in_sandbox(
         &self,
         code: &str,
-        _env: &ExecutionEnvironment,
+        env: &ExecutionEnvironment,
     ) -> Result<ExecutionOutput, String> {
         if code.trim().is_empty() {
             return Ok(ExecutionOutput {
@@ -493,19 +502,24 @@ impl SandboxCodeExecutor {
         }
 
         let start = std::time::Instant::now();
+        let timeout_duration = env.timeout;
 
-        match Command::new("python3")
-            .arg("-I")
+        let mut cmd = Command::new("python3");
+        cmd.arg("-I")
             .arg("-c")
             .arg(code)
             .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .env_clear()
-            .env_remove("PYTHONSTARTUP")
-            .env_remove("PYTHONINSPECT")
-            .env("PYTHONIOENCODING", "utf-8")
-            .output()
-        {
-            Ok(output) => {
+            .env("PYTHONIOENCODING", "utf-8");
+
+        if !env.working_directory.is_empty() {
+            cmd.current_dir(&env.working_directory);
+        }
+
+        match timeout(timeout_duration, cmd.output()).await {
+            Ok(Ok(output)) => {
                 let elapsed = start.elapsed();
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -521,34 +535,40 @@ impl SandboxCodeExecutor {
                     memory_usage: None,
                 })
             }
-            Err(e) => Err(format!(
+            Ok(Err(e)) => Err(format!(
                 "Failed to execute code: python3 not available ({})",
                 e
+            )),
+            Err(_) => Err(format!(
+                "Execution timed out after {}s",
+                timeout_duration.as_secs()
             )),
         }
     }
 }
 
+#[async_trait::async_trait]
 impl CodeExecutor for SandboxCodeExecutor {
-    fn execute(&self, code: &str, env: &ExecutionEnvironment) -> SACAResult<ExecutionOutput> {
-        // Enhanced syntax validation
+    async fn execute(&self, code: &str, env: &ExecutionEnvironment) -> SACAResult<ExecutionOutput> {
+        self.validate_code(code)?;
+        self.execute_in_sandbox(code, env)
+            .await
+            .map_err(|e| SACAError::ExecuteError(format!("Execution failed: {}", e)))
+    }
+
+    fn validate_code(&self, code: &str) -> SACAResult<()> {
         if let Err(syntax_error) = self.validate_syntax(code) {
             return Err(SACAError::ExecuteError(format!(
                 "Syntax error: {}",
                 syntax_error
             )));
         }
-
-        // Security validation
         if let Err(security_error) = self.validate_security(code) {
             return Err(SACAError::ExecuteError(format!(
                 "Security error: {}",
                 security_error
             )));
         }
-
-        // Execute in sandbox
-        self.execute_in_sandbox(code, env)
-            .map_err(|e| SACAError::ExecuteError(format!("Execution failed: {}", e)))
+        Ok(())
     }
 }

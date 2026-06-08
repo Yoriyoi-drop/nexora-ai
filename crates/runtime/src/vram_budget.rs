@@ -295,8 +295,14 @@ impl VramBudget {
         if samples.len() < 3 {
             return 0.0;
         }
-        let first = samples.first().unwrap();
-        let last = samples.last().unwrap();
+        let first = match samples.first() {
+            Some(f) => f,
+            None => return 0.0,
+        };
+        let last = match samples.last() {
+            Some(l) => l,
+            None => return 0.0,
+        };
         let elapsed = last.timestamp.duration_since(first.timestamp).as_secs_f64();
         if elapsed < 0.1 {
             return 0.0;

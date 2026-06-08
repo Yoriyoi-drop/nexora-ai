@@ -5,6 +5,7 @@ pub mod user;
 use std::sync::Arc;
 
 use apikey::{ApiKeyStore, InMemoryApiKeyStore};
+use tracing;
 use jwt::JwtManager;
 use user::{InMemoryUserStore, LoginResponse, RegisterRequest, UserProfile, UserStore};
 
@@ -16,10 +17,27 @@ pub struct AuthSystem {
 
 impl AuthSystem {
     pub fn new(jwt_secret: &str) -> Self {
+        let jwt = std::env::var("NEXORA_JWT_PRIVATE_KEY")
+            .ok()
+            .zip(std::env::var("NEXORA_JWT_PUBLIC_KEY").ok())
+            .and_then(|(priv_pem, pub_pem)| {
+                JwtManager::new_rs256(&priv_pem, &pub_pem)
+                    .map_err(|e| {
+                        tracing::warn!("Failed to init RS256 JWT, falling back to HS256: {}", e);
+                    })
+                    .ok()
+            })
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "NEXORA_JWT_PRIVATE_KEY/PUBLIC_KEY not set. Using HS256 (less secure). \
+                     Set both env vars with RSA PEM key pair for RS256."
+                );
+                JwtManager::new_hs256(jwt_secret)
+            });
         Self {
             users: Arc::new(InMemoryUserStore::new()),
             api_keys: Arc::new(InMemoryApiKeyStore::new()),
-            jwt: JwtManager::new(jwt_secret),
+            jwt,
         }
     }
 

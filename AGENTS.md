@@ -303,6 +303,36 @@ Eliminated all `unwrap()`/`expect()` in production path across 10 model delegati
 - **`cargo check --all-targets`** ✅ 0 errors
 - **AUDIT_PRODUCTION_READINESS.md**: Updated to BF31, overall readiness ~90-92% → ~97%+
 
+### Batch Fix 32 (8 Juni 2026) — Security & Config Hardening
+- **sqlx 0.7.2→0.8.0**: CVE fix, `default-features=false`, sqlite feature removed (conflict with rusqlite)
+- **rusqlite 0.29→0.31**: Resolved `libsqlite3-sys` dual-dep conflict with sqlx-sqlite
+- **sqlx dep removed from `crates/infrastructure`**: Not used — only `"sqlx=warn"` string literal
+- **nexora.toml hardening**: host `0.0.0.0`→`127.0.0.1`, `enable_auth false→true`, `cors_origins ["*"]→`[localhost:5173,8080]`, `rate_limit_rpm 1000→60`, `enable_tls false→true` (graceful HTTP fallback if cert empty)
+- **API key SHA-256 hash**: `hash_api_key()` in `apikey.rs`, `sha2`+`hex` become non-optional deps
+- **JWT HS256→RS256**: `jwt.rs` + `auth/mod.rs` RS256 primary + HS256 fallback, `jti` claim added
+- **Security headers middleware**: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection in `router.rs`
+- **`.github/workflows/`**: All actions pinned to SHA commits
+- **`.github/CODEOWNERS`**: Created
+- **AUDIT_PRODUCTION_READINESS.md**: Updated to BF32
+
+### Batch Fix 33 (8 Juni 2026) — Panic-to-Error 7 Locations
+- **`MetricsCollector::default()`**: Fixed panic — fallback registry with all 38 fields (previously 17)
+- **`Storage::to_cpu()` GPU variant**: Fixed panic → warn + return empty array
+- **`global_pool()` in `tensor_pool.rs:300-306`**: Fixed panic → NOOP_TENSOR_POOL (LazyLock empty pool) + `tracing::error`
+- **`unwrap()` in `vram_budget.rs:298`**: Fixed — match + early return 0.0
+- **`cargo check`**: ✅ nexora-ai, nexora-monitoring, nexora-star-x
+
+### Batch Fix 34 (8 Juni 2026) — CVE & SACA Sandbox
+- **rustls 0.21→0.23**: `apps/nexora-ai` + `crates/api` — `builder_with_provider`, `pki_types::CertificateDer`/`PrivateKeyDer`, `private_key()` v2 API
+- **tokio-rustls 0.24→0.26**: Matches rustls 0.23
+- **`crates/api/src/server.rs` TLS**: Same rustls 0.23 upgrade (feature-gated, dead code — `tls` feature never enabled)
+- **Dual `rustls-webpki`** (0.101.7 + 0.103.13) still in Cargo.lock via `reqwest 0.11` — full elimination requires reqwest 0.12 upgrade (~16 files)
+- **protobuf 2.28.0**: Evaluated — only a test dep (`proptest-derive`), not production risk
+- **SACA sandbox timeout**: `CodeExecutor` made async, `tokio::time::timeout()` enforcement, security re-validation after fix generator
+- **SACA TestRunner**: `env_clear()` + 30s timeout, `tokio::process::Command` replacing `std::process::Command`
+- **`cargo check`**: ✅ nexora-reasoning + nexora-ai
+- **AUDIT_PRODUCTION_READINESS.md**: Updated to BF34
+
 **Spectra Style Classifier** (`crates/models/src/spectra/classifier.rs`):
 - Real 2-layer MLP (`embed_dim → 32 GELU → 6 creative styles`)
 - Styles: narrative, poetic, persuasive, technical, dialogue, descriptive
@@ -583,9 +613,9 @@ POST /api/generate/agent { prompt, context? }
 
 ## Notable quirks
 
-- `Cargo.lock` in `.gitignore` — every `cargo build` resolves from scratch unless a lockfile exists locally.
-- No `rustfmt.toml`, `clippy.toml`, `deny.toml`, or Makefile.
-- No CI workflows (no `.github/workflows/`).
+- `Cargo.lock` **committed** (not in `.gitignore`).
+- `clippy.toml` and `Makefile` exist; no `rustfmt.toml` or `deny.toml`.
+- CI workflows exist (`.github/workflows/benchmark.yml`, `ci.yml`, `react-doctor.yml`).
 - No `build.rs` files anywhere.
 - `crates/data/raw/*.arrow` in `.gitignore`.
 - Several crates have feature-gated modules: always check `[features]` before assuming something is included.

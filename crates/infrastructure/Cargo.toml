@@ -19,8 +19,5 @@ chrono.workspace = true
 config = "0.14"
 toml = "0.8"
 
-# Storage
-sqlx.workspace = true
-
 # Logging
 tracing-appender = "0.2"

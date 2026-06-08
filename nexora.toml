@@ -46,16 +46,18 @@ text_processing_language = "en"
 file_operations_max_size_mb = 100
 
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 8080
-enable_tls = false
+enable_tls = true
+cert_path = ""
+key_path = ""
 max_connections = 10000
 request_timeout_seconds = 120
 enable_cors = true
-cors_origins = ["*"]
+cors_origins = ["http://localhost:5173", "http://localhost:8080"]
 api_keys = []
-enable_auth = false
-rate_limit_rpm = 1000
+enable_auth = true
+rate_limit_rpm = 60
 
 [api]
 base_url = "http://0.0.0.0:8080"

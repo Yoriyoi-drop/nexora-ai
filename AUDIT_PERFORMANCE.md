@@ -622,15 +622,34 @@
 | 20 | HashMap unbounded billing — TTL + eviction | `billing/usage.rs` | 0.5 hari | ✅ SELESAI |
 | 21 | Arc\<str\> DAG keys — 36 alloc eliminated | `crates/datastream/src/graph.rs` | 1 hari | ✅ SELESAI |
 
-### Sprint 4 (Target: Minggu 7-8 Juni) — Cleanup & Polish
+### Sprint 4 (Target: Minggu 7-8 Juni) — Security & Safety Hardening
 
 | # | Item | Target | Status |
 |---|------|--------|--------|
-| 22 | Workspace dep migration (60 deps) | All Cargo.toml | 📦 BELUM |
-| 23 | Remove dead code (legacy-fastpath, hallucination) | `foundation`, `models` | 📦 BELUM |
-| 24 | Fix version mismatches | `rustls-pemfile`, `half`, `tokio` | 📦 BELUM |
-| 25 | Move TUI deps | `intelligence` → `dashboard` | 📦 BELUM |
-| 26 | All Tier C optimizations | Various | 📦 BELUM |
+| 22 | sqlx 0.7.2→0.8.0 CVE fix | `Cargo.toml`, `crates/database/Cargo.toml` | ✅ SELESAI |
+| 23 | rusqlite 0.29→0.31 (resolve `libsqlite3-sys` conflict) | `crates/database/Cargo.toml` | ✅ SELESAI |
+| 24 | Remove sqlx dep from `crates/infrastructure` | `crates/infrastructure/Cargo.toml` | ✅ SELESAI |
+| 25 | nexora.toml hardening (host, auth, cors, rate_limit, tls) | `nexora.toml` | ✅ SELESAI |
+| 26 | API key SHA-256 hash | `apps/nexora-ai/src/auth/apikey.rs` | ✅ SELESAI |
+| 27 | JWT HS256→RS256 + `jti` claim | `apps/nexora-ai/src/auth/jwt.rs`, `mod.rs` | ✅ SELESAI |
+| 28 | Security headers middleware (HSTS, XFO, etc) | `apps/nexora-ai/src/server/router.rs` | ✅ SELESAI |
+| 29 | CI actions pin to SHA + CODEOWNERS | `.github/workflows/*`, `CODEOWNERS` | ✅ SELESAI |
+| 30 | MetricsCollector::default() panic fix | `crates/monitoring/src/metrics.rs` | ✅ SELESAI |
+| 31 | Storage::to_cpu() GPU panic fix | `crates/autograd/src/device.rs` | ✅ SELESAI |
+| 32 | global_pool() panic fix (NOOP_TENSOR_POOL) | `crates/star-x/src/tensor_pool.rs` | ✅ SELESAI |
+| 33 | vram_budget.rs unwrap fix | `crates/runtime/src/vram_budget.rs` | ✅ SELESAI |
+| 34 | rustls 0.21→0.23 + tokio-rustls 0.24→0.26 | `apps/nexora-ai/`, `crates/api/` | ✅ SELESAI |
+| 35 | SACA sandbox: async CodeExecutor + timeout + security re-validation | `crates/reasoning/src/saca/execute/` | ✅ SELESAI |
+
+### Sprint 5 (Target: Future) — Cleanup & Polish
+
+| # | Item | Target | Status |
+|---|------|--------|--------|
+| 36 | Workspace dep migration (60 deps) | All Cargo.toml | 📦 BELUM |
+| 37 | Remove dead code (legacy-fastpath, hallucination) | `foundation`, `models` | 📦 BELUM |
+| 38 | Fix version mismatches (rustls-pemfile, half, tokio) | Various | 📦 BELUM |
+| 39 | Move TUI deps | `intelligence` → `dashboard` | 📦 BELUM |
+| 40 | All Tier C optimizations | Various | 📦 BELUM |
 
 ---
 
@@ -655,6 +674,15 @@
 | 5 Jun 2026 | 3.21 | Arc\<str\> DAG keys: 36 String alloc eliminated, all internal HashMap key clones O(1) | `crates/datastream/src/graph.rs` |
 | 5 Jun 2026 | 3.13 | Striped paged pool locking: Mutex→RwLock di paged_cache + engine + scheduler, read/write split | `crates/inference/src/paged_cache/config.rs`, `stats.rs`, `paged_provider.rs`, `engine.rs`, `batching/scheduler.rs` |
 | 5 Jun 2026 | 3.14 | Single-write GPU+CPU KV: append() skip paged cache saat GPU primary, ensure_flat_synced baca dari GPU langsung | `crates/inference/src/paged_provider.rs` |
+| 8 Jun 2026 | 4.22 | sqlx 0.7.2→0.8.0 CVE fix + rusqlite 0.29→0.31 conflict resolve | `Cargo.toml`, `crates/database/Cargo.toml`, `crates/infrastructure/Cargo.toml` |
+| 8 Jun 2026 | 4.25 | nexora.toml hardening — host, auth, cors, rate_limit, tls | `nexora.toml` |
+| 8 Jun 2026 | 4.26 | API key SHA-256 hashing | `apps/nexora-ai/src/auth/apikey.rs` |
+| 8 Jun 2026 | 4.27 | JWT HS256→RS256 + `jti` claim | `apps/nexora-ai/src/auth/jwt.rs`, `mod.rs` |
+| 8 Jun 2026 | 4.28 | Security headers middleware (6 headers) | `apps/nexora-ai/src/server/router.rs` |
+| 8 Jun 2026 | 4.29 | CI actions pin SHA + CODEOWNERS | `.github/workflows/*.yml`, `CODEOWNERS` |
+| 8 Jun 2026 | 4.30-33 | 4 panic fixes: MetricsCollector, to_cpu, global_pool, vram_budget | Multiple files |
+| 8 Jun 2026 | 4.34 | rustls 0.21→0.23 + tokio-rustls 0.24→0.26 | `apps/nexora-ai/Cargo.toml`, `crates/api/Cargo.toml`, `tls.rs` |
+| 8 Jun 2026 | 4.35 | SACA sandbox async + timeout + security re-validation | `crates/reasoning/src/saca/execute/` |
 
 ---
 

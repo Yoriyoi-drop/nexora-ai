@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0
+
+### Batch Fix 34 — CVE & SACA Sandbox (8 Juni 2026)
+
+**rustls 0.21→0.23 upgrade:**
+- `crates/api/src/server.rs` TLS + `apps/nexora-ai/src/server/tls.rs`
+- API breaking: `builder_with_provider()`, `pki_types::CertificateDer`/`PrivateKeyDer`, `rustls_pemfile::private_key()` v2
+- tokio-rustls 0.24→0.26 sync
+
+**SACA sandbox hardening:**
+- `CodeExecutor` made async (`tokio::process::Command` replacing `std::process::Command`)
+- `tokio::time::timeout()` enforcement on code execution
+- Security re-validation after fix generator (`validate_code()` called again)
+- `env_clear()` + 30s timeout in TestRunner
+
+**CVE assessment:**
+- protobuf 2.28.0 → only test dep (`proptest-derive`), not production risk
+- `rustls-webpki` dual (0.101.7 + 0.103.13) still via reqwest 0.11 — reqwest 0.12 upgrade deferred (~16 files)
+
+`cargo check` ✅ nexora-reasoning + nexora-ai
+
+### Batch Fix 33 — Panic-to-Error 7 Locations (8 Juni 2026)
+
+| Component | File | Issue | Fix |
+|-----------|------|-------|-----|
+| `MetricsCollector::default()` | `crates/monitoring/src/metrics.rs:369` | Panic on fallback | Registry with all 38 fields |
+| `Storage::to_cpu()` GPU variant | `crates/autograd/src/device.rs:111` | Panic | warn + return empty array |
+| `global_pool()` | `crates/star-x/src/tensor_pool.rs:300` | Panic on init fail | NOOP_TENSOR_POOL (LazyLock) |
+| `unwrap()` | `crates/runtime/src/vram_budget.rs:298` | Panic | match + early return 0.0 |
+
+`cargo check` ✅ nexora-ai, nexora-monitoring, nexora-star-x
+
+### Batch Fix 32 — Security & Config Hardening (8 Juni 2026)
+
+- **sqlx 0.7.2→0.8.0**: CVE fix, `default-features=false`, sqlite feature removed
+- **rusqlite 0.29→0.31**: Resolved `libsqlite3-sys` dep conflict
+- **sqlx removed from `crates/infrastructure`**: Not used (only `"sqlx=warn"` string)
+- **nexora.toml hardening**: `host 0.0.0.0→127.0.0.1`, `enable_auth false→true`, `cors_origins ["*"]→[localhost:5173,8080]`, `rate_limit_rpm 1000→60`, `enable_tls false→true`
+- **API key SHA-256 hashing**: `hash_api_key()` before persist, `sha2`+`hex` now non-optional
+- **JWT HS256→RS256**: Primary RS256 + HS256 fallback, `jti` claim for revocation
+- **Security headers middleware**: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection
+- **CI/CD**: All GitHub Actions pinned to SHA commits, CODEOWNERS file created
+
 ## 0.3.0
 
 ### Batch Fix 31 — Production Unwrap & Panic Comprehensive Cleanup (4 Juni 2026)
@@ -103,5 +146,5 @@ Eliminated all production `.unwrap()` calls across the entire workspace (~500+ p
 
 ### Infrastructure
 
-- `Cargo.lock` in `.gitignore` (not committed)
-- `deny.toml`, `clippy.toml`, `rustfmt.toml`, `Makefile` added
+- `Cargo.lock` committed (not in `.gitignore`)
+- `clippy.toml`, `Makefile` added

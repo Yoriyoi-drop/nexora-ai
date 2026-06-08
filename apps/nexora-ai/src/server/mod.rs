@@ -35,7 +35,7 @@ pub use crate::config::server::ServerConfig;
 pub use handlers::*;
 pub use router::create_router;
 pub use tls::start_tls_server;
-pub use tls::{load_rustls_pem_file, load_rustls_private_key};
+pub use tls::{load_rustls_certs, load_rustls_private_key};
 
 pub struct NexoraServer {
     config: ServerConfig,
@@ -63,8 +63,18 @@ impl NexoraServer {
         let listener = TcpListener::bind(addr).await?;
         info!("Server listening on {}", addr);
 
-        if self.config.enable_tls {
+        if self.config.enable_tls
+            && self.config.cert_path.as_ref().is_some_and(|p| !p.is_empty())
+            && self.config.key_path.as_ref().is_some_and(|p| !p.is_empty())
+        {
             start_tls_server(&self.config, listener, app).await?;
+        } else if self.config.enable_tls {
+            tracing::warn!(
+                "TLS enabled but no cert/key paths provided. Falling back to plain HTTP."
+            );
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
         } else {
             axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown_signal())

@@ -224,9 +224,10 @@ impl ApiServer {
     /// Load TLS configuration
     #[cfg(feature = "tls")]
     async fn load_tls_config(&self) -> Result<tokio_rustls::TlsConfig> {
-        use rustls::{Certificate, PrivateKey, ServerConfig};
-        use rustls_pemfile::{certs, pkcs8_private_keys};
+        use rustls::ServerConfig;
+        use rustls_pemfile::{certs, private_key};
         use std::fs;
+        use std::sync::Arc;
 
         // Default certificate paths
         let cert_path =
@@ -238,32 +239,27 @@ impl ApiServer {
         let cert_file = fs::File::open(&cert_path)
             .map_err(|e| anyhow::anyhow!("Failed to open certificate file {}: {}", cert_path, e))?;
         let mut cert_reader = std::io::BufReader::new(cert_file);
-        let certs = certs(&mut cert_reader)
+        let certs: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| anyhow::anyhow!("Failed to read certificates: {}", e))?;
 
         // Load private key file
         let key_file = fs::File::open(&key_path)
             .map_err(|e| anyhow::anyhow!("Failed to open private key file {}: {}", key_path, e))?;
         let mut key_reader = std::io::BufReader::new(key_file);
-        let keys = pkcs8_private_keys(&mut key_reader)
-            .map_err(|e| anyhow::anyhow!("Failed to read private keys: {}", e))?;
-
-        if keys.is_empty() {
-            return Err(anyhow::anyhow!("No private keys found in {}", key_path));
-        }
+        let key = private_key(&mut key_reader)
+            .map_err(|e| anyhow::anyhow!("Failed to read private keys: {}", e))?
+            .ok_or_else(|| anyhow::anyhow!("No private keys found in {}", key_path))?;
 
         // Create server configuration
-        let mut config = ServerConfig::builder()
-            .with_safe_defaults(rustls::Version::TLS_1_2)
-            .with_no_client_auth()
-            .with_single_cert(
-                certs.into_iter().map(Certificate).collect(),
-                PrivateKey(keys[0].clone()),
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create TLS config: {}", e))?;
-
-        // Enable ALPN for HTTP/2
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        let config = ServerConfig::builder_with_provider(
+            Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
+        )
+        .with_safe_default_protocol_versions()
+        .map_err(|e| anyhow::anyhow!("Failed to set TLS protocol versions: {}", e))?
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| anyhow::anyhow!("Failed to create TLS config: {}", e))?;
 
         Ok(tokio_rustls::TlsConfig::from_config(Arc::new(config)))
     }

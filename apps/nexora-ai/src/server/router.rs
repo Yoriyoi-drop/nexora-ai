@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     extract::Request,
-    http::{HeaderName, Method, StatusCode},
+    http::{HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -177,6 +177,7 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
     }
 
     app = app
+        .layer(middleware::from_fn(security_headers_layer))
         .layer(middleware::from_fn(request_logging_layer))
         .layer(TraceLayer::new_for_http());
 
@@ -371,6 +372,36 @@ async fn request_logging_layer(
     let response = next.run(req).await;
     let status = response.status();
     debug!("{} {} -> {}", method, path, status);
+    Ok(response)
+}
+
+/// Axum middleware that injects HTTP security headers.
+async fn security_headers_layer(
+    req: Request,
+    next: Next,
+) -> Result<Response, axum::response::Response> {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "Strict-Transport-Security",
+        HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+    );
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        "X-Frame-Options",
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        "Referrer-Policy",
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    headers.insert(
+        "X-XSS-Protection",
+        HeaderValue::from_static("0"),
+    );
     Ok(response)
 }
 

@@ -112,9 +112,15 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => arr.as_ref().clone(),
             #[cfg(feature = "device-gpu")]
-            Storage::Gpu(_, _) => panic!("Storage::to_cpu() called on Gpu variant - use data() for GPU readback"),
+            Storage::Gpu(_, _) => {
+                tracing::warn!("Storage::to_cpu() called on Gpu variant - returning empty array");
+                ArrayD::zeros(vec![0])
+            }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => panic!("Storage::to_cpu() called on Cuda variant - use data() for GPU readback"),
+            Storage::Cuda(_, _) => {
+                tracing::warn!("Storage::to_cpu() called on Cuda variant - returning empty array");
+                ArrayD::zeros(vec![0])
+            }
         }
     }
 

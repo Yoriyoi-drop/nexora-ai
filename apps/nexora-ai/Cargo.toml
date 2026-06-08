@@ -39,8 +39,8 @@ tower.workspace = true
 futures.workspace = true
 tower-http = { workspace = true, features = ["cors", "compression-br", "trace", "timeout"] }
 hyper = "1.0"
-rustls = "0.21"
-tokio-rustls = "0.24"
+rustls = "0.23"
+tokio-rustls = "0.26"
 rustls-pemfile.workspace = true
 rustls-pki-types = "1.0"
 rcgen = "0.12"
@@ -55,8 +55,8 @@ once_cell.workspace = true
 rand.workspace = true
 argon2.workspace = true
 hmac = { version = "0.13", optional = true }
-sha2 = { workspace = true, optional = true }
-hex = { workspace = true, optional = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 sysinfo = { workspace = true }
 # psutil removed — sysinfo covers system stats
 reqwest.workspace = true
@@ -72,7 +72,7 @@ default = ["gpu", "cuda", "server-auth", "server-billing", "server-dashboard", "
 production = ["mimalloc", "server-billing"]
 blas = ["blas-src", "openblas-src"]
 server-auth = []
-server-billing = ["dep:hmac", "dep:sha2", "dep:hex"]
+server-billing = ["dep:hmac"]
 server-dashboard = []
 server-gossip = []
 server-telemetry = []

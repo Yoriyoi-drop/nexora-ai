@@ -114,7 +114,7 @@ axum = "0.7"
 tower = { version = "0.5", features = ["limit", "timeout"] }
 tower-http = { version = "0.5", features = ["cors", "compression-br", "trace"] }
 # Database drivers
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "chrono", "uuid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql", "chrono", "uuid"] }
 postgres = "0.19"
 mysql = "25"
 # HTTP client (untuk API requests)
