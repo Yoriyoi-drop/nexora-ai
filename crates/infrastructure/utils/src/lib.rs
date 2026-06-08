@@ -29,6 +29,7 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct UtilsManager {
     performance_monitor: Arc<PerformanceMonitor>,
+    #[allow(dead_code)]
     config: UtilsConfig,
 }
 

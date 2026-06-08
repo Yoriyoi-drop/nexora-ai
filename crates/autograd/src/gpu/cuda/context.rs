@@ -56,7 +56,7 @@ impl PtxCache {
     }
 }
 
-macro_rules! launch_1d {
+macro_rules! _launch_1d {
     ($self:ident, $func:ident, $numel:expr, $out:ident $(, $arg:expr)*) => {{
         let cfg = LaunchConfig {
             grid_dim: ((($numel as u32 + 255) / 256).max(1), 1, 1),
@@ -134,7 +134,7 @@ impl CudaRuntime {
     /// Contents are undefined (may contain stale data) — only use for ops where
     /// every element is fully written by the kernel (elementwise, unary, etc.).
     /// Avoids per-op `alloc_zeros` overhead.
-    fn scratch_f32(&self, numel: usize) -> Result<CudaSlice<f32>, String> {
+    pub fn scratch_f32(&self, numel: usize) -> Result<CudaSlice<f32>, String> {
         let mut lock = self.scratch.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((cap, ref buf)) = *lock {
             if cap >= numel {
@@ -1744,7 +1744,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
     }
 
-    pub fn layer_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, bias: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
+    pub fn layer_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, _bias: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
         let shape = input.shape();
         let rows = shape[0];
         let cols = shape[1];

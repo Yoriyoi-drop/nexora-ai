@@ -610,9 +610,9 @@ pub fn layer_norm_2d(
                                     (v + eps).sqrt()
                                 }).collect::<Vec<_>>();
                                 let n = orig.shape()[1] as f32;
-                                let gpu_in_saved = cu_in.clone();
-                                let gpu_w_saved = cu_w.clone();
-                                let gpu_b_saved = cu_b.clone();
+                                let _gpu_in_saved = cu_in.clone();
+                                let _gpu_w_saved = cu_w.clone();
+                                let _gpu_b_saved = cu_b.clone();
                                 return Tensor::from_cuda_with_grad_fn(
                                     cuda_result,
                                     vec![input.clone(), w.clone(), b.clone()],
@@ -1557,8 +1557,8 @@ pub fn rms_norm_2d(input: &Tensor, weight: &Tensor, eps: f32) -> Tensor {
                         }
                         let cpu_x = input.data();
                         let cpu_w = weight.data();
-                        let gpu_in_saved = cu_in.clone();
-                        let gpu_w_saved = cu_w.clone();
+                        let _gpu_in_saved = cu_in.clone();
+                        let _gpu_w_saved = cu_w.clone();
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_result,
                             vec![input.clone(), weight.clone()],

@@ -37,7 +37,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
                         Box::new(|grad, saved| {
                             let shape_data: Vec<f32> = saved[0].iter().copied().collect();
                             let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
-                            let reshaped = grad.clone().into_shape(orig_shape.clone());
+                            let reshaped = grad.clone().into_shape_with_order(orig_shape.clone());
                             match reshaped {
                                 Ok(t) => vec![t],
                                 Err(e) => {
@@ -70,7 +70,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
         );
         return Tensor::new(ArrayD::zeros(new_shape.to_vec()));
     }
-    let result = match data.clone().into_shape(new_shape.to_vec()) {
+    let result = match data.clone().into_shape_with_order(new_shape.to_vec()) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("Reshape failed: {e}");
@@ -98,7 +98,7 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
         Box::new(|grad, saved| {
             let shape_data: Vec<f32> = saved[0].iter().copied().collect();
             let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
-            let reshaped = grad.clone().into_shape(orig_shape.clone());
+            let reshaped = grad.clone().into_shape_with_order(orig_shape.clone());
             match reshaped {
                 Ok(t) => vec![t],
                 Err(e) => {

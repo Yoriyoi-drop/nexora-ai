@@ -551,7 +551,7 @@ pub fn div(a: &Tensor, b: &Tensor) -> Tensor {
                                     vec![a.clone(), b.clone()],
                                     vec![a_cpu, b_cpu, result_cpu],
                                     Box::new(|grad, saved| {
-                                        let a_bc = &saved[0];
+                                        let _a_bc = &saved[0];
                                         let b_bc = &saved[1];
                                         let result_val = &saved[2];
                                         let da = grad / b_bc;

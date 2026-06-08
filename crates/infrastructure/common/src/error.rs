@@ -498,6 +498,7 @@ enum CircuitBreakerStateType {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ErrorRecord {
     error: NexoraError,
     timestamp: Instant,

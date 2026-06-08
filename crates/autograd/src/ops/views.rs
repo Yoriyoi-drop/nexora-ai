@@ -1,6 +1,7 @@
 use ndarray::{ArrayD, Axis};
 use tracing::debug;
 
+#[cfg(feature = "device-cuda")]
 use super::super::device::Storage;
 use super::super::tensor::{next_tensor_id, Tensor};
 
@@ -79,7 +80,7 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
     for t in tensors {
         let mut shape = t.shape().to_vec();
         shape.insert(axis.min(shape.len()), 1);
-        let arr = t.data().into_shape(shape).unwrap_or_else(|e| {
+        let arr = t.data().into_shape_with_order(shape).unwrap_or_else(|e| {
             debug!("stack reshape failed (infallible): {e}");
             t.data()
         });
@@ -258,7 +259,7 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
             for t in tensors {
                 let mut shape = t.shape().to_vec();
                 shape.insert(axis.min(shape.len()), 1);
-                let arr = t.data().into_shape(shape).unwrap_or_else(|e2| {
+                let arr = t.data().into_shape_with_order(shape).unwrap_or_else(|e2| {
                     debug!("stack reshape failed: {e2}"); t.data()
                 });
                 expanded.push(arr);
@@ -404,7 +405,7 @@ fn stack_cuda(tensors: &[&Tensor], axis: usize) -> Tensor {
     for t in tensors {
         let mut shape = t.shape().to_vec();
         shape.insert(axis.min(shape.len()), 1);
-        let arr = t.data().into_shape(shape).unwrap_or_else(|e| {
+        let arr = t.data().into_shape_with_order(shape).unwrap_or_else(|e| {
             debug!("stack_cuda reshape failed (infallible): {e}");
             t.data()
         });

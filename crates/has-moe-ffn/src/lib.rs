@@ -497,7 +497,7 @@ impl HasMoeFFN {
         hidden_size: usize,
     ) -> Option<nexora_autograd::gpu::GpuTensor> {
         use nexora_autograd::gpu::cuda::{CudaSlice, CudaTensor};
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_autograd::gpu::{GpuContext, GpuBackend, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -510,7 +510,7 @@ impl HasMoeFFN {
 
         // Upload input to CUDA
         let x_flat: Vec<f32> = x_cpu.iter().copied().collect();
-        let input_gpu = CudaTensor::from_cpu(
+        let _input_gpu = CudaTensor::from_cpu(
             &cuda.stream, vec![batch_size, hidden_size], &x_flat, cuda.device_id,
         ).ok()?;
 

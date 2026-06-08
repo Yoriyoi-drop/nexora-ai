@@ -5,7 +5,7 @@ use crate::gpu_caps::GpuCapabilities;
 
 use super::gpu_types::*;
 #[cfg(feature = "cuda")]
-use super::cuda::CudaTensor;
+
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
 /// using buffer-slice bindings with per-chunk offsets.

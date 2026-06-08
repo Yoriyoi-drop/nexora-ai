@@ -40,6 +40,37 @@ impl GpuContext {
             });
         }
 
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            // Compute total norm on CUDA by reading per-tensor norms back to scalars
+            let mut total_sq = 0.0f32;
+            for g in grad_tensors {
+                let g_cuda = self.cuda_read_tensor(cuda, g)?;
+                let norm_sq_cuda = cuda.l2_norm(&g_cuda)
+                    .map_err(|e| GpuError::Compute(format!("CUDA l2_norm: {e}")))?;
+                let mut cpu = vec![0.0f32; 1];
+                cuda.stream
+                    .memcpy_dtoh(&norm_sq_cuda.buffer, &mut cpu)
+                    .map_err(|e| GpuError::Transfer(format!("CUDA norm dtoh: {e}")))?;
+                total_sq += cpu[0];
+            }
+            let total_norm = total_sq.sqrt();
+            if total_norm <= max_norm || total_norm <= 0.0 {
+                return Ok(GpuGradClipResult {
+                    was_clipped: false, scale_factor: 1.0, norm: total_norm,
+                });
+            }
+            let scale = max_norm / total_norm;
+            for g in grad_tensors {
+                let g_cuda = self.cuda_read_tensor(cuda, g)?;
+                cuda.scale_inplace(&g_cuda, scale)
+                    .map_err(|e| GpuError::Compute(format!("CUDA scale_inplace: {e}")))?;
+            }
+            return Ok(GpuGradClipResult {
+                was_clipped: true, scale_factor: scale, norm: total_norm,
+            });
+        }
+
         // 1. Compute per-tensor L2 norm squared on GPU (batched)
         let mut norm_sq_tensors = Vec::with_capacity(grad_tensors.len());
         for g in grad_tensors {

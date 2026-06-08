@@ -121,7 +121,7 @@ pub fn reduce_grad_for_shape(grad: &ArrayD<f32>, orig_shape: &[usize]) -> ArrayD
         return result;
     }
 
-    match result.clone().into_shape(orig_shape.to_vec()) {
+    match result.clone().into_shape_with_order(orig_shape.to_vec()) {
         Ok(r) => r,
         Err(_) => {
             let flat: Vec<f32> = result.iter().copied().collect();

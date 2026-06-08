@@ -45,18 +45,21 @@ struct LogEntry {
 
 // Struct untuk parsing cargo-nextest JSON output
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct NextestOutput {
     #[serde(rename = "test_run")]
     test_run: TestRun,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct TestRun {
     #[serde(rename = "test_list")]
     test_list: Vec<TestCase>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct TestCase {
     #[serde(rename = "test_name")]
     test_name: String,

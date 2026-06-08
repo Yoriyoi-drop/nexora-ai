@@ -83,6 +83,37 @@ impl GpuAdam {
     ) -> Result<(), GpuError> {
         self.step += 1;
 
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = ctx.cuda {
+            for i in 0..params.len() {
+                if params[i].numel() == 0 { continue; }
+                let param_cuda = ctx.cuda_read_tensor(cuda, params[i])?;
+                let grad_cuda = ctx.cuda_read_tensor(cuda, grads[i])?;
+                let m_cuda = ctx.cuda_read_tensor(cuda, &self.m[i])?;
+                let v_cuda = ctx.cuda_read_tensor(cuda, &self.v[i])?;
+                cuda.adam_step(&param_cuda, &grad_cuda, &m_cuda, &v_cuda,
+                    self.lr, self.beta1, self.beta2, self.eps, self.weight_decay, self.step)
+                    .map_err(|e| GpuError::Compute(format!("CUDA adam_step: {e}")))?;
+                let numel = params[i].numel();
+                let mut cpu_buf = vec![0.0f32; numel];
+                cuda.stream
+                    .memcpy_dtoh(&param_cuda.buffer, &mut cpu_buf)
+                    .map_err(|e| GpuError::Transfer(format!("CUDA adam_step param dtoh: {e}")))?;
+                ctx.queue.write_buffer(params[i].buffer(), 0, bytemuck::cast_slice(&cpu_buf));
+                let mut m_cpu = vec![0.0f32; numel];
+                cuda.stream
+                    .memcpy_dtoh(&m_cuda.buffer, &mut m_cpu)
+                    .map_err(|e| GpuError::Transfer(format!("CUDA adam_step m dtoh: {e}")))?;
+                ctx.queue.write_buffer(self.m[i].buffer(), 0, bytemuck::cast_slice(&m_cpu));
+                let mut v_cpu = vec![0.0f32; numel];
+                cuda.stream
+                    .memcpy_dtoh(&v_cuda.buffer, &mut v_cpu)
+                    .map_err(|e| GpuError::Transfer(format!("CUDA adam_step v dtoh: {e}")))?;
+                ctx.queue.write_buffer(self.v[i].buffer(), 0, bytemuck::cast_slice(&v_cpu));
+            }
+            return Ok(());
+        }
+
         // Gradient clipping on GPU (batched)
         if let Some(max_norm) = self.max_grad_norm {
             self.clip_gradients(ctx, grads, max_norm)?;

@@ -39,6 +39,217 @@ impl GpuContext {
         buf
     }
 
+    // ── CUDA bridge helpers ──
+
+    /// Read a wgpu GpuTensor to a CudaTensor via staging buffer round-trip.
+    #[cfg(feature = "cuda")]
+    pub(crate) fn cuda_read_tensor(
+        &self,
+        cuda: &crate::gpu::cuda::CudaRuntime,
+        tensor: &GpuTensor,
+    ) -> Result<CudaTensor, GpuError> {
+        let numel = tensor.numel();
+        let byte_size = (numel * 4) as u64;
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cuda_read_staging"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.flush();
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("cuda_read_encoder"),
+        });
+        encoder.copy_buffer_to_buffer(tensor.buffer(), 0, &staging, 0, byte_size);
+        self.queue.submit(Some(encoder.finish()));
+
+        let data: Vec<f32> = {
+            let _limiter_token = self.readback_limiter
+                .acquire(std::time::Duration::from_secs(30))
+                .then_some(())
+                .ok_or_else(|| GpuError::Timeout("CUDA read tensor limiter".into()))?;
+            let slice = staging.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let result = loop {
+                self.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_millis(100)),
+                });
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(Ok(())) => {
+                        let mapped = slice.get_mapped_range();
+                        let data_f32: &[f32] = bytemuck::cast_slice(&mapped);
+                        let v = data_f32.to_vec();
+                        drop(mapped);
+                        staging.unmap();
+                        break Ok(v);
+                    }
+                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break Err(GpuError::Timeout("CUDA read tensor".into()));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() > deadline {
+                            break Err(GpuError::Timeout("CUDA read tensor deadline".into()));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            };
+            crate::gpu::gpu_observability::PCIE_READ_BYTES
+                .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
+            result?
+        };
+
+        CudaTensor::from_cpu(&cuda.stream, tensor.shape().clone(), &data, cuda.device_id)
+            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))
+    }
+
+    /// Read multiple wgpu tensors to CudaTensors using a single batched staging buffer.
+    #[cfg(feature = "cuda")]
+    fn cuda_read_tensors(
+        &self,
+        cuda: &crate::gpu::cuda::CudaRuntime,
+        tensors: &[&GpuTensor],
+    ) -> Result<Vec<CudaTensor>, GpuError> {
+        let offsets: Vec<u64> = tensors.iter().scan(0u64, |offset, t| {
+            let o = *offset;
+            *offset += (t.numel() * 4) as u64;
+            Some(o)
+        }).collect();
+        let total_bytes = offsets.last().map(|&o| {
+            let last_idx = tensors.len() - 1;
+            o + (tensors[last_idx].numel() * 4) as u64
+        }).unwrap_or(0);
+
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cuda_read_tensors_staging"),
+            size: total_bytes,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.flush();
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("cuda_read_tensors_encoder"),
+        });
+        for (i, t) in tensors.iter().enumerate() {
+            encoder.copy_buffer_to_buffer(t.buffer(), 0, &staging, offsets[i], (t.numel() * 4) as u64);
+        }
+        self.queue.submit(Some(encoder.finish()));
+
+        let flat_data: Vec<f32> = {
+            let _limiter_token = self.readback_limiter
+                .acquire(std::time::Duration::from_secs(30))
+                .then_some(())
+                .ok_or_else(|| GpuError::Timeout("CUDA read tensors limiter".into()))?;
+            let slice = staging.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let result = loop {
+                self.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_millis(100)),
+                });
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(Ok(())) => {
+                        let mapped = slice.get_mapped_range();
+                        let data_f32: &[f32] = bytemuck::cast_slice(&mapped);
+                        let v = data_f32.to_vec();
+                        drop(mapped);
+                        staging.unmap();
+                        break Ok(v);
+                    }
+                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break Err(GpuError::Timeout("CUDA read tensors".into()));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() > deadline {
+                            break Err(GpuError::Timeout("CUDA read tensors deadline".into()));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            };
+            crate::gpu::gpu_observability::PCIE_READ_BYTES
+                .fetch_add(total_bytes, std::sync::atomic::Ordering::Relaxed);
+            result?
+        };
+
+        tensors.iter().enumerate().map(|(i, t)| {
+            let start = (offsets[i] / 4) as usize;
+            let end = start + t.numel();
+            CudaTensor::from_cpu(&cuda.stream, t.shape().clone(), &flat_data[start..end], cuda.device_id)
+                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))
+        }).collect()
+    }
+
+    /// Write a CudaTensor result back to a wgpu GpuTensor.
+    #[cfg(feature = "cuda")]
+    fn cuda_write_tensor(
+        &self,
+        cuda: &crate::gpu::cuda::CudaRuntime,
+        tensor: &CudaTensor,
+    ) -> Result<GpuTensor, GpuError> {
+        let numel = tensor.numel();
+        let byte_size = (numel * 4) as u64;
+        let mut cpu_buf = vec![0.0f32; numel];
+        cuda.stream
+            .memcpy_dtoh(&tensor.buffer, &mut cpu_buf)
+            .map_err(|e| GpuError::Transfer(format!("CUDA dtoh: {e}")))?;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cuda_write_output"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        self.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
+        crate::gpu::gpu_observability::PCIE_WRITE_BYTES
+            .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
+        Ok(GpuTensor {
+            shape: tensor.shape().clone(),
+            buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
+    /// Write a CudaTensor (result of backward op) back to wgpu GpuTensor with a specific shape.
+    #[cfg(feature = "cuda")]
+    fn cuda_write_tensor_with_shape(
+        &self,
+        cuda: &crate::gpu::cuda::CudaRuntime,
+        tensor: &CudaTensor,
+        shape: Vec<usize>,
+    ) -> Result<GpuTensor, GpuError> {
+        let numel = tensor.numel();
+        let byte_size = (numel * 4) as u64;
+        let mut cpu_buf = vec![0.0f32; numel];
+        cuda.stream
+            .memcpy_dtoh(&tensor.buffer, &mut cpu_buf)
+            .map_err(|e| GpuError::Transfer(format!("CUDA dtoh: {e}")))?;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cuda_write_output"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        self.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
+        crate::gpu::gpu_observability::PCIE_WRITE_BYTES
+            .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
+        Ok(GpuTensor {
+            shape,
+            buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+        })
+    }
+
     // ====================================================================
     // SECTION: Gradient & MoE
     // ====================================================================
@@ -49,6 +260,14 @@ impl GpuContext {
         out: &GpuTensor,
         num_replicas: u32,
     ) -> Result<(), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let grad_cuda = self.cuda_read_tensor(cuda, grad_buffers)?;
+            let out_cuda = self.cuda_read_tensor(cuda, out)?;
+            cuda.gradient_allreduce(&grad_cuda, &out_cuda, num_replicas)
+                .map_err(|e| GpuError::Compute(format!("CUDA gradient_allreduce: {e}")))?;
+            return Ok(());
+        }
         let numel = out.numel() as u32;
         let pipeline = self
             .pipelines
@@ -160,6 +379,13 @@ impl GpuContext {
         scale: f32,
         seed: u32,
     ) -> Result<(), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let mask_cuda = self.cuda_read_tensor(cuda, mask)?;
+            cuda.dropout_mask(&mask_cuda, rate, scale, seed)
+                .map_err(|e| GpuError::Compute(format!("CUDA dropout_mask: {e}")))?;
+            return Ok(());
+        }
         let pipeline = self
             .pipelines
             .get("dropout_mask")
@@ -185,6 +411,13 @@ impl GpuContext {
 
     /// Zero out a GPU tensor buffer in-place.
     pub fn fill_zero(&self, t: &GpuTensor) -> Result<(), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let t_cuda = self.cuda_read_tensor(cuda, t)?;
+            cuda.fill_zero(&t_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA fill_zero: {e}")))?;
+            return Ok(());
+        }
         let pipeline = self
             .pipelines
             .get("fill_zero")
@@ -209,6 +442,13 @@ impl GpuContext {
 
     /// Fill a GPU tensor buffer with a constant value in-place.
     pub fn fill_constant(&self, t: &GpuTensor, value: f32) -> Result<(), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let t_cuda = self.cuda_read_tensor(cuda, t)?;
+            cuda.fill_constant(&t_cuda, value)
+                .map_err(|e| GpuError::Compute(format!("CUDA fill_constant: {e}")))?;
+            return Ok(());
+        }
         let pipeline = self
             .pipelines
             .get("fill_constant")
@@ -229,6 +469,13 @@ impl GpuContext {
 
     /// Scale a GPU tensor buffer in-place (multiply each element by `scale`).
     pub fn scale_inplace(&self, t: &GpuTensor, scale: f32) -> Result<(), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let t_cuda = self.cuda_read_tensor(cuda, t)?;
+            cuda.scale_inplace(&t_cuda, scale)
+                .map_err(|e| GpuError::Compute(format!("CUDA scale_inplace: {e}")))?;
+            return Ok(());
+        }
         let pipeline = self
             .pipelines
             .get("scale_inplace")
@@ -249,6 +496,13 @@ impl GpuContext {
 
     /// Compute L2 norm (sum of squares) for a GPU tensor. Returns scalar tensor.
     pub fn l2_norm(&self, t: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let t_cuda = self.cuda_read_tensor(cuda, t)?;
+            let result_cuda = cuda.l2_norm(&t_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA l2_norm: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let pipeline = self
             .pipelines
             .get("l2_norm")
@@ -298,6 +552,13 @@ impl GpuContext {
 
     /// Causal softmax: softmax over last dim with causal mask.
     pub fn causal_softmax(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.causal_softmax(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA causal_softmax: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = input.shape();
         let batch = u32::try_from(shape[0]).unwrap_or(u32::MAX);
         let dim = u32::try_from(shape[1]).unwrap_or(u32::MAX);
@@ -364,6 +625,28 @@ impl GpuContext {
         let batch = shape[0];
         let vocab = u32::try_from(shape[1]).unwrap_or(u32::MAX);
         let numel = logits.numel();
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let mut current = self.cuda_read_tensor(cuda, logits)?;
+            if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
+                current = cuda.temperature_scale(&current, temperature)
+                    .map_err(|e| GpuError::Compute(format!("CUDA temperature_scale: {e}")))?;
+            }
+            current = cuda.softmax(&current)
+                .map_err(|e| GpuError::Compute(format!("CUDA softmax: {e}")))?;
+            if top_k > 0 && top_k < vocab {
+                current = cuda.top_k_mask(&current, top_k)
+                    .map_err(|e| GpuError::Compute(format!("CUDA top_k_mask: {e}")))?;
+            }
+            if top_p > 0.0 && top_p < 1.0 {
+                current = cuda.top_p_mask(&current, top_p)
+                    .map_err(|e| GpuError::Compute(format!("CUDA top_p_mask: {e}")))?;
+            }
+            let result_cuda = cuda.multinomial_sample(&current, seed)
+                .map_err(|e| GpuError::Compute(format!("CUDA multinomial_sample: {e}")))?;
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![batch]);
+        }
 
         // Working copy of logits (pool-allocated)
         let work_buf = {
@@ -708,6 +991,15 @@ impl GpuContext {
                 "matmul: unsupported dtypes a={:?} b={:?}",
                 a.dtype, b.dtype
             )));
+        }
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let a_cuda = self.cuda_read_tensor(cuda, a)?;
+            let b_cuda = self.cuda_read_tensor(cuda, b)?;
+            let result_cuda = cuda.matmul(&a_cuda, &b_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA matmul: {e}")))?;
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
         }
 
         let m = a_shape[0];
@@ -1345,6 +1637,30 @@ impl GpuContext {
     /// Dispatch element-wise/unary op: output = op(a)
 
     pub fn elementwise_unary(&self, a: &GpuTensor, op: ElemOp) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            if matches!(op, ElemOp::Neg | ElemOp::Exp | ElemOp::Sqrt | ElemOp::Relu
+                | ElemOp::Gelu | ElemOp::Sigmoid | ElemOp::Tanh | ElemOp::Silu
+                | ElemOp::Ln | ElemOp::Powf) {
+                let input_cuda = self.cuda_read_tensor(cuda, a)?;
+                let result_cuda = match op {
+                    ElemOp::Neg => cuda.neg(&input_cuda),
+                    ElemOp::Exp => cuda.exp(&input_cuda),
+                    ElemOp::Sqrt => cuda.sqrt(&input_cuda),
+                    ElemOp::Relu => cuda.relu(&input_cuda),
+                    ElemOp::Gelu => cuda.gelu(&input_cuda),
+                    ElemOp::Sigmoid => cuda.sigmoid(&input_cuda),
+                    ElemOp::Tanh => cuda.tanh(&input_cuda),
+                    ElemOp::Silu => cuda.silu(&input_cuda),
+                    ElemOp::Ln => cuda.ln(&input_cuda),
+                    ElemOp::Powf => cuda.powf(&input_cuda, 2.0),
+                    _ => unreachable!(),
+                };
+                let result_cuda = result_cuda
+                    .map_err(|e| GpuError::Compute(format!("CUDA elementwise_unary: {e}")))?;
+                return self.cuda_write_tensor(cuda, &result_cuda);
+            }
+        }
         let shape = a.shape();
         let numel = a.numel();
 
@@ -1496,6 +1812,24 @@ impl GpuContext {
             return self.elementwise_binary(&a_bc, &b_bc, op);
         }
 
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            if matches!(op, ElemOp::Add | ElemOp::Sub | ElemOp::Mul | ElemOp::Div) {
+                let a_cuda = self.cuda_read_tensor(cuda, a)?;
+                let b_cuda = self.cuda_read_tensor(cuda, b)?;
+                let result_cuda = match op {
+                    ElemOp::Add => cuda.add(&a_cuda, &b_cuda),
+                    ElemOp::Sub => cuda.sub(&a_cuda, &b_cuda),
+                    ElemOp::Mul => cuda.mul(&a_cuda, &b_cuda),
+                    ElemOp::Div => cuda.div(&a_cuda, &b_cuda),
+                    _ => unreachable!(),
+                };
+                let result_cuda = result_cuda
+                    .map_err(|e| GpuError::Compute(format!("CUDA elementwise_binary: {e}")))?;
+                return self.cuda_write_tensor(cuda, &result_cuda);
+            }
+        }
+
         let numel = a.numel();
 
         let out_buffer = self.alloc_or_create_buffer(
@@ -1596,6 +1930,13 @@ impl GpuContext {
         input: &GpuTensor,
         negative_slope: f32,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.leaky_relu(&input_cuda, negative_slope)
+                .map_err(|e| GpuError::Compute(format!("CUDA leaky_relu: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let mut result = input.clone();
         self.leaky_relu_inplace(&mut result, negative_slope)?;
         Ok(result)
@@ -1610,6 +1951,15 @@ impl GpuContext {
         sin: &GpuTensor,
         head_dim: u32,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let x_cuda = self.cuda_read_tensor(cuda, x)?;
+            let cos_cuda = self.cuda_read_tensor(cuda, cos)?;
+            let sin_cuda = self.cuda_read_tensor(cuda, sin)?;
+            let result_cuda = cuda.rotary_embedding(&x_cuda, &cos_cuda, &sin_cuda, head_dim)
+                .map_err(|e| GpuError::Compute(format!("CUDA rotary_embedding: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = x.shape();
         if shape.len() != 2 {
             return Err(GpuError::ShapeMismatch(
@@ -1688,6 +2038,14 @@ impl GpuContext {
         q_heads: u32,
         dim: u32,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let src_cuda = self.cuda_read_tensor(cuda, src)?;
+            let result_cuda = cuda.repeat_heads(&src_cuda, kv_heads, q_heads, dim)
+                .map_err(|e| GpuError::Compute(format!("CUDA repeat_heads: {e}")))?;
+            let seq = src.shape()[0];
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![q_heads as usize, seq, dim as usize]);
+        }
         let shape = src.shape();
         if shape.len() != 3 {
             return Err(GpuError::ShapeMismatch(
@@ -1928,16 +2286,37 @@ impl GpuContext {
 
     /// Convenience: reduce sum to scalar
     pub fn sum(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.sum(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA sum: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         self.reduce(input, ReduceOp::Sum)
     }
 
     /// Convenience: reduce max to scalar
     pub fn max(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.max_val(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA max: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         self.reduce(input, ReduceOp::Max)
     }
 
     /// Convenience: reduce min to scalar
     pub fn min(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.min_val(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA min: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         self.reduce(input, ReduceOp::Min)
     }
 
@@ -1951,6 +2330,13 @@ impl GpuContext {
 
     /// Softmax along last axis. Input shape: [rows, dim].
     pub fn softmax(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.softmax(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA softmax: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = input.shape();
         if shape.len() != 2 {
             return Err(GpuError::ShapeMismatch(
@@ -2029,6 +2415,14 @@ impl GpuContext {
         weight: &GpuTensor,
         eps: f32,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let x_cuda = self.cuda_read_tensor(cuda, x)?;
+            let weight_cuda = self.cuda_read_tensor(cuda, weight)?;
+            let result_cuda = cuda.rms_norm(&x_cuda, &weight_cuda, eps)
+                .map_err(|e| GpuError::Compute(format!("CUDA rms_norm: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = x.shape();
         if shape.len() != 2 {
             return Err(GpuError::ShapeMismatch("RMSNorm GPU: x must be 2D".into()));
@@ -2105,6 +2499,18 @@ impl GpuContext {
         grad: &GpuTensor,
         eps: f32,
     ) -> Result<(GpuTensor, GpuTensor), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let weight_cuda = self.cuda_read_tensor(cuda, weight)?;
+            let grad_cuda = self.cuda_read_tensor(cuda, grad)?;
+            let (dx_cuda, dw_cuda) = cuda.rms_norm_backward(&input_cuda, &weight_cuda, &grad_cuda, eps)
+                .map_err(|e| GpuError::Compute(format!("CUDA rms_norm_backward: {e}")))?;
+            let dim = input.shape()[1];
+            let dx = self.cuda_write_tensor(cuda, &dx_cuda)?;
+            let dw = self.cuda_write_tensor_with_shape(cuda, &dw_cuda, vec![dim as usize])?;
+            return Ok((dx, dw));
+        }
         let shape = input.shape();
         let batch = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -2212,6 +2618,20 @@ impl GpuContext {
         grad: &GpuTensor,
         eps: f32,
     ) -> Result<(GpuTensor, GpuTensor, GpuTensor), GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let weight_cuda = self.cuda_read_tensor(cuda, weight)?;
+            let bias_cuda = self.cuda_read_tensor(cuda, bias)?;
+            let grad_cuda = self.cuda_read_tensor(cuda, grad)?;
+            let (dx_cuda, dw_cuda, db_cuda) = cuda.layer_norm_backward(&input_cuda, &weight_cuda, &bias_cuda, &grad_cuda, eps)
+                .map_err(|e| GpuError::Compute(format!("CUDA layer_norm_backward: {e}")))?;
+            let dim = input.shape()[1];
+            let dx = self.cuda_write_tensor(cuda, &dx_cuda)?;
+            let dw = self.cuda_write_tensor_with_shape(cuda, &dw_cuda, vec![dim as usize])?;
+            let db = self.cuda_write_tensor_with_shape(cuda, &db_cuda, vec![dim as usize])?;
+            return Ok((dx, dw, db));
+        }
         let shape = input.shape();
         let batch = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -2349,6 +2769,14 @@ impl GpuContext {
         logits: &GpuTensor,
         targets: &GpuTensor,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let logits_cuda = self.cuda_read_tensor(cuda, logits)?;
+            let targets_cuda = self.cuda_read_tensor(cuda, targets)?;
+            let result_cuda = cuda.cross_entropy(&logits_cuda, &targets_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA cross_entropy: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = logits.shape();
         if shape.len() != 2 {
             return Err(GpuError::ShapeMismatch(
@@ -2427,6 +2855,15 @@ impl GpuContext {
         grad: &GpuTensor,
         targets: &GpuTensor,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let softmax_cuda = self.cuda_read_tensor(cuda, softmax)?;
+            let grad_cuda = self.cuda_read_tensor(cuda, grad)?;
+            let targets_cuda = self.cuda_read_tensor(cuda, targets)?;
+            let result_cuda = cuda.cross_entropy_backward(&softmax_cuda, &grad_cuda, &targets_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA cross_entropy_backward: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = softmax.shape();
         let total = softmax.numel() as u32;
 
@@ -2489,6 +2926,14 @@ impl GpuContext {
         grad: &GpuTensor,
         vocab_size: usize,
     ) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let ids_cuda = self.cuda_read_tensor(cuda, ids)?;
+            let grad_cuda = self.cuda_read_tensor(cuda, grad)?;
+            let result_cuda = cuda.embedding_backward(&ids_cuda, &grad_cuda, vocab_size)
+                .map_err(|e| GpuError::Compute(format!("CUDA embedding_backward: {e}")))?;
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![vocab_size, grad.shape()[grad.shape().len() - 1]]);
+        }
         let grad_shape = grad.shape();
         let dim = grad_shape[grad_shape.len() - 1];
         let num_ids = ids.numel();
@@ -2550,6 +2995,14 @@ impl GpuContext {
             return Err(GpuError::ShapeMismatch(
                 "Embedding GPU: weight must be 2D [vocab, dim]".into(),
             ));
+        }
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let ids_cuda = self.cuda_read_tensor(cuda, ids)?;
+            let weight_cuda = self.cuda_read_tensor(cuda, weight)?;
+            let result_cuda = cuda.embedding(&ids_cuda, &weight_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA embedding: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
         }
         let seq_len = ids.numel() as u32;
         let dim = w_shape[1] as u32;
@@ -2616,6 +3069,15 @@ impl GpuContext {
             return Err(GpuError::ShapeMismatch(
                 "LayerNorm GPU: x must be 2D".into(),
             ));
+        }
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let x_cuda = self.cuda_read_tensor(cuda, x)?;
+            let weight_cuda = self.cuda_read_tensor(cuda, weight)?;
+            let bias_cuda = self.cuda_read_tensor(cuda, bias)?;
+            let result_cuda = cuda.layer_norm(&x_cuda, &weight_cuda, &bias_cuda, eps)
+                .map_err(|e| GpuError::Compute(format!("CUDA layer_norm: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
         }
         let batch = shape[0] as u32;
         let dim = shape[1] as u32;
@@ -2693,6 +3155,13 @@ impl GpuContext {
     /// Transpose a 2D tensor [rows, cols] → [cols, rows]
 
     pub fn transpose(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let input_cuda = self.cuda_read_tensor(cuda, input)?;
+            let result_cuda = cuda.transpose(&input_cuda)
+                .map_err(|e| GpuError::Compute(format!("CUDA transpose: {e}")))?;
+            return self.cuda_write_tensor(cuda, &result_cuda);
+        }
         let shape = input.shape();
         if shape.len() != 2 {
             return Err(GpuError::ShapeMismatch(
@@ -3079,6 +3548,22 @@ impl GpuContext {
                 "Fused Attention backward: Q must be 4D [B,H,S,D]".into(),
             ));
         }
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let q_cuda = self.cuda_read_tensor(cuda, q)?;
+            let k_cuda = self.cuda_read_tensor(cuda, k)?;
+            let v_cuda = self.cuda_read_tensor(cuda, v)?;
+            let grad_cuda = self.cuda_read_tensor(cuda, grad)?;
+            let (dq_cuda, dk_cuda, dv_cuda) = cuda.fused_attention_backward(
+                &q_cuda, &k_cuda, &v_cuda, &grad_cuda, scale, causal,
+            ).map_err(|e| GpuError::Compute(format!("CUDA fused_attention_backward: {e}")))?;
+            let dq = self.cuda_write_tensor_with_shape(cuda, &dq_cuda, shape.clone())?;
+            let dk = self.cuda_write_tensor_with_shape(cuda, &dk_cuda, shape.clone())?;
+            let dv = self.cuda_write_tensor_with_shape(cuda, &dv_cuda, shape.clone())?;
+            return Ok((dq, dk, dv));
+        }
+
         let batch = shape[0] as u32;
         let heads = shape[1] as u32;
         let seq_len = shape[2] as u32;

@@ -725,7 +725,7 @@ impl SimdBenchmarks {
         // Benchmark fallback
         let start = std::time::Instant::now();
         for _ in 0..1000 {
-            SimdVectorOps::dot_product_fallback(&a, &b);
+            let _ = SimdVectorOps::dot_product_fallback(&a, &b);
         }
         let fallback_time = start.elapsed().as_secs_f64();
 
@@ -735,7 +735,7 @@ impl SimdBenchmarks {
             for _ in 0..1000 {
                 // SAFETY: AVX2 was verified via `is_x86_feature_detected!("avx2")`
                 // above, and the slices have equal length (constructed that way).
-                unsafe { SimdVectorOps::dot_product_avx2(&a, &b) };
+                let _ = unsafe { SimdVectorOps::dot_product_avx2(&a, &b) };
             }
             start.elapsed().as_secs_f64()
         } else {
@@ -767,7 +767,7 @@ impl SimdBenchmarks {
         let simd_time = if is_x86_feature_detected!("avx2") {
             let start = std::time::Instant::now();
             for _ in 0..1000 {
-                SimdTextOps::string_similarity(&text1, &text2);
+                let _ = SimdTextOps::string_similarity(&text1, &text2);
             }
             start.elapsed().as_secs_f64()
         } else {

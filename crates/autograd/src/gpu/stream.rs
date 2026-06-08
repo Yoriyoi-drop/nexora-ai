@@ -5,8 +5,7 @@ use std::time::Instant;
 use super::gpu_tensor::{readback_with_timeout, GpuDtype, GpuTensor};
 use super::gpu_types::*;
 use super::wgsl::*;
-#[cfg(feature = "cuda")]
-use super::cuda::CudaTensor;
+
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
 /// using buffer-slice bindings with per-chunk offsets.

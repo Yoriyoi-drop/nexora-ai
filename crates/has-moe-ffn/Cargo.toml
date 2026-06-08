@@ -13,7 +13,11 @@ tracing.workspace = true
 nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
 nexora-quantization = { path = "../quantization" }
 
+[dependencies.cudarc]
+version = "0.19"
+optional = true
+
 [features]
 default = ["gpu"]
 gpu = ["nexora-autograd/gpu"]
-cuda = ["nexora-autograd/cuda"]
+cuda = ["nexora-autograd/cuda", "cudarc"]

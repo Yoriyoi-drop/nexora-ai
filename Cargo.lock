@@ -3614,6 +3614,7 @@ dependencies = [
 name = "nexora-has-moe-ffn"
 version = "0.2.0"
 dependencies = [
+ "cudarc",
  "ndarray",
  "nexora-autograd",
  "nexora-quantization",

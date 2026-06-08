@@ -524,7 +524,7 @@ impl Expert {
     #[cfg(feature = "cuda")]
     pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
         use nexora_autograd::gpu::{GpuContext, GpuBackend};
-        use cudarc::cublaslt::safe::{MatmulConfig, Activation};
+        use cudarc::cublaslt::safe::{Matmul, MatmulConfig, Activation};
 
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
@@ -550,7 +550,11 @@ impl Expert {
         // Try matmul + bias (+ activation) in one launch via cuBLASLt epilogue.
         // This saves 2-3 kernel launches per expert and may use TF32 tensor cores.
         // Falls back to sequential cuBLAS gemm + add + activation calls.
-        let try_fused = |a: &_, w: &_, bias: &_, act, out_shape: Vec<usize>| -> Option<_> {
+        let try_fused = |a: &nexora_autograd::gpu::cuda::CudaTensor,
+                         w: &nexora_autograd::gpu::cuda::CudaTensor,
+                         bias: &nexora_autograd::gpu::cuda::CudaTensor,
+                         act: Option<Activation>,
+                         out_shape: Vec<usize>| -> Option<_> {
             // Geometry mirrors the existing cuBLAS GemmConfig:
             //   C [m,n] = op(A) * op(B) where op(A)=A^T (transa=T), op(B)=B^T (transb=T)
             let m_dim = w.shape[1] as u64;  // output cols (hidden or inter)
@@ -561,6 +565,7 @@ impl Expert {
             let cfg = MatmulConfig {
                 transa: true,
                 transb: true,
+                transc: false,
                 m: m_dim, n: n_dim, k: k_dim,
                 alpha: 1.0,
                 lda: m_dim as i64,

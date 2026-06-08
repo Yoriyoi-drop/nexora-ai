@@ -8,7 +8,7 @@ use crate::gpu::GpuError;
 #[cfg(feature = "device-gpu")]
 use crate::Storage;
 #[cfg(feature = "device-cuda")]
-use crate::gpu::cuda::CudaTensor;
+
 #[cfg(feature = "device-cuda")]
 use crate::gpu::CudaRuntime;
 use ndarray::ArrayD;
