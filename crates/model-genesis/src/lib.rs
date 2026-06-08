@@ -34,7 +34,7 @@ use self::{
     identity::GenesisIdentity,
 };
 
-pub struct NxrGenesisModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<GenesisConfig, GenesisMetrics, GenesisState>,
     identity: GenesisIdentity,
     _agents: GenesisAgents,
@@ -125,7 +125,7 @@ impl Default for GenesisMetrics {
     }
 }
 
-impl NxrGenesisModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = GenesisIdentity::new();
         let capabilities = GenesisCapabilities::new();
@@ -334,7 +334,7 @@ fn augment_genesis_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrGenesisModel {
+impl NxrModel for FoundationModel {
     type Config = GenesisConfig;
     type Metrics = GenesisMetrics;
     type State = GenesisState;
@@ -396,9 +396,9 @@ impl NxrModel for NxrGenesisModel {
         }
 
         let augmented = augment_genesis_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrGenesisModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrGenesisModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::genesis());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -505,19 +505,19 @@ impl NxrModel for NxrGenesisModel {
     }
 }
 
-impl HasComponents for NxrGenesisModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrGenesisModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrGenesisModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

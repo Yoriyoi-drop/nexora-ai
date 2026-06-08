@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;

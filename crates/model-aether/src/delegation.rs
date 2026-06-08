@@ -1,6 +1,6 @@
 use crate::classifier;
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrAetherModel;
+use nexora_model_core::foundation::FoundationModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
 use nexora_multimodal::MultimodalResult;
@@ -10,9 +10,9 @@ use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-fn foundation() -> &'static NxrAetherModel {
-    static F: OnceLock<NxrAetherModel> = OnceLock::new();
-    F.get_or_init(NxrAetherModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::aether)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

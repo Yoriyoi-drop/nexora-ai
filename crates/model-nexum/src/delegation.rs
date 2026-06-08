@@ -1,5 +1,5 @@
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrNexumModel;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_reasoning::SacaEngine;
@@ -14,9 +14,9 @@ static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
 static PLANNER: OnceLock<HierarchicalPlanner> = OnceLock::new();
 static ALIGNMENT: OnceLock<SparoNexumIntegration> = OnceLock::new();
 
-fn foundation() -> &'static NxrNexumModel {
-    static F: OnceLock<NxrNexumModel> = OnceLock::new();
-    F.get_or_init(NxrNexumModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::nexum)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

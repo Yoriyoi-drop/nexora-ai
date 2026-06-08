@@ -36,7 +36,7 @@ pub use agents::*;
 pub use capabilities::*;
 pub use identity::*;
 
-pub struct NxrNexumModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<NexumConfig, NexumMetrics, NexumState>,
     identity: NexumIdentity,
     capabilities: NexumCapabilities,
@@ -173,7 +173,7 @@ impl Default for NexumMetrics {
     }
 }
 
-impl NxrNexumModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = NexumIdentity::new();
         let capabilities = NexumCapabilities::new();
@@ -368,7 +368,7 @@ fn augment_nexum_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrNexumModel {
+impl NxrModel for FoundationModel {
     type Config = NexumConfig;
     type Metrics = NexumMetrics;
     type State = NexumState;
@@ -428,9 +428,9 @@ impl NxrModel for NxrNexumModel {
         }
 
         let augmented = augment_nexum_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrNexumModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrNexumModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::nexum());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -537,19 +537,19 @@ impl NxrModel for NxrNexumModel {
     }
 }
 
-impl HasComponents for NxrNexumModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrNexumModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrNexumModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

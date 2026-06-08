@@ -13,12 +13,12 @@ thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
-futures = "0.3"
+futures = { workspace = true }
 parking_lot.workspace = true
 crossbeam.workspace = true
 chrono.workspace = true
-rand = "0.8"
-regex = "1.0"
+rand = { workspace = true }
+regex = { workspace = true }
 reqwest.workspace = true
 
 # Internal dependencies

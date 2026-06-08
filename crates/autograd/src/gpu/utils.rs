@@ -2876,9 +2876,19 @@ impl GpuContext {
                 result.map_err(|e| e)?
             };
 
-            let result_cuda = cuda
-                .fused_attention(&q_cuda, &k_cuda, &v_cuda, scale, causal)
-                .map_err(|e| GpuError::Compute(format!("CUDA fused_attention: {e}")))?;
+            // FlashDecoding for decode (S_q=1) or very long sequences (>4096);
+            // flash_attn for prefill with moderate lengths.
+            let result_cuda = if q_shape[2] == 1 || q_shape[2] > 4096 {
+                cuda.flash_decoding(&q_cuda, &k_cuda, &v_cuda, scale, causal)
+                    .map_err(|e| {
+                        GpuError::Compute(format!("CUDA flash_decoding: {e}"))
+                    })?
+            } else {
+                cuda.fused_attention(&q_cuda, &k_cuda, &v_cuda, scale, causal)
+                    .map_err(|e| {
+                        GpuError::Compute(format!("CUDA fused_attention: {e}"))
+                    })?
+            };
 
             // Write result to wgpu output buffer via staging — NO Vec<f32> intermediate
             let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {

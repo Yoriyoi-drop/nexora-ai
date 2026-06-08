@@ -20,10 +20,10 @@ chrono = { workspace = true }
 
 # BLAA-specific dependencies
 base64 = "0.22"
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2.workspace = true
 url = "2.4"
-futures = "0.3"
+futures = { workspace = true }
 bytes = "1"
 
 [dev-dependencies]

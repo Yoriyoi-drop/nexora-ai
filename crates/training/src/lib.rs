@@ -888,12 +888,14 @@ fn train_batch_gpu(
         };
         *last_grad_norm = Some(clip_result.norm);
 
-        // Data-parallel gradient allreduce across model replicas
+        // Data-parallel gradient averaging across model replicas
         if config.num_replicas > 1 && !grad_refs.is_empty() {
-            tracing::warn!(
-                "Multi-replica gradient allreduce not yet implemented for GPU training (num_replicas={})",
-                config.num_replicas
-            );
+            let inv_scale = 1.0 / config.num_replicas as f32;
+            for grad in &grad_refs {
+                if let Err(e) = ctx.scale_inplace(grad, inv_scale) {
+                    tracing::warn!("Gradient averaging scale_inplace failed: {e}");
+                }
+            }
         }
 
         let _ = gpu_opt.step(&ctx, &params, &grad_refs);

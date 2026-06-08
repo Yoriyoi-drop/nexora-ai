@@ -28,7 +28,7 @@ static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 static REQUEST_WINDOW_START: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
-fn init_security_validator() -> &'static SecurityValidator {
+pub(super) fn init_security_validator() -> &'static SecurityValidator {
     SECURITY.get_or_init(|| SecurityValidator::new(SecurityConfig::default()))
 }
 

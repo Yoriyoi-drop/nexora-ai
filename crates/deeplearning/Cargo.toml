@@ -11,7 +11,7 @@ documentation = "https://docs.nexora.ai/deeplearning"
 readme = "README.md"
 
 [dependencies]
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
 nexora-star-x = { path = "../star-x" }
 nexora-gnac = { path = "../gnac" }
 nexora-echo-net = { path = "../echo-net" }

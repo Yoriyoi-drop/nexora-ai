@@ -6,7 +6,8 @@ description = "Alignment frameworks for Nexora - SPARO (RLAIF, SPIN, DPO, IPO, K
 
 [dependencies]
 nexora-shared = { path = "../shared" }
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
+nexora-model-core = { path = "../model-core" }
 nexora-oracle = { path = "../oracle", optional = true }
 serde.workspace = true
 anyhow.workspace = true

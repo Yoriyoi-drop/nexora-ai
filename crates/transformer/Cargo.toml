@@ -13,11 +13,11 @@ thiserror.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
 nexora-quantization = { path = "../quantization" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 wgpu = { version = "29", optional = true }
-half = { version = "2", optional = true }
+half = { workspace = true, optional = true }
 lru.workspace = true
 reqwest = { workspace = true, optional = true }
 nexora-atqs = { path = "../atqs", optional = true }

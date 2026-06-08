@@ -9,7 +9,7 @@ ndarray.workspace = true
 serde.workspace = true
 tracing.workspace = true
 
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
 
 [features]
 default = []

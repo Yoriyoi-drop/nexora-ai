@@ -3,12 +3,12 @@
 pub use nexora_atqs::*;
 
 use crate::shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput, OutputData};
-pub use nexora_models::swift::NxrSwiftModel;
+pub use nexora_models::foundation::FoundationModel;
 
 /// Enhanced ATQS with NXR-SWIFT integration
 pub struct AtqsSwiftIntegration {
     pub atqs_compression: nexora_atqs::compression::AtqsCompression,
-    pub swift_model: NxrSwiftModel,
+    pub swift_model: FoundationModel,
     pub integration_config: AtqsSwiftConfig,
 }
 
@@ -33,7 +33,7 @@ impl AtqsSwiftIntegration {
     pub fn new() -> Self {
         Self {
             atqs_compression: nexora_atqs::compression::AtqsCompression::new(),
-            swift_model: NxrSwiftModel::new(),
+            swift_model: FoundationModel::swift(),
             integration_config: AtqsSwiftConfig::default(),
         }
     }

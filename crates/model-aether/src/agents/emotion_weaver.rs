@@ -679,99 +679,88 @@ impl EmotionWeaverAgent {
         }
     }
 
-    /// Detect primary emotions via keyword matching.
-    ///
-    /// FUTURE: Will delegate to foundation CausalLM with a specialized
-    /// emotional-analysis prompt.
+    fn emotion_va(emotion: &str) -> (f32, f32, &'static str) {
+        match emotion {
+            "joy" => (0.8, 0.6, "positive"),
+            "sadness" => (-0.7, 0.3, "negative"),
+            "anger" => (-0.8, 0.9, "negative"),
+            "fear" => (-0.6, 0.8, "negative"),
+            "surprise" => (0.3, 0.7, "neutral"),
+            "disgust" => (-0.5, 0.4, "negative"),
+            "trust" => (0.6, 0.3, "positive"),
+            _ => (0.0, 0.0, "neutral"),
+        }
+    }
+
+    fn token_ids(text: &str) -> Vec<u32> {
+        use nexora_model_core::foundation::FoundationModel;
+        static F: std::sync::OnceLock<FoundationModel> = std::sync::OnceLock::new();
+        let f = F.get_or_init(FoundationModel::aether);
+        let tokenizer = f.tokenizer.as_ref();
+        tokenizer.map_or_else(
+            || nexora_model_core::foundation::byte_encode(text),
+            |tk| tk.read().encode(text),
+        )
+    }
+
     fn detect_primary_emotions(&self, text: &str) -> Vec<Emotion> {
-        let lower = text.to_lowercase();
-        let mut emotions = Vec::new();
-        if lower.contains("happy") || lower.contains("joy") || lower.contains("excited") {
-            emotions.push(Emotion {
-                name: "joy".to_string(),
+        let ids = Self::token_ids(text);
+        let results = crate::classifier::detect_emotions(text, &ids);
+        results
+            .into_iter()
+            .map(|(name, intensity)| {
+                let (valence, arousal, category) = Self::emotion_va(&name);
+                Emotion {
+                    name,
+                    category: category.to_string(),
+                    intensity,
+                    valence,
+                    arousal,
+                    duration: None,
+                    triggers: vec![],
+                }
+            })
+            .collect()
+    }
+
+    fn detect_secondary_emotions(&self, _text: &str, primary_emotions: &[Emotion]) -> Vec<Emotion> {
+        let names: std::collections::HashSet<&str> =
+            primary_emotions.iter().map(|e| e.name.as_str()).collect();
+        let mut secondary = Vec::new();
+        if names.contains("joy") && names.contains("trust") {
+            secondary.push(Emotion {
+                name: "love".to_string(),
                 category: "positive".to_string(),
                 intensity: 0.7,
-                valence: 0.8,
-                arousal: 0.6,
+                valence: 0.9,
+                arousal: 0.5,
                 duration: None,
                 triggers: vec![],
             });
         }
-        if lower.contains("sad") || lower.contains("unhappy") || lower.contains("depress") {
-            emotions.push(Emotion {
-                name: "sadness".to_string(),
-                category: "negative".to_string(),
+        if names.contains("fear") && names.contains("surprise") {
+            secondary.push(Emotion {
+                name: "awe".to_string(),
+                category: "neutral".to_string(),
                 intensity: 0.6,
-                valence: -0.7,
-                arousal: 0.3,
-                duration: None,
-                triggers: vec![],
-            });
-        }
-        if lower.contains("angry") || lower.contains("mad") || lower.contains("furious") {
-            emotions.push(Emotion {
-                name: "anger".to_string(),
-                category: "negative".to_string(),
-                intensity: 0.8,
-                valence: -0.8,
-                arousal: 0.9,
-                duration: None,
-                triggers: vec![],
-            });
-        }
-        if lower.contains("fear") || lower.contains("scared") || lower.contains("anxious") {
-            emotions.push(Emotion {
-                name: "fear".to_string(),
-                category: "negative".to_string(),
-                intensity: 0.7,
-                valence: -0.6,
+                valence: 0.2,
                 arousal: 0.8,
                 duration: None,
                 triggers: vec![],
             });
         }
-        if lower.contains("surprise") || lower.contains("shock") || lower.contains("amaze") {
-            emotions.push(Emotion {
-                name: "surprise".to_string(),
-                category: "neutral".to_string(),
-                intensity: 0.6,
-                valence: 0.3,
-                arousal: 0.7,
+        if names.contains("anger") && names.contains("disgust") {
+            secondary.push(Emotion {
+                name: "contempt".to_string(),
+                category: "negative".to_string(),
+                intensity: 0.7,
+                valence: -0.9,
+                arousal: 0.6,
                 duration: None,
                 triggers: vec![],
             });
         }
-        if lower.contains("trust") || lower.contains("confident") || lower.contains("secure") {
-            emotions.push(Emotion {
-                name: "trust".to_string(),
-                category: "positive".to_string(),
-                intensity: 0.5,
-                valence: 0.6,
-                arousal: 0.3,
-                duration: None,
-                triggers: vec![],
-            });
-        }
-        if emotions.is_empty() {
-            emotions.push(Emotion {
-                name: "neutral".to_string(),
-                category: "neutral".to_string(),
-                intensity: 0.3,
-                valence: 0.0,
-                arousal: 0.0,
-                duration: None,
-                triggers: vec![],
-            });
-        }
-        emotions
-    }
-
-    /// Detect secondary emotions.
-    ///
-    /// FUTURE: Will derive from primary emotions via foundation CausalLM.
-    /// Currently returns empty.
-    fn detect_secondary_emotions(&self, _text: &str, _primary_emotions: &[Emotion]) -> Vec<Emotion> {
-        vec![]
+        secondary
     }
 
     /// Create emotional blend

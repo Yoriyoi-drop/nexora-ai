@@ -6,9 +6,9 @@ description = "Core model infrastructure — foundation model implementations an
 
 [dependencies]
 nexora-shared = { path = "../shared" }
-nexora-transformer = { path = "../transformer" }
+nexora-transformer = { path = "../transformer", default-features = false, features = ["gpu"] }
 nexora-quantization = { path = "../quantization" }
-nexora-core = { path = "../core" }
+nexora-core = { path = "../core", default-features = false, features = ["gpu"] }
 nexora-hallucination = { path = "../hallucination" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

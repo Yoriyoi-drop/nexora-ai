@@ -12,7 +12,7 @@ pub use sparo::*;
 
 // Integration with NXR-NEXUM
 pub mod models;
-use crate::models::nexum::NxrNexumModel;
+use nexora_model_core::foundation::FoundationModel;
 use nexora_shared::base_model::NxrModel;
 
 /// Enhanced SPARO with NXR-NEXUM integration
@@ -20,7 +20,7 @@ pub struct SparoNexumIntegration {
     /// Original SPARO alignment system
     pub sparo_system: sparo::SparoSystem,
     /// NXR-NEXUM multi-agent orchestration
-    pub nexum_model: NxrNexumModel,
+    pub nexum_model: FoundationModel,
     /// Integration configuration
     pub integration_config: SparoNexumConfig,
     /// Whether alignment is mandatory (safety default)
@@ -53,7 +53,7 @@ impl SparoNexumIntegration {
     pub fn new() -> Self {
         Self {
             sparo_system: sparo::SparoSystem::new(),
-            nexum_model: NxrNexumModel::new(),
+            nexum_model: FoundationModel::nexum(),
             integration_config: SparoNexumConfig::default(),
             alignment_enforced: true,
         }

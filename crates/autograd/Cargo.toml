@@ -15,7 +15,7 @@ tracing.workspace = true
 thiserror.workspace = true
 once_cell.workspace = true
 serde = { workspace = true, optional = true }
-half = "2"
+half.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
 num_cpus = "1.16"

@@ -36,7 +36,8 @@ impl CryptoUtils {
 
     /// Generate HMAC-SHA256
     pub fn hmac_sha256(data: &[u8], key: &[u8]) -> Result<String> {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
+
         type HmacSha256 = Hmac<Sha256>;
 
         let mut mac = HmacSha256::new_from_slice(key)?;
@@ -47,7 +48,8 @@ impl CryptoUtils {
 
     /// Generate HMAC-SHA512
     pub fn hmac_sha512(data: &[u8], key: &[u8]) -> Result<String> {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
+
         type HmacSha512 = Hmac<Sha512>;
 
         let mut mac = HmacSha512::new_from_slice(key)?;

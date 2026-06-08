@@ -33,7 +33,7 @@ use self::{
     identity::SwiftIdentity,
 };
 
-pub struct NxrSwiftModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<SwiftConfig, SwiftMetrics, SwiftState>,
     identity: SwiftIdentity,
     agents: SwiftAgents,
@@ -102,7 +102,7 @@ impl Default for SwiftMetrics {
     }
 }
 
-impl NxrSwiftModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = SwiftIdentity::new();
         let capabilities = SwiftCapabilities::new();
@@ -258,7 +258,7 @@ fn augment_swift_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrSwiftModel {
+impl NxrModel for FoundationModel {
     type Config = SwiftConfig;
     type Metrics = SwiftMetrics;
     type State = SwiftState;
@@ -315,9 +315,9 @@ impl NxrModel for NxrSwiftModel {
         }
 
         let augmented = augment_swift_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrSwiftModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrSwiftModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::swift());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -424,19 +424,19 @@ impl NxrModel for NxrSwiftModel {
     }
 }
 
-impl HasComponents for NxrSwiftModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrSwiftModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrSwiftModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

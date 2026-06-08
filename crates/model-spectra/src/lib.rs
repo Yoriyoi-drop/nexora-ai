@@ -39,7 +39,7 @@ pub use coordinator::*;
 pub use identity::*;
 
 /// NXR-SPECTRA Model Implementation
-pub struct NxrSpectraModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<SpectraConfig, SpectraMetrics, SpectraState>,
     identity: SpectraIdentity,
     capabilities: SpectraCapabilities,
@@ -226,7 +226,7 @@ impl SpectraConfig {
     }
 }
 
-impl NxrSpectraModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = SpectraIdentity::new();
         let capabilities = SpectraCapabilities::new();
@@ -401,7 +401,7 @@ fn augment_spectra_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrSpectraModel {
+impl NxrModel for FoundationModel {
     type Config = SpectraConfig;
     type Metrics = SpectraMetrics;
     type State = SpectraState;
@@ -458,9 +458,9 @@ impl NxrModel for NxrSpectraModel {
         }
 
         let augmented = augment_spectra_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrSpectraModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrSpectraModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::spectra());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -582,19 +582,19 @@ impl NxrModel for NxrSpectraModel {
     }
 }
 
-impl HasComponents for NxrSpectraModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrSpectraModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrSpectraModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

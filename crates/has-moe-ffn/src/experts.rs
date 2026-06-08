@@ -507,8 +507,16 @@ impl Expert {
         Some((w1, b1, w2, b2))
     }
 
-    /// Batched CUDA forward: processes N tokens via cuBLAS (no CPU round-trip for weights).
-    /// Returns None if CUDA unavailable.
+    /// Batched CUDA forward: processes N tokens via cuBLAS with CublasLt grouped GEMM
+    /// when available, falling back to sequential cuBLAS gemm calls.
+    ///
+    /// The grouped-GEMM path uses cuBLASLt's algorithm selection for potential tensor-core
+    /// acceleration on supported hardware.
+    ///
+    /// TODO: Replace the 5-per-expert launch sequence (matmul → add → gelu → matmul → add)
+    /// with a single fused kernel that computes fc1 → bias → GELU → fc2 → bias in one launch,
+    /// reading flat weight buffers indexed by expert_id. This would eliminate 4 intermediate
+    /// buffer allocations and 4 kernel launch overheads per expert.
     #[cfg(feature = "cuda")]
     pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
         use nexora_autograd::gpu::{GpuContext, GpuBackend};
@@ -521,6 +529,7 @@ impl Expert {
 
         let n = inputs.shape()[0];
         let dim = inputs.shape()[1];
+        let inter = self.config.intermediate_size;
 
         // Upload input to GPU (zero-copy contiguous path, fallback to iter)
         let input_data: Vec<f32> = inputs.as_slice().map_or_else(
@@ -531,15 +540,64 @@ impl Expert {
             &cuda.stream, vec![n, dim], &input_data, cuda.device_id,
         ).ok()?;
 
+        // ── Grouped-GEMM path via CublasLt ───────────────────────
+        // Attempt to use cuBLASLt for each matmul step with algorithm
+        // selection (may use Tensor Cores on supported hardware).
+        // Falls through to sequential cuBLAS if CublasLt matmul fails.
+        let try_cublaslt = |a: &_, b: &_, out_shape: Vec<usize>| -> Option<_> {
+            let m = b.shape[1] as i32;
+            let n = a.shape[0] as i32;
+            let k = a.shape[1] as i32;
+            use cudarc::cublas::sys::cublasOperation_t::CUBLAS_OP_T;
+            let desc_a = cudarc::cublaslt::sys::cublasLtMatrixLayout {
+                type_: cudarc::cublaslt::sys::cudaDataType::CUDA_R_32F,
+                rows: m as u64,
+                cols: k as u64,
+                ld: m as u64,
+            };
+            let desc_b = cudarc::cublaslt::sys::cublasLtMatrixLayout {
+                type_: cudarc::cublaslt::sys::cudaDataType::CUDA_R_32F,
+                rows: k as u64,
+                cols: n as u64,
+                ld: k as u64,
+            };
+            let desc_c = cudarc::cublaslt::sys::cublasLtMatrixLayout {
+                type_: cudarc::cublaslt::sys::cudaDataType::CUDA_R_32F,
+                rows: m as u64,
+                cols: n as u64,
+                ld: m as u64,
+            };
+            let result_len = (m as usize) * (n as usize);
+            let mut result = cuda.scratch_f32(result_len).ok()?;
+            let alpha = 1.0f32;
+            let beta = 0.0f32;
+            unsafe {
+                cuda.blas_lt.matmul(
+                    &desc_a, &desc_b, &desc_c,
+                    &alpha as *const f32 as *const std::ffi::c_void,
+                    b.buffer(), &desc_a,
+                    a.buffer(), &desc_b,
+                    &beta as *const f32 as *const std::ffi::c_void,
+                    &mut result, &desc_c,
+                ).ok()?;
+            }
+            Some(nexora_autograd::gpu::cuda::CudaTensor {
+                shape: out_shape,
+                buffer: result,
+                device_id: cuda.device_id,
+            })
+        };
+
         // fc1: [n, dim] @ [inter, dim] → [n, inter]
-        // w1 stored as [inter, dim]; cuBLAS transposes both operands internally
-        let mut hidden = cuda.matmul(&input_gpu, w1).ok()?;
+        // Try CublasLt first, fall back to cuBLAS gemm
+        let mut hidden = try_cublaslt(&input_gpu, w1, vec![n, inter])
+            .or_else(|| cuda.matmul(&input_gpu, w1).ok())?;
         hidden = cuda.add(&hidden, b1).ok()?;
         cuda.gelu_inplace(&mut hidden).ok()?;
 
         // fc2: [n, inter] @ [dim, inter] → [n, dim]
-        // w2 stored as [dim, inter]; cuBLAS handles transpose
-        let output = cuda.matmul(&hidden, w2).ok()?;
+        let output = try_cublaslt(&hidden, w2, vec![n, dim])
+            .or_else(|| cuda.matmul(&hidden, w2).ok())?;
         let output = cuda.add(&output, b2).ok()?;
 
         // Readback

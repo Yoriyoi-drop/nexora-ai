@@ -19,7 +19,7 @@ impl SecurityManager {
     pub fn tensor_fingerprint(tensor_data: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(tensor_data);
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     /// Verifikasi integritas graf

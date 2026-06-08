@@ -39,7 +39,7 @@ pub use coordinator::*;
 pub use identity::*;
 
 /// NXR-ÆTHER Model Implementation
-pub struct NxrAetherModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<AetherConfig, AetherMetrics, AetherState>,
     identity: AetherIdentity,
     capabilities: AetherCapabilities,
@@ -153,7 +153,7 @@ impl AetherCapabilities {
     }
 }
 
-impl NxrAetherModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = AetherIdentity::new();
         let capabilities = AetherCapabilities::new();
@@ -339,7 +339,7 @@ fn augment_aether_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrAetherModel {
+impl NxrModel for FoundationModel {
     type Config = AetherConfig;
     type Metrics = AetherMetrics;
     type State = AetherState;
@@ -406,9 +406,9 @@ impl NxrModel for NxrAetherModel {
         }
 
         let augmented = augment_aether_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrAetherModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrAetherModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::aether());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -515,19 +515,19 @@ impl NxrModel for NxrAetherModel {
     }
 }
 
-impl HasComponents for NxrAetherModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrAetherModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrAetherModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

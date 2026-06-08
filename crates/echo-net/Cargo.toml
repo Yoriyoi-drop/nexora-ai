@@ -12,7 +12,7 @@ tracing = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
 num-traits = "0.2"
 wgpu = { version = "29", optional = true, default-features = false, features = ["wgsl"] }
 bytemuck = { version = "1", optional = true }

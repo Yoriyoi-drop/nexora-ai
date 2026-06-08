@@ -33,7 +33,7 @@ use self::{
     identity::AxiomIdentity,
 };
 
-pub struct NxrAxiomModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<AxiomConfig, AxiomMetrics, AxiomState>,
     identity: AxiomIdentity,
     agents: AxiomAgents,
@@ -123,7 +123,7 @@ impl Default for AxiomMetrics {
     }
 }
 
-impl NxrAxiomModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = AxiomIdentity::new();
         let capabilities = AxiomCapabilities::new();
@@ -330,7 +330,7 @@ fn augment_axiom_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrAxiomModel {
+impl NxrModel for FoundationModel {
     type Config = AxiomConfig;
     type Metrics = AxiomMetrics;
     type State = AxiomState;
@@ -387,9 +387,9 @@ impl NxrModel for NxrAxiomModel {
         }
 
         let augmented = augment_axiom_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrAxiomModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrAxiomModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::axiom());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -496,19 +496,19 @@ impl NxrModel for NxrAxiomModel {
     }
 }
 
-impl HasComponents for NxrAxiomModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrAxiomModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrAxiomModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

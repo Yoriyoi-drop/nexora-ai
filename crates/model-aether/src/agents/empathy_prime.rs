@@ -555,49 +555,46 @@ impl EmpathyPrimeAgent {
         (emotional_score + cultural_score + sensitivity_score) / 3.0
     }
 
-    /// Detect emotions from text via keyword matching.
-    ///
-    /// FUTURE: Will delegate to foundation CausalLM with a specialized
-    /// emotional-analysis prompt.
+    fn emotion_va(emotion: &str) -> (f32, f32) {
+        match emotion {
+            "joy" => (0.8, 0.6),
+            "sadness" => (-0.7, 0.3),
+            "anger" => (-0.8, 0.9),
+            "fear" => (-0.6, 0.8),
+            "surprise" => (0.3, 0.7),
+            "disgust" => (-0.5, 0.4),
+            "trust" => (0.6, 0.3),
+            _ => (0.0, 0.0),
+        }
+    }
+
+    fn token_ids(text: &str) -> Vec<u32> {
+        use nexora_model_core::foundation::FoundationModel;
+        static F: std::sync::OnceLock<FoundationModel> = std::sync::OnceLock::new();
+        let f = F.get_or_init(FoundationModel::aether);
+        let tokenizer = f.tokenizer.as_ref();
+        tokenizer.map_or_else(
+            || nexora_model_core::foundation::byte_encode(text),
+            |tk| tk.read().encode(text),
+        )
+    }
+
+    /// Detect emotions via MLP classifier.
     fn detect_emotions(&self, text: &str) -> Vec<Emotion> {
-        let lower = text.to_lowercase();
-        let mut emotions = Vec::new();
-        if lower.contains("happy") || lower.contains("joy") || lower.contains("excited") {
-            emotions.push(Emotion {
-                name: "joy".to_string(), intensity: 0.7, valence: 0.8, arousal: 0.6,
-            });
-        }
-        if lower.contains("sad") || lower.contains("unhappy") || lower.contains("depress") {
-            emotions.push(Emotion {
-                name: "sadness".to_string(), intensity: 0.6, valence: -0.7, arousal: 0.3,
-            });
-        }
-        if lower.contains("angry") || lower.contains("mad") || lower.contains("furious") {
-            emotions.push(Emotion {
-                name: "anger".to_string(), intensity: 0.8, valence: -0.8, arousal: 0.9,
-            });
-        }
-        if lower.contains("fear") || lower.contains("scared") || lower.contains("anxious") {
-            emotions.push(Emotion {
-                name: "fear".to_string(), intensity: 0.7, valence: -0.6, arousal: 0.8,
-            });
-        }
-        if lower.contains("surprise") || lower.contains("shock") || lower.contains("amaze") {
-            emotions.push(Emotion {
-                name: "surprise".to_string(), intensity: 0.6, valence: 0.3, arousal: 0.7,
-            });
-        }
-        if lower.contains("trust") || lower.contains("confident") || lower.contains("secure") {
-            emotions.push(Emotion {
-                name: "trust".to_string(), intensity: 0.5, valence: 0.6, arousal: 0.3,
-            });
-        }
-        if emotions.is_empty() {
-            emotions.push(Emotion {
-                name: "neutral".to_string(), intensity: 0.3, valence: 0.0, arousal: 0.0,
-            });
-        }
-        emotions
+        let ids = Self::token_ids(text);
+        let results = crate::classifier::detect_emotions(text, &ids);
+        results
+            .into_iter()
+            .map(|(name, intensity)| {
+                let (valence, arousal) = Self::emotion_va(&name);
+                Emotion {
+                    name,
+                    intensity,
+                    valence,
+                    arousal,
+                }
+            })
+            .collect()
     }
 
     /// Calculate emotional intensity

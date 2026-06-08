@@ -37,7 +37,7 @@ use self::{
 };
 
 /// NXR-OMNIS Model Implementation
-pub struct NxrOmnisModel {
+pub struct FoundationModel {
     /// Base model infrastructure
     base: nexora_shared::base_model::BaseNxrModel<OmnisConfig, OmnisMetrics, OmnisState>,
     /// Model identity
@@ -215,7 +215,7 @@ impl Default for OmnisMetrics {
     }
 }
 
-impl NxrOmnisModel {
+impl FoundationModel {
     /// Create new NXR-OMNIS model
     pub fn new() -> Self {
         let identity = OmnisIdentity::new();
@@ -322,36 +322,46 @@ impl NxrOmnisModel {
         let moe_output = self.components.moe.forward(&moe_input);
 
         // Step 1: Decompose the problem
-        let decomposition = self.agents.oracle_7().decompose_problem(input)?;
+        let decomposition = self.agents.oracle_7().decompose_problem(input).await?;
 
         // Step 2: Meta-reasoning about approach
         let meta_reasoning = self
             .agents
             .meta_reasoner()
-            .analyze_approach(&decomposition)?;
+            .analyze_approach(&decomposition)
+            .await?;
 
         // Step 3: World modeling
-        self.agents.world_model_x().update_context(input)?;
+        self.agents
+            .world_model_x()
+            .update_context(input)
+            .await?;
 
         // Step 4: Chain execution
         let chain_result = self
             .agents
             .chain_executor()
-            .execute_chain(&decomposition, &meta_reasoning)?;
+            .execute_chain(&decomposition, &meta_reasoning)
+            .await?;
 
         // Step 5: Truth arbitration
         let truth_arbitration = self
             .agents
             .truth_arbiter()
-            .arbitrate(&decomposition, &chain_result)?;
+            .arbitrate(&decomposition, &chain_result)
+            .await?;
 
         // Step 6: Synthesis
-        let synthesis = self.agents.synth_prime().synthesize(&[
-            decomposition,
-            meta_reasoning,
-            chain_result,
-            truth_arbitration,
-        ])?;
+        let synthesis = self
+            .agents
+            .synth_prime()
+            .synthesize(&[
+                decomposition,
+                meta_reasoning,
+                chain_result,
+                truth_arbitration,
+            ])
+            .await?;
 
         Ok(format!(
             "{}\n\nDL Processing: {} (tokens: {})",
@@ -367,7 +377,7 @@ impl NxrOmnisModel {
         let mut new_state = current_state;
 
         // Update world model state with new information
-        let world_update = self.agents.world_model_x().process_input(input)?;
+        let world_update = self.agents.world_model_x().process_input(input).await?;
         new_state.world_model_state.extend(world_update);
 
         self.base.update_state(new_state).await
@@ -375,7 +385,7 @@ impl NxrOmnisModel {
 
     /// Perform meta-reasoning
     async fn _meta_reason(&self, problem: &str) -> NxrModelResult<MetaReasoningState> {
-        let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem)?;
+        let meta_analysis = self.agents.meta_reasoner().analyze_problem(problem).await?;
 
         Ok(MetaReasoningState {
             reasoning_chain: meta_analysis.reasoning_chain,
@@ -450,7 +460,7 @@ fn augment_omnis_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrOmnisModel {
+impl NxrModel for FoundationModel {
     type Config = OmnisConfig;
     type Metrics = OmnisMetrics;
     type State = OmnisState;
@@ -471,7 +481,11 @@ impl NxrModel for NxrOmnisModel {
                 "Text input required".to_string(),
             )),
         };
-        let result = crate::delegation::delegate(&text).await;
+        let result = if self.config.reasoning.use_deep_reasoning {
+            self.deep_reasoning(&text).await?
+        } else {
+            crate::delegation::delegate(&text).await
+        };
         Ok(NxrOutput {
             id: uuid::Uuid::new_v4(),
             input_id: input.id,
@@ -507,9 +521,9 @@ impl NxrModel for NxrOmnisModel {
         }
 
         let augmented = augment_omnis_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrOmnisModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrOmnisModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::omnis());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -655,19 +669,19 @@ impl NxrModel for NxrOmnisModel {
     }
 }
 
-impl HasComponents for NxrOmnisModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrOmnisModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrOmnisModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

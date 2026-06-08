@@ -24,7 +24,7 @@ log = "0.4"
 tauri = { version = "2.11.1" }
 tauri-plugin-log = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "net", "signal", "time"] }
 sysinfo = "0.33"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"

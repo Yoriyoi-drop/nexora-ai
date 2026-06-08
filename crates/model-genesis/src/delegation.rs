@@ -1,5 +1,5 @@
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrGenesisModel;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_reasoning::SacaEngine;
 use nexora_cognition::reflection::{DefaultReflector, ReflectionEngine, Action, ReflectionType};
@@ -12,9 +12,9 @@ const QUALITY_CONFIDENCE: f32 = 0.65;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-fn foundation() -> &'static NxrGenesisModel {
-    static F: OnceLock<NxrGenesisModel> = OnceLock::new();
-    F.get_or_init(NxrGenesisModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::genesis)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

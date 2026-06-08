@@ -11,4 +11,4 @@ tracing.workspace = true
 ndarray.workspace = true
 
 nexora-transformer = { path = "../transformer" }
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }

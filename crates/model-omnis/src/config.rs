@@ -42,6 +42,8 @@ pub struct ReasoningConfig {
     pub enable_tree_of_thought: bool,
     /// Enable graph-of-thought
     pub enable_graph_of_thought: bool,
+    /// Use deep reasoning pipeline (6-agent) instead of direct delegation
+    pub use_deep_reasoning: bool,
     /// Decomposition strategy
     pub decomposition_strategy: DecompositionStrategy,
     /// Synthesis strategy
@@ -531,6 +533,7 @@ impl Default for ReasoningConfig {
             enable_chain_of_thought: true,
             enable_tree_of_thought: true,
             enable_graph_of_thought: true,
+            use_deep_reasoning: false,
             decomposition_strategy: DecompositionStrategy::Hybrid {
                 weights: DecompositionWeights {
                     hierarchical: 0.4,

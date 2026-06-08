@@ -283,10 +283,26 @@ impl Tensor {
                 })
             }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => {
-                error!("Tensor::data CUDA readback not implemented");
-                ArrayD::zeros(vec![0])
-            }
+            Storage::Cuda(tensor, _) => match crate::gpu::CudaRuntime::global() {
+                Ok(rt) => match tensor.to_cpu_vec(&rt.stream) {
+                    Ok(cpu_buf) => match ndarray::ArrayD::from_shape_vec(tensor.shape(), cpu_buf)
+                    {
+                        Ok(arr) => arr,
+                        Err(e) => {
+                            error!("Tensor::data CUDA shape mismatch: {e}");
+                            ArrayD::zeros(vec![0])
+                        }
+                    },
+                    Err(e) => {
+                        error!("Tensor::data CUDA readback failed: {e}");
+                        ArrayD::zeros(vec![0])
+                    }
+                },
+                Err(e) => {
+                    error!("Tensor::data CUDA runtime not available: {e}");
+                    ArrayD::zeros(vec![0])
+                }
+            },
         }
     }
 
@@ -307,10 +323,27 @@ impl Tensor {
                     .ok()
             }
             #[cfg(feature = "device-cuda")]
-            Some(Storage::Cuda(_, _)) => {
-                tracing::warn!("Tensor::grad CUDA readback not implemented");
-                None
-            }
+            Some(Storage::Cuda(tensor, _)) => match crate::gpu::CudaRuntime::global() {
+                Ok(rt) => match tensor.to_cpu_vec(&rt.stream) {
+                    Ok(cpu_buf) => {
+                        match ndarray::ArrayD::from_shape_vec(tensor.shape(), cpu_buf) {
+                            Ok(arr) => Some(arr),
+                            Err(e) => {
+                                tracing::warn!("Tensor::grad CUDA shape mismatch: {e}");
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Tensor::grad CUDA readback failed: {e}");
+                        None
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("Tensor::grad CUDA runtime not available: {e}");
+                    None
+                }
+            },
             None => None,
         }
     }
@@ -344,10 +377,30 @@ impl Tensor {
                 })
             }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => {
-                error!("Tensor::to_device CUDA readback not implemented");
-                ArrayD::zeros(vec![0])
-            }
+            Storage::Cuda(tensor, _) => match crate::gpu::CudaRuntime::global() {
+                Ok(rt) => match tensor.to_cpu_vec(&rt.stream) {
+                    Ok(cpu_buf) => match ndarray::ArrayD::from_shape_vec(tensor.shape(), cpu_buf)
+                    {
+                        Ok(arr) => arr,
+                        Err(e) => {
+                            error!("Tensor::to_device CUDA shape mismatch: {e}");
+                            ArrayD::zeros(vec![0])
+                        }
+                    },
+                    Err(e) => {
+                        error!(
+                            "Tensor::to_device CUDA readback failed: {e}, falling back to CPU"
+                        );
+                        ArrayD::zeros(vec![0])
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Tensor::to_device CUDA runtime not available: {e}, falling back to CPU"
+                    );
+                    ArrayD::zeros(vec![0])
+                }
+            },
         };
         #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
         let cpu_data = inner.storage.to_cpu();

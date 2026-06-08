@@ -34,7 +34,7 @@ use self::{
     identity::CipherIdentity,
 };
 
-pub struct NxrCipherModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<CipherConfig, CipherMetrics, CipherState>,
     identity: CipherIdentity,
     capabilities: CipherCapabilities,
@@ -102,7 +102,7 @@ impl Default for CipherMetrics {
     }
 }
 
-impl NxrCipherModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = CipherIdentity::new();
         let capabilities = CipherCapabilities::new();
@@ -293,7 +293,7 @@ fn augment_cipher_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrCipherModel {
+impl NxrModel for FoundationModel {
     type Config = CipherConfig;
     type Metrics = CipherMetrics;
     type State = CipherState;
@@ -353,9 +353,9 @@ impl NxrModel for NxrCipherModel {
         }
 
         let augmented = augment_cipher_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrCipherModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrCipherModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::cipher());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -462,19 +462,19 @@ impl NxrModel for NxrCipherModel {
     }
 }
 
-impl HasComponents for NxrCipherModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrCipherModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrCipherModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

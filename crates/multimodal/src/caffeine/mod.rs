@@ -388,12 +388,14 @@ impl Caffeine {
         tokens: &[crate::caffeine::types::UnifiedToken],
     ) -> crate::caffeine::error::Result<ndarray::Array2<f32>> {
         // Convert tokens to tensor representation
-        let mut data = Vec::with_capacity(tokens.len() * 768); // Assuming 768-dim embeddings
+        // TODO(Item #38): Replace hardcoded 768 with config value from CaffeineConfig.model_dim
+        let embed_dim = 768;
+        let mut data = Vec::with_capacity(tokens.len() * embed_dim);
         for token in tokens {
             data.extend(token.embedding.iter());
         }
 
-        let shape = (tokens.len(), 768);
+        let shape = (tokens.len(), embed_dim);
         Ok(ndarray::Array2::from_shape_vec(shape, data)?)
     }
 
@@ -436,31 +438,20 @@ impl Caffeine {
         routed_tokens.resize(tokens.len(), None);
 
         // Route each modality group with appropriate expert selection
-        self.route_modality_group(&mut routed_tokens, text_tokens, &routing_decisions, "text")?;
-        self.route_modality_group(
-            &mut routed_tokens,
-            image_tokens,
-            &routing_decisions,
-            "image",
-        )?;
-        self.route_modality_group(
-            &mut routed_tokens,
-            audio_tokens,
-            &routing_decisions,
-            "audio",
-        )?;
-        self.route_modality_group(
-            &mut routed_tokens,
-            video_tokens,
-            &routing_decisions,
-            "video",
-        )?;
-        self.route_modality_group(
-            &mut routed_tokens,
-            action_tokens,
-            &routing_decisions,
-            "action",
-        )?;
+        for (modality_tokens, name) in [
+            (text_tokens, "text"),
+            (image_tokens, "image"),
+            (audio_tokens, "audio"),
+            (video_tokens, "video"),
+            (action_tokens, "action"),
+        ] {
+            self.route_modality_group(
+                &mut routed_tokens,
+                modality_tokens,
+                &routing_decisions,
+                name,
+            )?;
+        }
 
         // Convert Option<UnifiedToken> to Vec<UnifiedToken>
         let result: Vec<crate::caffeine::types::UnifiedToken> = routed_tokens

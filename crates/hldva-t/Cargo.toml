@@ -6,7 +6,7 @@ description = "Hierarchical Latent Diffusion with Vision-Text Alignment using Tr
 
 [dependencies]
 nexora-atqs = { path = "../atqs" }
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
 ndarray.workspace = true
 serde.workspace = true
 rand.workspace = true

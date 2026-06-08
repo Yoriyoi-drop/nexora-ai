@@ -446,7 +446,7 @@ impl TransformerBlock {
 /// Apply collective reduce to a pair of (residual, output) GPU tensors.
 ///
 /// For non-NCCL backends, reads GPU → CPU, runs collective, uploads back.
-/// For NCCL, would use GPU-native all-reduce (stub for now).
+/// For NCCL, uses CPU roundtrip + NCCL all-reduce.
 ///
 /// `is_attn`: if true, reduce attention output (residual + attn_out).
 /// If false, reduce FFN output (after_attn + ffn_out).

@@ -5,7 +5,7 @@
 
 pub use nexora_multimodal::*;
 
-use nexora_models::spectra::NxrSpectraModel;
+use nexora_models::foundation::FoundationModel;
 use nexora_multimodal::caffeine::MultiModalInputs as CaffeineInputs;
 use nexora_multimodal::caffeine::TextInput;
 use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
@@ -13,7 +13,7 @@ use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 /// Enhanced CAFFEINE with NXR-SPECTRA integration
 pub struct CaffeineSpectraIntegration {
     pub caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor,
-    pub spectra_model: NxrSpectraModel,
+    pub spectra_model: FoundationModel,
     pub integration_config: CaffeineSpectraConfig,
 }
 
@@ -86,7 +86,7 @@ impl CaffeineSpectraIntegration {
     pub fn new() -> Self {
         Self {
             caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor::new(),
-            spectra_model: NxrSpectraModel::new(),
+            spectra_model: FoundationModel::spectra(),
             integration_config: CaffeineSpectraConfig::default(),
         }
     }

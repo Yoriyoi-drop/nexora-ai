@@ -260,25 +260,21 @@ Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
 
 ## Potensi GPU-ification — Prioritas
 
-### P0 — SACA Reasoning (4-8× speedup)
+### P0 — SACA Reasoning — NOT APPLICABLE
 
 | Crate | `reasoning` |
 |-------|-------------|
 | **Lines CPU-only** | 12.529 (terbesar) |
-| **GPU potensi** | Paralelisasi 6-phase reasoning: CoT batch inference, sampling paralel, execute-fail-fix GPU |
-| **Estimasi** | 4-8× speedup pipeline reasoning |
-| **Action** | Tambah `gpu = ["nexora-autograd/gpu"]`, GPU-ify SACA pipeline phase 2 (Decompose), 4 (Sampling), 5 (Execute-Fail-Fix) |
-| **Risiko** | SACA pipeline adalah logic-heavy; GPU benefit terbatas di phase matmul-heavy |
+| **GPU potensi** | ❌ **Not GPU-ifiable** — orchestration code (string processing, subprocess execution, scalar arithmetic). No tensor operations. Heavy compute deferred to Oracle backbone via LLM inference calls. |
+| **Action** | **No action needed.** SACA is orchestration-only. GPU-ification would provide zero benefit. |
 
-### P1 — Oracle Backbone (2-3× speedup)
+### P1 — Oracle Backbone — ✅ Already GPU-wired
 
 | Crate | `oracle` |
 |-------|----------|
-| **GPU current** | 2 matmul di backbone (thin wrapper) |
-| **GPU potensi** | Full GPU-forward utk 12-layer MoE + MLHA (saat ini CPU-dominant) |
-| **Estimasi** | 2-3× speedup MoE inference |
-| **Action** | Port `forward()` ke GPU: weight upload di init, forward GPU-resident, KV cache GPU |
-| **Risiko** | Oracle besar (12.705 lines); GPU port perlu hati-hati |
+| **GPU current** | ✅ Full GPU path via `forward_gpu()` — CUDA FlashAttention + wgpu + CPU fallback. All 12 transformer layers, MoE, attention, norms GPU-accelerated. |
+| **GPU potensi** | Already has full GPU forward. CPU `forward()` is fallback for non-GPU builds. |
+| **Action** | **No action needed.** Oracle already has a complete GPU path. |
 
 ### P2 — Batch Evaluation (3-5× speedup)
 
@@ -334,10 +330,11 @@ Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
 
 1. **15 crate real GPU** (heavy-compute + integrated) — fondasi GPU solid via `nexora-autograd` sebagai provider utama.
 2. **4 crate dengan custom GPU kernels** — autograd (86 ops), transformer (GPU forward penuh), has-moe-ffn (MoE CUDA), echo-net (WGSL shaders).
-3. **30 crate CPU-only** — 36% dari total codebase. Tapi hanya **5 crate yang realistic untuk GPU-ify** (reasoning, oracle, evaluation, hallucination, tokenizer).
+3. **30 crate CPU-only** — 36% dari total codebase. Tapi hanya **4 crate yang realistic untuk GPU-ify** (evaluation, hallucination, tokenizer + monitoring).
 4. **24 crate CPU-only lainnya** adalah infrastruktur I/O-bound (api, database, runtime, monitoring, dll) — GPU tidak akan memberikan benefit signifikan.
-5. **Oracle perlu reklasifikasi** — dari "GPU-enabled" jadi "CPU-dominant" — GPU integration-nya terlalu tipis untuk disebut GPU-enabled.
-6. **Model crate (10)** tidak perlu GPU-ify — mereka delegasi ke crate target yang sudah GPU-enabled.
+5. **Oracle sudah GPU-wired** — `forward_gpu()` exists with CUDA FlashAttention + wgpu. CPU `forward()` adalah fallback untuk non-GPU builds.
+6. **SACA reasoning NOT GPU-ifiable** — orchestration code (string processing, subprocess execution). No tensor ops. GPU-ification would provide zero benefit.
+7. **Model crate (10)** tidak perlu GPU-ify — mereka delegasi ke crate target yang sudah GPU-enabled.
 
 ---
 
@@ -345,8 +342,8 @@ Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
 
 | Prioritas | Crate | Action | Estimasi Effort | Benefit |
 |-----------|-------|--------|:---------------:|---------|
-| **🔥 P0** | `reasoning` | GPU-ify SACA pipeline (CoT batch, sampling paralel) | 2-3 sprint | **4-8× reasoning speedup** |
-| **🔥 P0** | `oracle` | Full GPU forward untuk 12-layer MoE + MLHA | 2-3 sprint | **2-3× oracle inference** |
+| ~~**🔥 P0**~~ | ~~`reasoning`~~ | ~~GPU-ify SACA pipeline~~ | ❌ NOT GPU-ifiable | Orchestration code, no tensor ops |
+| ~~**🔥 P0**~~ | ~~`oracle`~~ | ~~Full GPU forward~~ | ✅ Already GPU-wired | `forward_gpu()` exists |
 | **P1** | `evaluation` | Batch metrics GPU via autograd | 1-2 hari | 3-5× eval speedup |
 | **P2** | `hallucination` | GPU batch verification | 3-5 hari | 2-4× verification |
 | **P3** | `tokenizer` | GPU embedding lookup | 2-3 hari | 1.5-2× tokenizer |

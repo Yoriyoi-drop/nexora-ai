@@ -44,6 +44,8 @@ pub struct CausalLmModel {
     erp_config: ERPConfig,
 }
 
+static AGENTS_WARNED: AtomicBool = AtomicBool::new(false);
+
 impl CausalLmModel {
     pub fn new(model_id: NxrModelId, transformer_config: TransformerConfig) -> Self {
         let model_tier = model_id.tier();
@@ -501,6 +503,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -511,6 +516,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -521,6 +529,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -531,6 +542,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -541,6 +555,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -551,6 +568,9 @@ impl CausalLmModel {
                         Err(_) => input.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     input.to_string()
                 }
             }
@@ -568,6 +588,9 @@ impl CausalLmModel {
                         Err(_) => output.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     output.to_string()
                 }
             }
@@ -578,6 +601,9 @@ impl CausalLmModel {
                         Err(_) => output.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     output.to_string()
                 }
             }
@@ -588,6 +614,9 @@ impl CausalLmModel {
                         Err(_) => output.to_string(),
                     }
                 } else {
+                    if !AGENTS_WARNED.swap(true, Ordering::Relaxed) {
+                        warn!("Model agents not initialized — inference running without agent preprocessing");
+                    }
                     output.to_string()
                 }
             }
@@ -701,36 +730,20 @@ impl NxrModel for CausalLmModel {
         Ok(serde_json::to_value(stats).unwrap_or_default())
     }
 
-    async fn infer(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
-        #[cfg(not(feature = "legacy-fastpath"))]
-        {
-            return Err(NxrModelError::NotInitialized(
-                "Legacy inference path disabled. Use inference engine via generate_text() or chat().".to_string()
-            ));
-        }
-
-        #[cfg(feature = "legacy-fastpath")]
-        {
-            return self.infer_legacy(input).await;
-        }
+    async fn infer(&self, _input: &NxrInput) -> NxrModelResult<NxrOutput> {
+        Err(NxrModelError::NotInitialized(
+            "Legacy inference path disabled. Use inference engine via generate_text() or chat().".to_string()
+        ))
     }
 
     async fn infer_stream(
         &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
+        _input: &NxrInput,
+        _callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
     ) -> NxrModelResult<()> {
-        #[cfg(not(feature = "legacy-fastpath"))]
-        {
-            return Err(NxrModelError::NotInitialized(
-                "Legacy streaming inference disabled. Use inference engine via generate_text_stream().".to_string()
-            ));
-        }
-
-        #[cfg(feature = "legacy-fastpath")]
-        {
-            return self.infer_stream_legacy(input, callback).await;
-        }
+        Err(NxrModelError::NotInitialized(
+            "Legacy streaming inference disabled. Use inference engine via generate_text_stream().".to_string()
+        ))
     }
 
     async fn update_config(&mut self, config: Self::Config) -> NxrModelResult<()> {
@@ -899,244 +912,7 @@ impl NxrModel for CausalLmModel {
     }
 }
 
-#[cfg(feature = "legacy-fastpath")]
-impl CausalLmModel {
-    async fn infer_legacy(&self, input: &NxrInput) -> NxrModelResult<NxrOutput> {
-        let tok = {
-            let tokenizer = self.tokenizer.read().await;
-            tokenizer
-                .as_ref()
-                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?
-                .clone()
-        };
 
-        let text = match &input.data {
-            InputData::Text(t) => t.clone(),
-            InputData::Tokens(t) => {
-                let _decoded = tok.decode(t);
-                let elapsed = std::time::Instant::now();
-                let total = t.len() as u64;
-                let dur = elapsed.elapsed().as_millis() as u64;
-                let tp_s = if dur > 0 {
-                    total as f32 / (dur as f32 / 1000.0)
-                } else {
-                    0.0
-                };
-                return Ok(NxrOutput {
-                    id: uuid::Uuid::new_v4(),
-                    input_id: input.id,
-                    timestamp: chrono::Utc::now(),
-                    data: OutputData::Tokens(
-                        t.iter()
-                            .enumerate()
-                            .map(|(i, &tid)| {
-                                let t = tok.decode(&[tid]);
-                                TokenOutput {
-                                    token_id: tid,
-                                    text: t,
-                                    log_prob: 0.0,
-                                    position: i,
-                                }
-                            })
-                            .collect(),
-                    ),
-                    metadata: GenerationMetadata {
-                        finish_reason: FinishReason::MaxTokens,
-                        total_tokens: t.len(),
-                        generation_time_ms: dur,
-                        model_version: "0.1.0".to_string(),
-                        seed: None,
-                        extras: Default::default(),
-                    },
-                    performance: PerformanceMetrics {
-                        tokens_per_second: tp_s,
-                        memory_usage_gb: 0.0,
-                        gpu_utilization: None,
-                        cpu_utilization: 0.0,
-                        network_usage_mbps: None,
-                    },
-                });
-            }
-            _ => {
-                return Err(NxrModelError::Inference(
-                    "Unsupported input type".to_string(),
-                ))
-            }
-        };
-
-        let max_tokens = input
-            .parameters
-            .get("max_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100) as usize;
-        let temperature = input
-            .parameters
-            .get("temperature")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.7) as f32;
-        let top_k = input
-            .parameters
-            .get("top_k")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
-
-        let input_ids = tok.encode(&text);
-        let start = std::time::Instant::now();
-
-        let use_gpu = self.use_gpu.load(Ordering::Relaxed);
-        let guard = self.model.read().await;
-        let m = guard.as_ref().ok_or_else(|| {
-            NxrModelError::NotInitialized("Model was reset before generation".to_string())
-        })?;
-        let (output_ids, _cache) =
-            m.generate_with_gpu(&input_ids, max_tokens, temperature, top_k, use_gpu);
-
-        let elapsed = start.elapsed().as_millis() as u64;
-        let generated_text = tok.decode(&output_ids);
-
-        let mut stats = self.statistics.write().await;
-        stats.total_requests += 1;
-        stats.successful_requests += 1;
-        stats.total_tokens_generated += output_ids.len() as u64;
-
-        let tokens_per_second = if elapsed > 0 {
-            output_ids.len() as f32 / (elapsed as f32 / 1000.0)
-        } else {
-            0.0
-        };
-
-        Ok(NxrOutput {
-            id: uuid::Uuid::new_v4(),
-            input_id: input.id,
-            timestamp: chrono::Utc::now(),
-            data: OutputData::Text(generated_text),
-            metadata: GenerationMetadata {
-                finish_reason: FinishReason::MaxTokens,
-                total_tokens: output_ids.len(),
-                generation_time_ms: elapsed,
-                model_version: "0.1.0".to_string(),
-                seed: None,
-                extras: Default::default(),
-            },
-            performance: PerformanceMetrics {
-                tokens_per_second,
-                memory_usage_gb: 0.0,
-                gpu_utilization: None,
-                cpu_utilization: 0.0,
-                network_usage_mbps: None,
-            },
-        })
-    }
-
-    async fn infer_stream_legacy(
-        &self,
-        input: &NxrInput,
-        callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
-    ) -> NxrModelResult<()> {
-        let text = match &input.data {
-            InputData::Text(t) => t.clone(),
-            InputData::Tokens(t) => {
-                let decoded = {
-                    let tokenizer = self.tokenizer.read().await;
-                    let tok = tokenizer.as_ref().ok_or_else(|| {
-                        NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
-                    })?;
-                    tok.decode(t)
-                };
-                callback(NxrStreamChunk {
-                    id: uuid::Uuid::new_v4(),
-                    input_id: input.id,
-                    timestamp: chrono::Utc::now(),
-                    data: StreamChunkData::TextDelta(decoded),
-                    is_final: true,
-                });
-                return Ok(());
-            }
-            _ => {
-                return Err(NxrModelError::Inference(
-                    "Unsupported input type".to_string(),
-                ))
-            }
-        };
-
-        let max_tokens = input
-            .parameters
-            .get("max_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100) as usize;
-        let temperature = input
-            .parameters
-            .get("temperature")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.7) as f32;
-        let top_k = input
-            .parameters
-            .get("top_k")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50) as usize;
-
-        let (input_ids, tok) = {
-            let tokenizer = self.tokenizer.read().await;
-            let tok = tokenizer
-                .as_ref()
-                .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
-            (tok.encode(&text), tok.clone())
-        };
-        let model_arc = {
-            let guard = self.model.read().await;
-            guard
-                .clone()
-                .ok_or_else(|| NxrModelError::NotInitialized("Model not loaded".to_string()))?
-        };
-        let callback = callback.clone();
-        let input_id = input.id;
-
-        tokio::task::spawn_blocking(move || {
-            let mut cache = model_arc.reset_cache();
-            for &tid in &input_ids {
-                if let Err(e) = model_arc.forward(&[tid], &mut cache) {
-                    tracing::warn!("Prefill token {} failed: {}", tid, e);
-                }
-            }
-            let mut last_id = *input_ids.last().unwrap_or(&0);
-
-            for _ in 0..max_tokens {
-                let vs = model_arc.config.vocab_size;
-                let logits = match model_arc.forward(&[last_id], &mut cache) {
-                    Ok(l) => l,
-                    Err(e) => {
-                        tracing::warn!("Generation step forward failed: {}", e);
-                        Array1::zeros(vs)
-                    }
-                };
-                let next_id = nexora_transformer::sample_token(&logits, temperature, top_k);
-                let token_text = tok.decode(&[next_id]);
-                callback(NxrStreamChunk {
-                    id: uuid::Uuid::new_v4(),
-                    input_id,
-                    timestamp: chrono::Utc::now(),
-                    data: StreamChunkData::TextDelta(token_text),
-                    is_final: false,
-                });
-                if next_id == 0 || next_id == 2 {
-                    break;
-                }
-                last_id = next_id;
-            }
-            callback(NxrStreamChunk {
-                id: uuid::Uuid::new_v4(),
-                input_id,
-                timestamp: chrono::Utc::now(),
-                data: StreamChunkData::Status("done".to_string()),
-                is_final: true,
-            });
-        })
-        .await
-        .map_err(|e| NxrModelError::Inference(format!("Stream generation task failed: {e}")))?;
-
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

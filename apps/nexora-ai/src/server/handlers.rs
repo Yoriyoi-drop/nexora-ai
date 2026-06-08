@@ -20,11 +20,10 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
-use crate::security::{SecurityConfig, SecurityUtils, SecurityValidator};
+use crate::security::SecurityUtils;
 use crate::NexoraAI;
 
 static METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
-static SECURITY: OnceLock<SecurityValidator> = OnceLock::new();
 
 // ── SPARO alignment & jailbreak detection ──
 static SPARO: OnceLock<SparoSystem> = OnceLock::new();
@@ -353,14 +352,8 @@ fn client_ip_from_headers(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-fn init_security_validator() -> &'static SecurityValidator {
-    SECURITY.get_or_init(|| {
-        SecurityValidator::new(SecurityConfig::default())
-    })
-}
-
 fn validate_prompt(prompt: &str) -> Result<(), (StatusCode, Json<Value>)> {
-    let validator = init_security_validator();
+    let validator = super::router::init_security_validator();
     validator.validate_input(prompt).map_err(|e| {
         warn!("Security validation rejected input: {}", e);
         (
@@ -532,7 +525,7 @@ pub async fn process_request(
     }
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(input)
     };
 
@@ -606,7 +599,7 @@ pub async fn generate_text(
         .unwrap_or(0.7) as f32;
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(prompt)
     };
 
@@ -679,7 +672,7 @@ pub async fn generate_text_stream(
         .unwrap_or(0.7) as f32;
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(prompt)
     };
 
@@ -780,7 +773,7 @@ pub async fn chat(
     }
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(message)
     };
 
@@ -849,7 +842,7 @@ pub async fn analyze_code(
         .unwrap_or("unknown");
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(code)
     };
 
@@ -920,7 +913,7 @@ pub async fn generate_code(
         .unwrap_or("rust");
 
     let sanitized = {
-        let validator = init_security_validator();
+        let validator = super::router::init_security_validator();
         validator.sanitize_input(description)
     };
 

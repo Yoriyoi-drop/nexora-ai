@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig};
@@ -10,6 +12,49 @@ use once_cell::sync::OnceCell;
 use super::tensor::CudaTensor;
 
 static CUDA_CTX: OnceCell<Arc<CudaRuntime>> = OnceCell::new();
+
+// ── PTX Disk Cache ─────────────────────────────────────────────────
+
+/// Persists compiled PTX between runs to avoid NVRTC overhead on warm starts.
+/// Cache key = hash(kernel_source + kernel_name), stored in ~/.cache/nexora/ptx/.
+struct PtxCache {
+    cache_dir: PathBuf,
+}
+
+impl PtxCache {
+    fn new() -> Self {
+        let cache_dir = std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join(".cache/nexora/ptx"))
+            .unwrap_or_else(|_| PathBuf::from("/tmp/nexora/ptx"));
+        let _ = std::fs::create_dir_all(&cache_dir);
+        PtxCache { cache_dir }
+    }
+
+    fn key(name: &str, source: &str) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut hasher);
+        source.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    fn load(&self, name: &str, source: &str) -> Option<String> {
+        let path = self.cache_dir.join(Self::key(name, source));
+        match std::fs::read_to_string(&path) {
+            Ok(ptx) => {
+                tracing::debug!("PTX cache hit: {}", path.display());
+                Some(ptx)
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn save(&self, name: &str, source: &str, ptx: &str) {
+        let path = self.cache_dir.join(Self::key(name, source));
+        if let Err(e) = std::fs::write(&path, ptx) {
+            tracing::warn!("PTX cache write failed: {e}");
+        }
+    }
+}
 
 macro_rules! launch_1d {
     ($self:ident, $func:ident, $numel:expr, $out:ident $(, $arg:expr)*) => {{
@@ -42,6 +87,7 @@ pub struct CudaRuntime {
     pub device_id: usize,
     kernels: Mutex<HashMap<String, CudaFunction>>,
     scratch: Mutex<Option<(usize, CudaSlice<f32>)>>,
+    ptx_cache: PtxCache,
 }
 
 impl CudaRuntime {
@@ -80,6 +126,7 @@ impl CudaRuntime {
             device_id,
             kernels: Mutex::new(HashMap::new()),
             scratch: Mutex::new(None),
+            ptx_cache: PtxCache::new(),
         })
     }
 
@@ -111,7 +158,15 @@ impl CudaRuntime {
                 return Ok(f.clone());
             }
         }
-        let ptx = compile_ptx(source).map_err(|e| format!("NVRTC compile '{name}': {e}"))?;
+        let ptx = match self.ptx_cache.load(name, source) {
+            Some(cached) => cached,
+            None => {
+                let compiled =
+                    compile_ptx(source).map_err(|e| format!("NVRTC compile '{name}': {e}"))?;
+                self.ptx_cache.save(name, source, &compiled);
+                compiled
+            }
+        };
         let module = self
             .context
             .load_module(ptx)
@@ -754,6 +809,301 @@ extern "C" __global__ void flash_attn(float* __restrict__ output,
 
         Ok(CudaTensor {
             shape: q_shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
+    }
+
+    // ── FlashDecoding ─────────────────────────────────────────────────
+
+    /// Two-pass FlashDecoding: parallelizes over KV chunks for efficient decode (S_q=1).
+    ///
+    /// Pass 1: 1 block per (B, H, kv_chunk) — each block computes partial online softmax
+    ///         output for its chunk. Writes chunked (m, d, o) to staging buffers.
+    ///
+    /// Pass 2: 1 block per (B, H) — reduces across chunks using online softmax combine,
+    ///         writing the final attention output [B, H, 1, D].
+    ///
+    /// Chunk size = 128 by default. Number of chunks = ceil(kv_len / chunk_size).
+    pub fn flash_decoding(
+        &self,
+        q: &CudaTensor,
+        k: &CudaTensor,
+        v: &CudaTensor,
+        scale: f32,
+        causal: bool,
+    ) -> Result<CudaTensor, String> {
+        let q_shape = &q.shape;
+        if q_shape.len() != 4 {
+            return Err(format!(
+                "CUDA flash_decoding: Q must be 4D [B,H,S,D], got {:?}",
+                q_shape
+            ));
+        }
+        let batch = q_shape[0];
+        let heads = q_shape[1];
+        let dim = q_shape[3];
+
+        let k_shape = &k.shape;
+        let kv_len = k_shape[2];
+
+        let tile_size: u32 = 32;
+        let block_size: u32 = 256;
+        let chunk_size: usize = 128;
+        let num_chunks = ((kv_len + chunk_size - 1) / chunk_size).max(1);
+        let causal_u32: u32 = if causal { 1 } else { 0 };
+
+        // ── Pass 1: partial attention per KV chunk ───────────────────
+        let partial_o_size = batch * heads * num_chunks * dim;
+        let partial_md_size = batch * heads * num_chunks;
+
+        let mut partial_o = self
+            .scratch_f32(partial_o_size)
+            .map_err(|e| format!("flash_decoding partial_o scratch: {e}"))?;
+        let mut partial_m = self
+            .scratch_f32(partial_md_size)
+            .map_err(|e| format!("flash_decoding partial_m scratch: {e}"))?;
+        let mut partial_d = self
+            .scratch_f32(partial_md_size)
+            .map_err(|e| format!("flash_decoding partial_d scratch: {e}"))?;
+
+        let src_pass1 = format!(
+            r#"
+extern "C" __global__ void flash_decoding(
+    float* __restrict__ partial_o,
+    float* __restrict__ partial_m,
+    float* __restrict__ partial_d,
+    const float* __restrict__ q,
+    const float* __restrict__ k,
+    const float* __restrict__ v,
+    size_t batch, size_t heads, size_t kv_len, size_t dim,
+    size_t num_chunks, unsigned int chunk_size,
+    float scale, unsigned int causal) {{
+
+    unsigned int wg_flat = blockIdx.x;
+    unsigned int chunk = wg_flat % num_chunks;
+    unsigned int head = (wg_flat / num_chunks) % heads;
+    unsigned int batch_idx = wg_flat / (num_chunks * heads);
+    if (batch_idx >= batch) return;
+
+    extern __shared__ float shared[];
+    float* q_shared = shared;
+    float* score_tile = shared + blockDim.x;
+    float* exp_tile = shared + blockDim.x + {tile_size};
+    float* scratch = shared + blockDim.x + 2 * {tile_size};
+
+    unsigned int tid = threadIdx.x;
+
+    size_t head_stride = kv_len * dim;
+    size_t batch_stride = heads * head_stride;
+    size_t q_off = batch_idx * batch_stride + head * head_stride;
+    size_t kv_base = batch_idx * batch_stride + head * head_stride;
+
+    if (tid < dim) q_shared[tid] = q[q_off + tid];
+    __syncthreads();
+
+    size_t kv_start = (size_t)chunk * chunk_size;
+    size_t kv_end = kv_start + chunk_size;
+    if (kv_end > kv_len) kv_end = kv_len;
+
+    float m = -INFINITY;
+    float d = 0.0f;
+    float o_buf = 0.0f;
+
+    for (size_t tile_start = kv_start; tile_start < kv_end; tile_start += {tile_size}) {{
+        size_t tile_end = tile_start + {tile_size};
+        if (tile_end > kv_end) tile_end = kv_end;
+        unsigned int tile_sz = (unsigned int)(tile_end - tile_start);
+
+        for (unsigned int ki = 0; ki < tile_sz; ki++) {{
+            size_t k_pos = tile_start + ki;
+            float partial = 0.0f;
+            for (size_t d_i = tid; d_i < dim; d_i += blockDim.x) {{
+                partial += k[kv_base + k_pos * dim + d_i] * q_shared[d_i];
+            }}
+            #pragma unroll
+            for (unsigned int offset = 16; offset > 0; offset >>= 1) {{
+                partial += __shfl_xor_sync(0xFFFFFFFF, partial, offset);
+            }}
+            if (tid == 0) {{
+                float s = partial * scale;
+                if (causal && k_pos > 0) s = -INFINITY;
+                score_tile[ki] = s;
+            }}
+            __syncthreads();
+        }}
+
+        float m_tile = -INFINITY;
+        for (unsigned int ki = tid; ki < tile_sz; ki += blockDim.x) {{
+            if (score_tile[ki] > m_tile) m_tile = score_tile[ki];
+        }}
+        scratch[tid] = m_tile;
+        __syncthreads();
+        for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {{
+            if (tid < s) {{
+                if (scratch[tid + s] > scratch[tid]) scratch[tid] = scratch[tid + s];
+            }}
+            __syncthreads();
+        }}
+        m_tile = scratch[0];
+        __syncthreads();
+
+        float sum_exp_tile = 0.0f;
+        for (unsigned int ki = tid; ki < tile_sz; ki += blockDim.x) {{
+            float e = expf(score_tile[ki] - m_tile);
+            exp_tile[ki] = e;
+            sum_exp_tile += e;
+        }}
+        scratch[tid] = sum_exp_tile;
+        __syncthreads();
+        for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {{
+            if (tid < s) scratch[tid] += scratch[tid + s];
+            __syncthreads();
+        }}
+        sum_exp_tile = scratch[0];
+        __syncthreads();
+
+        float m_new = fmaxf(m, m_tile);
+        float old_scale = expf(m - m_new);
+        float tile_scale = expf(m_tile - m_new);
+        d = old_scale * d + tile_scale * sum_exp_tile;
+        o_buf = o_buf * old_scale;
+
+        for (unsigned int ki = 0; ki < tile_sz; ki++) {{
+            size_t k_pos = tile_start + ki;
+            float v_val = (tid < dim) ? v[kv_base + k_pos * dim + tid] : 0.0f;
+            o_buf += tile_scale * exp_tile[ki] * v_val;
+        }}
+
+        m = m_new;
+    }}
+
+    size_t po_base = batch_idx * (heads * num_chunks * dim) + head * (num_chunks * dim);
+    if (tid < dim) {{
+        partial_o[po_base + chunk * dim + tid] = o_buf;
+    }}
+    if (tid == 0) {{
+        size_t pm_base = batch_idx * (heads * num_chunks) + head * num_chunks;
+        partial_m[pm_base + chunk] = m;
+        partial_d[pm_base + chunk] = d;
+    }}
+}}
+"#
+        );
+
+        let kfunc1 = self.get_or_compile_kernel("flash_decoding", &src_pass1)?;
+        let total_wgs1 = (batch * heads * num_chunks) as u32;
+        let shared_mem1 = (block_size + 2 * tile_size + block_size) as u32 * 4;
+
+        let cfg1 = LaunchConfig {
+            grid_dim: (total_wgs1, 1, 1),
+            block_dim: (block_size, 1, 1),
+            shared_mem_bytes: shared_mem1,
+        };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&kfunc1);
+            builder.arg(&mut partial_o);
+            builder.arg(&mut partial_m);
+            builder.arg(&mut partial_d);
+            builder.arg(q.buffer());
+            builder.arg(k.buffer());
+            builder.arg(v.buffer());
+            builder.arg(&batch);
+            builder.arg(&heads);
+            builder.arg(&kv_len);
+            builder.arg(&dim);
+            builder.arg(&num_chunks);
+            builder.arg(&chunk_size);
+            builder.arg(&scale);
+            builder.arg(&causal_u32);
+            builder
+                .launch(cfg1)
+                .map_err(|e| format!("flash_decoding pass1 launch: {e}"))?;
+        }
+
+        // ── Pass 2: reduce across chunks ─────────────────────────────
+        let numel_out = batch * heads * 1 * dim;
+        let mut out = self
+            .scratch_f32(numel_out)
+            .map_err(|e| format!("flash_decoding output scratch: {e}"))?;
+
+        let src_reduce = format!(
+            r#"
+extern "C" __global__ void flash_decoding_reduce(
+    float* __restrict__ output,
+    const float* __restrict__ partial_o,
+    const float* __restrict__ partial_m,
+    const float* __restrict__ partial_d,
+    size_t batch, size_t heads, size_t num_chunks, size_t dim) {{
+
+    unsigned int head = blockIdx.x % heads;
+    unsigned int batch_idx = blockIdx.x / heads;
+    if (batch_idx >= batch) return;
+
+    unsigned int tid = threadIdx.x;
+    extern __shared__ float shared[];
+    float* m_sh = shared;
+    float* d_sh = shared + num_chunks;
+
+    size_t base_o = (batch_idx * heads + head) * num_chunks * dim;
+    size_t base_md = (batch_idx * heads + head) * num_chunks;
+
+    if (tid < num_chunks) {{
+        m_sh[tid] = partial_m[base_md + tid];
+        d_sh[tid] = partial_d[base_md + tid];
+    }}
+    __syncthreads();
+
+    if (tid == 0) {{
+        float m_global = -INFINITY;
+        for (unsigned int c = 0; c < num_chunks; c++) {{
+            if (m_sh[c] > m_global) m_global = m_sh[c];
+        }}
+        shared[num_chunks + num_chunks] = m_global;
+    }}
+    __syncthreads();
+    float m_global = shared[num_chunks + num_chunks];
+
+    if (tid < dim) {{
+        float o_local = 0.0f;
+        float d_global = 0.0f;
+        for (unsigned int c = 0; c < num_chunks; c++) {{
+            float chunk_scale = expf(m_sh[c] - m_global);
+            d_global += chunk_scale * d_sh[c];
+            o_local += chunk_scale * partial_o[base_o + c * dim + tid];
+        }}
+        output[(batch_idx * heads + head) * dim + tid] = o_local / d_global;
+    }}
+}}
+"#
+        );
+
+        let kfunc2 = self.get_or_compile_kernel("flash_decoding_reduce", &src_reduce)?;
+        let total_wgs2 = (batch * heads) as u32;
+        let shared_mem2 = (num_chunks * 2 + 1) as u32 * 4;
+
+        let cfg2 = LaunchConfig {
+            grid_dim: (total_wgs2, 1, 1),
+            block_dim: (block_size, 1, 1),
+            shared_mem_bytes: shared_mem2,
+        };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&kfunc2);
+            builder.arg(&mut out);
+            builder.arg(&partial_o);
+            builder.arg(&partial_m);
+            builder.arg(&partial_d);
+            builder.arg(&batch);
+            builder.arg(&heads);
+            builder.arg(&num_chunks);
+            builder.arg(&dim);
+            builder
+                .launch(cfg2)
+                .map_err(|e| format!("flash_decoding reduce launch: {e}"))?;
+        }
+
+        Ok(CudaTensor {
+            shape: vec![batch, heads, 1, dim],
             buffer: out,
             device_id: self.device_id,
         })

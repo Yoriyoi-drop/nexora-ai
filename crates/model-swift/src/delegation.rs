@@ -1,5 +1,5 @@
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrSwiftModel;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_has_moe_ffn::Router;
 use nexora_atqs::compression::AtqsCompression;
@@ -12,9 +12,9 @@ static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static ATQS: OnceLock<AtqsCompression> = OnceLock::new();
 static ERP: OnceLock<std::sync::Mutex<ERPEngine>> = OnceLock::new();
 
-fn foundation() -> &'static NxrSwiftModel {
-    static F: OnceLock<NxrSwiftModel> = OnceLock::new();
-    F.get_or_init(NxrSwiftModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::swift)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

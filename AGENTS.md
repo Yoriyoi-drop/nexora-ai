@@ -467,6 +467,13 @@ Router::forward(input)         Expert::forward_batched(input)
 - **Fused MoE kernel**: Single launch for all experts (reduce launch overhead)
 - **Pre-compiled PTX**: Ship PTX for systems without nvcc
 
+### GPU-ification Assessment
+
+| Component | Verdict | Reasoning |
+|-----------|---------|-----------|
+| SACA Reasoning | ❌ Not GPU-ifiable | Orchestration code — string processing, subprocess execution, scalar arithmetic only. No tensor ops. Heavy compute deferred to Oracle backbone. |
+| Oracle Backbone (CPU path) | ✅ Already GPU-wired | `forward_gpu()` exists with CUDA FlashAttention + wgpu + CPU fallback. CPU `forward()` is fallback for non-GPU builds. |
+
 ## Phase 5c — Distributed Scheduler (29 Mei 2026)
 
 ### Completed

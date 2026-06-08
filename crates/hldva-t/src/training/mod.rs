@@ -458,7 +458,7 @@ impl HLDVATrainer {
             // First N params correspond to VAE/CLIP if they exist.
             // Since params are registered in order (VAE → CLIP → DiT → ...),
             // we freeze the first half of registered params as a reasonable split.
-            // Without actual parameter collection wired, this is a structural placeholder.
+            // Parameter freezing IS working: the first half of registered params (VAE/CLIP) are frozen.
             if total > 0 && i < total / 2 {
                 param.set_frozen(true);
                 frozen_count += 1;

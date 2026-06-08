@@ -77,12 +77,12 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 # Concurrency
 rayon = "1.8"
 crossbeam = "0.8"
 # Math/tensor operations
-ndarray = { version = "0.15", features = ["serde"] }
+ndarray = { version = "0.16", features = ["serde"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -111,7 +111,7 @@ itertools = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 # HTTP server
 axum = "0.7"
-tower = "0.4"
+tower = { version = "0.5", features = ["limit", "timeout"] }
 tower-http = { version = "0.5", features = ["cors", "compression-br", "trace"] }
 # Database drivers
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "sqlite", "mysql", "chrono", "uuid"] }
@@ -129,8 +129,10 @@ zstd = "0.13"
 lz4_flex = "0.11"
 flate2 = "1.0"
 memmap2 = "0.9"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
+half = "2.4"
+rustls-pemfile = "2.0"
 argon2 = "0.5"
 
 # Terminal UI dependencies

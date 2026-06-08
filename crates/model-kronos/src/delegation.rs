@@ -1,5 +1,5 @@
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrKronosModel;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_reasoning::SacaEngine;
 use nexora_memory::{MemoryManager, MemoryLayer};
@@ -10,9 +10,9 @@ use nexora_transformer::CausalLM;
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static MEMORY: OnceLock<MemoryManager> = OnceLock::new();
 
-fn foundation() -> &'static NxrKronosModel {
-    static F: OnceLock<NxrKronosModel> = OnceLock::new();
-    F.get_or_init(NxrKronosModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::kronos)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

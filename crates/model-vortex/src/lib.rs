@@ -39,7 +39,7 @@ pub use config::*;
 pub use identity::*;
 
 /// NXR-VORTEX Model Implementation
-pub struct NxrVortexModel {
+pub struct FoundationModel {
     /// Base model infrastructure
     base: nexora_shared::base_model::BaseNxrModel<VortexConfig, VortexMetrics, VortexState>,
     /// Model identity
@@ -447,7 +447,7 @@ impl VortexConfig {
     }
 }
 
-impl NxrVortexModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = VortexIdentity::new();
         let capabilities = VortexCapabilities::new();
@@ -543,7 +543,7 @@ fn augment_vortex_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrVortexModel {
+impl NxrModel for FoundationModel {
     type Config = VortexConfig;
     type Metrics = VortexMetrics;
     type State = VortexState;
@@ -600,9 +600,9 @@ impl NxrModel for NxrVortexModel {
         }
 
         let augmented = augment_vortex_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrVortexModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrVortexModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::vortex());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -732,19 +732,19 @@ impl NxrModel for NxrVortexModel {
     }
 }
 
-impl HasComponents for NxrVortexModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrVortexModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrVortexModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

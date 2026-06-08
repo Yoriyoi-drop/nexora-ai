@@ -199,9 +199,39 @@ pub fn backward_engine(output: &Tensor) {
                                 })
                             }
                             #[cfg(feature = "device-cuda")]
-                            Storage::Cuda(_, _) => {
-                                tracing::warn!("Backward CPU fallback: CUDA readback not implemented");
-                                ndarray::ArrayD::zeros(grad_out_storage.shape())
+                            Storage::Cuda(tensor, _) => {
+                                match crate::gpu::CudaRuntime::global() {
+                                    Ok(rt) => match tensor.to_cpu_vec(&rt.stream) {
+                                        Ok(cpu_buf) => {
+                                            match ndarray::ArrayD::from_shape_vec(
+                                                tensor.shape(),
+                                                cpu_buf,
+                                            ) {
+                                                Ok(arr) => arr,
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "Backward CPU fallback: CUDA shape mismatch: {e}"
+                                                    );
+                                                    ndarray::ArrayD::zeros(
+                                                        grad_out_storage.shape(),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Backward CPU fallback: CUDA readback failed: {e}"
+                                            );
+                                            ndarray::ArrayD::zeros(grad_out_storage.shape())
+                                        }
+                                    },
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Backward CPU fallback: CUDA runtime not available: {e}"
+                                        );
+                                        ndarray::ArrayD::zeros(grad_out_storage.shape())
+                                    }
+                                }
                             }
                         };
                         #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]

@@ -4,24 +4,24 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.0", features = ["net", "rt-multi-thread", "sync", "signal", "macros"] }
-tracing = "0.1"
-axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync", "signal", "macros"] }
+tracing = { workspace = true }
+axum = { workspace = true }
+tower.workspace = true
+tower-http = { workspace = true, features = ["cors", "trace"] }
 hyper = "1.0"
 rustc_version_runtime = "0.2"
-uuid = { version = "1.0", features = ["v4"] }
-regex = "1.0"
-rand = "0.8"
-async-trait = "0.1"
+uuid = { workspace = true, features = ["v4"] }
+regex = { workspace = true }
+rand = { workspace = true }
+async-trait = { workspace = true }
 # Compression support
-flate2 = "1.0"
+flate2 = { workspace = true }
 # System monitoring
-sysinfo = "0.30"
+sysinfo = { workspace = true }
 # Infrastructure
 nexora-infrastructure = { path = "../infrastructure" }
 nexora-common = { path = "../infrastructure/common" }
@@ -31,6 +31,7 @@ nexora-validation = { path = "../validation" }
 nexora-database = { path = "../database" }
 nexora-isolation = { path = "../isolation" }
 nexora-monitoring = { path = "../monitoring" }
+rustls-pemfile = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -46,10 +47,6 @@ version = "0.6"
 optional = true
 features = ["tls-rustls"]
 
-[dependencies.rustls-pemfile]
-version = "2.0"
-optional = true
-
 [dependencies.rcgen]
 version = "0.12"
 optional = true
@@ -59,6 +56,6 @@ version = "0.3"
 optional = true
 
 [dev-dependencies]
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1.0", features = ["net", "rt-multi-thread", "sync", "signal", "macros"] }
-futures = "0.3"
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls-tls"] }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync", "signal", "macros"] }
+futures = { workspace = true }

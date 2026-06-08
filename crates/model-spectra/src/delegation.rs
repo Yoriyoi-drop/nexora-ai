@@ -1,5 +1,5 @@
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrSpectraModel;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
@@ -11,9 +11,9 @@ use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-fn foundation() -> &'static NxrSpectraModel {
-    static F: OnceLock<NxrSpectraModel> = OnceLock::new();
-    F.get_or_init(NxrSpectraModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::spectra)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

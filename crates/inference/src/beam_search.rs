@@ -1,6 +1,8 @@
 //! Beam Search
 //!
 //! Beam search decoding strategy untuk inference.
+//! Fully wired and usable — call `BeamSearchEngine::search()` for a complete beam search run,
+//! or use `initialize()` / `expand_beam()` / `should_stop()` for manual control.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -268,7 +270,6 @@ pub struct BeamSearchState {
 }
 
 /// Beam search engine
-#[deprecated(note = "Not wired into InferenceEngine - use Greedy/Temperature sampling instead")]
 pub struct BeamSearchEngine {
     config: BeamSearchConfig,
 }
@@ -642,6 +643,30 @@ impl BeamSearchEngine {
         let unique: HashSet<u32> = hypothesis.iter_tokens().map(|t| t.token_id).collect();
         1.0 - (unique.len() as f32 / count as f32)
     }
+
+    /// Run a complete beam search, returning the best hypothesis.
+    ///
+    /// `initial_logits` — logits for the first token position (vocab-sized).
+    /// `logits_provider` — subsequent logits for each remaining step.
+    /// `max_steps` — maximum number of decoding steps.
+    pub fn search(
+        &self,
+        initial_logits: &[f32],
+        logits_provider: &[Vec<f32>],
+        max_steps: usize,
+    ) -> Result<Option<BeamHypothesis>> {
+        let mut state = self.initialize(initial_logits)?;
+        for step_logits in logits_provider.iter().take(max_steps - 1) {
+            let batched_logits: Vec<&[f32]> = (0..state.hypotheses.len())
+                .map(|_| step_logits.as_slice())
+                .collect();
+            self.expand_beam(&mut state, &batched_logits)?;
+            if self.should_stop(&state, max_steps) {
+                break;
+            }
+        }
+        Ok(self.get_best_hypothesis(&state).cloned())
+    }
 }
 
 impl Default for BeamSearchEngine {
@@ -664,26 +689,14 @@ pub fn create_beam_search_config(
     }
 }
 
-/// Helper function to run complete beam search
-#[deprecated(note = "Not wired into InferenceEngine - use Greedy/Temperature sampling instead")]
+/// Helper function to run a complete beam search.
+///
+/// Convenience wrapper around [`BeamSearchEngine::search`].
 pub fn run_beam_search(
     engine: &BeamSearchEngine,
     initial_logits: &[f32],
     subsequent_logits: &[Vec<f32>],
     max_steps: usize,
 ) -> Result<Option<BeamHypothesis>> {
-    let mut state = engine.initialize(initial_logits)?;
-
-    for step_logits in subsequent_logits.iter().take(max_steps - 1) {
-        let batched_logits: Vec<&[f32]> = (0..state.hypotheses.len())
-            .map(|_| step_logits.as_slice())
-            .collect();
-        engine.expand_beam(&mut state, &batched_logits)?;
-
-        if engine.should_stop(&state, max_steps) {
-            break;
-        }
-    }
-
-    Ok(engine.get_best_hypothesis(&state).cloned())
+    engine.search(initial_logits, subsequent_logits, max_steps)
 }

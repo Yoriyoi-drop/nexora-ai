@@ -5,13 +5,13 @@
 
 pub use nexora_oracle::*;
 
-use nexora_models::vortex::NxrVortexModel;
+use nexora_models::foundation::FoundationModel;
 use nexora_shared::base_model::NxrModel;
 
 /// Enhanced ORACLE with NXR-VORTEX integration
 pub struct OracleVortexIntegration {
     pub oracle_trainer: nexora_oracle::trainer::OracleTrainer,
-    pub vortex_model: NxrVortexModel,
+    pub vortex_model: FoundationModel,
     pub integration_config: OracleVortexConfig,
 }
 
@@ -40,7 +40,7 @@ impl OracleVortexIntegration {
         )?;
         Ok(Self {
             oracle_trainer,
-            vortex_model: NxrVortexModel::new(),
+            vortex_model: FoundationModel::vortex(),
             integration_config: OracleVortexConfig::default(),
         })
     }
@@ -101,7 +101,7 @@ impl EnhancedCodeAnalysis {
 
 impl OracleVortexIntegration {
     /// Create a degraded fallback instance when OracleTrainer is unavailable.
-    /// Uses a placeholder vortex model with default config — no analysis capabilities.
+    /// Tries multiple sizes (8K → 256 → 64 → 16) and falls back to size=8.
     pub fn default_fallback() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let integration_config = OracleVortexConfig {
             enable_vortex_analysis: true,
@@ -130,7 +130,7 @@ impl OracleVortexIntegration {
         };
         Ok(Self {
             oracle_trainer,
-            vortex_model: NxrVortexModel::new(),
+            vortex_model: FoundationModel::vortex(),
             integration_config,
         })
     }

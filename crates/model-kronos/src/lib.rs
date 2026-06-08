@@ -33,7 +33,7 @@ use self::{
     identity::KronosIdentity,
 };
 
-pub struct NxrKronosModel {
+pub struct FoundationModel {
     base: nexora_shared::base_model::BaseNxrModel<KronosConfig, KronosMetrics, KronosState>,
     identity: KronosIdentity,
     _agents: KronosAgents,
@@ -114,7 +114,7 @@ impl Default for KronosMetrics {
     }
 }
 
-impl NxrKronosModel {
+impl FoundationModel {
     pub fn new() -> Self {
         let identity = KronosIdentity::new();
         let capabilities = KronosCapabilities::new();
@@ -333,7 +333,7 @@ fn augment_kronos_input(
 }
 
 #[async_trait]
-impl NxrModel for NxrKronosModel {
+impl NxrModel for FoundationModel {
     type Config = KronosConfig;
     type Metrics = KronosMetrics;
     type State = KronosState;
@@ -390,9 +390,9 @@ impl NxrModel for NxrKronosModel {
         }
 
         let augmented = augment_kronos_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::NxrKronosModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::NxrKronosModel::new());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::kronos());
         foundation.infer_stream(&augmented, callback).await
     }
 
@@ -499,19 +499,19 @@ impl NxrModel for NxrKronosModel {
     }
 }
 
-impl HasComponents for NxrKronosModel {
+impl HasComponents for FoundationModel {
     fn components(&self) -> &FoundationComponents {
         &self.components
     }
 }
 
-impl DeepLearningModel for NxrKronosModel {
+impl DeepLearningModel for FoundationModel {
     fn dl_engine(&self) -> &nexora_shared::DeepLearningEngine {
         &self.components.dl_engine
     }
 }
 
-impl Default for NxrKronosModel {
+impl Default for FoundationModel {
     fn default() -> Self {
         Self::new()
     }

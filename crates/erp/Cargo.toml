@@ -16,6 +16,6 @@ rand.workspace = true
 rand_distr = "0.4"
 thiserror.workspace = true
 tracing.workspace = true
-lru = "0.12"
+lru = { workspace = true }
 uuid.workspace = true
-nexora-autograd = { path = "../autograd" }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }

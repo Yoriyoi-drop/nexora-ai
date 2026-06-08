@@ -1,6 +1,6 @@
 use crate::classifier;
 use nexora_model_core::classifier_util;
-use nexora_model_core::foundation::NxrAxiomModel;
+use nexora_model_core::foundation::FoundationModel;
 use nexora_reasoning::SacaEngine;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -8,9 +8,9 @@ use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-fn foundation() -> &'static NxrAxiomModel {
-    static F: OnceLock<NxrAxiomModel> = OnceLock::new();
-    F.get_or_init(NxrAxiomModel::new)
+fn foundation() -> &'static FoundationModel {
+    static F: OnceLock<FoundationModel> = OnceLock::new();
+    F.get_or_init(FoundationModel::axiom)
 }
 
 pub fn inject_model(model_arc: Arc<CausalLM>) {

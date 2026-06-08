@@ -16,7 +16,7 @@ uuid.workspace = true
 async-trait.workspace = true
 rand.workspace = true
 nexora-common = { path = "../infrastructure/common" }
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
 
 [features]
 default = ["gpu"]

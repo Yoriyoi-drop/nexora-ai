@@ -6,13 +6,13 @@
 pub use nexora_reasoning::saca::*;
 pub use nexora_reasoning::*;
 
-use nexora_models::aether::NxrAetherModel;
+use nexora_models::foundation::FoundationModel;
 use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced SACA with NXR-ÆTHER integration
 pub struct SacaAetherIntegration {
     pub saca_engine: nexora_reasoning::saca::SacaEngine,
-    pub aether_model: NxrAetherModel,
+    pub aether_model: FoundationModel,
     pub integration_config: SacaAetherConfig,
 }
 
@@ -37,7 +37,7 @@ impl SacaAetherIntegration {
     pub fn new() -> Self {
         Self {
             saca_engine: nexora_reasoning::saca::SacaEngine::new(),
-            aether_model: NxrAetherModel::new(),
+            aether_model: FoundationModel::aether(),
             integration_config: SacaAetherConfig::default(),
         }
     }

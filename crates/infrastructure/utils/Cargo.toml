@@ -12,18 +12,18 @@ anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 once_cell.workspace = true
-chrono = "0.4"
+chrono = { workspace = true }
 uuid = { workspace = true, features = ["v5"] }
 regex.workspace = true
-sha2 = "0.10"
-hex = "0.4"
+sha2.workspace = true
+hex = { workspace = true }
 base64 = "0.22"
 parking_lot.workspace = true
 rand.workspace = true
 unicode-segmentation.workspace = true
-hmac = "0.12"
-pbkdf2 = "0.12"
-flate2 = "1.0"
+hmac = "0.13"
+pbkdf2 = "0.13"
+flate2 = { workspace = true }
 pathdiff = "0.2"
 
 [dev-dependencies]

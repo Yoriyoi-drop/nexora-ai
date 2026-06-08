@@ -12,6 +12,7 @@ pub mod decoding;
 pub mod degradation;
 pub mod distributed;
 pub mod self_healing;
+pub mod speculative;
 pub mod engine;
 pub mod inference_trait;
 pub mod kv_cache;
@@ -29,7 +30,7 @@ pub mod stop_conditions;
 pub mod streaming;
 
 // Re-export main types
-pub use beam_search::{BeamHypothesis, BeamSearchConfig};
+pub use beam_search::{BeamHypothesis, BeamSearchConfig, BeamSearchEngine};
 pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
 pub use batching::{
     ContinuousBatchingConfig, ContinuousBatchingEngine, SequentialBatchingEngine, StepResult,
@@ -51,6 +52,10 @@ pub use runtime::{read_gpu_memory, InferenceRuntime, RuntimeState};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
 pub use sequence_state::{SeqState, Sequence};
 pub use session::{InferenceSession, SessionConfig, SessionEntry, SessionState};
+pub use speculative::{
+    DraftModel, NGramDraftModel, SpeculativeDecodingConfig, SpeculativeEngine, SpeculativeStats,
+    SpeculationResult,
+};
 pub use stop_conditions::{StopCondition, StopConditions};
 
 /// Versi inference engine
