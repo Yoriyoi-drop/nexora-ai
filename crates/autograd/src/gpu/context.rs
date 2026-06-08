@@ -217,6 +217,7 @@ impl GpuContext {
     pub(crate) fn compile_all_pipelines(&mut self) -> Result<(), GpuError> {
         let tile = self.caps.optimal_tile_size();
         self.compile_matmul_tiled(tile)?;
+        self.compile_matmul_tiled_vec4(tile)?;
         self.compile_matmul_int8_tiled(tile)?;
         self.compile_matmul_int8_weight(tile)?;
         self.compile_matmul_int4_weight(tile)?;

@@ -81,16 +81,13 @@ impl GpuTensor {
             GpuError::Buffer("non-contiguous array in from_cpu — copy to contiguous first".into())
         })?;
         let flat: &[u8] = bytemuck::cast_slice(data_slice);
-
-        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::from_cpu"),
-            size: flat.len() as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
         let byte_len = flat.len() as u64;
+
+        // 🟠 MEDIUM #7: Use memory pool instead of direct device.create_buffer
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let buffer = ctx.alloc_or_create_buffer(byte_len, usage);
         ctx.queue
             .write_buffer(&buffer, 0, bytemuck::cast_slice(data_slice));
         crate::gpu::gpu_observability::PCIE_WRITE_BYTES
@@ -135,14 +132,11 @@ impl GpuTensor {
             )));
         }
         let byte_size = expected_packed as u64 * 4;
-        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::from_cpu_i8_packed"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        // 🟠 MEDIUM #7: Use memory pool instead of direct device.create_buffer
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let buffer = ctx.alloc_or_create_buffer(byte_size, usage);
         ctx.queue.write_buffer(
             &buffer,
             0,
@@ -173,14 +167,11 @@ impl GpuTensor {
         }
         let u32_count = num_bytes.div_ceil(4);
         let byte_size = u32_count as u64 * 4;
-        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::from_cpu_q4_packed"),
-            size: byte_size,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+        // 🟠 MEDIUM #7: Use memory pool instead of direct device.create_buffer
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let buffer = ctx.alloc_or_create_buffer(byte_size, usage);
         ctx.queue.write_buffer(&buffer, 0, packed_bytes);
         Ok(Self {
             shape,
@@ -203,14 +194,12 @@ impl GpuTensor {
             )));
         }
         let byte_len = (numel * 4) as u64;
-        let buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GpuTensor::from_slice"),
-            size: byte_len,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+
+        // 🟠 MEDIUM #7: Use memory pool instead of direct device.create_buffer
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let buffer = ctx.alloc_or_create_buffer(byte_len, usage);
         ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&data[..numel]));
         crate::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);

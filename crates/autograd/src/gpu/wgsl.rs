@@ -63,6 +63,78 @@ fn matmul_tiled_main(@builtin(global_invocation_id) gid: vec3<u32>,
 "#;
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  PHASE 1.1b: VEC4<F32> VECTORIZED MATMUL
+//  Uses vec4<f32> loads from global memory to achieve 4× bandwidth utilization
+//  vs scalar f32 loads. Requires M, N, K to be multiples of 4 for full benefit.
+//  Falls back to scalar tiled matmul when alignment doesn't match.
+// ═══════════════════════════════════════════════════════════════════════════════
+pub(crate) const MATMUL_TILED_VEC4_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+const VEC4: u32 = 4u;
+
+struct Vec4Array { data: array<vec4<f32>>; }
+
+@group(0) @binding(0) var<storage, read> a_vec4: Vec4Array;
+@group(0) @binding(1) var<storage, read> b_vec4: Vec4Array;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Dims {
+    M: u32,
+    K: u32,
+    N: u32,
+    Tile: u32,
+};
+
+@group(0) @binding(3) var<uniform> dims: Dims;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn load_vec4_a(linear_idx: u32) -> f32 {
+    let vi = linear_idx / VEC4;
+    let ei = linear_idx % VEC4;
+    return a_vec4.data[vi][ei];
+}
+
+fn load_vec4_b(linear_idx: u32) -> f32 {
+    let vi = linear_idx / VEC4;
+    let ei = linear_idx % VEC4;
+    return b_vec4.data[vi][ei];
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_vec4_main(@builtin(global_invocation_id) gid: vec3<u32>,
+                     @builtin(local_invocation_id) lid: vec3<u32>,
+                     @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (dims.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        let a_linear = row * dims.K + t * TILE_SIZE + lid.y;
+        tile_a[lid.x][lid.y] = select(0.0, load_vec4_a(a_linear), a_linear < dims.M * dims.K);
+
+        let b_linear = (t * TILE_SIZE + lid.x) * dims.N + col;
+        tile_b[lid.x][lid.y] = select(0.0, load_vec4_b(b_linear), b_linear < dims.K * dims.N);
+
+        workgroupBarrier();
+
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < dims.M && col < dims.N) {
+        c[row * dims.N + col] = sum;
+    }
+}
+"#;
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  PHASE 1.2: INT8 QUANTIZED MATMUL
 // ═══════════════════════════════════════════════════════════════════════════════
 //

@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(feature = "mysql")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "mysql")]
+use mysql::prelude::Queryable;
 
 pub mod connection_pool;
 pub mod credentials;
@@ -141,7 +143,7 @@ mod mysql_impl {
             mysql::Value::Time(is_neg, d, h, m, s, us) => {
                 let total_secs = (d as u64) * 86400 + (h as u64) * 3600 + (m as u64) * 60 + s as u64;
                 let nanos = us * 1000;
-                let duration = std::time::Duration::new(total_secs, nanos);
+                let _duration = std::time::Duration::new(total_secs, nanos);
                 if is_neg {
                     Value::I64(-(total_secs as i64))
                 } else {
@@ -203,10 +205,10 @@ mod mysql_impl {
 
             let result = conn.exec_iter(query, mysql_params)?;
             let affected = result.affected_rows() as u64;
-            let columns: Vec<_> = result.columns().iter().cloned().collect();
+            let columns: Vec<_> = result.columns().as_ref().iter().cloned().collect();
 
             // Collect rows from result
-            let rows: Vec<HashMap<String, Value>> = result
+            let rows: Vec<Row> = result
                 .map(|row_result| {
                     row_result.map(|row| {
                         let mut row_data = HashMap::new();
@@ -215,7 +217,7 @@ mod mysql_impl {
                             row_data
                                 .insert(column.name_str().to_string(), convert_mysql_value(val));
                         }
-                        row_data
+                        Row { columns: row_data }
                     })
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -237,7 +239,9 @@ mod mysql_impl {
                 .map(|v| match v {
                     ValueType::String => mysql::Value::from(""),
                     ValueType::Integer => mysql::Value::from(0),
-                    ValueType::Float => mysql::Value::from(0.0),
+                    ValueType::BigInt => mysql::Value::from(0i64),
+                    ValueType::Float => mysql::Value::from(0.0f32),
+                    ValueType::Double => mysql::Value::from(0.0f64),
                     ValueType::Boolean => mysql::Value::from(false),
                     ValueType::Bytes => mysql::Value::from(Vec::new()),
                     ValueType::Json => mysql::Value::from(serde_json::Value::Null),
@@ -257,10 +261,10 @@ mod mysql_impl {
 
         async fn begin_transaction(&self) -> Result<Transaction> {
             let mut conn = self.pool.get_conn()?;
-            conn.query("START TRANSACTION")
+            conn.query_drop("START TRANSACTION")
                 .map_err(|e| anyhow!("Gagal memulai transaksi MySQL: {}", e))?;
 
-            Transaction::new_mysql(conn)
+            Ok(Transaction::new_mysql(conn))
         }
 
         async fn get_info(&self) -> Result<DatabaseInfo> {
@@ -509,21 +513,21 @@ impl Transaction {
         }
     }
 
-    pub fn new_mysql(conn: mysql::PooledConn) -> Result<Self> {
+    pub fn new_mysql(conn: mysql::PooledConn) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let connection_id = format!("mysql_conn_{}", id);
 
-        Ok(Self {
+        Self {
             id,
             connection_id,
             is_active: true,
             savepoints: Vec::new(),
-            conn: Some(conn.into_inner()),
+            conn: Some(conn.unwrap()),
             #[cfg(feature = "postgres")]
             client: None,
             #[cfg(feature = "sqlite")]
             conn_sqlite: None,
-        })
+        }
     }
 }
 
@@ -569,7 +573,7 @@ impl Transaction {
         }
         #[cfg(feature = "mysql")]
         if let Some(mut conn) = self.conn.take() {
-            conn.query("COMMIT")
+            conn.query_drop("COMMIT")
                 .map_err(|e| anyhow::anyhow!("MySQL commit failed: {}", e))?;
             self.is_active = false;
             return Ok(());
@@ -596,7 +600,7 @@ impl Transaction {
         }
         #[cfg(feature = "mysql")]
         if let Some(mut conn) = self.conn.take() {
-            conn.query("ROLLBACK")
+            conn.query_drop("ROLLBACK")
                 .map_err(|e| anyhow::anyhow!("MySQL rollback failed: {}", e))?;
             self.is_active = false;
             return Ok(());
@@ -637,7 +641,7 @@ impl Transaction {
         }
         #[cfg(feature = "mysql")]
         if let Some(ref mut conn) = self.conn {
-            conn.query(&format!("SAVEPOINT {}", name))
+            conn.query_drop(&format!("SAVEPOINT {}", name))
                 .map_err(|e| anyhow::anyhow!("MySQL savepoint failed: {}", e))?;
             self.savepoints.push(name.to_string());
             return Ok(());
@@ -664,7 +668,7 @@ impl Transaction {
         }
         #[cfg(feature = "mysql")]
         if let Some(ref mut conn) = self.conn {
-            conn.query(&format!("ROLLBACK TO SAVEPOINT {}", name))
+            conn.query_drop(&format!("ROLLBACK TO SAVEPOINT {}", name))
                 .map_err(|e| anyhow::anyhow!("MySQL rollback to savepoint failed: {}", e))?;
             return Ok(());
         }
@@ -697,7 +701,7 @@ impl Transaction {
             return Ok(ExecuteResult {
                 affected_rows: result.affected_rows() as u64,
                 execution_time_ms: 0,
-                last_insert_id: result.last_insert_id(),
+                last_insert_id: result.last_insert_id().map(|v| v as i64),
             });
         }
         #[cfg(feature = "sqlite")]
@@ -784,7 +788,7 @@ impl DatabaseFactory {
                     mysql_config.database
                 );
 
-                let pool = mysql::Pool::new(connection_string.as_str()).map_err(|e| {
+                let pool = mysql::Pool::new(connection_string.as_str()).map_err(|_e| {
                     anyhow::anyhow!(
                         "Failed to create MySQL pool for user '{}' at {}:{}",
                         mysql_config.username,

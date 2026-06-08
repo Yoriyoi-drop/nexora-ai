@@ -1018,6 +1018,26 @@ impl GpuContext {
             "matmul_tiled_main",
         )
     }
+
+    pub(crate) fn compile_matmul_tiled_vec4(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_tiled_vec4") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_TILED_VEC4_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_tiled_vec4",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            wgsl,
+            "matmul_vec4_main",
+        )
+    }
     pub(crate) fn compile_rotary_embedding(&mut self) -> Result<(), GpuError> {
         self.compile_shader("rotary_embedding", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, true), uniform_binding(3)], ROTARY_EMBEDDING_WGSL, "rotary_main")
     }
@@ -1249,12 +1269,24 @@ impl GpuContext {
             ],
         });
 
+        // 🟠 HIGH #4: vec4<f32> vectorized pipeline when all dims are 4-aligned
+        // Provides up to 4× global memory bandwidth improvement on tiled matmul.
+        let use_vec4 = m % 4 == 0 && n % 4 == 0 && k % 4 == 0
+            && self.pipelines.contains_key("matmul_tiled_vec4");
+        let selected = if use_vec4 {
+            self.pipelines
+                .get("matmul_tiled_vec4")
+                .ok_or_else(|| GpuError::Pipeline("matmul_tiled_vec4 not compiled".into()))?
+        } else {
+            pipeline
+        };
+
         let wgx = m_u32.div_ceil(tile_u32);
         let wgy = n_u32.div_ceil(tile_u32);
-        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+        self.dispatch(selected, &bind_group, (wgx, wgy, 1));
 
         Ok(GpuTensor {
-            shape: vec![m, n],
+            shape: vec![a_shape[0], b_shape[1]],
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,

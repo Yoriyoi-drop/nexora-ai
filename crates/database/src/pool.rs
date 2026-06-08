@@ -809,7 +809,7 @@ impl HealthChecker {
 
 impl DatabasePool {
     /// Check pool health status. Returns true if the pool is responsive.
-    pub async fn health_check(&self) -> bool {
+    pub async fn health_check_bool(&self) -> bool {
         self.health_checker.check_health(&self.pool).await
     }
 }
