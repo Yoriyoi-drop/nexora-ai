@@ -793,7 +793,7 @@ impl Agent for WorkerAgent {
     }
 
     fn get_stats(&self) -> AgentStats {
-        self.stats.blocking_lock().clone()
+        self.stats.try_lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     fn get_config(&self) -> AgentConfig {

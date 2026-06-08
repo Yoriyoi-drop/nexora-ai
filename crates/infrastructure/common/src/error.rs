@@ -905,11 +905,18 @@ pub fn init_error_handler() {
 /// Handle error globally
 pub async fn handle_error(error: &NexoraError, component: &str) -> Result<RecoveryAction> {
     init_error_handler();
-    let handler = ERROR_HANDLER.get().unwrap_or_else(|| {
-        // Re-initialize as fallback — should not happen since init_error_handler() was called above
-        init_error_handler();
-        ERROR_HANDLER.get().expect("ERROR_HANDLER should be initialized after init_error_handler()")
-    });
+    let handler = match ERROR_HANDLER.get() {
+        Some(h) => h,
+        None => {
+            init_error_handler();
+            ERROR_HANDLER.get().unwrap_or_else(|| {
+                tracing::error!("ERROR_HANDLER failed to initialize after re-init; using fallback handler");
+                // Leak a fallback handler — safe because process-wide singleton
+                let fallback = ErrorRecoveryManager::new();
+                Box::leak(Box::new(tokio::sync::Mutex::new(fallback)))
+            })
+        }
+    };
     let mut guard = handler.lock().await;
     guard.handle_error(error, component).await
 }

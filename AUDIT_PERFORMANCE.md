@@ -667,6 +667,21 @@
 | 4 Jun 2026 | 2.10 | Token bucket across all rate limiters + TTL eviction | `crates/Telemetry/src/rate_limiter.rs`, `apps/nexora-ai/src/api/rate_limiter.rs` |
 | 4 Jun 2026 | 2.11 | Arc\<Self\> confirmed already optimized | (audit only) |
 | 5 Jun 2026 | 3.15 | GPU MLA attention stacked weights + fused_attention + backbone wiring | `crates/oracle/src/backbone.rs` |
+| 8 Jun 2026 | 4.1 | `expect()` → fallback handler di error.rs | `crates/infrastructure/common/src/error.rs` |
+| 8 Jun 2026 | 4.2 | Pre-compute HashSet di beam_search, O(n²)→O(n) alloc | `crates/inference/src/beam_search.rs` |
+| 8 Jun 2026 | 4.3 | KV cache `write()` lock split: read→write | `crates/runtime/src/kv_cache.rs` |
+| 8 Jun 2026 | 4.4 | KV cache remove+clone+reinsert → `get_mut()` in-place | `crates/runtime/src/kv_cache.rs` |
+| 8 Jun 2026 | 4.5 | KV cache `key.clone()` 3×→2× per insert | `crates/runtime/src/kv_cache.rs` |
+| 8 Jun 2026 | 4.6 | Streaming: `serde_json::to_string()` → `format!()` per token | `apps/nexora-ai/src/server/handlers.rs` |
+| 8 Jun 2026 | 4.7 | `blocking_lock()` → `try_lock()` di worker_agent | `crates/agent/src/worker_agent.rs` |
+| 8 Jun 2026 | 4.8 | SSE buffer: `to_string()` → `drain()` in-place shift | `crates/inference/src/distributed.rs` |
+| 8 Jun 2026 | 4.9 | Batch clone 2×→1× + move-after-stats fix | `crates/runtime/src/batching/processor.rs` |
+| 8 Jun 2026 | 4.10 | `read().clone()` scope lockdown di metrics + kv_cache | `crates/inference/src/metrics.rs`, `crates/runtime/src/kv_cache.rs` |
+| 8 Jun 2026 | 4.11 | `to_lowercase()` O(n²)→O(n) pre-compute di coordination | `crates/core/src/coordination.rs` |
+| 8 Jun 2026 | 4.12 | `add_token` reserve(128) capacity | `crates/inference/src/lib.rs` |
+| 8 Jun 2026 | 4.13 | `payload.clone()` dihapus dari metrics handler | `apps/nexora-ai/src/server/handlers.rs` |
+| 8 Jun 2026 | 4.14 | LFU eviction O(n)→O(1): `entries.iter().min_by_key()` → `lru_order.last()` | `crates/runtime/src/kv_cache.rs` |
+| 8 Jun 2026 | 4.15 | Sequential clear() → concurrent `tokio::spawn` per shard | `crates/runtime/src/kv_cache.rs` |
 | 5 Jun 2026 | 3.17 | CowArray backward: inner loop dx.clone eliminated, 13 .to_vec → &[usize] | `crates/autograd/src/ops/nn.rs` |
 | 5 Jun 2026 | 3.18 | Caffeine MoE: 5 static functions → real Vec\<Expert\> Xavier init + forward blend | `crates/multimodal/src/caffeine/mod.rs` |
 | 5 Jun 2026 | 3.19 | NCCL collective: real cudarc::nccl::safe::Comm via from_rank() | `crates/transformer/src/nccl_collective.rs` |

@@ -59,7 +59,7 @@ futures.workspace = true
 # Compression (ATQS) dependencies
 flate2 = { workspace = true }
 fastrand = "2.0"
-serde_yaml = "0.9"
+serde_yaml = { package = "yaml_serde", version = "0.10" }
 
 # Multimodal (CAFFEINE) dependencies
 unicode-segmentation.workspace = true

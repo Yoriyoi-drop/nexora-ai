@@ -432,7 +432,11 @@ impl InferenceResponse {
 
     /// Add token
     pub fn add_token(&mut self, token: GeneratedToken) {
-        self.text.push_str(&*(token.token_text));
+        // Reserve capacity to reduce reallocations during streaming
+        if self.text.capacity() == 0 {
+            self.text.reserve(128);
+        }
+        self.text.push_str(&token.token_text);
         self.tokens.push(token);
         self.total_tokens += 1;
     }

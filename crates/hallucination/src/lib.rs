@@ -6,6 +6,9 @@ pub mod risk_scoring;
 pub mod system_prompt;
 pub mod types;
 
+#[cfg(feature = "gpu")]
+pub mod gpu_verifier;
+
 pub use in_generation::*;
 pub use monitoring::*;
 pub use post_generation::*;

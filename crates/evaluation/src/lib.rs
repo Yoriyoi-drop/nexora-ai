@@ -5,8 +5,32 @@
 
 use nexora_autograd::ops::cross_entropy_loss;
 use nexora_autograd::{clear_tape, Tensor, TensorOps};
+#[cfg(feature = "gpu")]
+use nexora_autograd::set_gpu_auto_create;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 use tracing::info;
+
+/// Try to enable GPU acceleration for evaluation.
+/// Returns `true` if GPU is active and auto-create was enabled.
+#[cfg(feature = "gpu")]
+pub fn try_init_gpu() -> bool {
+    match nexora_autograd::gpu::GpuContext::init() {
+        Ok(_ctx) => {
+            set_gpu_auto_create(true);
+            info!("Evaluation GPU acceleration enabled");
+            true
+        }
+        Err(e) => {
+            info!("GPU not available for evaluation: {e}");
+            false
+        }
+    }
+}
+
+#[cfg(not(feature = "gpu"))]
+pub fn try_init_gpu() -> bool {
+    false
+}
 
 /// Evaluation metrics for language model evaluation.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -38,6 +62,11 @@ impl EvalMetrics {
     ) -> Self {
         let mut total_loss = 0.0_f64;
         let mut total_tokens = 0;
+
+        // Enable GPU acceleration if available.
+        // This causes all Tensor::from_slice() calls below to create GPU tensors,
+        // and the forward pass routes through GPU via autograd automatically.
+        let _gpu_active = try_init_gpu();
 
         let trainable = TrainableCausalLM::from_inference(model);
 

@@ -524,12 +524,7 @@ mod tests {
             error: "crash".into(),
             timestamp: Utc::now(),
         };
-        match &event {
-            AgentLifecycleEvent::Error { error, .. } => {
-                assert_eq!(error, "crash");
-            }
-            other => panic!("Expected AgentLifecycleEvent::Error, got {:?}", other),
-        }
+        assert!(matches!(&event, AgentLifecycleEvent::Error { error, .. } if error == "crash"));
     }
 
     #[test]

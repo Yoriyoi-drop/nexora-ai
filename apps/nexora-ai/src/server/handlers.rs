@@ -705,15 +705,11 @@ pub async fn generate_text_stream(
             match rx.recv().await {
                 Some(token) => {
                     acc.push_str(&token.token_text);
-                    #[derive(Serialize)]
-                    struct StreamToken<'a> {
-                        token: &'a str,
-                        position: usize,
-                    }
-                    let data = serde_json::to_string(&StreamToken {
-                        token: &token.token_text,
-                        position: token.position,
-                    }).unwrap_or_else(|_| r#"{"token":"","position":0}"#.to_string());
+                    // Manual JSON formatting avoids serde overhead per streaming token
+                    let data = format!(r#"{{"token":{},"position":{}}}"#,
+                        serde_json::to_string(&token.token_text).unwrap_or_else(|_| "\"\"".to_string()),
+                        token.position,
+                    );
                     Some((Ok::<_, anyhow::Error>(Event::default().data(data)), (rx, acc, false, prompt_arc)))
                 }
                 None => {
@@ -1110,8 +1106,11 @@ struct ConfigUpdateResult {
 }
 
 pub async fn get_train_metrics(Extension(nexora): Extension<Arc<NexoraAI>>) -> Json<Value> {
-    let metrics = nexora.train_metrics.read().await;
-    Json(metrics.clone())
+    let metrics = {
+        let m = nexora.train_metrics.read().await;
+        m.clone()
+    };
+    Json(metrics)
 }
 
 pub async fn post_train_metrics(
@@ -1119,7 +1118,7 @@ pub async fn post_train_metrics(
     Json(payload): Json<Value>,
 ) -> Json<Value> {
     let mut metrics = nexora.train_metrics.write().await;
-    *metrics = payload.clone();
+    *metrics = payload;
     Json(json!({ "success": true }))
 }
 

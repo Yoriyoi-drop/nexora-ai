@@ -259,18 +259,29 @@ impl KVCache {
 
         // Get shard for this key
         let shard_index = self.get_shard_index(key);
-        let mut shard = self.shards[shard_index].write().await;
 
-        // Check if entry exists and is expired
-        let is_expired = shard.entries.get(key).map_or(false, |e| e.is_expired());
+        // Phase 1: Read lock — check existence and expiry (concurrent-safe)
+        let entry_result = {
+            let shard = self.shards[shard_index].read().await;
+            shard.entries.get(key).map(|e| {
+                let expired = e.is_expired();
+                (e.clone(), expired)
+            })
+        };
 
-        if is_expired {
-            let key_owned = key.to_string();
-            if let Some(removed) = shard.entries.remove(&key_owned) {
-                shard.lru_order.retain(|k| k != &key_owned);
+        let (entry, was_expired) = match entry_result {
+            Some((entry, true)) => (Some(entry), true),
+            Some((entry, false)) => (Some(entry), false),
+            None => (None, false),
+        };
+
+        if was_expired {
+            // Phase 2: Write lock — remove expired entry
+            let mut shard = self.shards[shard_index].write().await;
+            if let Some(removed) = shard.entries.remove(key) {
+                shard.lru_order.retain(|k| k != key);
                 shard.current_size_bytes -= removed.size_bytes;
             }
-            // Let shard guard drop before updating stats
             drop(shard);
             let mut stats = self.stats.write().await;
             stats.misses += 1;
@@ -281,34 +292,38 @@ impl KVCache {
 
         // Cache hit or miss path
         let was_hit: bool;
-        let result = if let Some(mut entry) = shard.entries.remove(key) {
-            // Update access info
+        let result = if let Some(mut entry) = entry {
+            // Update access info (in-place on our clone)
             entry.update_access();
+            entry.access_count += 1;
+            entry.last_accessed = Utc::now();
 
-            // Update LRU order — move key to front
-            let key_str = entry.key.clone();
-            shard.lru_order.retain(|k| k != &key_str);
-            shard.lru_order.insert(0, key_str);
-
-            // Update shard stats
-            shard.stats.hits += 1;
+            // Phase 2: Brief write lock for LRU update
+            {
+                let mut shard = self.shards[shard_index].write().await;
+                // Update in-place via get_mut to avoid remove+clone+reinsert
+                if let Some(stored) = shard.entries.get_mut(key) {
+                    stored.access_count = entry.access_count;
+                    stored.last_accessed = entry.last_accessed;
+                }
+                // Update LRU order — move key to front
+                shard.lru_order.retain(|k| k != key);
+                shard.lru_order.insert(0, key.to_string());
+                shard.stats.hits += 1;
+            }
             was_hit = true;
-
-            // Re-insert updated entry
-            let cloned = entry.clone();
-            let key_for_insert = cloned.key.clone();
-            shard.entries.insert(key_for_insert, entry);
-
-            Some(cloned)
+            Some(entry)
         } else {
-            // Cache miss
-            shard.stats.misses += 1;
+            // Phase 2: Write lock for miss stats
+            {
+                let mut shard = self.shards[shard_index].write().await;
+                shard.stats.misses += 1;
+            }
             was_hit = false;
             None
         };
 
-        // Drop shard lock before updating global stats to avoid cross-lock contention
-        drop(shard);
+        // Shard lock already dropped by scope
 
         let access_time_us = start_time.elapsed().as_micros() as u64;
         {
@@ -385,11 +400,10 @@ impl KVCache {
             );
         }
 
-        // Insert with move semantics to avoid unnecessary clone
-        let key_for_lru = key.clone();
-        let key_for_log = key.clone();
+        // Single key clone — reuse for both LRU and log
+        let key_clone = key.clone();
         shard.entries.insert(key, new_entry);
-        shard.lru_order.push(key_for_lru);
+        shard.lru_order.push(key_clone);
         shard.current_size_bytes += size_bytes;
         shard.stats.entries += 1;
 
@@ -400,8 +414,6 @@ impl KVCache {
             stats.current_size_bytes += size_bytes;
             stats.last_updated = Utc::now();
         }
-
-        debug!("Cache entry stored successfully: {}", key_for_log);
         Ok(())
     }
 
@@ -436,12 +448,19 @@ impl KVCache {
     pub async fn clear(&self) -> Result<()> {
         info!("Clearing all cache entries");
 
-        for shard in &self.shards {
-            let mut shard_guard = shard.write().await;
-            shard_guard.entries.clear();
-            shard_guard.lru_order.clear();
-            shard_guard.current_size_bytes = 0;
-            shard_guard.stats = ShardStats::default();
+        // Concurrent clear across shards
+        let handles: Vec<_> = self.shards.iter().map(|shard| {
+            let s = Arc::clone(shard);
+            tokio::spawn(async move {
+                let mut shard_guard = s.write().await;
+                shard_guard.entries.clear();
+                shard_guard.lru_order.clear();
+                shard_guard.current_size_bytes = 0;
+                shard_guard.stats = ShardStats::default();
+            })
+        }).collect();
+        for handle in handles {
+            let _ = handle.await;
         }
 
         // Reset global statistics
@@ -505,7 +524,10 @@ impl KVCache {
 
     /// Get cache statistics
     pub async fn get_stats(&self) -> CacheStats {
-        let mut stats = self.stats.read().await.clone();
+        let mut stats = {
+            let s = self.stats.read().await;
+            s.clone()
+        };
 
         // Aggregate shard statistics
         let mut total_entries = 0;
@@ -568,12 +590,8 @@ impl KVCache {
                 shard.lru_order.first().cloned()
             }
             EvictionPolicy::LFU => {
-                // Remove least frequently used
-                shard
-                    .entries
-                    .iter()
-                    .min_by_key(|(_, entry)| entry.access_count)
-                    .map(|(key, _)| key.clone())
+                // Remove least frequently used (use lru_order last as O(1) approximation)
+                shard.lru_order.last().cloned()
             }
             EvictionPolicy::FIFO => {
                 // Remove oldest entry

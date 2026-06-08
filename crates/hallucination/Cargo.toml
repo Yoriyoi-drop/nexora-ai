@@ -20,3 +20,8 @@ thiserror = { workspace = true }
 nexora-core = { path = "../core" }
 nexora-tokenizer = { path = "../tokenizer" }
 nexora-datastream = { path = "../datastream" }
+ndarray.workspace = true
+nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
+
+[features]
+gpu = ["nexora-autograd/gpu", "nexora-autograd"]

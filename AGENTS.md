@@ -611,6 +611,38 @@ POST /api/generate/agent { prompt, context? }
 - Worker agents read engine at creation time (`create_agent_instance`) via `try_read()` on the RwLock
 - If engine unavailable, all step types return mock content with `[mock]` prefix
 
+### Batch Fix 35 (8 Juni 2026) — Performance Bottleneck 15 Fixes
+
+| # | Fix | File | Before | After |
+|---|-----|------|--------|-------|
+| 1 | `expect()` crash di error handler | `error.rs:908` | Panic jika OnceLock gagal | `match` + fallback handler leak |
+| 2 | O(n²) HashSet alloc per convergence pair | `beam_search.rs:552-590` | HashSet buat tiap `token_id_similarity()` call | Pre-compute HashSet per hypothesis, reuse untuk O(h) alloc |
+| 3 | Write lock di cache hot path | `kv_cache.rs:261-300` | `write()` lock dari awal (block semua reader) | `read()` lock dulu, `write()` cuma untuk LRU update |
+| 4 | Triple clone per cache hit | `kv_cache.rs:284-309` | `remove()` → `clone()` → `reinsert()` | `get_mut()` in-place update, 0 clone |
+| 5 | 3× `key.clone()` per cache insert | `kv_cache.rs:389-404` | entry.key + LRU + log = 3 clone | entry.key + LRU = 2 clone |
+| 6 | `serde_json::to_string()` per streaming token | `handlers.rs:707-716` | Full serde struct serialize tiap token | `format!()` + `serde_json::to_string()` per string field |
+| 7 | `blocking_lock()` di async runtime | `worker_agent.rs:796` | Block runtime thread | `try_lock()` + `unwrap_or_default()` |
+| 8 | `to_string()` re-alloc per SSE line | `distributed.rs:176-182` | `buffer = buffer[nl+1..].to_string()` | `buffer.drain(..nl+1)` in-place shift |
+| 9 | 2× `batch.clone()` di hot path form batch | `processor.rs:218-237` | Clone untuk map + clone untuk send | Clone untuk send + move ke map |
+| 10 | Batch di-move sebelum stats update | `processor.rs:272-301` | Clone untuk completed_batches (borrow-after-move) | Stats update dulu, baru move |
+| 11 | `lock.read().clone()` duration panjang | `metrics.rs:446` | Clone selama lock dipegang | Scope clone dalam blok, lock drop duluan |
+| 12 | O(n²) `to_lowercase()` alloc | `coordination.rs:574-600` | `to_lowercase()` tiap iterasi nested loop | Pre-compute lowercase O(n) sekali |
+| 13 | `push_str` realloc tanpa reserve | `inference/lib.rs:435` | String realloc 10-15× per streaming | `reserve(128)` di call pertama |
+| 14 | `payload.clone()` + metrics clone | `handlers.rs:1112-1123` | Clone full Value + clone selama lock | Move langsung + scope clone |
+| 15 | `get_stats()` clone selama lock | `kv_cache.rs:518-520` | Clone CacheStats di bawah read lock | Scope clone setelah lock drop |
+
+**Hasil**: 15 bottleneck fixed di 8 files. `cargo check` ✅ semua crate.
+
+### Batch Fix 36 (8 Juni 2026) — Bottleneck Tambahan 3 Fix
+
+| # | Fix | File | Before | After |
+|---|-----|------|--------|-------|
+| 1 | LFU eviction O(n) scan | `kv_cache.rs:585-592` | `entries.iter().min_by_key(access_count)` scan semua entry | `lru_order.last()` O(1) approximation |
+| 2 | Sequential clear() | `kv_cache.rs:451-457` | Satu per satu write lock | `tokio::spawn` concurrent per shard |
+| 3 | `key.to_string()` di expired path | `kv_cache.rs:268` | `key.to_string()` + `entries.remove()` | `entries.remove(key)` langsung — `Borrow` trait |
+
+**Hasil**: 3 bottleneck tambahan fixed di `kv_cache.rs`. Total 18 bottleneck fixed (BF35 + BF36). `cargo check` ✅.
+
 ## Notable quirks
 
 - `Cargo.lock` **committed** (not in `.gitignore`).

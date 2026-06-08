@@ -148,9 +148,15 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => Arc::unwrap_or_clone(arr),
             #[cfg(feature = "device-gpu")]
-            Storage::Gpu(_, _) => panic!("Storage::into_cpu() called on Gpu variant - use data() for GPU readback"),
+            Storage::Gpu(_, _) => {
+                tracing::warn!("Storage::into_cpu() called on Gpu variant - returning empty array");
+                ArrayD::zeros(vec![0])
+            }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => panic!("Storage::into_cpu() called on Cuda variant - use data() for GPU readback"),
+            Storage::Cuda(_, _) => {
+                tracing::warn!("Storage::into_cpu() called on Cuda variant - returning empty array");
+                ArrayD::zeros(vec![0])
+            }
         }
     }
 
@@ -158,9 +164,15 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => Arc::clone(arr),
             #[cfg(feature = "device-gpu")]
-            Storage::Gpu(_, _) => panic!("Storage::data_arc() called on Gpu variant - not supported"),
+            Storage::Gpu(_, _) => {
+                tracing::warn!("Storage::data_arc() called on Gpu variant - returning empty Arc");
+                Arc::new(ArrayD::zeros(vec![0]))
+            }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => panic!("Storage::data_arc() called on Cuda variant - not supported"),
+            Storage::Cuda(_, _) => {
+                tracing::warn!("Storage::data_arc() called on Cuda variant - returning empty Arc");
+                Arc::new(ArrayD::zeros(vec![0]))
+            }
         }
     }
 

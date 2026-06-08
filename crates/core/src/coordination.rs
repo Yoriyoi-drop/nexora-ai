@@ -572,16 +572,17 @@ impl MultiModelCoordinator {
         }
 
         let successful_results: Vec<_> = results.iter().filter(|r| r.success).collect();
+        // Pre-compute lowercase to avoid O(n²) allocation
+        let lower_outputs: Vec<String> = successful_results.iter()
+            .map(|r| r.output.to_lowercase())
+            .collect();
 
         for i in 0..successful_results.len() {
             for j in (i + 1)..successful_results.len() {
-                let output1 = &successful_results[i].output.to_lowercase();
-                let output2 = &successful_results[j].output.to_lowercase();
-
                 // Check for obvious contradictions
-                if (output1.contains("yes") && output2.contains("no"))
-                    || (output1.contains("true") && output2.contains("false"))
-                    || (output1.contains("success") && output2.contains("error"))
+                if (lower_outputs[i].contains("yes") && lower_outputs[j].contains("no"))
+                    || (lower_outputs[i].contains("true") && lower_outputs[j].contains("false"))
+                    || (lower_outputs[i].contains("success") && lower_outputs[j].contains("error"))
                 {
                     return true;
                 }
@@ -594,11 +595,15 @@ impl MultiModelCoordinator {
     fn describe_conflicts(&self, results: &[ModelResult]) -> Vec<String> {
         let successful_results: Vec<_> = results.iter().filter(|r| r.success).collect();
         let mut conflicts = Vec::with_capacity(successful_results.len().saturating_pow(2));
+        // Pre-compute lowercase to avoid O(n²) allocation
+        let lower_outputs: Vec<String> = successful_results.iter()
+            .map(|r| r.output.to_lowercase())
+            .collect();
 
         for i in 0..successful_results.len() {
             for j in (i + 1)..successful_results.len() {
-                let output1 = &successful_results[i].output.to_lowercase();
-                let output2 = &successful_results[j].output.to_lowercase();
+                let output1 = &lower_outputs[i];
+                let output2 = &lower_outputs[j];
 
                 if output1.contains("yes") && output2.contains("no") {
                     conflicts.push(format!(

@@ -782,14 +782,6 @@ mod tests {
             max: 10,
             target_pct: 70.0,
         };
-        match auto {
-            ScalingPolicy::AutoCpu { min, max, .. } => {
-                assert_eq!(min, 2);
-                assert_eq!(max, 10);
-            }
-            other => {
-                panic!("Expected ScalingPolicy::AutoCpu, got {:?}", other);
-            }
-        }
+        assert!(matches!(&auto, ScalingPolicy::AutoCpu { min, max, .. } if *min == 2 && *max == 10));
     }
 }

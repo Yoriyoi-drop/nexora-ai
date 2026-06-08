@@ -3,6 +3,9 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+#[cfg(feature = "gpu")]
+use crate::gpu_verifier::gpu_batch_verify;
+
 static RE_CITATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\[(\d+|citation|sumber|source)\]").expect("valid citation pattern regex")
 });
@@ -61,6 +64,14 @@ impl PostGenerationVerifier {
             .filter(|s| s.len() > 15)
             .collect();
 
+        // Try GPU-accelerated batch verification when sources are available
+        let sent_owned: Vec<String> = sentences.iter().map(|s| s.to_string()).collect();
+        if sources.is_some() {
+            if let Some(gpu_result) = self.try_gpu_verify(&sent_owned, &sources) {
+                return Ok(gpu_result);
+            }
+        }
+
         let total_claims = sentences.len();
         let high_risk_sentences = self.identify_high_risk(&sentences);
         let contradiction_count = self.detect_contradictions(text);
@@ -93,6 +104,36 @@ impl PostGenerationVerifier {
             total_claims,
             verified_claims,
         })
+    }
+
+    fn try_gpu_verify(
+        &self,
+        sentences: &[String],
+        sources: &Option<Vec<String>>,
+    ) -> Option<PostGenCheckResult> {
+        let src = sources.as_ref()?;
+        if src.is_empty() || sentences.is_empty() {
+            return None;
+        }
+        #[cfg(feature = "gpu")]
+        {
+            match gpu_batch_verify(sentences, src) {
+                Ok(result) => {
+                    let contradictions = self.detect_contradictions(&sentences.join(". "));
+                    let internal_consistency = if result.total_claims > 0 {
+                        (1.0 - contradictions as f32 / result.total_claims.max(1) as f32).max(0.0)
+                    } else {
+                        1.0
+                    };
+                    return Some(PostGenCheckResult {
+                        internal_consistency,
+                        ..result
+                    });
+                }
+                Err(_) => {}
+            }
+        }
+        None
     }
 
     fn identify_high_risk(&self, sentences: &[&str]) -> Vec<String> {

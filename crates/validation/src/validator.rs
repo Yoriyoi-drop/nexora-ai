@@ -572,22 +572,10 @@ mod tests {
 
     #[test]
     fn test_error_severity_variants() {
-        match ErrorSeverity::Critical {
-            ErrorSeverity::Critical => {},
-            _ => panic!("expected Critical"),
-        }
-        match ErrorSeverity::Error {
-            ErrorSeverity::Error => {},
-            _ => panic!("expected Error"),
-        }
-        match ErrorSeverity::Warning {
-            ErrorSeverity::Warning => {},
-            _ => panic!("expected Warning"),
-        }
-        match ErrorSeverity::Info {
-            ErrorSeverity::Info => {},
-            _ => panic!("expected Info"),
-        }
+        assert!(matches!(ErrorSeverity::Critical, ErrorSeverity::Critical));
+        assert!(matches!(ErrorSeverity::Error, ErrorSeverity::Error));
+        assert!(matches!(ErrorSeverity::Warning, ErrorSeverity::Warning));
+        assert!(matches!(ErrorSeverity::Info, ErrorSeverity::Info));
     }
 
     #[test]

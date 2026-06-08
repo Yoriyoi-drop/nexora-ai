@@ -11,6 +11,11 @@ pub mod trie;
 pub mod unicode_normalizer;
 pub mod vocab_builder;
 
+#[cfg(feature = "gpu")]
+pub mod gpu_embedding;
+#[cfg(feature = "gpu")]
+pub use gpu_embedding::GpuEmbedding;
+
 pub use bpe_tokenizer::{BpeConfig, BpeTokenizer, TokenizerStats};
 pub use pretokenizer::{
     pretokenize, pretokenize_with_config, PieceType, PreTokenized, PreTokenizedPiece, PreTokenizer,

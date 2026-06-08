@@ -549,6 +549,12 @@ impl BeamSearchEngine {
         let hyp_len = state.hypotheses.len();
         let mut used = vec![false; hyp_len];
 
+        // Pre-compute HashSet for each hypothesis to avoid O(n²) allocation
+        let mut token_sets: Vec<HashSet<u32>> = Vec::with_capacity(hyp_len);
+        for hyp in &state.hypotheses {
+            token_sets.push(hyp.iter_tokens().map(|t| t.token_id).collect());
+        }
+
         for i in 0..hyp_len {
             if used[i] {
                 continue;
@@ -559,7 +565,7 @@ impl BeamSearchEngine {
             for j in (i + 1)..hyp_len {
                 if !used[j] {
                     let similarity =
-                        Self::token_id_similarity(&state.hypotheses[i], &state.hypotheses[j]);
+                        Self::token_sets_similarity(&token_sets[i], &token_sets[j]);
                     if similarity > (1.0 - self.config.convergence_threshold) {
                         group.push(j);
                         used[j] = true;
@@ -594,8 +600,10 @@ impl BeamSearchEngine {
             return true;
         }
 
+        let first_set: HashSet<u32> = hypotheses[0].iter_tokens().map(|t| t.token_id).collect();
         for hypothesis in hypotheses.iter().skip(1) {
-            let similarity = Self::token_id_similarity(&hypotheses[0], hypothesis);
+            let other_set: HashSet<u32> = hypothesis.iter_tokens().map(|t| t.token_id).collect();
+            let similarity = Self::token_sets_similarity(&first_set, &other_set);
             if similarity < (1.0 - self.config.convergence_threshold) {
                 return false;
             }
@@ -604,22 +612,13 @@ impl BeamSearchEngine {
         true
     }
 
-    /// Collect token IDs from a hypothesis into a Vec
-    fn collect_token_ids(hypothesis: &BeamHypothesis) -> Vec<u32> {
-        hypothesis.iter_tokens().map(|t| t.token_id).collect()
-    }
-
-    /// Jaccard similarity on token IDs from two hypotheses
-    fn token_id_similarity(a: &BeamHypothesis, b: &BeamHypothesis) -> f32 {
-        let a_count = a.token_count;
-        let b_count = b.token_count;
-        if a_count == 0 || b_count == 0 {
+    /// Jaccard similarity on pre-computed token ID sets
+    fn token_sets_similarity(a_ids: &HashSet<u32>, b_ids: &HashSet<u32>) -> f32 {
+        if a_ids.is_empty() || b_ids.is_empty() {
             return 0.0;
         }
-        let a_ids: HashSet<u32> = a.iter_tokens().map(|t| t.token_id).collect();
-        let b_ids: HashSet<u32> = b.iter_tokens().map(|t| t.token_id).collect();
-        let intersection = a_ids.intersection(&b_ids).count();
-        let union = a_ids.union(&b_ids).count();
+        let intersection = a_ids.intersection(b_ids).count();
+        let union = a_ids.union(b_ids).count();
         if union == 0 {
             0.0
         } else {

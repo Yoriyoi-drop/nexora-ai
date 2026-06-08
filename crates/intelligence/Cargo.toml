@@ -48,7 +48,7 @@ toml = "0.8"
 
 # Additional dependencies
 fastrand = "2.0"
-serde_yaml = "0.9"
+serde_yaml = { package = "yaml_serde", version = "0.10" }
 
 # GPU acceleration
 nexora-autograd = { path = "../autograd", optional = true }

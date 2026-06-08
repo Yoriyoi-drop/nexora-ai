@@ -217,13 +217,16 @@ impl BatchProcessor {
             Batch::new(batch_items, &self.config).map_err(|e| InferenceError::BatchError(e))?;
         let batch_id = batch.batch_id;
 
+        // Move batch into map, then clone for send (1 clone vs 2)
+        let items_count = batch.items.len();
+        let batch_for_send = batch.clone();
         self.active_batches
             .write()
             .await
-            .insert(batch_id, batch.clone());
+            .insert(batch_id, batch);
         self.stats.write().await.increment_in_progress();
 
-        if let Err(e) = self.batch_sender.send(batch.clone()).await {
+        if let Err(e) = self.batch_sender.send(batch_for_send).await {
             error!("Failed to send batch for processing: {}", e);
             self.active_batches.write().await.remove(&batch_id);
             let mut stats = self.stats.write().await;
@@ -231,7 +234,7 @@ impl BatchProcessor {
             stats.increment_failed();
         } else {
             *self.state.write().await = ProcessorState::Processing;
-            info!("Formed batch {} with {} items", batch_id, batch.items.len());
+            info!("Formed batch {} with {} items", batch_id, items_count);
         }
 
         Ok(())
@@ -276,21 +279,22 @@ impl BatchProcessor {
         if let Some(mut batch) = active_batches.remove(&batch_id) {
             batch.end_processing();
 
-            // Add to completed batches
+            // Update stats first (uses batch reference before move)
+            {
+                let mut stats = self.stats.write().await;
+                stats.update_with_completed_batch(&batch);
+                stats.decrement_in_progress();
+            }
+
+            // Add to completed batches (move, no clone)
             let mut completed_batches = self.completed_batches.write().await;
-            completed_batches.push_back(batch.clone());
+            completed_batches.push_back(batch);
 
             // Keep only last 100 completed batches
             while completed_batches.len() > 100 {
                 completed_batches.pop_front();
             }
             drop(completed_batches);
-
-            // Update stats
-            let mut stats = self.stats.write().await;
-            stats.update_with_completed_batch(&batch);
-            stats.decrement_in_progress();
-            drop(stats);
 
             *self.state.write().await = ProcessorState::Ready;
             info!("Completed batch {} processing", batch_id);

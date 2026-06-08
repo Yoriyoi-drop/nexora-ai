@@ -172,14 +172,28 @@ impl PagedKVCacheProvider {
             return;
         }
 
-        let kv_elems = self.kv_elements_per_layer();
-        if kv_elems == 0 {
-            // Lazy init: read config from cache
+        // Initialize flat cache lazily — build incrementally from paged blocks
+        // instead of calling to_flat_cache() (avoids ~2GB allocation spike).
+        if self.flat.is_empty() || self.flat.len() != self.num_layers {
+            let (kv_elems, num_kv_heads, head_dim) = self.read_cache_dims();
+            if kv_elems == 0 {
+                return;
+            }
+            self.flat = (0..self.num_layers)
+                .map(|_| KVCacheEntry {
+                    k: Vec::with_capacity(self.total_tokens * kv_elems),
+                    v: Vec::with_capacity(self.total_tokens * kv_elems),
+                    kv_dim: kv_elems,
+                    num_kv_heads,
+                    head_dim,
+                    ..Default::default()
+                })
+                .collect();
+            self.flat_synced_tokens = 0;
         }
 
-        // Incremental sync: only append tokens not yet in flat
-        if self.flat.is_empty() || self.flat.len() != self.num_layers {
-            // First sync or layer count mismatch: full rebuild
+        // Incremental: append only new token positions from paged blocks
+        if self.flat_synced_tokens < self.total_tokens {
             let guard = match self.cache.read() {
                 Ok(g) => g,
                 Err(e) => {
@@ -187,19 +201,7 @@ impl PagedKVCacheProvider {
                     return;
                 }
             };
-            if let Some(entries) = guard.to_flat_cache(self.seq_id) {
-                self.flat = entries;
-            }
-            self.flat_synced_tokens = self.total_tokens;
-        } else if self.flat_synced_tokens < self.total_tokens {
-            // Incremental: append only new token positions
-            let guard = match self.cache.read() {
-                Ok(g) => g,
-                Err(e) => {
-                    warn!("paged cache lock poisoned in ensure_flat_synced: {}", e);
-                    return;
-                }
-            };
+            let kv_elems = guard.config().num_kv_heads * guard.config().head_dim;
             for pos in self.flat_synced_tokens..self.total_tokens {
                 for layer in 0..self.num_layers.min(self.flat.len()) {
                     if let Some((k_row, v_row)) = guard.read(self.seq_id, layer, pos) {
@@ -214,11 +216,16 @@ impl PagedKVCacheProvider {
         self.dirty = false;
     }
 
-    fn kv_elements_per_layer(&self) -> usize {
-        // Read from the underlying paged cache config
+    fn read_cache_dims(&self) -> (usize, usize, usize) {
         match self.cache.read() {
-            Ok(g) => g.config().num_kv_heads * g.config().head_dim,
-            Err(_) => 0,
+            Ok(g) => {
+                let c = g.config();
+                (c.num_kv_heads * c.head_dim, c.num_kv_heads, c.head_dim)
+            }
+            Err(e) => {
+                warn!("paged cache lock poisoned in read_cache_dims: {}", e);
+                (0, 0, 0)
+            }
         }
     }
 

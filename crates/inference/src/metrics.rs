@@ -443,7 +443,10 @@ impl MetricsCollector {
     pub async fn collect_snapshot(&self) -> Result<()> {
         debug!("Collecting metrics snapshot");
 
-        let current_metrics = self.metrics.read().await.clone();
+        let current_metrics = {
+            let m = self.metrics.read().await;
+            m.clone()
+        };
         let snapshot = TimestampedMetrics {
             timestamp: Utc::now(),
             metrics: current_metrics,

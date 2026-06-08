@@ -1,6 +1,6 @@
 # Audit GPU Acceleration — Nexora AI Workspace
 
-**Tanggal**: 7 Juni 2026
+**Tanggal**: 8 Juni 2026 (update BF37)
 **Total Crate Diaudit**: 53 workspace members
 **Metodologi**: `rg -i "gpu|cuda|wgpu|vulkan|opencl|cublas|nvrtc|GpuContext|GpuBackend|GpuTensor" --type rust`, baca `Cargo.toml` (features + dependencies), hitung file/line, klasifikasi berdasarkan real GPU compute vs feature flag.
 
@@ -11,13 +11,13 @@
 | Kategori | Jumlah | Crate |
 |----------|--------|-------|
 | **Heavy-Compute** (GPU kernels sendiri) | 4 | autograd, transformer, has-moe-ffn, echo-net |
-| **Integrated** (GPU via autograd delegation) | 11 | star-x, gnac, erp, atqs, quantization, vogp, multimodal, training, foundation, inference, hldva-t |
+| **Integrated** (GPU via autograd delegation) | 14 | star-x, gnac, erp, atqs, quantization, vogp, multimodal, training, foundation, inference, hldva-t, **evaluation**, **hallucination**, **tokenizer** |
 | **Pass-Through** (feature flag doang) | 6 | deeplearning, core, agent, alignment, isolation, datastream |
 | **Adapter** (config/metadata, no compute) | 2 | intelligence, nexora-ai (app) |
-| **CPU-Only** (GPU zero codes) | 30 | api, blaa, cognition, database, hallucination, infrastructure, common, utils, memory, models, monitoring, runtime, tokenizer, validation, evaluation, reasoning, model-core, model-omnis, model-vortex, model-aether, model-axiom, model-cipher, model-genesis, model-kronos, model-nexum, model-spectra, model-swift, shared, dashboard, oracle |
+| **CPU-Only** (GPU zero codes) | 27 | api, blaa, cognition, database, infrastructure, common, utils, memory, models, monitoring, runtime, validation, reasoning, model-core, model-omnis, model-vortex, model-aether, model-axiom, model-cipher, model-genesis, model-kronos, model-nexum, model-spectra, model-swift, shared, dashboard, oracle |
 
-**23 crate dengan akses GPU** (heavy-compute + integrated = 15 real GPU, 8 pass-through/adapter)  
-**30 crate 100% CPU-only (56.6% dari total workspace)**
+**26 crate dengan akses GPU** (heavy-compute + integrated = 18 real GPU, 8 pass-through/adapter)  
+**27 crate 100% CPU-only (50.9% dari total workspace)**
 
 ---
 
@@ -95,7 +95,7 @@
 
 ---
 
-## 2. Integrated (11 Crate) — GPU via autograd Delegation
+## 2. Integrated (14 Crate) — GPU via autograd Delegation
 
 | Crate | Lines | GPU Refs | Ops Used | GPU Code |
 |-------|-------|----------|----------|----------|
@@ -110,6 +110,9 @@
 | **foundation** | 5.932 | 46 | matmul, transpose | Pairwise distance GPU, delegasi ke CausalLM GPU, GPU utilization procfs |
 | **inference** | 19.041 | 464 | GpuKVCache, GPU sampling, NVML | Heavy orchestration: PagedKVCache GPU, sampler GPU, prefix caching GPU |
 | **hldva-t** | 11.788 | 222 | **23 ops** (matmul, add, softmax, norm, fused_attention, conv2d, dll) | Bridge `gpu_ops/mod.rs` (376 LOC): GpuWeight caching, CPU↔GPU round-trip per op |
+| **evaluation** 🆕 | 170 | 9 | GPU auto-create forward | `try_init_gpu()` → `set_gpu_auto_create(true)` → forward GPU via autograd. CPU fallback. |
+| **hallucination** 🆕 | 2.195 | 22 | matmul, transpose | `GpuBatchVerifier`: TF vectorizer → GPU matmul similarity → source grounding. CPU fallback. |
+| **tokenizer** 🆕 | 4.950 | 18 | embedding | `GpuEmbedding`: weight matrix GPU, `lookup()`/`lookup_batched()` via `ctx.embedding()`. CPU fallback. |
 
 **Pola dominan**: CPU → `GpuTensor::from_cpu()` → `ctx.op()` → `to_cpu_vec()` — **PCIe round-trip per op**.  
 **Pengecualian**: `transformer/gqa/gpu.rs` (GPU-resident KV cache), `training` (GPU-resident training loop).
@@ -140,9 +143,9 @@ Crate ini punya `[features] gpu = ["nexora-autograd/gpu"]` tapi **TIDAK ADA GPU 
 
 ---
 
-## 5. CPU-Only (30 Crate) — Zero GPU Compute Code
+## 5. CPU-Only (27 Crate) — Zero GPU Compute Code
 
-### Infrastructure / Support (10)
+### Infrastructure / Support (9)
 
 | Crate | Path | Files | Lines | GPU Refs? | Relevansi GPU |
 |-------|------|:----:|:-----:|:---------:|--------------|
@@ -150,27 +153,24 @@ Crate ini punya `[features] gpu = ["nexora-autograd/gpu"]` tapi **TIDAK ADA GPU 
 | **nexora-blaa** | crates/blaa | 4 | 1.149 | ❌ | Black Language Model API bridge. HTTP client doang. |
 | **nexora-cognition** | crates/cognition | 6 | 2.021 | ❌ | State management / logic murni. No math. |
 | **nexora-database** | crates/database | 6 | 4.819 | ❌ | DB abstraction (postgres, sqlite, sqlx, mysql). I/O-bound. |
-| **nexora-hallucination** | crates/hallucination | 8 | 1.860 | ❌ | Anti-hallucination verification logic. **Potensi GPU: batched cross-attention scores (2-4×)** |
 | **nexora-infrastructure** | crates/infrastructure | 3 | 352 | ❌ | Logging, config management. Re-export crate. |
 | **nexora-common** | crates/infrastructure/common | 7 | 1.683 | ❌ | Common types, shared utilities. |
 | **nexora-utils** | crates/infrastructure/utils | 10 | 5.372 | ❌ | Utilities: crypto, hashing, path, text. CPU-bound. |
 | **nexora-monitoring** | crates/monitoring | 5 | 1.001 | ✅ (metric field) | Prometheus metrics. GPU field `gpu_alive`, `gpu_tokens` — tapi DEFINISI METRIC doang, 0 compute. |
 | **nexora-memory** | crates/memory | 9 | 5.202 | ❌ | Memory management, store, recall. CPU-only. |
 
-### Runtime / Tokenizer / Validation (3)
+### Runtime / Validation (2)
 
 | Crate | Path | Files | Lines | GPU Refs? | Relevansi GPU |
 |-------|------|:----:|:-----:|:---------:|--------------|
-| **nexora-tokenizer** | crates/tokenizer | 9 | 4.833 | ❌ | BPE/unigram tokenizer. **Potensi GPU: token embedding lookup GPU (1.5-2×)** |
 | **nexora-runtime** | crates/runtime | 16 | 4.723 | ✅ (cluster field) | Scheduler, batching, cluster/gossip. GPU fields `gpu_util_pct`, `supports_cuda` — DATA FIELDS doang utk distributed routing. 0 compute. |
 | **nexora-validation** | crates/validation | 5 | 2.562 | ❌ | Validation engines. CPU-only. |
 
-### Evaluation / Reasoning (2) — **Paling Potensial**
+### Reasoning (1)
 
-| Crate | Path | Files | Lines | GPU Refs? | Potensi GPU |
-|-------|------|:----:|:-----:|:---------:|-------------|
-| **nexora-evaluation** | crates/evaluation | 1 | 131 | ❌ | Evaluasi metrics: perplexity, accuracy. Depends on `nexora-autograd` + `nexora-transformer` (GPU-enabled!) tapi crate sendiri 0 GPU. **Batch metrics GPU: 3-5×** |
-| **nexora-reasoning** | crates/reasoning | **39** | **12.529** | ❌ | **SACA 6-phase reasoning pipeline** — crate CPU-only TERBESAR. 0 GPU references di 12.529 lines. **Potensi TERBESAR: paralelisasi GPU utk CoT batch, sampling, execute-fail-fix: 4-8×** |
+| Crate | Path | Files | Lines | GPU Refs? | Relevansi |
+|-------|------|:----:|:-----:|:---------:|-----------|
+| **nexora-reasoning** | crates/reasoning | **39** | **12.529** | ❌ | **SACA 6-phase reasoning pipeline** — orchestration code, NOT GPU-ifiable. No tensor ops. |
 
 ### Model Facade (1)
 
@@ -246,7 +246,17 @@ Ini **bukan** real GPU compute. Hanya thin wrapper yang upload weight ke GPU, ca
 
 ## Ringkasan Perubahan dari Audit Sebelumnya
 
-Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
+### BF37 — GPU-ification 3 Crate (8 Juni 2026)
+
+| Perubahan | Sebelum | Sesudah | Detail |
+|-----------|:-------:|:-------:|--------|
+| **`evaluation`** | CPU-only (0 GPU) | ✅ Integrated (GPU auto-create) | `try_init_gpu()` → `set_gpu_auto_create(true)` → forward GPU via autograd |
+| **`hallucination`** | CPU-only (0 GPU) | ✅ Integrated (GPU matmul) | `GpuBatchVerifier`: TF vectorizer → GPU matmul similarity → source grounding |
+| **`tokenizer`** | CPU-only (0 GPU) | ✅ Integrated (GPU embedding) | `GpuEmbedding`: weight matrix GPU, `lookup()` via `ctx.embedding()` |
+| **Total Integrated** | 11 | **14** | +3 dari GPU-ification |
+| **Total CPU-only** | 30 | **27** | -3 dari GPU-ification |
+
+### Perubahan Sebelumnya
 
 | Perubahan | Lama | Baru | Alasan |
 |-----------|:----:|:----:|--------|
@@ -276,33 +286,35 @@ Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
 | **GPU potensi** | Already has full GPU forward. CPU `forward()` is fallback for non-GPU builds. |
 | **Action** | **No action needed.** Oracle already has a complete GPU path. |
 
-### P2 — Batch Evaluation (3-5× speedup)
+### ✅ P1 — Evaluation — SELESAI (8 Juni 2026)
 
 | Crate | `evaluation` |
 |-------|--------------|
-| **Lines CPU-only** | 131 |
-| **GPU potensi** | Batch perplexity, accuracy via GPU forward |
+| **Status** | ✅ **Completed** — `try_init_gpu()` + GPU auto-create |
+| **GPU path** | `set_gpu_auto_create(true)` → `Tensor::from_slice()` GPU → `forward()` GPU via autograd |
+| **Fallback** | CPU otomatis jika GPU tidak tersedia |
+| **Feature** | `cargo build --features gpu` |
 | **Estimasi** | 3-5× faster eval |
-| **Action** | Tambah `gpu` feature → `nexora-autograd/gpu`, gunakan GpuContext utk batch forward |
-| **Risiko** | Minimal — crate kecil, mudah diintegrasi |
 
-### P3 — Anti-Hallucination Verification (2-4× speedup)
+### ✅ P2 — Hallucination — SELESAI (8 Juni 2026)
 
 | Crate | `hallucination` |
 |-------|-----------------|
-| **Lines CPU-only** | 1.860 |
-| **GPU potensi** | Batched cross-attention scores GPU |
-| **Estimasi** | 2-4× speedup verification |
-| **Action** | GPU batch matmul utk verification scoring |
+| **Status** | ✅ **Completed** — `GpuBatchVerifier` with TF matmul |
+| **GPU path** | TF vectorizer → `GpuTensor::from_cpu()` → `ctx.matmul()` + `transpose()` → similarity matrix |
+| **Fallback** | CPU regex-based verification |
+| **Feature** | `cargo build --features gpu` |
+| **Estimasi** | 2-4× faster verification |
 
-### P4 — Token Embedding Lookup (1.5-2× speedup)
+### ✅ P3 — Tokenizer — SELESAI (8 Juni 2026)
 
 | Crate | `tokenizer` |
 |-------|-------------|
-| **Lines CPU-only** | 4.833 |
-| **GPU potensi** | Embedding table di GPU memory, lookup batch GPU |
-| **Estimasi** | 1.5-2× speedup |
-| **Action** | Embedding table → `GpuTensor`, batch lookup via `GpuContext::embedding()` |
+| **Status** | ✅ **Completed** — `GpuEmbedding` with GPU weight matrix |
+| **GPU path** | Weight `GpuTensor` → `ctx.embedding(ids, weight)` → `to_cpu()` readback |
+| **Fallback** | CPU jika GPU tidak tersedia |
+| **Feature** | `cargo build --features gpu` |
+| **Estimasi** | 1.5-2× faster embedding lookup |
 
 ---
 
@@ -311,42 +323,42 @@ Dibandingkan file `AUDIT_GPU_ACCELERATION.md` yang sudah ada:
 | Klasifikasi | Crate | Total .rs Files | Total Lines |
 |-------------|:-----:|:--------------:|:-----------:|
 | **Heavy-Compute** | 4 | 109 | 55.340 |
-| **Integrated** | 11 | 207 | 94.445 |
+| **Integrated** | 14 | 216 | 99.760 |
 | **Pass-Through** | 6 | 91 | 43.945 |
 | **Adapter** | 2 | 62 | 21.181 |
-| **CPU-Only (no feature)** | 15 | 97 | 38.753 |
+| **CPU-Only (no feature)** | 12 | 89 | 35.197 |
 | **CPU-Only (model crates)** | 11 | 155 | 63.419 |
 | **CPU-Only (oracle)** | 1 | 27 | 12.705 |
 | **CPU-Only (shared)** | 1 | 14 | 5.114 |
 | **CPU-Only (dashboard)** | 1 | 1 | 765 |
-| **TOTAL CPU-Only** | **30** | **294** | **120.756** |
+| **TOTAL CPU-Only** | **27** | **286** | **117.200** |
 | **TOTAL Workspace** | **53** | **763** | **335.665** |
 
-**CPU-only code**: 120.756 lines / 335.665 total = **36.0% dari total codebase**
+**CPU-only code**: 117.200 lines / 335.665 total = **34.9% dari total codebase**
 
 ---
 
-## Kesimpulan
+## Kesimpulan (Update BF37)
 
-1. **15 crate real GPU** (heavy-compute + integrated) — fondasi GPU solid via `nexora-autograd` sebagai provider utama.
+1. **18 crate real GPU** (heavy-compute + integrated) — fondasi GPU solid via `nexora-autograd` sebagai provider utama.
 2. **4 crate dengan custom GPU kernels** — autograd (86 ops), transformer (GPU forward penuh), has-moe-ffn (MoE CUDA), echo-net (WGSL shaders).
-3. **30 crate CPU-only** — 36% dari total codebase. Tapi hanya **4 crate yang realistic untuk GPU-ify** (evaluation, hallucination, tokenizer + monitoring).
-4. **24 crate CPU-only lainnya** adalah infrastruktur I/O-bound (api, database, runtime, monitoring, dll) — GPU tidak akan memberikan benefit signifikan.
+3. **27 crate CPU-only** — 34.9% dari total codebase. Tersisa **0 crate realistic untuk GPU-ify** (semua yang potensial sudah selesai).
+4. **24 crate CPU-only lainnya** adalah infrastruktur I/O-bound (api, database, runtime, dll) — GPU tidak akan memberikan benefit signifikan.
 5. **Oracle sudah GPU-wired** — `forward_gpu()` exists with CUDA FlashAttention + wgpu. CPU `forward()` adalah fallback untuk non-GPU builds.
-6. **SACA reasoning NOT GPU-ifiable** — orchestration code (string processing, subprocess execution). No tensor ops. GPU-ification would provide zero benefit.
+6. **SACA reasoning NOT GPU-ifiable** — orchestration code (string processing, subprocess execution). No tensor ops.
 7. **Model crate (10)** tidak perlu GPU-ify — mereka delegasi ke crate target yang sudah GPU-enabled.
 
 ---
 
-## Rekomendasi
+## Rekomendasi (Update BF37)
 
-| Prioritas | Crate | Action | Estimasi Effort | Benefit |
-|-----------|-------|--------|:---------------:|---------|
-| ~~**🔥 P0**~~ | ~~`reasoning`~~ | ~~GPU-ify SACA pipeline~~ | ❌ NOT GPU-ifiable | Orchestration code, no tensor ops |
-| ~~**🔥 P0**~~ | ~~`oracle`~~ | ~~Full GPU forward~~ | ✅ Already GPU-wired | `forward_gpu()` exists |
-| **P1** | `evaluation` | Batch metrics GPU via autograd | 1-2 hari | 3-5× eval speedup |
-| **P2** | `hallucination` | GPU batch verification | 3-5 hari | 2-4× verification |
-| **P3** | `tokenizer` | GPU embedding lookup | 2-3 hari | 1.5-2× tokenizer |
+| Prioritas | Crate | Status | Benefit |
+|-----------|-------|:------:|:-------:|
+| ~~**🔥 P0**~~ | ~~`reasoning`~~ | ❌ NOT GPU-ifiable | Orchestration code |
+| ~~**🔥 P0**~~ | ~~`oracle`~~ | ✅ Already GPU-wired | `forward_gpu()` exists |
+| ~~**🔥 P1**~~ | ~~`evaluation`~~ | ✅ **SELESAI** | 3-5× eval speedup |
+| ~~**🔥 P2**~~ | ~~`hallucination`~~ | ✅ **SELESAI** | 2-4× verification |
+| ~~**🔥 P3**~~ | ~~`tokenizer`~~ | ✅ **SELESAI** | 1.5-2× embedding lookup |
 
 ---
 
