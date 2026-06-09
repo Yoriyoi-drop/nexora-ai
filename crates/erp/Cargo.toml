@@ -11,7 +11,7 @@ cuda = ["nexora-autograd/cuda"]
 
 [dependencies]
 ndarray.workspace = true
-ndarray-rand = "0.15"
+ndarray-rand = "0.16"
 rand.workspace = true
 rand_distr = "0.4"
 thiserror.workspace = true

@@ -22,7 +22,7 @@ parking_lot.workspace = true
 rand.workspace = true
 async-trait = { workspace = true }
 rand_distr = "0.4"
-ndarray-rand = "0.15"
+ndarray-rand = "0.16"
 uuid.workspace = true
 regex = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }

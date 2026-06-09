@@ -3109,14 +3109,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "ndarray-rand"
-version = "0.15.0"
+name = "ndarray"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f093b3db6fd194718dcdeea6bd8c829417deae904e3fcc7732dabcd4416d25d8"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
 dependencies = [
- "ndarray",
- "rand 0.8.6",
- "rand_distr",
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+]
+
+[[package]]
+name = "ndarray-rand"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "180f724d496e84764e8ecf28fbe1da74ef231ec4ba15be65a9100be8445d73e3"
+dependencies = [
+ "ndarray 0.17.2",
+ "rand 0.9.4",
+ "rand_distr 0.5.1",
 ]
 
 [[package]]
@@ -3180,7 +3195,7 @@ dependencies = [
  "hyper",
  "jsonwebtoken",
  "mimalloc",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-agent",
  "nexora-alignment",
  "nexora-autograd",
@@ -3235,7 +3250,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-model-core",
  "nexora-oracle",
@@ -3252,12 +3267,12 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "fastrand",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-autograd",
  "nexora-oracle",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3274,7 +3289,7 @@ dependencies = [
  "cudarc",
  "half",
  "libc",
- "ndarray",
+ "ndarray 0.16.1",
  "num_cpus",
  "once_cell",
  "parking_lot",
@@ -3456,7 +3471,7 @@ dependencies = [
 name = "nexora-deeplearning"
 version = "0.2.0"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-echo-net",
  "nexora-gnac",
@@ -3470,7 +3485,7 @@ version = "0.2.0"
 dependencies = [
  "bytemuck",
  "chrono",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "num-traits",
  "rand 0.8.6",
@@ -3487,11 +3502,11 @@ name = "nexora-erp"
 version = "0.2.0"
 dependencies = [
  "lru",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-autograd",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
  "thiserror 2.0.18",
  "tracing",
  "uuid",
@@ -3501,7 +3516,7 @@ dependencies = [
 name = "nexora-evaluation"
 version = "0.1.0"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-transformer",
  "serde",
@@ -3524,7 +3539,7 @@ dependencies = [
  "futures",
  "md5",
  "mockall",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-alignment",
  "nexora-atqs",
@@ -3556,7 +3571,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
  "rayon",
  "regex",
  "rustc-hash 2.1.2",
@@ -3576,7 +3591,7 @@ version = "0.2.0"
 dependencies = [
  "chrono",
  "hex",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "rand 0.8.6",
  "serde",
@@ -3595,7 +3610,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-core",
  "nexora-datastream",
@@ -3615,7 +3630,7 @@ name = "nexora-has-moe-ffn"
 version = "0.2.0"
 dependencies = [
  "cudarc",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-quantization",
  "rand 0.8.6",
@@ -3629,7 +3644,7 @@ name = "nexora-hldva-t"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-autograd",
  "rand 0.8.6",
@@ -3651,7 +3666,7 @@ dependencies = [
  "futures",
  "libc",
  "mockall",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-blaa",
  "nexora-cognition",
@@ -3723,7 +3738,7 @@ dependencies = [
  "half",
  "log",
  "md5",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-autograd",
  "nexora-cognition",
@@ -3743,7 +3758,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
  "rayon",
  "regex",
  "serde",
@@ -3808,7 +3823,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-model-core",
@@ -3830,7 +3845,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-hallucination",
  "nexora-model-core",
  "nexora-oracle",
@@ -3852,7 +3867,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-model-core",
@@ -3873,7 +3888,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-core",
  "nexora-hallucination",
  "nexora-quantization",
@@ -3894,7 +3909,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-cognition",
  "nexora-hallucination",
  "nexora-model-core",
@@ -3916,7 +3931,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-hallucination",
  "nexora-memory",
  "nexora-model-core",
@@ -3938,7 +3953,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-alignment",
  "nexora-cognition",
  "nexora-hallucination",
@@ -3962,7 +3977,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-erp",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
@@ -3984,7 +3999,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-hallucination",
  "nexora-model-core",
  "nexora-multimodal",
@@ -4005,7 +4020,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-erp",
  "nexora-hallucination",
@@ -4028,7 +4043,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-core",
  "nexora-hallucination",
  "nexora-has-moe-ffn",
@@ -4051,7 +4066,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-core",
  "nexora-model-aether",
  "nexora-model-axiom",
@@ -4091,7 +4106,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-autograd",
  "nexora-has-moe-ffn",
@@ -4113,7 +4128,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "memmap2",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-autograd",
  "nexora-core",
@@ -4134,7 +4149,7 @@ dependencies = [
 name = "nexora-quantization"
 version = "0.2.0"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "serde",
  "tracing",
@@ -4148,7 +4163,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-common",
  "nexora-core",
@@ -4197,7 +4212,7 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-deeplearning",
  "nexora-erp",
@@ -4222,7 +4237,7 @@ dependencies = [
  "half",
  "itertools 0.12.1",
  "libloading 0.8.9",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "num_cpus",
  "once_cell",
@@ -4243,7 +4258,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "mockall",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-core",
  "proptest",
@@ -4266,7 +4281,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-autograd",
  "nexora-evaluation",
  "nexora-monitoring",
@@ -4285,7 +4300,7 @@ dependencies = [
  "criterion",
  "half",
  "lru",
- "ndarray",
+ "ndarray 0.16.1",
  "nexora-atqs",
  "nexora-autograd",
  "nexora-has-moe-ffn",
@@ -4345,12 +4360,12 @@ dependencies = [
 name = "nexora-vogp"
 version = "0.2.0"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "nexora-autograd",
  "nexora-hldva-t",
  "rand 0.8.6",
- "rand_distr",
+ "rand_distr 0.4.3",
  "serde",
  "tracing",
 ]
@@ -5438,6 +5453,16 @@ checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
  "rand 0.8.6",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
+dependencies = [
+ "num-traits",
+ "rand 0.9.4",
 ]
 
 [[package]]
