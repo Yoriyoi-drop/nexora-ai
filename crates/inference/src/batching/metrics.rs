@@ -73,8 +73,8 @@ pub struct ContinuousBatchingConfig {
 impl Default for ContinuousBatchingConfig {
     fn default() -> Self {
         Self {
-            max_batch_size: 32,
-            max_total_sequences: 4096,
+            max_batch_size: 2048,
+            max_total_sequences: 262_144,
             min_shared_prefix_len: 4,
             enable_prefix_sharing: true,
             use_paged_cache: true,
@@ -93,10 +93,10 @@ impl Default for ContinuousBatchingConfig {
             padding_wait_ms: 10,
             target_padding_waste: 0.3,
             enable_adaptive_batching: true,
-            target_tokens_per_sec: 1000.0,
+            target_tokens_per_sec: 20_000_000.0,
             min_adaptive_batch_size: 4,
             throughput_alpha: 0.3,
-            max_queue_depth: 2048,
+            max_queue_depth: 65_536,
             shed_at_degradation: DegradationLevel::Minimal,
         }
     }

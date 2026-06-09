@@ -296,26 +296,58 @@ impl GpuKVCacheEntry {
         let k_raw = self.k.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
         let v_raw = self.v.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
 
-        if self.f16_storage {
-            let k_f32: Vec<f32> = k_raw
-                .chunks_exact(2)
-                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
-                .collect();
-            let v_f32: Vec<f32> = v_raw
-                .chunks_exact(2)
-                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
-                .collect();
-            Some((k_f32, v_f32))
+        Some((Self::raw_to_f32(k_raw, self.f16_storage), Self::raw_to_f32(v_raw, self.f16_storage)))
+    }
+
+    /// Bulk read tokens [start, end) in a single GPU→CPU transfer.
+    /// Returns Vec<(k_vec, v_vec)> — one entry per position.
+    /// Eliminates N individual readback calls (each a GPU sync point + allocation).
+    pub fn read_tokens_bulk(&self, start: usize, end: usize) -> Option<Vec<(Vec<f32>, Vec<f32>)>> {
+        if start >= end || end > self.seq_len {
+            return None;
+        }
+        let kv_elems = self.kv_heads * self.head_dim;
+        let elem_size: usize = if self.f16_storage { 2 } else { 4 };
+        let token_bytes = kv_elems * elem_size;
+        let count = end - start;
+        let byte_len = (count * token_bytes) as u64;
+        let offset = (start * token_bytes) as u64;
+
+        let k_all = self.k.to_cpu_raw_bytes_slice(offset, byte_len).ok()?;
+        let v_all = self.v.to_cpu_raw_bytes_slice(offset, byte_len).ok()?;
+
+        let k_tokens = if self.f16_storage {
+            k_all.chunks_exact(token_bytes).map(|chunk| {
+                chunk.chunks_exact(2).map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()).collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
         } else {
-            let k_f32: Vec<f32> = k_raw
-                .chunks_exact(4)
+            k_all.chunks_exact(token_bytes).map(|chunk| {
+                chunk.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
+        };
+
+        let v_tokens = if self.f16_storage {
+            v_all.chunks_exact(token_bytes).map(|chunk| {
+                chunk.chunks_exact(2).map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()).collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
+        } else {
+            v_all.chunks_exact(token_bytes).map(|chunk| {
+                chunk.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect::<Vec<_>>()
+            }).collect::<Vec<_>>()
+        };
+
+        Some(k_tokens.into_iter().zip(v_tokens).collect())
+    }
+
+    fn raw_to_f32(raw: Vec<u8>, f16_storage: bool) -> Vec<f32> {
+        if f16_storage {
+            raw.chunks_exact(2)
+                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                .collect()
+        } else {
+            raw.chunks_exact(4)
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
-            let v_f32: Vec<f32> = v_raw
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
-            Some((k_f32, v_f32))
+                .collect()
         }
     }
 

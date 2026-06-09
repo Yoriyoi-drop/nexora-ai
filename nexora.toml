@@ -3,19 +3,22 @@ enable_ml_intent = true
 enable_coordination = true
 enable_error_recovery = true
 enable_monitoring = true
-max_concurrent_requests = 1000
+max_concurrent_requests = 65536
 request_timeout_ms = 120000
-enable_distributed = false
+enable_distributed = true
 distributed_listen_address = "0.0.0.0:8080"
-distributed_seed_nodes = []
-distributed_gossip_interval_ms = 1000
+distributed_seed_nodes = ["node-1:8080", "node-2:8080", "node-3:8080", "node-4:8080", "node-5:8080", "node-6:8080", "node-7:8080"]
+distributed_gossip_interval_ms = 500
+target_tokens_per_sec = 20000000
+pipeline_parallel_stages = 8
+expert_parallel_replicas = 4
 
 [tokenizer]
 vocab_size = 50000
 min_frequency = 2
 enable_unicode_normalization = true
 model_path = "./checkpoints/tokenizer.json"
-cache_size = 10000
+cache_size = 100000
 
 [models]
 vocab_size = 32000
@@ -46,25 +49,25 @@ text_processing_language = "en"
 file_operations_max_size_mb = 100
 
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 8080
 enable_tls = true
 cert_path = ""
 key_path = ""
-max_connections = 10000
+max_connections = 100000
 request_timeout_seconds = 120
 enable_cors = true
-cors_origins = ["http://localhost:5173", "http://localhost:8080"]
+cors_origins = ["*"]
 api_keys = []
 enable_auth = true
-rate_limit_rpm = 60
+rate_limit_rpm = 100000
 
 [api]
 base_url = "http://0.0.0.0:8080"
 timeout_seconds = 120
 max_retries = 3
 enable_rate_limiting = true
-requests_per_minute = 1000
+requests_per_minute = 100000
 
 [logging]
 level = "info"
@@ -78,14 +81,14 @@ enable_structured_logging = true
 enable_tracing = true
 
 [isolation.global]
-cluster_name = "nexora-h200"
+cluster_name = "nexora-20m"
 api_gateway_enabled = true
 orchestrator_enabled = true
 monitoring_enabled = true
 storage_isolation = true
 scheduler_isolation = true
 security_core_enabled = true
-service_mesh = "None"
+service_mesh = "Istio"
 observability_backend = "Prometheus"
 
 [isolation.mode]
@@ -94,8 +97,8 @@ default_network_policy = "DenyAll"
 default_memory_quota_mb = 65536
 
 [isolation.mode.default_gpu_quota]
-count = 1
-memory_mb = 140000
+count = 8
+memory_mb = 1120000
 share = true
 
 [isolation.agent]
@@ -154,7 +157,7 @@ auto_kill_on_anomaly = false
 kill_scope = "SingleAgent"
 
 [isolation.multi_cluster]
-enabled = false
+enabled = true
 max_regional_clusters = 10
 max_mode_clusters = 100
 max_agent_clusters = 1000

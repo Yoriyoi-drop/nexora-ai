@@ -1,19 +1,27 @@
 # ==================================================
-# Inference Configuration (Production)
+# Inference Configuration (20M tok/s Target)
 # ==================================================
 
 [engine]
-# H200: 141GB HBM3e → large batch & KV cache
-max_batch_size = 256
+# Multi-node distributed: 20M tok/s via pipeline+expert parallelism
+max_batch_size = 2048
 max_sequence_length = 131072
 enable_kv_cache = true
-kv_cache_size_mb = 102400
+kv_cache_size_mb = 819200
+target_tokens_per_sec = 20000000
+enable_continuous_batching = true
+enable_adaptive_batching = true
+min_adaptive_batch_size = 4
+max_queue_depth = 65536
+max_concurrent_requests = 65536
 
 [decoding]
 default_temperature = 0.7
 default_top_p = 0.9
 default_top_k = 40
 max_tokens = 4096
+speculative_decoding = true
+speculative_tokens = 5
 
 [streaming]
 enable_streaming = true
@@ -21,6 +29,27 @@ streaming_buffer_size = 32
 streaming_timeout_seconds = 300
 
 [latency]
-target_latency_ms = 500
-max_latency_ms = 10000
-p95_target_ms = 1500
+# 20M tok/s → ~50ns per token end-to-end pipeline
+target_latency_ms = 50
+max_latency_ms = 500
+p95_target_ms = 100
+
+[distributed]
+enable = true
+listen_address = "0.0.0.0:8080"
+seed_nodes = []
+gossip_interval_ms = 500
+routing_strategy = "LeastLoaded"
+num_pipeline_stages = 8
+num_expert_replicas = 4
+enable_tensor_parallelism = true
+tensor_parallel_size = 2
+
+[paged_cache]
+block_size = 16
+max_blocks = 262144
+max_memory_bytes = 858993459200
+eviction_policy = "LRU"
+eviction_watermark = 0.85
+enable_q4 = true
+enable_f16 = false

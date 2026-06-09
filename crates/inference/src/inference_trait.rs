@@ -369,28 +369,57 @@ pub trait ModelForward: Send + Sync {
             return vec![Array1::zeros(1); n];
         }
 
+        // Optimized position-by-position prefill using BATCHED forward.
+        // At each position P, all sequences with P-th token are processed
+        // together via forward_batched() (GPU batched matmul when available).
+        // This replaces N individual forward() calls with 1 batched call per position.
         let mut results: Vec<Option<Array1<f32>>> = vec![None; n];
         let mut active: Vec<bool> = vec![true; n];
 
-        // Position-by-position prefill.
-        // At each position P, all sequences still in prefill have their
-        // P-th token processed together via forward(). This reorders the
-        // computation from sequence-major to position-major, which:
-        //   1. Lays foundation for future true GPU batched prefill
-        //   2. Builds KV cache position-by-position across the batch
-        //   3. Enables seamless merge of new arrivals during prefill
         for pos in 0..max_len {
+            // Collect all tokens at this position across active sequences.
+            // Use Vec<(idx, token)> to restore results per sequence later.
+            let mut batch_tokens: Vec<u32> = Vec::with_capacity(n);
+            let mut batch_indices: Vec<usize> = Vec::with_capacity(n);
+            let mut batch_caches: Vec<Box<dyn KVCacheProvider>> = Vec::with_capacity(n);
+
             for (i, tokens) in inputs.iter().enumerate() {
-                if !active[i] {
-                    continue;
+                if active[i] && pos < tokens.len() {
+                    batch_tokens.push(tokens[pos]);
+                    batch_indices.push(i);
+                    // Take cache ownership temporarily
+                    let cache = std::mem::replace(&mut caches[i], Box::new(CpuKVCache::new(0)));
+                    batch_caches.push(cache);
                 }
-                if pos < tokens.len() {
-                    let tok = tokens[pos];
-                    let logits = self.forward(&[tok], &mut *caches[i]);
-                    if pos == tokens.len() - 1 {
-                        results[i] = Some(logits);
-                        active[i] = false;
+            }
+
+            if batch_tokens.is_empty() {
+                continue;
+            }
+
+            // Convert batch_caches to CpuKVCache for forward_batched
+            let mut cpu_caches: Vec<CpuKVCache> = batch_caches
+                .into_iter()
+                .map(|mut c| {
+                    let mut entries = Vec::new();
+                    if let Some(cpu) = c.as_cpu_entries() {
+                        entries = std::mem::take(cpu);
                     }
+                    CpuKVCache { entries }
+                })
+                .collect();
+
+            // Single batched forward call for all sequences at this position
+            let logits_vec = self.forward_batched(&batch_tokens, &mut cpu_caches);
+
+            // Restore caches and store results
+            for (batch_idx, &seq_idx) in batch_indices.iter().enumerate() {
+                let entries = std::mem::take(&mut cpu_caches[batch_idx].entries);
+                let mut cpu_cache = CpuKVCache { entries };
+                caches[seq_idx] = Box::new(cpu_cache);
+                if batch_idx < logits_vec.len() && pos == inputs[seq_idx].len() - 1 {
+                    results[seq_idx] = Some(logits_vec[batch_idx].clone());
+                    active[seq_idx] = false;
                 }
             }
         }

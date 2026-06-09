@@ -13,6 +13,7 @@ pub(crate) struct SwigluGpuTemps {
     pub w1_t: nexora_autograd::gpu::GpuTensor,
     pub w2_t: nexora_autograd::gpu::GpuTensor,
     pub w3_t: nexora_autograd::gpu::GpuTensor,
+    pub w13_t: nexora_autograd::gpu::GpuTensor,
 }
 
 #[cfg(feature = "gpu")]
@@ -24,6 +25,10 @@ pub(crate) struct SwigluGpuWeights {
     pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
     pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    /// Combined [hidden_size, 2 * ffn_size] weight = concat(w1, w3) column-wise.
+    /// Enables single matmul for both gate and hidden projections.
+    pub w13_t: nexora_autograd::gpu::GpuTensor,
+    pub w13_f16: Option<nexora_autograd::gpu::GpuTensor>,
 }
 
 #[derive(Debug)]
@@ -179,41 +184,56 @@ impl SwiGLU {
         w2_shape: &[usize],
         w3_shape: &[usize],
     ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        use ndarray::ArrayD;
         use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
         let ctx = GpuContext::global()?;
         let mk = |data: &[f32], shape: &[usize]| -> Result<GpuTensor, GpuError> {
-            let arr = ndarray::ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
+            let arr = ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
                 .map_err(|e| GpuError::Unsupported(e.to_string()))?;
             GpuTensor::from_cpu(&arr)
         };
         let w1 = mk(w1_data, w1_shape)?;
         let w2 = mk(w2_data, w2_shape)?;
         let w3 = mk(w3_data, w3_shape)?;
+
+        // Build combined w13 on CPU
+        let w1_shape_2 = [w1_shape[0], w1_shape[1]];
+        let w3_shape_2 = [w3_shape[0], w3_shape[1]];
+        let w1_cpu = Array2::from_shape_vec(w1_shape_2, w1_data.to_vec())
+            .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+        let w3_cpu = Array2::from_shape_vec(w3_shape_2, w3_data.to_vec())
+            .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+        let w13_cpu = crate::swiglu::concat_w1_w3_fused(&w1_cpu, &w3_cpu)
+            .map_err(|e| GpuError::Unsupported(e.to_string()))?;
+        let w13 = mk(w13_cpu.as_slice().unwrap_or(&[]), &[w13_cpu.nrows(), w13_cpu.ncols()])?;
+
         let use_f16 = self.use_half_precision;
-        let (w1_f16, w2_f16, w3_f16) = if use_f16 {
+        let (w1_f16, w2_f16, w3_f16, w13_f16) = if use_f16 {
             (
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w1)?)?),
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w2)?)?),
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w3)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w13)?)?),
             )
         } else {
-            (None, None, None)
+            (None, None, None, None)
         };
-        let (w1_t, w2_t, w3_t) = if use_f16 {
+        let (w1_t, w2_t, w3_t, w13_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;
-            (d.clone(), d.clone(), d)
+            (d.clone(), d.clone(), d.clone(), d)
         } else {
             (
                 ctx.transpose(&w1)?,
                 ctx.transpose(&w2)?,
                 ctx.transpose(&w3)?,
+                ctx.transpose(&w13)?,
             )
         };
         self.gpu_weights
-            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16 })
+            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16, w13_t, w13_f16 })
             .map_err(|_| GpuError::Unsupported("already set".into()))
     }
 
@@ -330,6 +350,20 @@ mod tests {
     }
 }
 
+/// Concatenate w1 and w3 along the column dimension (public for loader.rs).
+/// Shape: [hidden_size, 2 * ffn_size] = concat([hidden_size, ffn_size], ...)
+pub fn concat_w1_w3_fused(w1: &Array2<f32>, w3: &Array2<f32>) -> TransformerResult<Array2<f32>> {
+    let (rows, cols1) = w1.dim();
+    let (_, cols3) = w3.dim();
+    if rows == 0 {
+        return Err(TransformerError::Implementation("Empty w1 for concat".into()));
+    }
+    let mut combined = Array2::zeros((rows, cols1 + cols3));
+    combined.slice_mut(ndarray::s![.., ..cols1]).assign(w1);
+    combined.slice_mut(ndarray::s![.., cols1..]).assign(w3);
+    Ok(combined)
+}
+
 #[cfg(feature = "gpu")]
 impl SwiGLU {
     fn ensure_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
@@ -361,27 +395,36 @@ impl SwiGLU {
             None => return Err(GpuError::Unsupported("SwiGLU w3 not available".into())),
         };
         let use_f16 = self.use_half_precision;
-        let (w1_f16, w2_f16, w3_f16) = if use_f16 {
+        // Build combined w13 on CPU before GPU upload
+        let w13_cpu = Self::concat_w1_w3(
+            self.w1.as_ref().ok_or_else(|| GpuError::Unsupported("SwiGLU w1 not available".into()))?,
+            self.w3.as_ref().ok_or_else(|| GpuError::Unsupported("SwiGLU w3 not available".into()))?,
+        ).map_err(|e| GpuError::Unsupported(format!("concat_w1_w3: {e}")))?;
+        let w13 = mk(&w13_cpu)?;
+
+        let (w1_f16, w2_f16, w3_f16, w13_f16) = if use_f16 {
             (
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w1)?)?),
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w2)?)?),
                 Some(ctx.f32_to_f16_packed(&ctx.transpose(&w3)?)?),
+                Some(ctx.f32_to_f16_packed(&ctx.transpose(&w13)?)?),
             )
         } else {
-            (None, None, None)
+            (None, None, None, None)
         };
-        let (w1_t, w2_t, w3_t) = if use_f16 {
+        let (w1_t, w2_t, w3_t, w13_t) = if use_f16 {
             let d = GpuTensor::zeros(&[1])?;
-            (d.clone(), d.clone(), d)
+            (d.clone(), d.clone(), d.clone(), d)
         } else {
             (
                 ctx.transpose(&w1)?,
                 ctx.transpose(&w2)?,
                 ctx.transpose(&w3)?,
+                ctx.transpose(&w13)?,
             )
         };
         self.gpu_weights
-            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16 })
+            .set(SwigluGpuWeights { w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16, w13_t, w13_f16 })
             .map_err(|_| GpuError::Unsupported("already set".into()))?;
         Ok(())
     }
@@ -406,10 +449,23 @@ impl SwiGLU {
             w3_t: ctx.f16_packed_to_f32(cached.w3_f16.as_ref().ok_or_else(|| {
                 GpuError::Unsupported("SwiGLU f16 missing w3".into())
             })?)?,
+            w13_t: ctx.f16_packed_to_f32(cached.w13_f16.as_ref().ok_or_else(|| {
+                GpuError::Unsupported("SwiGLU f16 missing w13".into())
+            })?)?,
         })
     }
 
+    /// Concatenate w1 and w3 along the column (ffn_hidden) dimension.
+    /// Delegates to public `concat_w1_w3_fused`.
+    fn concat_w1_w3(
+        w1: &Array2<f32>,
+        w3: &Array2<f32>,
+    ) -> TransformerResult<Array2<f32>> {
+        concat_w1_w3_fused(w1, w3)
+    }
+
     /// GPU forward: SwiGLU FFN using GPU matmul + silu + mul (cached weights).
+    /// Uses 3 well-optimized cuBLAS matmuls (fusion deferred to future work).
     pub fn forward_gpu(
         &self,
         x: &nexora_autograd::gpu::GpuTensor,

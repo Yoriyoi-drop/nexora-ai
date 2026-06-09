@@ -992,6 +992,85 @@ impl PagedKVCache {
         let free_list_overhead: usize = self.free_lists.iter().map(|f| f.capacity() * 8).sum();
         data_bytes + block_metadata + block_table_overhead + free_list_overhead
     }
+
+    /// Enforce sliding window + attention sink (StreamingLLM).
+    ///
+    /// After a sequence exceeds `num_attention_sink_tokens + window_size`,
+    /// evict middle blocks — keeping only:
+    ///   - First `num_attention_sink_tokens` (attention sink, always retained)
+    ///   - Last `window_size` tokens (sliding window)
+    ///
+    /// Middle blocks are freed; their physical blocks return to the free pool.
+    /// Call this after each `append()` to keep the cache bounded.
+    pub fn enforce_sliding_window(&mut self, seq_id: u64) {
+        if !self.config.enable_sliding_window {
+            return;
+        }
+        let Some(table) = self.sequences.get(&seq_id) else {
+            return;
+        };
+        let num_tokens = table.num_tokens;
+        let sink = self.config.num_attention_sink_tokens;
+        let window = self.config.window_size;
+        let max_tokens = sink + window;
+        if num_tokens <= max_tokens {
+            return;
+        }
+
+        let block_size = self.config.block_size;
+        let sink_blocks = sink / block_size + if sink % block_size > 0 { 1 } else { 0 };
+        let window_start = num_tokens.saturating_sub(window);
+        let window_block_start = window_start / block_size;
+        let num_layers = self.config.num_layers;
+
+        if window_block_start <= sink_blocks {
+            return;
+        }
+
+        let mut freed_any = false;
+        for layer in 0..num_layers {
+            let Some(layer_table) = table.layers.get(layer) else { continue };
+            for logical in sink_blocks..window_block_start {
+                if logical >= layer_table.len() {
+                    break;
+                }
+                if let Some(Some(phys)) = layer_table.get(logical) {
+                    if let Some(block) = self.blocks[layer].get_mut(*phys) {
+                        if block.ref_count > 0 {
+                            block.ref_count -= 1;
+                        }
+                        if block.ref_count == 0 {
+                            block.filled = 0;
+                            self.free_lists[layer].push(*phys);
+                            self.num_freed += 1;
+                        }
+                    }
+                    freed_any = true;
+                }
+            }
+        }
+
+        if freed_any {
+            if let Some(table) = self.sequences.get_mut(&seq_id) {
+                for layer in 0..num_layers {
+                    if let Some(layer_table) = table.layers.get_mut(layer) {
+                        for logical in sink_blocks..window_block_start {
+                            if logical < layer_table.len() {
+                                layer_table[logical] = None;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Call after each append to enforce the sliding window constraint.
+    fn post_append_sliding_window(&mut self, seq_id: u64) {
+        if self.config.enable_sliding_window {
+            self.enforce_sliding_window(seq_id);
+        }
+    }
 }
 
 impl nexora_transformer::PagedCacheReader for PagedKVCache {
@@ -1012,6 +1091,7 @@ impl nexora_transformer::PagedCacheReader for PagedKVCache {
         v_row: &[f32],
     ) {
         PagedKVCache::append(self, seq_id, layer, token_pos, k_row, v_row);
+        self.post_append_sliding_window(seq_id);
     }
 
     fn read_layer_kv(&self, seq_id: u64, layer: usize) -> Option<(Vec<f32>, Vec<f32>)> {

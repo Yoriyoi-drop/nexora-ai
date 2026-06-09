@@ -230,21 +230,34 @@ impl PagedKVCacheProvider {
     }
 
     /// Read all tokens from GPU entries into a flat Vec<KVCacheEntry>.
-    /// Used by ensure_flat_synced() when GPU is the primary storage.
+    /// Uses bulk GPU readback per layer (1 transfer per layer instead of N per token).
     #[cfg(feature = "gpu")]
     fn read_flat_from_gpu(&self) -> Vec<KVCacheEntry> {
         let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
         let mut entries = Vec::with_capacity(self.num_layers);
         for layer in 0..self.num_layers {
-            let mut k = Vec::with_capacity(self.total_tokens * kv_elems);
-            let mut v = Vec::with_capacity(self.total_tokens * kv_elems);
+            let (mut k, mut v);
             if layer < self.gpu_entries.len() {
-                for pos in 0..self.total_tokens.min(self.gpu_entries[layer].seq_len) {
-                    if let Some((k_row, v_row)) = self.gpu_entries[layer].read_token_cpu(pos) {
-                        k.extend_from_slice(&k_row);
-                        v.extend_from_slice(&v_row);
+                let seq_len = self.total_tokens.min(self.gpu_entries[layer].seq_len);
+                if seq_len > 0 {
+                    if let Some(tokens) = self.gpu_entries[layer].read_tokens_bulk(0, seq_len) {
+                        k = Vec::with_capacity(seq_len * kv_elems);
+                        v = Vec::with_capacity(seq_len * kv_elems);
+                        for (k_row, v_row) in tokens {
+                            k.extend_from_slice(&k_row);
+                            v.extend_from_slice(&v_row);
+                        }
+                    } else {
+                        k = Vec::new();
+                        v = Vec::new();
                     }
+                } else {
+                    k = Vec::new();
+                    v = Vec::new();
                 }
+            } else {
+                k = Vec::new();
+                v = Vec::new();
             }
             entries.push(KVCacheEntry {
                 k,
@@ -351,8 +364,9 @@ impl PagedKVCacheProvider {
     /// prefix sharing, defragmentation, and CPU fallback.
     ///
     /// Only reads back tokens that haven't been synced yet (i.e., tokens at
-    /// positions >= `total_tokens`). Typically 1 new token per step, so the
-    /// readback is small (~2 × num_layers × kv_heads × head_dim × 4 bytes).
+    /// positions >= `total_tokens`). Optimized with bulk GPU readback:
+    /// reads all new tokens per layer in a single GPU→CPU transfer,
+    /// then batch-writes to paged cache with one lock acquisition per layer.
     #[cfg(feature = "gpu")]
     pub fn sync_gpu_to_paged(&mut self) {
         if self.gpu_entries.is_empty() {
@@ -363,23 +377,24 @@ impl PagedKVCacheProvider {
             return;
         }
 
-        let _kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
+        let kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
+        let start = self.total_tokens;
         for layer in 0..self.gpu_entries.len().min(self.num_layers) {
-            for pos in self.total_tokens..gpu_seq_len {
-                let (k_vec, v_vec) = match self.gpu_entries[layer].read_token_cpu(pos) {
-                    Some(kv) => kv,
-                    None => continue,
-                };
-                let mut guard = match self.cache.write() {
-                    Ok(g) => g,
-                    Err(e) => {
-                        warn!("paged cache lock poisoned in sync_gpu_to_paged: {}", e);
-                        continue;
-                    }
-                };
-                guard.append(self.seq_id, layer, pos, &k_vec, &v_vec);
-                drop(guard);
+            let tokens = match self.gpu_entries[layer].read_tokens_bulk(start, gpu_seq_len) {
+                Some(t) => t,
+                None => continue,
+            };
+            let mut guard = match self.cache.write() {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("paged cache lock poisoned in sync_gpu_to_paged: {}", e);
+                    continue;
+                }
+            };
+            for (i, (k_vec, v_vec)) in tokens.iter().enumerate() {
+                guard.append(self.seq_id, layer, start + i, k_vec, v_vec);
             }
+            drop(guard);
         }
         self.total_tokens = gpu_seq_len;
     }

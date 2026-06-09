@@ -52,11 +52,11 @@ impl MemoryTier {
 ///   block_size ≈ head_dim × num_kv_heads / gcd(head_dim, 16)   clamped to [8, 64]
 pub const DEFAULT_BLOCK_SIZE: usize = 16;
 
-/// Default max number of blocks to allocate (reduced from 65536 — grow as needed).
-pub const DEFAULT_MAX_BLOCKS: usize = 8192;
+/// Default max number of blocks (scaled for 20M tok/s distributed).
+pub const DEFAULT_MAX_BLOCKS: usize = 2_097_152;
 
-/// Default soft memory limit for KV cache in bytes (4 GB).
-pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 4_294_967_296;
+/// Default soft memory limit for KV cache in bytes (800 GB distributed aggregate).
+pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 858_993_459_200;
 
 /// Default watermark ratio — evict when blocks exceed this fraction of max_blocks.
 pub const DEFAULT_EVICTION_WATERMARK: f64 = 0.85;
@@ -137,6 +137,19 @@ pub struct PagedCacheConfig {
     pub tier_sweep_interval_secs: f64,
     /// Compress idle sequences to disk via ColdStorage instead of evicting.
     pub enable_cold_disk_offload: bool,
+    // ── Sliding Window / Attention Sink ─────────────────────────────────────
+    /// Enable sliding window + attention sink (StreamingLLM-style).
+    /// When enabled, only the first `num_attention_sink_tokens` and the last
+    /// `window_size` tokens are retained. Middle tokens are freed, reducing
+    /// KV cache memory from O(seq_len) to O(window_size + sink).
+    pub enable_sliding_window: bool,
+    /// Number of initial tokens to always retain (attention sink).
+    /// These are the first tokens that absorb excessive attention mass.
+    pub num_attention_sink_tokens: usize,
+    /// Sliding window size — number of recent tokens to keep.
+    /// Combined with attention sink, total KV per sequence is bounded by
+    /// `num_attention_sink_tokens + window_size` tokens.
+    pub window_size: usize,
 }
 
 impl Default for PagedCacheConfig {
@@ -160,6 +173,9 @@ impl Default for PagedCacheConfig {
             warm_to_cold_secs: DEFAULT_WARM_TO_COLD_SECS,
             tier_sweep_interval_secs: DEFAULT_TIER_SWEEP_INTERVAL_SECS,
             enable_cold_disk_offload: true,
+            enable_sliding_window: true,
+            num_attention_sink_tokens: 64,
+            window_size: 4096,
         }
     }
 }

@@ -13,6 +13,7 @@ use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
 use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
 use crate::paged_provider::PagedKVCacheProvider;
+use crate::speculative::{SpeculativeDecodingConfig, SpeculativeEngine};
 use std::sync::Mutex as StdMutex;
 use std::sync::RwLock as StdRwLock;
 use crate::prefix_cache::PrefixCache;
@@ -64,15 +65,20 @@ pub struct InferenceConfig {
     pub distributed_listen_address: String,
     pub distributed_seed_nodes: Vec<String>,
     pub cluster_config: Option<ClusterConfig>,
+    /// Speculative decoding config (default: enabled, 5 draft tokens).
+    pub speculative_config: SpeculativeDecodingConfig,
+    /// Use padded-batch prefill_full instead of position-by-position prefill.
+    /// When true, ALL remaining prompt tokens are processed in one GPU call.
+    pub use_padded_batched_prefill: bool,
 }
 
 impl Default for InferenceConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_requests: 32,
+            max_concurrent_requests: 65_536,
             default_model_id: "default-model".to_string(),
             enable_queuing: true,
-            queue_size_limit: 1000,
+            queue_size_limit: 262_144,
             enable_caching: true,
             cache_size_limit_mb: 1024,
             enable_streaming: true,
@@ -95,10 +101,17 @@ impl Default for InferenceConfig {
             paged_block_size: 0,
             paged_max_blocks: 0,
             checkpoint_path: None,
-            enable_distributed: false,
-            distributed_listen_address: "127.0.0.1:8080".to_string(),
+            enable_distributed: true,
+            distributed_listen_address: "0.0.0.0:8080".to_string(),
             distributed_seed_nodes: Vec::new(),
             cluster_config: None,
+            speculative_config: SpeculativeDecodingConfig {
+                enabled: true,
+                draft_length: 5,
+                acceptance_threshold: 0.9,
+                max_speculation_rounds: 10,
+            },
+            use_padded_batched_prefill: true,
         }
     }
 }
@@ -127,6 +140,7 @@ pub struct InferenceEngine {
     reasoning: nexora_cognition::reasoning::ReasoningChain,
     db: nexora_database::DatabaseManager,
     quant: usize,
+    speculative: Option<SpeculativeEngine>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +182,11 @@ impl InferenceEngine {
 
         let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
 
+        let speculative = if config.speculative_config.enabled {
+            Some(SpeculativeEngine::new(config.speculative_config.clone()))
+        } else {
+            None
+        };
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
             scheduler: Arc::new(RwLock::new(RequestScheduler::new(
@@ -198,6 +217,7 @@ impl InferenceEngine {
             reasoning: crate::inference_reasoning(),
             db: crate::inference_db(),
             quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
+            speculative,
         }
     }
 
@@ -218,6 +238,11 @@ impl InferenceEngine {
         );
 
         let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
+        let speculative = if config.speculative_config.enabled {
+            Some(SpeculativeEngine::new(config.speculative_config.clone()))
+        } else {
+            None
+        };
 
         Self {
             runtime: Arc::new(InferenceRuntime::new()),
@@ -249,6 +274,7 @@ impl InferenceEngine {
             reasoning: crate::inference_reasoning(),
             db: crate::inference_db(),
             quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
+            speculative,
         }
     }
 

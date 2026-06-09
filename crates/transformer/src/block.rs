@@ -463,6 +463,11 @@ pub(crate) fn collective_gpu_reduce(
         return ctx.add(residual, output);
     };
 
+    // Single-shard: no-op collective, just add on GPU (zero roundtrip).
+    if col.num_shards() <= 1 {
+        return ctx.add(residual, output);
+    }
+
     match col {
         ShardCollective::Nccl(nccl) => {
             let reduced = nccl.all_reduce_gpu(ctx, output)
@@ -470,19 +475,18 @@ pub(crate) fn collective_gpu_reduce(
             ctx.add(residual, &reduced)
         }
         other => {
+            // Only read output from GPU, reduce on CPU, upload reduced → GPU add residual.
+            // Saves one GPU→CPU readback of `residual` per call (2 × num_layers per step).
             let cpu_out = output.to_cpu()?;
-            let cpu_residual = residual.to_cpu()?;
             let shape = output.shape();
             let rows = shape[0];
             let cols = if shape.len() > 1 { shape[1] } else { 1 };
-            let cpu_residual_arr = cpu_residual.into_dimensionality::<ndarray::Ix2>()
-                .unwrap_or_else(|_| Array2::zeros((rows, cols)));
             let cpu_out_arr = cpu_out.into_dimensionality::<ndarray::Ix2>()
                 .unwrap_or_else(|_| Array2::zeros((rows, cols)));
             let reduced = other.reduce_ffn(&cpu_out_arr)
                 .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
-            let combined = &cpu_residual_arr + &reduced;
-            GpuTensor::from_cpu(&combined.into_dyn())
+            let reduced_gpu = GpuTensor::from_cpu(&reduced.into_dyn())?;
+            ctx.add(residual, &reduced_gpu)
         }
     }
 }
@@ -498,6 +502,11 @@ pub(crate) fn collective_gpu_all_reduce(
     let Some(col) = collective else {
         return Ok(h.clone());
     };
+
+    // Single-shard: no-op, return as-is (zero roundtrip).
+    if col.num_shards() <= 1 {
+        return Ok(h.clone());
+    }
 
     match col {
         ShardCollective::Nccl(nccl) => {

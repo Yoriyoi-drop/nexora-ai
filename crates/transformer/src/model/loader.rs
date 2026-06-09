@@ -289,9 +289,27 @@ impl CausalLM {
             let ffn_w1_f16 = w1_f16.clone();
             let ffn_w2_f16 = w2_f16.clone();
             let ffn_w3_f16 = w3_f16.clone();
+            // Build combined w13 for fused SwiGLU forward (concat w1+w3 column-wise)
+            let w1_2d = get_arr(&format!("{}ffn.w1", p))?.into_dimensionality::<ndarray::Ix2>()
+                .map_err(|e| crate::TransformerError::Implementation(format!("w1 2d: {e}")))?;
+            let w3_2d = get_arr(&format!("{}ffn.w3", p))?.into_dimensionality::<ndarray::Ix2>()
+                .map_err(|e| crate::TransformerError::Implementation(format!("w3 2d: {e}")))?;
+            let w13_arr = crate::swiglu::concat_w1_w3_fused(&w1_2d, &w3_2d)?;
+            let w13: ArrayD<f32> = w13_arr.into_dyn();
+            let w13_gpu = to_gpu(w13)?;
+            let (w13_t, w13_f16) = if use_f16 {
+                let w13_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w13_gpu).map_err(|e| crate::TransformerError::Implementation(format!("{}w13 t: {e}", p)))?)
+                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w13 f16: {e}", p)))?;
+                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                (d, Some(w13_f16))
+            } else {
+                let w13_t = ctx.transpose(&w13_gpu).map_err(|e| crate::TransformerError::Implementation(format!("{}w13 t: {e}", p)))?;
+                (w13_t, None)
+            };
             let _ = block.ffn.gpu_weights.set(crate::swiglu::SwigluGpuWeights {
                 w1_t: w1_t.clone(), w2_t: w2_t.clone(), w3_t: w3_t.clone(),
                 w1_f16: ffn_w1_f16, w2_f16: ffn_w2_f16, w3_f16: ffn_w3_f16,
+                w13_t, w13_f16,
             });
 
             block_weights.push(BlockGpuWeights {
