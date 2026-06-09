@@ -19,7 +19,7 @@ chrono = { workspace = true, features = ["serde"] }
 
 # Database drivers (optional)
 tokio-postgres = { version = "0.7", optional = true }
-tokio-postgres-rustls = { version = "0.12", optional = true }
+tokio-postgres-rustls = { version = "0.14", optional = true }
 rustls = { version = "0.23", optional = true, features = ["ring"] }
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 sqlx = { workspace = true, optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
