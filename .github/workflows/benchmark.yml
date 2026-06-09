@@ -10,8 +10,8 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@0212e44a9491da11f14d13645d803892de8a9a2f # v4.2.2
-      - uses: actions-rust-lang/setup-rust-toolchain@0e9bd5d31775c1e076d494f3748c1b1051866b74 # v1.11.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
       - name: Build benchmarks
         run: cargo bench --no-run 2>&1 | tail -5
       - name: Run throughput benchmarks
