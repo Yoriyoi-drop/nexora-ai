@@ -3,6 +3,14 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use super::gpu_types::{GpuContext, GpuError};
+#[cfg(feature = "cuda")]
+use super::cuda::CudaTensor;
+
+/// Zero-overhead placeholder — `cuda_tensor: None` compiles regardless of feature.
+#[cfg(not(feature = "cuda"))]
+type CudaTensorRef = Option<()>;
+#[cfg(feature = "cuda")]
+type CudaTensorRef = Option<CudaTensor>;
 
 /// Convert a Vec<u8> of f32 bytes into Vec<f32>, safely handling alignment.
 fn bytes_to_f32_vec(data: Vec<u8>) -> Vec<f32> {
@@ -22,6 +30,13 @@ pub struct GpuTensor {
     /// singleton setup this is always 0, but the field is available for
     /// multi-GPU extensions.
     pub(crate) device_id: usize,
+    /// Optional CUDA tensor backing for zero-copy CUDA op access.
+    /// When `Some`, CUDA ops can read/write this tensor without going through
+    /// the wgpu→CPU→CUDA bridge. Eliminates the 500μs-2ms PCIe round-trip
+    /// for subsequent CUDA operations on the same tensor.
+    /// Type is `Option<CudaTensor>` when cuda feature is on, `Option<()>` otherwise.
+    /// Both support `cuda_tensor: None` — no cfg needed at construction sites.
+    pub(crate) cuda_tensor: CudaTensorRef,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -94,24 +109,31 @@ impl GpuTensor {
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
 
         #[cfg(feature = "cuda")]
-        if let Some(cuda) = ctx.cuda {
-            match crate::gpu::cuda::CudaTensor::from_cpu(
+        let cuda_tensor: CudaTensorRef = if let Some(cuda) = ctx.cuda {
+            match CudaTensor::from_cpu(
                 &cuda.stream, shape.clone(), data_slice, cuda.device_id,
             ) {
                 Ok(ct) => {
-                    ctx.cache_cuda(&buffer, ct);
+                    ctx.cache_cuda(&buffer, ct.clone());
+                    Some(ct)
                 }
                 Err(e) => {
                     tracing::warn!("Failed to create CUDA tensor from CPU data: {e}");
+                    None
                 }
             }
-        }
+        } else {
+            None
+        };
+        #[cfg(not(feature = "cuda"))]
+        let cuda_tensor: CudaTensorRef = None;
 
         Ok(Self {
             shape,
             buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor,
         })
     }
 
@@ -147,6 +169,7 @@ impl GpuTensor {
             buffer,
             dtype: GpuDtype::I8,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -178,6 +201,7 @@ impl GpuTensor {
             buffer,
             dtype: GpuDtype::I8,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -205,24 +229,31 @@ impl GpuTensor {
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
 
         #[cfg(feature = "cuda")]
-        if let Some(cuda) = ctx.cuda {
-            match crate::gpu::cuda::CudaTensor::from_cpu(
+        let cuda_tensor: CudaTensorRef = if let Some(cuda) = ctx.cuda {
+            match CudaTensor::from_cpu(
                 &cuda.stream, shape.clone(), &data[..numel], cuda.device_id,
             ) {
                 Ok(ct) => {
-                    ctx.cache_cuda(&buffer, ct);
+                    ctx.cache_cuda(&buffer, ct.clone());
+                    Some(ct)
                 }
                 Err(e) => {
                     tracing::warn!("Failed to create CUDA tensor from slice: {e}");
+                    None
                 }
             }
-        }
+        } else {
+            None
+        };
+        #[cfg(not(feature = "cuda"))]
+        let cuda_tensor: CudaTensorRef = None;
 
         Ok(Self {
             shape,
             buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor,
         })
     }
 
@@ -234,6 +265,7 @@ impl GpuTensor {
             buffer,
             dtype,
             device_id: 0,
+            cuda_tensor: None,
         }
     }
 
@@ -245,6 +277,64 @@ impl GpuTensor {
     ) -> Result<crate::gpu_async::AsyncReadback<Vec<f32>>, GpuError> {
         let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
         ctx.readback_f32_async(&self.buffer, byte_size)
+    }
+
+    /// Non-blocking GPU→CPU readback using global context (convenience).
+    /// Equivalent to `tensor.to_cpu_async(&GpuContext::global()?)`.
+    pub fn to_cpu_async_global(
+        &self,
+    ) -> Result<crate::gpu_async::AsyncReadback<Vec<f32>>, GpuError> {
+        let ctx = Self::ctx()?;
+        self.to_cpu_async(ctx)
+    }
+
+    /// Non-blocking raw bytes readback: starts GPU→staging copy, returns immediately.
+    /// Call `recv()` on the result to block until data is ready.
+    /// Useful for overlapping batch token readback with next batch compute.
+    pub fn to_cpu_raw_bytes_async(
+        &self,
+        ctx: &GpuContext,
+    ) -> Result<crate::gpu_async::AsyncReadback<Vec<u8>>, GpuError> {
+        let byte_size = (self.numel() * self.dtype.byte_size()) as u64;
+        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("async_readback_raw_staging"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("async_readback_raw_encoder"),
+            });
+        encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging, 0, byte_size);
+        ctx.queue.submit(Some(encoder.finish()));
+
+        let (tx, rx) = mpsc::channel();
+        let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ready_clone = ready.clone();
+        let staging_clone = staging.clone();
+
+        staging.map_async(wgpu::MapMode::Read, 0..byte_size, move |result| {
+            if let Ok(()) = result {
+                let slice = staging_clone.slice(..byte_size);
+                let data = slice.get_mapped_range().to_vec();
+                let _ = tx.send(data);
+                staging_clone.unmap();
+                ready_clone.store(true, std::sync::atomic::Ordering::Release);
+            }
+        });
+        let _ = ctx.device.poll(wgpu::PollType::Poll);
+
+        Ok(crate::gpu_async::AsyncReadback::new(rx, ready))
+    }
+
+    /// Non-blocking raw bytes readback using global context (convenience).
+    pub fn to_cpu_raw_bytes_async_global(
+        &self,
+    ) -> Result<crate::gpu_async::AsyncReadback<Vec<u8>>, GpuError> {
+        let ctx = Self::ctx()?;
+        self.to_cpu_raw_bytes_async(ctx)
     }
 
     /// Create a new GpuTensor with a different shape but the same underlying buffer.
@@ -262,6 +352,7 @@ impl GpuTensor {
             buffer: self.buffer.clone(),
             dtype: self.dtype,
             device_id: self.device_id,
+            cuda_tensor: self.cuda_tensor.clone(),
         })
     }
 
@@ -273,6 +364,7 @@ impl GpuTensor {
             buffer: self.buffer.clone(),
             dtype: self.dtype,
             device_id: self.device_id,
+            cuda_tensor: self.cuda_tensor.clone(),
         }
     }
 
@@ -310,6 +402,7 @@ impl GpuTensor {
             buffer: buffer.clone(),
             dtype,
             device_id: 0,
+            cuda_tensor: None,
         };
         // Zero-fill via u32 (works for any dtype since 0 in any format is 0u32)
         ctx.fill_zero_u32(&tmp)?;
@@ -319,6 +412,7 @@ impl GpuTensor {
             buffer,
             dtype,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -490,6 +584,23 @@ impl GpuTensor {
     /// Clone the underlying wgpu::Buffer handle (cheap — internally ref-counted).
     pub fn buffer_arc(&self) -> wgpu::Buffer {
         self.buffer.clone()
+    }
+
+    /// Returns a reference to the inline CUDA tensor backing, if available.
+    /// This is the zero-copy fast path — no wgpu→CPU→CUDA bridge needed.
+    #[cfg(feature = "cuda")]
+    pub(crate) fn get_cuda(&self) -> Option<&CudaTensor> {
+        self.cuda_tensor.as_ref()
+    }
+
+    /// Attach a CUDA tensor backing for zero-copy CUDA ops.
+    /// Element count must match this tensor's current shape.
+    #[cfg(feature = "cuda")]
+    pub fn set_cuda_tensor(&mut self, ct: CudaTensor) {
+        debug_assert_eq!(self.numel(), ct.numel(),
+            "set_cuda_tensor: element count mismatch (tensor {} vs ct {})",
+            self.numel(), ct.numel());
+        self.cuda_tensor = Some(ct);
     }
 
     /// GPU max element reduction

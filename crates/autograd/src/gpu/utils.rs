@@ -103,8 +103,10 @@ impl GpuContext {
             result?
         };
 
-        CudaTensor::from_cpu(&cuda.stream, tensor.shape().clone(), &data, cuda.device_id)
-            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))
+        let t = CudaTensor::from_cpu(&cuda.transfer_stream, tensor.shape().clone(), &data, cuda.device_id)
+            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+        cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+        Ok(t)
     }
 
     /// Read multiple wgpu tensors to CudaTensors using a single batched staging buffer.
@@ -181,12 +183,17 @@ impl GpuContext {
         tensors.iter().enumerate().map(|(i, t)| {
             let start = (offsets[i] / 4) as usize;
             let end = start + t.numel();
-            CudaTensor::from_cpu(&cuda.stream, t.shape().clone(), &flat_data[start..end], cuda.device_id)
-                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))
+            let ct = CudaTensor::from_cpu(&cuda.transfer_stream, t.shape().clone(), &flat_data[start..end], cuda.device_id)
+                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+            cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+            Ok(ct)
         }).collect()
     }
 
     /// Write a CudaTensor result back to a wgpu GpuTensor, caching for future access.
+    ///
+    /// Sets `cuda_tensor` on the result so subsequent CUDA ops get zero-copy access
+    /// without HashMap lookup or wgpu→CPU→CUDA bridge.
     #[cfg(feature = "cuda")]
     fn cuda_write_tensor(
         &self,
@@ -215,13 +222,16 @@ impl GpuContext {
             buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: Some(tensor.clone()),
         };
-        // Cache for future zero-copy access
+        // Keep HashMap cache for backward compat (wgpu-created tensors)
         self.cache_cuda(result.buffer(), tensor.clone());
         Ok(result)
     }
 
     /// Write a CudaTensor (result of backward op) back to wgpu GpuTensor with a specific shape.
+    ///
+
     #[cfg(feature = "cuda")]
     fn cuda_write_tensor_with_shape(
         &self,
@@ -251,21 +261,27 @@ impl GpuContext {
             buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: Some(tensor.clone()),
         };
-        // Cache for future zero-copy access
+        // Keep HashMap cache for backward compat (wgpu-created tensors)
         self.cache_cuda(result.buffer(), tensor.clone());
         Ok(result)
     }
 
-    /// Get a CudaTensor from the cache, or create one from the wgpu buffer.
-    /// Returns an error if CUDA is not available (should only call when self.cuda is Some).
+    /// Write a CudaTensor (result of backward op) back to wgpu GpuTensor with a specific shape.
+
     #[cfg(feature = "cuda")]
-    pub(crate) fn get_or_cache_cuda(
+    pub fn get_or_cache_cuda(
         &self,
         tensor: &GpuTensor,
     ) -> Result<crate::gpu::cuda::CudaTensor, GpuError> {
+        // ── SUPER FAST PATH: tensor has inline CudaTensor ──
+        // No lock, no HashMap, no PCIe. Just clone the CudaSlice handle.
+        if let Some(ct) = tensor.get_cuda() {
+            return Ok(ct.clone());
+        }
+        // ── OLD HASHMAP CACHE LOOKUP ──
         let buf = tensor.buffer_arc();
-        // Fast path: cache hit
         if let Some(ct) = self
             .cuda_cache
             .lock()
@@ -274,7 +290,7 @@ impl GpuContext {
         {
             return Ok(ct.clone());
         }
-        // Slow path: create from wgpu buffer (one-time round-trip cost)
+        // ── SLOW PATH: wgpu→CPU→CUDA bridge (one-time cost) ──
         let cuda = self.cuda.ok_or_else(|| {
             GpuError::NotInitialized
         })?;
@@ -583,10 +599,9 @@ impl GpuContext {
         let cfg: [u32; 4] = [numel, 0, 0, 0];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("l2_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bg = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: t.buffer().as_entire_binding(),
@@ -600,13 +615,15 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "l2_bg",
+        );
         self.dispatch(pipeline, &bg, (1, 1, 1));
         Ok(GpuTensor {
             shape: vec![1],
             buffer: out,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -641,10 +658,9 @@ impl GpuContext {
             .pipelines
             .get("causal_softmax")
             .ok_or_else(|| GpuError::Pipeline("causal_softmax not compiled".into()))?;
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("cs_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bg = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: input.buffer().as_entire_binding(),
@@ -658,13 +674,15 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "cs_bg",
+        );
         self.dispatch(pipeline, &bg, (batch, 1, 1));
         Ok(GpuTensor {
             shape: shape.to_vec(),
             buffer: out,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -761,6 +779,7 @@ impl GpuContext {
             buffer: work_buf,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let probs = self.softmax(&logits_gpu)?;
 
@@ -791,10 +810,9 @@ impl GpuContext {
             let cfg: [u32; 4] = [vocab, top_k, 0, 0];
             self.queue
                 .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
-            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("topk_bg"),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
+            let bg = self.get_or_create_bind_group_shared(
+                &pipeline.bind_group_layout,
+                &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: masked_buf.as_entire_binding(),
@@ -804,13 +822,15 @@ impl GpuContext {
                         resource: cfg_buf.buffer.as_entire_binding(),
                     },
                 ],
-            });
+                "topk_bg",
+            );
             self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
             GpuTensor {
                 shape: shape.clone(),
                 buffer: masked_buf,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             }
         } else {
             GpuTensor {
@@ -818,6 +838,7 @@ impl GpuContext {
                 buffer: masked_buf,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             }
         };
 
@@ -834,10 +855,9 @@ impl GpuContext {
             let cfg: [u32; 4] = [vocab, f32::to_bits(top_p), 0, 0];
             self.queue
                 .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
-            let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("topp_bg"),
-                layout: &pipeline.bind_group_layout,
-                entries: &[
+            let bg = self.get_or_create_bind_group_shared(
+                &pipeline.bind_group_layout,
+                &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: masked.buffer().as_entire_binding(),
@@ -847,7 +867,8 @@ impl GpuContext {
                         resource: cfg_buf.buffer.as_entire_binding(),
                     },
                 ],
-            });
+                "topp_bg",
+            );
             self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
         }
 
@@ -867,10 +888,9 @@ impl GpuContext {
         let cfg: [u32; 4] = [vocab, seed as u32, (seed >> 32) as u32, 0];
         self.queue
             .write_buffer(&cfg_buf.buffer, 0, bytemuck::cast_slice(&cfg));
-        let bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sample_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bg = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: masked.buffer().as_entire_binding(),
@@ -884,7 +904,8 @@ impl GpuContext {
                     resource: cfg_buf.buffer.as_entire_binding(),
                 },
             ],
-        });
+            "sample_bg",
+        );
         self.dispatch(pipeline, &bg, (batch as u32, 1, 1));
 
         Ok(GpuTensor {
@@ -892,6 +913,7 @@ impl GpuContext {
             buffer: out.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -926,6 +948,7 @@ impl GpuContext {
                 buffer: self.alloc_buffer(0, wgpu::BufferUsages::COPY_SRC).buffer,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             });
         }
         // Convert each F16 tensor to F32 on GPU
@@ -964,6 +987,7 @@ impl GpuContext {
             buffer: flat_buf.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         self.gpu_sample(&stacked, temperature, top_k, top_p, seed)
     }
@@ -1122,10 +1146,9 @@ impl GpuContext {
             .get("matmul_tiled")
             .ok_or_else(|| GpuError::Pipeline("matmul_tiled not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("matmul_tiled_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -1143,7 +1166,8 @@ impl GpuContext {
                     resource: dims_buf.as_entire_binding(),
                 },
             ],
-        });
+            "matmul_tiled_bind_group",
+        );
 
         let wgx = m_u32.div_ceil(tile_u32);
         let wgy = n_u32.div_ceil(tile_u32);
@@ -1154,6 +1178,7 @@ impl GpuContext {
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1246,10 +1271,9 @@ impl GpuContext {
             .get("matmul_f16_tiled")
             .ok_or_else(|| GpuError::Pipeline("matmul_f16_tiled not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("matmul_f16_tiled_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -1267,7 +1291,8 @@ impl GpuContext {
                     resource: dims_buf.as_entire_binding(),
                 },
             ],
-        });
+            "matmul_f16_tiled_bind_group",
+        );
 
         // 🟠 HIGH #4: vec4<f32> vectorized pipeline when all dims are 4-aligned
         // Provides up to 4× global memory bandwidth improvement on tiled matmul.
@@ -1290,6 +1315,7 @@ impl GpuContext {
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1394,10 +1420,9 @@ impl GpuContext {
             .get("matmul_int8_tiled")
             .ok_or_else(|| GpuError::Pipeline("matmul_int8_tiled not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("matmul_int8_tiled_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -1415,7 +1440,8 @@ impl GpuContext {
                     resource: dims_buf.as_entire_binding(),
                 },
             ],
-        });
+            "matmul_int8_tiled_bind_group",
+        );
 
         let wgx = m_u32.div_ceil(tile_u32);
         let wgy = n_u32.div_ceil(tile_u32);
@@ -1426,6 +1452,7 @@ impl GpuContext {
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1558,10 +1585,9 @@ impl GpuContext {
             .get("matmul_int8_weight")
             .ok_or_else(|| GpuError::Pipeline("matmul_int8_weight not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("matmul_int8_weight_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -1587,7 +1613,8 @@ impl GpuContext {
                     resource: zero_points.buffer().as_entire_binding(),
                 },
             ],
-        });
+            "matmul_int8_weight_bind_group",
+        );
 
         let wgx = m_u32.div_ceil(tile_u32);
         let wgy = n_u32.div_ceil(tile_u32);
@@ -1598,6 +1625,7 @@ impl GpuContext {
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1674,10 +1702,9 @@ impl GpuContext {
             .get("matmul_int4_weight")
             .ok_or_else(|| GpuError::Pipeline("matmul_int4_weight not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("matmul_int4_weight_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: a.buffer().as_entire_binding(),
@@ -1699,7 +1726,8 @@ impl GpuContext {
                     resource: scales.buffer().as_entire_binding(),
                 },
             ],
-        });
+            "matmul_int4_weight_bind_group",
+        );
 
         let wgx = m_u32.div_ceil(tile_u32);
         let wgy = n_u32.div_ceil(tile_u32);
@@ -1710,6 +1738,7 @@ impl GpuContext {
             buffer: c_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1750,6 +1779,21 @@ impl GpuContext {
 
     pub(crate) fn compile_elementwise_inplace(&mut self) -> Result<(), GpuError> {
         self.compile_shader("elementwise_inplace", &[storage_binding(0, false), uniform_binding(1)], ELEMENTWISE_INPLACE_WGSL, "elementwise_inplace_main")
+    }
+
+    pub(crate) fn compile_fused_elementwise(&mut self) -> Result<(), GpuError> {
+        self.compile_shader(
+            "fused_elementwise",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+                storage_binding(4, true),
+            ],
+            FUSED_ELEMENTWISE_WGSL,
+            "fused_elementwise_main",
+        )
     }
 
     /// Dispatch element-wise/unary op: output = op(a)
@@ -1814,6 +1858,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -1913,6 +1958,7 @@ impl GpuContext {
                 buffer,
                 dtype: tensor.dtype,
                 device_id: tensor.device_id,
+                cuda_tensor: None,
             });
         }
 
@@ -2007,6 +2053,120 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
+        })
+    }
+
+    /// Dispatch fused element-wise ops: output = op_n(...op_2(op_1(a, b)...))
+    /// Executes multiple elementwise operations in a single kernel launch.
+    pub fn fused_elementwise(
+        &self,
+        a: &GpuTensor,
+        b: &GpuTensor,
+        ops: &[ElemOp],
+    ) -> Result<GpuTensor, GpuError> {
+        if ops.is_empty() {
+            return Err(GpuError::Unsupported("fused_elementwise: empty ops list".into()));
+        }
+
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+
+        if a_shape != b_shape {
+            let target = crate::broadcast::broadcast_shapes(&a_shape, &b_shape);
+            let a_bc = if a_shape != target {
+                self.broadcast_tensor(a, &target)?
+            } else {
+                a.clone()
+            };
+            let b_bc = if b_shape != target {
+                self.broadcast_tensor(b, &target)?
+            } else {
+                b.clone()
+            };
+            return self.fused_elementwise(&a_bc, &b_bc, ops);
+        }
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let can_fuse = ops.iter().all(|op| {
+                matches!(op, ElemOp::Add | ElemOp::Sub | ElemOp::Mul | ElemOp::Div
+                    | ElemOp::Neg | ElemOp::Exp | ElemOp::Sqrt | ElemOp::Relu
+                    | ElemOp::Gelu | ElemOp::Sigmoid | ElemOp::Tanh | ElemOp::Silu
+                    | ElemOp::Ln | ElemOp::Powf)
+            });
+            if can_fuse {
+                let a_cuda = self.get_or_cache_cuda(a)?;
+                let b_cuda = self.get_or_cache_cuda(b)?;
+                let mut x = a_cuda;
+                for op in ops {
+                    x = match op {
+                        ElemOp::Add => cuda.add(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused add: {e}")))?,
+                        ElemOp::Sub => cuda.sub(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused sub: {e}")))?,
+                        ElemOp::Mul => cuda.mul(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused mul: {e}")))?,
+                        ElemOp::Div => cuda.div(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused div: {e}")))?,
+                        ElemOp::Neg => cuda.neg(&x).map_err(|e| GpuError::Compute(format!("CUDA fused neg: {e}")))?,
+                        ElemOp::Exp => cuda.exp(&x).map_err(|e| GpuError::Compute(format!("CUDA fused exp: {e}")))?,
+                        ElemOp::Sqrt => cuda.sqrt(&x).map_err(|e| GpuError::Compute(format!("CUDA fused sqrt: {e}")))?,
+                        ElemOp::Relu => cuda.relu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused relu: {e}")))?,
+                        ElemOp::Gelu => cuda.gelu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused gelu: {e}")))?,
+                        ElemOp::Sigmoid => cuda.sigmoid(&x).map_err(|e| GpuError::Compute(format!("CUDA fused sigmoid: {e}")))?,
+                        ElemOp::Tanh => cuda.tanh(&x).map_err(|e| GpuError::Compute(format!("CUDA fused tanh: {e}")))?,
+                        ElemOp::Silu => cuda.silu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused silu: {e}")))?,
+                        ElemOp::Ln => cuda.ln(&x).map_err(|e| GpuError::Compute(format!("CUDA fused ln: {e}")))?,
+                        ElemOp::Powf => cuda.powf(&x, 2.0).map_err(|e| GpuError::Compute(format!("CUDA fused powf: {e}")))?,
+                        _ => unreachable!(),
+                    };
+                }
+                return self.cuda_write_tensor(cuda, &x);
+            }
+        }
+
+        let numel = a.numel();
+
+        let out_buffer = self.alloc_or_create_buffer(
+            (numel * 4) as u64,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let cfg_buf = self.alloc_or_create_buffer(
+            16,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let cfg_data: [u32; 4] = [numel as u32, ops.len() as u32, 0, 0];
+        self.queue
+            .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
+
+        let ops_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fused_elementwise_ops"),
+            size: (ops.len() * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ops_data: Vec<u32> = ops.iter().map(|op| *op as u32).collect();
+        self.queue
+            .write_buffer(&ops_buf, 0, bytemuck::cast_slice(&ops_data));
+
+        let pipeline = self
+            .pipelines
+            .get("fused_elementwise")
+            .ok_or_else(|| GpuError::Pipeline("fused_elementwise not compiled".into()))?;
+
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, a.buffer()), (1, b.buffer()), (2, &out_buffer)],
+            &[(3, &cfg_buf), (4, &ops_buf)],
+            numel as u32, 256, 4,
+        );
+
+        Ok(GpuTensor {
+            shape: a_shape.to_vec(),
+            buffer: out_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -2167,6 +2327,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -2234,6 +2395,7 @@ impl GpuContext {
             buffer: dst_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -2282,6 +2444,7 @@ impl GpuContext {
                 }),
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             });
         }
 
@@ -2339,11 +2502,10 @@ impl GpuContext {
                     self.queue
                         .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-                    let bind_group = self.device.create_bind_group(
-                        &wgpu::BindGroupDescriptor {
-                            label: Some(&format!("{}_bind_group_chunk", key)),
-                            layout: &pipeline.bind_group_layout,
-                            entries: &[
+                    let bg_label = format!("{}_bind_group_chunk", key);
+                    let bind_group = self.get_or_create_bind_group_shared(
+                        &pipeline.bind_group_layout,
+                        &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
                                     resource: wgpu::BindingResource::Buffer(
@@ -2369,7 +2531,7 @@ impl GpuContext {
                                     resource: cfg_buf.as_entire_binding(),
                                 },
                             ],
-                        },
+                        &bg_label,
                     );
 
                     self.dispatch_impl(pipeline, &bind_group, (chunk_groups, 1, 1));
@@ -2389,11 +2551,10 @@ impl GpuContext {
                 self.queue
                     .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg_data));
 
-                let bind_group = self.device.create_bind_group(
-                    &wgpu::BindGroupDescriptor {
-                        label: Some(&format!("{}_bind_group", key)),
-                        layout: &pipeline.bind_group_layout,
-                        entries: &[
+                let bg_label = format!("{}_bind_group", key);
+                let bind_group = self.get_or_create_bind_group_shared(
+                    &pipeline.bind_group_layout,
+                    &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
                                 resource: current_buffer.as_entire_binding(),
@@ -2407,7 +2568,7 @@ impl GpuContext {
                                 resource: cfg_buf.as_entire_binding(),
                             },
                         ],
-                    },
+                    &bg_label,
                 );
 
                 self.dispatch(pipeline, &bind_group, (num_groups as u32, 1, 1));
@@ -2419,6 +2580,7 @@ impl GpuContext {
                     buffer: out_buffer,
                     dtype: GpuDtype::F32,
                     device_id: 0,
+                    cuda_tensor: None,
                 });
             }
 
@@ -2514,10 +2676,9 @@ impl GpuContext {
             .get("softmax")
             .ok_or_else(|| GpuError::Pipeline("softmax not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("softmax_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: input.buffer().as_entire_binding(),
@@ -2531,7 +2692,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "softmax_bind_group",
+        );
 
         self.dispatch(pipeline, &bind_group, (rows, 1, 1));
 
@@ -2540,6 +2702,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -2598,10 +2761,9 @@ impl GpuContext {
             .get("rms_norm")
             .ok_or_else(|| GpuError::Pipeline("rms_norm not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rms_norm_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: x.buffer().as_entire_binding(),
@@ -2619,7 +2781,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "rms_norm_bind_group",
+        );
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
@@ -2628,6 +2791,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -2681,6 +2845,7 @@ impl GpuContext {
             buffer: dw_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         self.fill_zero_u32(&dw_tmp)?;
 
@@ -2699,10 +2864,9 @@ impl GpuContext {
             .get("rms_norm_backward")
             .ok_or_else(|| GpuError::Pipeline("rms_norm_backward not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rms_norm_bwd_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: input.buffer().as_entire_binding(),
@@ -2728,7 +2892,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "rms_norm_bwd_bg",
+        );
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
@@ -2737,12 +2902,14 @@ impl GpuContext {
             buffer: dx_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let dw = GpuTensor {
             shape: vec![dim as usize],
             buffer: dw_tmp.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         Ok((dx, dw))
     }
@@ -2809,12 +2976,14 @@ impl GpuContext {
             buffer: dw_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let db_tmp = GpuTensor {
             shape: vec![dim as usize],
             buffer: db_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         self.fill_zero_u32(&dw_tmp)?;
         self.fill_zero_u32(&db_tmp)?;
@@ -2834,10 +3003,9 @@ impl GpuContext {
             .get("layer_norm_backward")
             .ok_or_else(|| GpuError::Pipeline("layer_norm_backward not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("layer_norm_bwd_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: input.buffer().as_entire_binding(),
@@ -2871,7 +3039,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "layer_norm_bwd_bg",
+        );
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
@@ -2880,18 +3049,21 @@ impl GpuContext {
             buffer: dx_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let dw = GpuTensor {
             shape: vec![dim as usize],
             buffer: dw_tmp.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let db = GpuTensor {
             shape: vec![dim as usize],
             buffer: db_tmp.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         Ok((dx, dw, db))
     }
@@ -2953,10 +3125,9 @@ impl GpuContext {
             .get("cross_entropy")
             .ok_or_else(|| GpuError::Pipeline("cross_entropy not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("cross_entropy_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: logits.buffer().as_entire_binding(),
@@ -2974,7 +3145,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "cross_entropy_bind_group",
+        );
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
@@ -2983,6 +3155,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3046,6 +3219,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3094,6 +3268,7 @@ impl GpuContext {
             buffer: d_weight,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         self.fill_zero_u32(&d_weight_tmp)?;
         let d_weight_buf = d_weight_tmp.buffer;
@@ -3126,6 +3301,7 @@ impl GpuContext {
             buffer: d_weight_buf,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3187,6 +3363,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3250,10 +3427,9 @@ impl GpuContext {
             .get("layer_norm")
             .ok_or_else(|| GpuError::Pipeline("layer_norm not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("layer_norm_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: x.buffer().as_entire_binding(),
@@ -3275,7 +3451,8 @@ impl GpuContext {
                     resource: cfg_buf.as_entire_binding(),
                 },
             ],
-        });
+            "layer_norm_bind_group",
+        );
 
         self.dispatch(pipeline, &bind_group, (batch, 1, 1));
 
@@ -3284,6 +3461,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3351,6 +3529,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3456,21 +3635,18 @@ impl GpuContext {
                             let mapped = slice.get_mapped_range();
                             let qkv_f32: &[f32] = bytemuck::cast_slice(&mapped);
 
-                            let q_cuda = CudaTensor::from_cpu(&cuda.stream, q.shape().clone(), &qkv_f32[..q_len], cuda.device_id);
-                            let k_cuda = CudaTensor::from_cpu(&cuda.stream, k.shape().clone(), &qkv_f32[q_len..q_len + k_len], cuda.device_id);
-                            let v_cuda = CudaTensor::from_cpu(&cuda.stream, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len], cuda.device_id);
+                            let q_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, q.shape().clone(), &qkv_f32[..q_len], cuda.device_id)
+                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            let k_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, k.shape().clone(), &qkv_f32[q_len..q_len + k_len], cuda.device_id)
+                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            let v_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len], cuda.device_id)
+                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
 
                             drop(mapped);
                             staging.unmap();
 
-                            let err = q_cuda.as_ref().err()
-                                .or_else(|| k_cuda.as_ref().err())
-                                .or_else(|| v_cuda.as_ref().err())
-                                .cloned();
-                            match err {
-                                None => break Ok((q_cuda.unwrap(), k_cuda.unwrap(), v_cuda.unwrap())),
-                                Some(e) => break Err(GpuError::Transfer(e)),
-                            }
+                            break Ok((q_cuda, k_cuda, v_cuda))
                         }
                         Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                             break Err(GpuError::Timeout("fused_attn QKV readback".into()));
@@ -3569,6 +3745,7 @@ impl GpuContext {
                 buffer: out_buffer,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             });
         }
 
@@ -3607,10 +3784,9 @@ impl GpuContext {
             .get("fused_attention")
             .ok_or_else(|| GpuError::Pipeline("fused_attention not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fused_attention_bind_group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: q.buffer().as_entire_binding(),
@@ -3636,7 +3812,8 @@ impl GpuContext {
                     resource: cfg2_buf.as_entire_binding(),
                 },
             ],
-        });
+            "fused_attention_bind_group",
+        );
 
         let num_wg = batch * heads * seq_len;
         let mut cfg2_mut: [u32; 4] = [f32::to_bits(scale), causal_flag, 0, 0];
@@ -3661,6 +3838,7 @@ impl GpuContext {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -3746,12 +3924,14 @@ impl GpuContext {
             buffer: dk_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let dv_tmp = GpuTensor {
             shape: shape.clone(),
             buffer: dv_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         self.fill_zero_u32(&dk_tmp)?;
         self.fill_zero_u32(&dv_tmp)?;
@@ -3783,10 +3963,9 @@ impl GpuContext {
             .get("fused_attention_backward")
             .ok_or_else(|| GpuError::Pipeline("fused_attention_backward not compiled".into()))?;
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fused_attention_backward_bg"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: q.buffer().as_entire_binding(),
@@ -3824,7 +4003,8 @@ impl GpuContext {
                     resource: cfg2_buf.as_entire_binding(),
                 },
             ],
-        });
+            "fused_attention_backward_bg",
+        );
 
         let num_wg = batch * heads * seq_len;
         if num_wg > MAX_WORKGROUPS_PER_DIM {
@@ -3848,18 +4028,21 @@ impl GpuContext {
             buffer: dq_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let dk = GpuTensor {
             shape: shape.clone(),
             buffer: dk_tmp.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let dv = GpuTensor {
             shape: shape.clone(),
             buffer: dv_tmp.buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
 
         Ok((dq, dk, dv))

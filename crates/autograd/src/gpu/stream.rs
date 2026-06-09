@@ -510,6 +510,7 @@ impl GpuContext {
             buffer: pooled.buffer,
             dtype: tensor.dtype,
             device_id: tensor.device_id,
+            cuda_tensor: None,
         })
     }
 
@@ -808,6 +809,7 @@ impl GpuContext {
                 buffer: out_buffer.buffer,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             },
             gpu_time,
         ))

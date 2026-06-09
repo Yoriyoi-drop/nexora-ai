@@ -260,6 +260,7 @@ impl GpuContext {
             buffer: out_buf,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 
@@ -341,6 +342,7 @@ impl GpuContext {
                 buffer: out,
                 dtype: GpuDtype::F32,
                 device_id: 0,
+                cuda_tensor: None,
             },
             elapsed,
         ))
@@ -515,6 +517,7 @@ impl GpuContext {
             buffer: out_buf,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         })
     }
 }

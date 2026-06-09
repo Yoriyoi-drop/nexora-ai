@@ -184,6 +184,7 @@ pub fn gpu_sample(
         buffer: working_buf,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     };
     let probs = ctx.softmax(&logits_gpu)?;
     working_buf = ctx
@@ -326,6 +327,7 @@ pub fn gpu_sample(
         buffer: out_buf,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 

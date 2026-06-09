@@ -244,6 +244,7 @@ impl GpuContext {
         self.compile_scale_inplace()?;
         self.compile_gradient_allreduce()?;
         self.compile_elementwise_inplace()?;
+        self.compile_fused_elementwise()?;
         self.compile_causal_softmax()?;
         self.compile_l2_norm()?;
         self.compile_gradient_clip()?;

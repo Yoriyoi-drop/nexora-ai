@@ -85,6 +85,7 @@ impl GpuDeviceManager {
             buffer: flat_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         let out_buffer = ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("allreduce_out"),
@@ -97,6 +98,7 @@ impl GpuDeviceManager {
             buffer: out_buffer,
             dtype: GpuDtype::F32,
             device_id: 0,
+            cuda_tensor: None,
         };
         ctx.gradient_allreduce(&flat_tensor, &out_tensor, n as u32)?;
 

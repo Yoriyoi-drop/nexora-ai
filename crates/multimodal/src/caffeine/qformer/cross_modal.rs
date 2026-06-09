@@ -263,10 +263,14 @@ impl CrossModalAttention {
     ) -> Option<Vec<f32>> {
         use crate::caffeine::gpu_compute;
 
-        // Project Q, K, V via GPU matmul — treat all tokens as a single batch
-        let q = gpu_compute::try_gpu_matmul(features, &self.q_proj, 1, n, d, d)?;
-        let k = gpu_compute::try_gpu_matmul(features, &self.k_proj, 1, n, d, d)?;
-        let v = gpu_compute::try_gpu_matmul(features, &self.v_proj, 1, n, d, d)?;
+        // Project Q, K, V via GPU matmul — submit all 3 asynchronously so the GPU
+        // can pipeline them without CPU blocking between submissions.
+        let q_async = gpu_compute::try_gpu_matmul_async(features, &self.q_proj, 1, n, d, d)?;
+        let k_async = gpu_compute::try_gpu_matmul_async(features, &self.k_proj, 1, n, d, d)?;
+        let v_async = gpu_compute::try_gpu_matmul_async(features, &self.v_proj, 1, n, d, d)?;
+        let q = q_async.recv().ok()?;
+        let k = k_async.recv().ok()?;
+        let v = v_async.recv().ok()?;
 
         // Reshape Q/K/V from [1, n, d] -> [1, nh, n, dh] per-head layout
         let mut q_4d = vec![0.0f32; nh * n * dh];

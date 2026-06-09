@@ -1347,7 +1347,7 @@ impl CausalLM {
                 ctx.matmul(&attn_concat, &block_gw.wo_t)?
             };
             h = ctx.add(&h, &attn_proj)?;
-            h = crate::block::collective_gpu_all_reduce(&h, collective)?;
+            h = crate::block::collective_gpu_all_reduce(&h, collective, ctx)?;
 
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
@@ -1374,7 +1374,7 @@ impl CausalLM {
                 ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
             };
             h = ctx.add(&h, &ffn_out)?;
-            h = crate::block::collective_gpu_all_reduce(&h, collective)?;
+            h = crate::block::collective_gpu_all_reduce(&h, collective, ctx)?;
         }
 
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
@@ -2005,7 +2005,7 @@ impl CausalLM {
                 ctx.matmul(&attn_concat, &block_gw.wo_t)?
             };
             h = ctx.add(&h, &attn_proj)?;
-            h = crate::block::collective_gpu_all_reduce(&h, collective)?;
+            h = crate::block::collective_gpu_all_reduce(&h, collective, ctx)?;
 
             // ── 2f. Batched FFN ──
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
@@ -2032,7 +2032,7 @@ impl CausalLM {
                 ctx.matmul(&ffn_silu_mul, &block_gw.w2_t)?
             };
             h = ctx.add(&h, &ffn_out)?;
-            h = crate::block::collective_gpu_all_reduce(&h, collective)?;
+            h = crate::block::collective_gpu_all_reduce(&h, collective, ctx)?;
         }
 
         // ── 3. Final norm + batched LM head ──

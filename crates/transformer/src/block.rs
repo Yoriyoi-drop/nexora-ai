@@ -445,11 +445,10 @@ impl TransformerBlock {
 
 /// Apply collective reduce to a pair of (residual, output) GPU tensors.
 ///
-/// For non-NCCL backends, reads GPU → CPU, runs collective, uploads back.
-/// For NCCL, uses CPU roundtrip + NCCL all-reduce.
+/// Reduce `output` across shards, then add to `residual`, returning a new
+/// GpuTensor. All operations stay on GPU when NCCL is available.
 ///
-/// `is_attn`: if true, reduce attention output (residual + attn_out).
-/// If false, reduce FFN output (after_attn + ffn_out).
+/// For non-NCCL backends, reads GPU → CPU, runs collective, uploads back.
 #[cfg(feature = "gpu")]
 pub(crate) fn collective_gpu_reduce(
     ctx: &nexora_autograd::gpu::GpuContext,
@@ -461,37 +460,31 @@ pub(crate) fn collective_gpu_reduce(
     use nexora_autograd::gpu::GpuTensor;
 
     let Some(col) = collective else {
-        // No collective: just residual + output
         return ctx.add(residual, output);
     };
 
-    // CPU roundtrip: read GPU → CPU → reduce → upload back
-    let cpu_out = output.to_cpu()?;
-    let cpu_residual = residual.to_cpu()?;
-    let shape = output.shape();
-    let rows = shape[0];
-    let cols = if shape.len() > 1 { shape[1] } else { 1 };
-    let cpu_residual_arr = cpu_residual.into_dimensionality::<ndarray::Ix2>()
-        .unwrap_or_else(|_| Array2::zeros((rows, cols)));
-
-    // NCCL path: use NCCL all-reduce instead of sharded reduce
-    let reduced = if let ShardCollective::Nccl(nccl) = col {
-        let mut flat: Vec<f32> = cpu_out.as_slice()
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| cpu_out.iter().copied().collect());
-        nccl.all_reduce(&mut flat)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
-        Array2::from_shape_vec((rows, cols), flat)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
-    } else {
-        let cpu_out_arr = cpu_out.into_dimensionality::<ndarray::Ix2>()
-            .unwrap_or_else(|_| Array2::zeros((rows, cols)));
-        col.reduce_ffn(&cpu_out_arr)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
-    };
-
-    let combined = &cpu_residual_arr + &reduced;
-    GpuTensor::from_cpu(&combined.into_dyn())
+    match col {
+        ShardCollective::Nccl(nccl) => {
+            let reduced = nccl.all_reduce_gpu(ctx, output)
+                .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+            ctx.add(residual, &reduced)
+        }
+        other => {
+            let cpu_out = output.to_cpu()?;
+            let cpu_residual = residual.to_cpu()?;
+            let shape = output.shape();
+            let rows = shape[0];
+            let cols = if shape.len() > 1 { shape[1] } else { 1 };
+            let cpu_residual_arr = cpu_residual.into_dimensionality::<ndarray::Ix2>()
+                .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+            let cpu_out_arr = cpu_out.into_dimensionality::<ndarray::Ix2>()
+                .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+            let reduced = other.reduce_ffn(&cpu_out_arr)
+                .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+            let combined = &cpu_residual_arr + &reduced;
+            GpuTensor::from_cpu(&combined.into_dyn())
+        }
+    }
 }
 
 /// All-reduce an already-combined hidden state (residual + output already added).
@@ -500,38 +493,31 @@ pub(crate) fn collective_gpu_reduce(
 pub(crate) fn collective_gpu_all_reduce(
     h: &nexora_autograd::gpu::GpuTensor,
     collective: Option<&ShardCollective>,
+    ctx: &nexora_autograd::gpu::GpuContext,
 ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-    use nexora_autograd::gpu::GpuTensor;
-
     let Some(col) = collective else {
         return Ok(h.clone());
     };
 
-    let cpu_h = h.to_cpu()?;
-
-    // NCCL path: use NCCL all-reduce instead of sharded reduce
-    let reduced = if let ShardCollective::Nccl(nccl) = col {
-        let mut flat: Vec<f32> = cpu_h.as_slice()
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| cpu_h.iter().copied().collect());
-        nccl.all_reduce(&mut flat)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
-        let shape = h.shape();
-        ArrayD::from_shape_vec(shape.clone(), flat)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
-    } else {
-        let shape = h.shape();
-        let rows = shape[0];
-        let cols = if shape.len() > 1 { shape[1] } else { 1 };
-        let cpu_h_arr = cpu_h
-            .into_dimensionality::<ndarray::Ix2>()
-            .unwrap_or_else(|_| Array2::zeros((rows, cols)));
-        col.reduce_ffn(&cpu_h_arr)
-            .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
-            .into_dyn()
-    };
-
-    GpuTensor::from_cpu(&reduced)
+    match col {
+        ShardCollective::Nccl(nccl) => {
+            nccl.all_reduce_gpu(ctx, h)
+                .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))
+        }
+        other => {
+            let cpu_h = h.to_cpu()?;
+            let shape = h.shape();
+            let rows = shape[0];
+            let cols = if shape.len() > 1 { shape[1] } else { 1 };
+            let cpu_h_arr = cpu_h
+                .into_dimensionality::<ndarray::Ix2>()
+                .unwrap_or_else(|_| Array2::zeros((rows, cols)));
+            let reduced = other.reduce_ffn(&cpu_h_arr)
+                .map_err(|e| nexora_autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
+                .into_dyn();
+            nexora_autograd::gpu::GpuTensor::from_cpu(&reduced)
+        }
+    }
 }
 
 #[cfg(test)]

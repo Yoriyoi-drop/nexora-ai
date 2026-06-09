@@ -212,25 +212,81 @@ impl NcclCollective {
     pub fn comm(&self) -> &nexora_autograd::gpu::nccl::safe::Comm {
         &self.inner.comm
     }
+
+    /// GPU-native in-place all-reduce on a GpuTensor.
+    ///
+    /// Runs NCCL `all_reduce_in_place` directly on the device memory backing
+    /// `tensor` — zero PCIe round-trips. The result replaces the original
+    /// tensor data on GPU.
+    pub fn all_reduce_gpu_inplace(
+        &self,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        tensor: &mut nexora_autograd::gpu::GpuTensor,
+    ) -> TransformerResult<()> {
+        #[cfg(feature = "nccl")]
+        {
+            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            let mut ct = ctx.get_or_cache_cuda(tensor).map_err(|e| {
+                crate::TransformerError::Implementation(format!("GPU NCCL get CUDA tensor: {e}"))
+            })?;
+            self.inner
+                .comm
+                .all_reduce_in_place(&mut ct.buffer, &ReduceOp::Sum)
+                .map_err(|e| {
+                    crate::TransformerError::Implementation(format!("GPU NCCL all_reduce: {e:?}"))
+                })?;
+            tensor.set_cuda_tensor(ct);
+            Ok(())
+        }
+        #[cfg(not(feature = "nccl"))]
+        {
+            let _ = (ctx, tensor);
+            Err(crate::TransformerError::Implementation(
+                "NCCL not available: enable `nccl` feature".into(),
+            ))
+        }
+    }
+
+    /// GPU-native all-reduce returning a new GpuTensor.
+    ///
+    /// Like `all_reduce_gpu_inplace` but non-destructive: clones `tensor`,
+    /// reduces the clone in-place on GPU, returns it. The original tensor
+    /// is left untouched.
+    pub fn all_reduce_gpu(
+        &self,
+        ctx: &nexora_autograd::gpu::GpuContext,
+        tensor: &nexora_autograd::gpu::GpuTensor,
+    ) -> TransformerResult<nexora_autograd::gpu::GpuTensor> {
+        #[cfg(feature = "nccl")]
+        {
+            let mut clone = tensor.clone();
+            self.all_reduce_gpu_inplace(ctx, &mut clone)?;
+            Ok(clone)
+        }
+        #[cfg(not(feature = "nccl"))]
+        {
+            let _ = (ctx, tensor);
+            Err(crate::TransformerError::Implementation(
+                "NCCL not available: enable `nccl` feature".into(),
+            ))
+        }
+    }
 }
 
-/// GPU-native all-reduce for in-flight GPU tensors.
+/// In-place GPU-native all-reduce on a CudaSlice.
 ///
-/// Runs NCCL all-reduce directly on device memory without CPU round-trip.
-/// Requires the `nccl` feature.
+/// Runs NCCL directly on device memory. Unlike the `NcclCollective`
+/// method, this works with a raw `CudaSlice` for callers that already
+/// hold a device pointer.
 #[cfg(feature = "nccl")]
 pub fn collective_gpu_all_reduce(
     nccl: &nexora_autograd::gpu::nccl::safe::Comm,
-    buf: &nexora_autograd::gpu::CudaSlice<f32>,
+    buf: &mut nexora_autograd::gpu::CudaSlice<f32>,
 ) -> TransformerResult<()> {
     use nexora_autograd::gpu::nccl::safe::ReduceOp;
-    let stream = nccl.stream();
-    let mut tmp = stream.alloc_zeros::<f32>(buf.len()).map_err(|e| {
-        crate::TransformerError::Implementation(format!("NCCL alloc_zeros: {e}"))
-    })?;
-    nccl.all_reduce(buf, &mut tmp, &ReduceOp::Sum)
+    nccl.all_reduce_in_place(buf, &ReduceOp::Sum)
         .map_err(|e| {
-            crate::TransformerError::Implementation(format!("NCCL all_reduce: {e}"))
+            crate::TransformerError::Implementation(format!("NCCL all_reduce_in_place: {e:?}"))
         })?;
     Ok(())
 }

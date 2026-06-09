@@ -648,9 +648,108 @@ fn elementwise_inplace_main(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         case 18: { // Step — 1 if x > 0 else 0
             data[i] = select(0.0, 1.0, x > 0.0);
-        }
+            }
         default: { data[i] = x; }
     }
+}
+"#;
+
+pub(crate) const FUSED_ELEMENTWISE_WGSL: &str = r#"
+struct FusedCfg {
+    numel: u32,
+    num_ops: u32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(0) @binding(0) var<storage, read> a: array<f32>;
+@group(0) @binding(1) var<storage, read> b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> out: array<f32>;
+@group(0) @binding(3) var<uniform> cfg: FusedCfg;
+@group(0) @binding(4) var<storage, read> ops: array<u32>;
+
+fn gelu_f32(x: f32) -> f32 {
+    return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x)));
+}
+
+fn sigmoid_f32(x: f32) -> f32 {
+    return 1.0 / (1.0 + exp(-x));
+}
+
+@compute @workgroup_size(256)
+fn fused_elementwise_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let i = id.x;
+    if (i >= cfg.numel) {
+        return;
+    }
+
+    var x = a[i];
+    let y = b[i];
+
+    for (var op_idx: u32 = 0u; op_idx < cfg.num_ops; op_idx++) {
+        let op = ops[op_idx];
+        switch op {
+            case 0u: { // Add
+                x = x + y;
+            }
+            case 1u: { // Sub
+                x = x - y;
+            }
+            case 2u: { // Mul
+                x = x * y;
+            }
+            case 3u: { // Div
+                x = x / y;
+            }
+            case 4u: { // Neg
+                x = -x;
+            }
+            case 5u: { // Exp
+                x = exp(x);
+            }
+            case 6u: { // Ln
+                x = log(max(x, 1.0e-38));
+            }
+            case 7u: { // Powf — y holds exponent
+                x = pow(x, y);
+            }
+            case 8u: { // Sqrt
+                x = sqrt(x);
+            }
+            case 9u: { // Relu
+                x = max(x, 0.0);
+            }
+            case 10u: { // Gelu
+                x = gelu_f32(x);
+            }
+            case 11u: { // Sigmoid
+                x = sigmoid_f32(x);
+            }
+            case 12u: { // Tanh
+                x = tanh(x);
+            }
+            case 13u: { // Silu
+                x = x * sigmoid_f32(x);
+            }
+            case 14u: { // LeakyRelu — y holds slope
+                x = select(x * y, x, x > 0.0);
+            }
+            case 15u: { // BinaryCrossEntropy
+                let p = clamp(x, 1.0e-7, 1.0 - 1.0e-7);
+                x = -(y * log(p) + (1.0 - y) * log(1.0 - p));
+            }
+            case 17u: { // Swiglu
+                x = (x * sigmoid_f32(x)) * y;
+            }
+            case 18u: { // Step
+                x = select(0.0, 1.0, x > 0.0);
+            }
+            default: {
+                x = x;
+            }
+        }
+    }
+    out[i] = x;
 }
 "#;
 

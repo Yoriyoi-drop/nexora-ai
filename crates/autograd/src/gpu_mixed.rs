@@ -306,6 +306,7 @@ pub fn dispatch_f32_to_f16(
         buffer: out_buf,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 
@@ -352,6 +353,7 @@ pub fn dispatch_f16_to_f32(
         buffer: out_buf,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 
@@ -493,6 +495,7 @@ pub fn dispatch_f32_to_f16_packed(
         buffer: out_buf,
         dtype: GpuDtype::F16,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 
@@ -539,6 +542,7 @@ pub fn dispatch_f16_packed_to_f32(
         buffer: out_buf,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 

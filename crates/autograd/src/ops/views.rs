@@ -212,6 +212,7 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
         buffer: out_buffer,
         dtype: crate::gpu::GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     };
 
     let requires_grad = tensors.iter().any(|t| t.requires_grad());
@@ -315,6 +316,7 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
         buffer: out_buffer,
         dtype: crate::gpu::GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     };
 
     let requires_grad = tensors.iter().any(|t| t.requires_grad());

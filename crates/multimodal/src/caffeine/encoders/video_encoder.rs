@@ -141,10 +141,13 @@ impl TemporalAttention {
         let wv_slice: Vec<f32> = self.wv.iter().copied().collect();
         let wo_slice: Vec<f32> = self.wo.iter().copied().collect();
 
-        // QKV projections via GPU matmul
-        let q = gpu_compute::try_gpu_matmul(x, &wq_slice, 1, seq_len, embed_dim, embed_dim)?;
-        let k = gpu_compute::try_gpu_matmul(x, &wk_slice, 1, seq_len, embed_dim, embed_dim)?;
-        let v = gpu_compute::try_gpu_matmul(x, &wv_slice, 1, seq_len, embed_dim, embed_dim)?;
+        // QKV projections via GPU matmul — submit all 3 asynchronously
+        let q_async = gpu_compute::try_gpu_matmul_async(x, &wq_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let k_async = gpu_compute::try_gpu_matmul_async(x, &wk_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let v_async = gpu_compute::try_gpu_matmul_async(x, &wv_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let q = q_async.recv().ok()?;
+        let k = k_async.recv().ok()?;
+        let v = v_async.recv().ok()?;
 
         // Reshape to [1, nh, S, dh]
         let mut q_4d = vec![0.0f32; nh * seq_len * dh];

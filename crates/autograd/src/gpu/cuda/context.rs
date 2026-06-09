@@ -83,6 +83,7 @@ macro_rules! compile_simple {
 pub struct CudaRuntime {
     pub context: Arc<CudaContext>,
     pub stream: Arc<CudaStream>,
+    pub transfer_stream: Arc<CudaStream>,
     pub blas: CudaBlas,
     pub blas_lt: CudaBlasLT,
     pub device_id: usize,
@@ -115,6 +116,9 @@ impl CudaRuntime {
         let context = CudaContext::new(device_id)
             .map_err(|e| format!("Failed to create CudaContext({device_id}): {e}"))?;
         let stream = context.default_stream();
+        let transfer_stream = context
+            .new_stream()
+            .map_err(|e| format!("Failed to create transfer stream: {e}"))?;
         let blas = CudaBlas::new(stream.clone())
             .map_err(|e| format!("Failed to create CudaBlas: {e}"))?;
         let blas_lt = CudaBlasLT::new(stream.clone())
@@ -136,6 +140,7 @@ impl CudaRuntime {
         Ok(Self {
             context,
             stream,
+            transfer_stream,
             blas,
             blas_lt,
             device_id,
@@ -143,6 +148,14 @@ impl CudaRuntime {
             scratch: Mutex::new(None),
             ptx_cache: PtxCache::new(),
         })
+    }
+
+    /// Ensure all pending H2D transfers complete before compute stream runs.
+    /// Call after any `from_cpu` that used `transfer_stream`.
+    pub fn sync_transfer(&self) -> Result<(), String> {
+        self.stream
+            .join(&self.transfer_stream)
+            .map_err(|e| format!("sync_transfer: {e}"))
     }
 
     /// Get or allocate a scratch buffer of at least `numel` f32 elements.

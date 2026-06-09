@@ -21,6 +21,13 @@ pub struct AsyncReadback<T: Send + 'static> {
 }
 
 impl<T: Send + 'static> AsyncReadback<T> {
+    /// Create a new AsyncReadback from raw parts.
+    /// Used by callers outside the `gpu_async` module that need to construct
+    /// the readback handle directly (e.g., for raw byte readbacks).
+    pub fn new(receiver: mpsc::Receiver<T>, ready: Arc<AtomicBool>) -> Self {
+        Self { receiver, ready }
+    }
+
     /// Cek apakah hasil sudah siap (non-blocking)
     pub fn try_recv(&self) -> Option<T> {
         self.receiver.try_recv().ok()
@@ -291,6 +298,7 @@ pub fn tensor_from_cpu_async(
         buffer: storage,
         dtype: GpuDtype::F32,
         device_id: 0,
+        cuda_tensor: None,
     })
 }
 
