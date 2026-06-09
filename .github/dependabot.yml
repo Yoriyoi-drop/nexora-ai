@@ -18,3 +18,10 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - ci
+    groups:
+    groups:
+      actions-dependencies:
+        patterns:
+          - ".github/workflows/*"
+        update-types:
+          - "patch"
