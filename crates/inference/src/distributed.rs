@@ -217,4 +217,154 @@ impl DistributedRouter {
 
         Ok(rx)
     }
+
+    /// Fetch quantized model weights from a remote node.
+    /// Used when a new node joins the cluster and needs model weights.
+    pub async fn sync_model_weights(
+        &self,
+        node: &NodeInfo,
+        model_id: &str,
+    ) -> Result<ModelWeightShard, InferenceError> {
+        let url = format!(
+            "{}://{}/model/weights/{}",
+            self.rpc_scheme(),
+            node.address,
+            model_id
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .timeout(Duration::from_secs(300))
+            .send()
+            .await
+            .map_err(|e| {
+                InferenceError::InternalError(format!("Model sync request failed: {}", e))
+            })?;
+
+        if !resp.status().is_success() {
+            return Err(InferenceError::InternalError(format!(
+                "Remote node returned {} on model sync",
+                resp.status()
+            )));
+        }
+
+        resp.json::<ModelWeightShard>()
+            .await
+            .map_err(|e| {
+                InferenceError::InternalError(format!(
+                    "Failed to decode model weights: {}",
+                    e
+                ))
+            })
+    }
+
+    /// Share local model weights with a specific remote node.
+    /// POSTs quantized weights to the target node's /model/weights endpoint.
+    pub async fn share_model_weights(
+        &self,
+        node: &NodeInfo,
+        shard: &ModelWeightShard,
+    ) -> Result<(), InferenceError> {
+        let url = format!(
+            "{}://{}/model/weights/{}",
+            self.rpc_scheme(),
+            node.address,
+            shard.model_id
+        );
+        let resp = self
+            .client
+            .post(&url)
+            .json(shard)
+            .timeout(Duration::from_secs(300))
+            .send()
+            .await
+            .map_err(|e| {
+                InferenceError::InternalError(format!("Model share request failed: {}", e))
+            })?;
+
+        if !resp.status().is_success() {
+            return Err(InferenceError::InternalError(format!(
+                "Remote node returned {} on model share",
+                resp.status()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Broadcast local model weights to all alive cluster nodes.
+    pub async fn broadcast_model_weights(
+        &self,
+        shard: &ModelWeightShard,
+    ) -> Vec<(Uuid, Result<(), InferenceError>)> {
+        let nodes = self.registry.alive_nodes().await;
+        let mut results = Vec::new();
+
+        for node in &nodes {
+            if node.node_id == self.local_node_id {
+                continue;
+            }
+            let result = self.share_model_weights(node, shard).await;
+            results.push((node.node_id, result));
+        }
+        results
+    }
+}
+
+/// Q4-compressed model weight shard for distributed weight transfer.
+/// Uses INT4 groupwise quantization (same as nexora-quantization Q4 format)
+/// to reduce transfer size by ~8× vs f32.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelWeightShard {
+    /// Model identifier
+    pub model_id: String,
+    /// Source node ID
+    pub source_node: Uuid,
+    /// Compression format: "q4_groupwise"
+    pub format: String,
+    /// Group size used for quantization
+    pub group_size: usize,
+    /// Total parameter count
+    pub num_params: usize,
+    /// Number of transformer blocks
+    pub num_layers: usize,
+    /// Hidden dimension
+    pub hidden_size: usize,
+    /// Packed Q4 weight data: token_embedding flattened
+    pub token_embedding: Vec<u8>,
+    /// Packed Q4 weight data: lm_head flattened
+    pub lm_head: Vec<u8>,
+    /// Per-layer weight data (wq, wk, wv, wo, w1, w2, w3)
+    pub layer_weights: Vec<LayerWeightShard>,
+    /// Scale factors for dequantization
+    pub scales: Vec<f32>,
+}
+
+/// Per-layer weight shard for distributed transfer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LayerWeightShard {
+    pub wq: Vec<u8>,
+    pub wk: Vec<u8>,
+    pub wv: Vec<u8>,
+    pub wo: Vec<u8>,
+    pub w1: Vec<u8>,
+    pub w2: Vec<u8>,
+    pub w3: Vec<u8>,
+}
+
+impl ModelWeightShard {
+    /// Estimate transfer size in MB.
+    pub fn transfer_size_mb(&self) -> f64 {
+        let bytes = self.token_embedding.len()
+            + self.lm_head.len()
+            + self.scales.len() * 4
+            + self.layer_weights.iter().map(|l| {
+                l.wq.len() + l.wk.len() + l.wv.len() + l.wo.len() + l.w1.len() + l.w2.len() + l.w3.len()
+            }).sum::<usize>();
+        bytes as f64 / (1024.0 * 1024.0)
+    }
+
+    /// Compression ratio vs f32 (32-bit).
+    pub fn compression_ratio(&self) -> f64 {
+        32.0 / 4.0 // Q4 = 4 bits = 8× compression
+    }
 }

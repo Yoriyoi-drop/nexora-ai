@@ -5,7 +5,7 @@ use crate::block::TransformerBlock;
 use crate::embedding_registry;
 use crate::lora::LayerLoRA;
 use crate::rope::RoPE;
-use crate::{LayerInjector, TransformerConfig};
+use crate::{LayerInjector, TransformerConfig, TransformerError, TransformerResult};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
@@ -277,11 +277,11 @@ impl CausalLM {
             None
         };
 
-        let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..});
+        let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..} | QFormat::Q2{..});
         let hp = config.use_half_precision;
         let use_atqs = matches!(config.quantization, QFormat::Q4 {..});
 
-        Self {
+        let mut model = Self {
             config,
             token_embedding,
             blocks,
@@ -315,7 +315,16 @@ impl CausalLM {
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
+        };
+
+        // Auto-enable ATQS AWQ 4-bit compression when Q4 is configured.
+        if use_atqs {
+            if let Err(e) = model.enable_atqs() {
+                tracing::warn!("ATQS auto-compression failed: {e}");
+            }
         }
+
+        model
     }
 
     /// Create a CausalLM with no block weights loaded (weights loaded lazily).
@@ -370,7 +379,7 @@ impl CausalLM {
                 .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
             injectors: Vec::new(),
             keep_on_gpu: false,
-            quantize_weights: matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..}),
+            quantize_weights: matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..} | QFormat::Q2{..}),
             use_half_precision: config.use_half_precision,
             weight_notifier: crate::observer::WeightNotifier::new(),
             lazy_loader: None,
@@ -389,8 +398,6 @@ impl CausalLM {
 
     /// Compress all f32 weights using ATQS AWQ 4-bit quantization.
     /// Stores compressed weights in `atqs_compressed` cache.
-    /// Requires `atqs` feature. No-op without the feature.
-    #[cfg(feature = "atqs")]
     pub fn compress_atqs(&mut self) -> TransformerResult<()> {
         use crate::atqs::WeightsAtqs;
         let start = std::time::Instant::now();
@@ -433,9 +440,7 @@ impl CausalLM {
     }
 
     /// Restore all f32 weights from the ATQS compressed cache.
-    /// Requires `atqs` feature and `atqs_compressed` to be populated.
-    /// No-op without the feature or without cached weights.
-    #[cfg(feature = "atqs")]
+    /// Requires `atqs_compressed` to be populated.
     pub fn restore_weights(&mut self) -> TransformerResult<()> {
         use crate::atqs::WeightsAtqs;
         let cache = self.atqs_compressed.take().ok_or_else(|| {
@@ -460,7 +465,6 @@ impl CausalLM {
     /// One-shot: compress, free, and flag for ATQS usage.
     /// After this call, f32 weights are freed and only compressed cache remains.
     /// Call `restore_weights()` before any forward pass.
-    #[cfg(feature = "atqs")]
     pub fn enable_atqs(&mut self) -> TransformerResult<()> {
         self.compress_atqs()?;
         self.free_weights();

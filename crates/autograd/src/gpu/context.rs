@@ -221,6 +221,7 @@ impl GpuContext {
         self.compile_matmul_int8_tiled(tile)?;
         self.compile_matmul_int8_weight(tile)?;
         self.compile_matmul_int4_weight(tile)?;
+        self.compile_matmul_int2_weight(tile)?;
         self.compile_matmul_f16_tiled(tile)?;
         self.compile_elementwise()?;
         self.compile_reduce(ReduceOp::Sum)?;

@@ -205,6 +205,37 @@ impl GpuTensor {
         })
     }
 
+    /// Create a GpuTensor from packed Q2 bytes.
+    ///
+    /// `packed_bytes` is the output of `quantize_fp32_to_q2`: each byte holds
+    /// 4 Q2 values (bits 0-1 = val0, bits 2-3 = val1, bits 4-5 = val2, bits 6-7 = val3).
+    /// Shape is the original weight matrix shape `[K, N]` (inner × outer).
+    /// Buffer stores raw bytes; WGSL reinterprets as `array<u32>` for packed access.
+    pub fn from_cpu_q2_packed(shape: Vec<usize>, packed_bytes: &[u8]) -> Result<Self, GpuError> {
+        let ctx = Self::ctx()?;
+        let num_bytes = shape[0] * shape[1] / 4; // K/4 bytes per column
+        if packed_bytes.len() < num_bytes {
+            return Err(GpuError::Buffer(format!(
+                "from_cpu_q2_packed: expected {num_bytes} bytes for shape {shape:?}, got {}",
+                packed_bytes.len()
+            )));
+        }
+        let u32_count = num_bytes.div_ceil(4);
+        let byte_size = u32_count as u64 * 4;
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let buffer = ctx.alloc_or_create_buffer(byte_size, usage);
+        ctx.queue.write_buffer(&buffer, 0, packed_bytes);
+        Ok(Self {
+            shape,
+            buffer,
+            dtype: GpuDtype::I8,
+            device_id: 0,
+            cuda_tensor: None,
+        })
+    }
+
     /// Create a GpuTensor from a flat f32 slice + shape.
     /// Avoids the ndarray ArrayD allocation required by `from_cpu`.
     pub fn from_slice(shape: Vec<usize>, data: &[f32]) -> Result<Self, GpuError> {

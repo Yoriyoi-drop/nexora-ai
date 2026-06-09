@@ -507,6 +507,91 @@ fn matmul_int4_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
 }
 "#;
 
+pub(crate) const MATMUL_INT2_WEIGHT_WGSL: &str = r#"
+const TILE_SIZE: u32 = {{TILE_SIZE}};
+
+// A = f32 activations [M, K]; B = packed Q2 weights [(K/4), N] as u32 (4 packed bytes per u32);
+// C = f32 output [M, N]; scales [groups, N] — per-group per-column
+@group(0) @binding(0) var<storage, read> a: array<f32>;
+@group(0) @binding(1) var<storage, read> b_packed: array<u32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+
+struct Uniforms {
+    M: u32,
+    K: u32,
+    N: u32,
+    GroupSize: u32,
+    Tile: u32,
+};
+
+@group(0) @binding(3) var<uniform> uniforms: Uniforms;
+@group(0) @binding(4) var<storage, read> scales: array<f32>;
+
+var<workgroup> tile_a: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+var<workgroup> tile_b: array<array<f32, TILE_SIZE>, TILE_SIZE>;
+
+fn extract_q2_from_byte(packed: u32, byte_idx: u32, sub_idx: u32) -> f32 {
+    let shift = byte_idx * 8u + sub_idx * 2u;
+    let bits = (packed >> shift) & 0x03u;
+    return f32(bits) - 1.5;
+}
+
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE)
+fn matmul_int2_weight_main(@builtin(local_invocation_id) lid: vec3<u32>,
+                           @builtin(workgroup_id) wg_id: vec3<u32>) {
+    let row = wg_id.x * TILE_SIZE + lid.x;
+    let col = wg_id.y * TILE_SIZE + lid.y;
+
+    var sum = 0.0;
+    let num_tiles = (uniforms.K + TILE_SIZE - 1) / TILE_SIZE;
+
+    for (var t = 0u; t < num_tiles; t++) {
+        // ── Load tile of A (f32 activation) ──
+        let a_global_row = row;
+        let a_global_col = t * TILE_SIZE + lid.y;
+        if (a_global_row < uniforms.M && a_global_col < uniforms.K) {
+            tile_a[lid.x][lid.y] = a[a_global_row * uniforms.K + a_global_col];
+        } else {
+            tile_a[lid.x][lid.y] = 0.0;
+        }
+
+        // ── Load tile of B (packed Q2 weight) ──
+        // Flat layout: b_packed[quad_idx * N + col] where quad_idx = k/4
+        // 4 packed bytes per u32, each byte has 4 Q2 values (2 bits each)
+        let b_j = col;
+        let b_k = t * TILE_SIZE + lid.x;
+        if (b_j < uniforms.N && b_k < uniforms.K) {
+            let quad_idx = b_k / 4u;
+            let q2_in_quad = b_k % 4u;
+            let byte_idx = quad_idx * uniforms.N + b_j;
+            let u32_idx = byte_idx / 4u;
+            let byte_in_u32 = byte_idx % 4u;
+
+            let packed_val = b_packed[u32_idx];
+            let q2_val = extract_q2_from_byte(packed_val, byte_in_u32, q2_in_quad);
+
+            let group = b_k / uniforms.GroupSize;
+            let scale = scales[group * uniforms.N + b_j];
+            tile_b[lid.x][lid.y] = q2_val * scale;
+        } else {
+            tile_b[lid.x][lid.y] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        for (var i = 0u; i < TILE_SIZE; i++) {
+            sum += tile_a[lid.x][i] * tile_b[i][lid.y];
+        }
+
+        workgroupBarrier();
+    }
+
+    if (row < uniforms.M && col < uniforms.N) {
+        c[row * uniforms.N + col] = sum;
+    }
+}
+"#;
+
 pub(crate) const ELEMENTWISE_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> a: array<f32>;
 @group(0) @binding(1) var<storage, read> b: array<f32>;
@@ -1819,7 +1904,7 @@ fn fill_zero_u32_main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 pub(crate) const MOE_SCATTER_ADD_WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> expert_out: array<f32>;
-@group(0) @binding(1) var<storage, read> indices: array<u32>;
+@group(0) @binding(1) var<storage, read> indices: array<f32>;
 @group(0) @binding(2) var<storage, read> weights: array<f32>;
 @group(0) @binding(3) var<storage, read_write> output: array<f32>;
 @group(0) @binding(4) var<uniform> cfg: vec2<u32>;
@@ -1835,7 +1920,7 @@ fn moe_scatter_add_main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x >= total) { return; }
     let token_in_expert = id.x / hidden_size;
     let dim = id.x % hidden_size;
-    let output_row = indices[token_in_expert];
+    let output_row = bitcast<u32>(indices[token_in_expert]);
     let weight = weights[token_in_expert];
     let out_idx = output_row * hidden_size + dim;
     output[out_idx] = output[out_idx] + expert_out[id.x] * weight;

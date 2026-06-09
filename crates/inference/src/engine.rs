@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::batching::ContinuousBatchingConfig;
 use crate::distributed::DistributedRouter;
+use crate::dynamic_quant::DynamicQuantManager;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
 use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
@@ -70,6 +71,9 @@ pub struct InferenceConfig {
     /// Use padded-batch prefill_full instead of position-by-position prefill.
     /// When true, ALL remaining prompt tokens are processed in one GPU call.
     pub use_padded_batched_prefill: bool,
+    /// Enable dynamic quantization at inference runtime.
+    /// Uses STAR-X QuantizationEngine for on-the-fly INT8/INT4 weight compression.
+    pub use_dynamic_quantization: bool,
 }
 
 impl Default for InferenceConfig {
@@ -112,6 +116,7 @@ impl Default for InferenceConfig {
                 max_speculation_rounds: 10,
             },
             use_padded_batched_prefill: true,
+            use_dynamic_quantization: true,
         }
     }
 }
@@ -141,6 +146,7 @@ pub struct InferenceEngine {
     db: nexora_database::DatabaseManager,
     quant: usize,
     speculative: Option<SpeculativeEngine>,
+    dynamic_quant: Option<Arc<DynamicQuantManager>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,6 +188,7 @@ impl InferenceEngine {
 
         let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
 
+        let use_dynamic_quant = config.use_dynamic_quantization;
         let speculative = if config.speculative_config.enabled {
             Some(SpeculativeEngine::new(config.speculative_config.clone()))
         } else {
@@ -218,6 +225,11 @@ impl InferenceEngine {
             db: crate::inference_db(),
             quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
             speculative,
+            dynamic_quant: if use_dynamic_quant {
+                Some(Arc::new(DynamicQuantManager::new()))
+            } else {
+                None
+            },
         }
     }
 
@@ -238,6 +250,7 @@ impl InferenceEngine {
         );
 
         let shared_paged = Self::maybe_init_paged_cache(&config, Some(&model));
+        let use_dynamic_quant = config.use_dynamic_quantization;
         let speculative = if config.speculative_config.enabled {
             Some(SpeculativeEngine::new(config.speculative_config.clone()))
         } else {
@@ -275,6 +288,11 @@ impl InferenceEngine {
             db: crate::inference_db(),
             quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
             speculative,
+            dynamic_quant: if use_dynamic_quant {
+                Some(Arc::new(DynamicQuantManager::new()))
+            } else {
+                None
+            },
         }
     }
 

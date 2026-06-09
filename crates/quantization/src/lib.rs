@@ -11,7 +11,6 @@
 //! real quantized compute. GPU can also consume Q4 directly.
 
 pub mod gemm;
-#[cfg(feature = "gpu")]
 pub mod gpu_gemm;
 
 use ndarray::Array2;
@@ -54,6 +53,9 @@ pub enum QFormat {
     Q5 { group_size: usize },
     /// 4-bit integer, per-group symmetric (default group_size=128)
     Q4 { group_size: usize },
+    /// 2-bit integer, per-group symmetric (default group_size=256).
+    /// 4 values per byte, range -2..1, 16:1 compression vs FP32.
+    Q2 { group_size: usize },
 }
 
 impl QFormat {
@@ -64,6 +66,7 @@ impl QFormat {
             QFormat::Q6 { .. } => 6,
             QFormat::Q5 { .. } => 5,
             QFormat::Q4 { .. } => 4,
+            QFormat::Q2 { .. } => 2,
         }
     }
 
@@ -81,6 +84,7 @@ impl QFormat {
             QFormat::Q6 { .. } => "Q6",
             QFormat::Q5 { .. } => "Q5",
             QFormat::Q4 { .. } => "Q4",
+            QFormat::Q2 { .. } => "Q2",
         }
     }
 
@@ -127,7 +131,7 @@ impl From<QFormat> for QuantizedDtype {
         match f {
             QFormat::Q8 { .. } => QuantizedDtype::Int8,
             QFormat::Q4 { group_size } => QuantizedDtype::Int4Groupwise { group_size },
-            QFormat::Q6 { .. } | QFormat::Q5 { .. } => QuantizedDtype::Int4Packed,
+            QFormat::Q6 { .. } | QFormat::Q5 { .. } | QFormat::Q2 { .. } => QuantizedDtype::Int4Packed,
             QFormat::F16 | QFormat::BF16 => QuantizedDtype::Int8,
         }
     }
@@ -485,6 +489,75 @@ pub fn dequantize_nbit_groupwise_to_f32(data: &[u8], scales: &[f32], group_size:
     out
 }
 
+// ─── Q2 (2-bit) per-group quantization ──────────────────────────────────────
+
+/// Pack 4 Q2 values (0-3 each) into one byte.
+/// `v0` = bits [1:0], `v1` = bits [3:2], `v2` = bits [5:4], `v3` = bits [7:6]
+pub fn pack_q2(v0: u8, v1: u8, v2: u8, v3: u8) -> u8 {
+    (v0 & 0x03) | ((v1 & 0x03) << 2) | ((v2 & 0x03) << 4) | ((v3 & 0x03) << 6)
+}
+
+/// Unpack one byte into four Q2 values (0-3).
+pub fn unpack_q2(packed: u8) -> (u8, u8, u8, u8) {
+    (packed & 0x03, (packed >> 2) & 0x03, (packed >> 4) & 0x03, (packed >> 6) & 0x03)
+}
+
+/// Quantize f32 weights to Q2 (2-bit) per-group symmetric.
+/// Range: -2..1 (4 values, unsigned 0..3 shifted by -2).
+/// Scale = max_abs / 2.0 (since max quantized absolute value is 2).
+/// Returns (packed_bytes, scales) with 4 values packed per byte.
+pub fn quantize_f32_to_q2_groupwise(weights: &Array2<f32>, group_size: usize) -> (Vec<u8>, Vec<f32>) {
+    let (rows, cols) = weights.dim();
+    let n = rows * cols;
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let gs = group_size.max(1);
+    let num_groups = n.div_ceil(gs);
+    let mut packed = vec![0u8; n.div_ceil(4)];
+    let mut scales = Vec::with_capacity(num_groups);
+    let flat: Vec<f32> = weights.iter().copied().collect();
+
+    for g in 0..num_groups {
+        let start = g * gs;
+        let end = (start + gs).min(n);
+        let mut max_abs = 0.0f32;
+        for &v in flat[start..end].iter() { max_abs = max_abs.max(v.abs()); }
+        max_abs = max_abs.max(1e-10);
+        let scale = max_abs / 2.0;
+
+        for i in start..end {
+            let q = (flat[i] / scale).round().clamp(-2.0, 1.0) as i8;
+            let v = (q as i16 + 2) as u8; // shift -2..1 → 0..3
+            let byte_idx = (i - start) / 4 + (start / 4);
+            let sub_idx = (i - start) % 4;
+            packed[byte_idx] |= (v & 0x03) << (sub_idx * 2);
+        }
+        scales.push(scale);
+    }
+
+    (packed, scales)
+}
+
+/// Dequantize Q2 data back to f32.
+pub fn dequantize_q2_groupwise_to_f32(data: &[u8], scales: &[f32], group_size: usize, rows: usize, cols: usize) -> Array2<f32> {
+    let n = rows * cols;
+    let gs = group_size.max(1);
+    let mut out = Array2::zeros((rows, cols));
+    for i in 0..n.min(data.len() * 4) {
+        let g = i / gs;
+        let byte_idx = i / 4;
+        let sub_idx = i % 4;
+        let v = if byte_idx < data.len() {
+            (data[byte_idx] >> (sub_idx * 2)) & 0x03
+        } else { 0 };
+        let scale = scales.get(g).copied().unwrap_or(1.0);
+        let val = (v as i8 - 2) as f32 * scale; // shift 0..3 → -2..1
+        out[[i / cols, i % cols]] = val;
+    }
+    out
+}
+
 // ─── High-level helpers ────────────────────────────────────────────────────
 
 /// Quantize an f32 weight matrix into a `QuantizedTensor` using the given format.
@@ -543,6 +616,11 @@ pub fn quantize_with_format(weights: &Array2<f32>, format: QFormat) -> Quantized
             let (data, scales) = quantize_f32_to_int4_groupwise(weights, gs);
             QuantizedTensor { dtype: QuantizedDtype::Int4Groupwise { group_size: gs }, data, shape, scales, zero_point: 0, format: Some(format) }
         }
+        QFormat::Q2 { group_size } => {
+            let gs = if group_size == 0 { 256 } else { group_size };
+            let (data, scales) = quantize_f32_to_q2_groupwise(weights, gs);
+            QuantizedTensor { dtype: QuantizedDtype::Int4Packed, data, shape, scales, zero_point: 0, format: Some(format) }
+        }
     }
 }
 
@@ -558,6 +636,10 @@ pub fn dequantize_with_format(tensor: &QuantizedTensor) -> Array2<f32> {
         Some(QFormat::BF16) => {
             let data_u16: Vec<u16> = tensor.data.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
             dequantize_bf16_to_array(&data_u16, rows, cols)
+        }
+        Some(QFormat::Q2 { group_size }) => {
+            let gs = if group_size == 0 { 256 } else { group_size };
+            dequantize_q2_groupwise_to_f32(&tensor.data, &tensor.scales, gs, rows, cols)
         }
         Some(QFormat::Q6 { group_size }) | Some(QFormat::Q5 { group_size }) => {
             let bits = tensor.format.map(|f| f.bits_per_element() as u8).unwrap_or(4);
@@ -671,6 +753,17 @@ mod tests {
         let err = quantization_error(&w, &w2);
         assert!(err < 1.0, "Q5 roundtrip error too high: {err}");
         assert!((32.0 / 5.0 - qt.format.unwrap().compression_ratio()).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_q2_roundtrip() {
+        let w = test_weights();
+        let qt = quantize_with_format(&w, QFormat::Q2 { group_size: 4 });
+        let w2 = dequantize_with_format(&qt);
+        let err = quantization_error(&w, &w2);
+        assert!(err < 3.0, "Q2 roundtrip error too high: {err}");
+        assert_eq!(qt.format.unwrap().dtype_name(), "Q2");
+        assert!((32.0 / 2.0 - qt.format.unwrap().compression_ratio()).abs() < 1.0);
     }
 
     #[test]

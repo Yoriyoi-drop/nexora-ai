@@ -41,13 +41,13 @@ pub struct HasMoeFFNConfig {
 impl Default for HasMoeFFNConfig {
     fn default() -> Self {
         Self {
-            num_experts: 256,
-            top_k: 8,
+            num_experts: 32,
+            top_k: 2,
             hidden_size: 768,
             intermediate_size: 3072,
-            use_dropout: true,
-            dropout_rate: 0.1,
-            expert_pool: Some(ExpertPoolConfig::default()),
+            use_dropout: false,
+            dropout_rate: 0.0,
+            expert_pool: None,
         }
     }
 }
@@ -509,15 +509,12 @@ impl HasMoeFFN {
         }
         let cuda = ctx.cuda_runtime()?;
 
-        // Download input once for CPU routing
+        // Gunakan get_or_cache_cuda untuk akses CUDA tensor tanpa download+reupload
+        let _ = ctx.get_or_cache_cuda(x).ok()?;
+
+        // Download input untuk CPU routing (unavoidable — routing butuh per-token decision)
         let x_cpu: ndarray::Array2<f32> = x.to_cpu().ok()?
             .into_dimensionality::<ndarray::Ix2>().ok()?;
-
-        // Upload input to CUDA
-        let x_flat: Vec<f32> = x_cpu.iter().copied().collect();
-        let _input_gpu = CudaTensor::from_cpu(
-            &cuda.stream, vec![batch_size, hidden_size], &x_flat, cuda.device_id,
-        ).ok()?;
 
         // Router: CUDA matmul + softmax (no transpose needed)
         let routing_weights_cpu = self.router.forward(&x_cpu);
@@ -570,6 +567,7 @@ impl HasMoeFFN {
             cuda.scatter_add_weighted(&mut output_gpu, &expert_out, &indices_gpu, &weights_gpu).ok()?;
         }
 
+        // Output: GpuTensor::from_cpu otomatis attach CUDA mirror untuk future zero-copy
         let out_vec = output_gpu.to_cpu_vec(&cuda.stream).ok()?;
         let gpu = GpuTensor::from_cpu(
             &ndarray::ArrayD::from_shape_vec(
@@ -580,6 +578,7 @@ impl HasMoeFFN {
     }
 
     /// wgpu fused forward from GPU input: keeps everything on GPU, single readback.
+    /// Menggunakan moe_scatter_add wgpu kernel untuk akumulasi GPU-to-GPU — tanpa CPU roundtrip.
     #[cfg(feature = "gpu")]
     fn forward_wgpu_fused_gpu(
         &self,
@@ -604,12 +603,13 @@ impl HasMoeFFN {
             }
         }
 
+        // Alokasi output GPU — diisi nol, diakumulasi via scatter-add
+        let output = GpuTensor::from_slice(
+            vec![batch_size, hidden_size],
+            &vec![0.0f32; batch_size * hidden_size],
+        ).ok()?;
+
         ctx.begin_batch_mode();
-        struct GpuExpertResult {
-            tokens: Vec<(usize, f32)>,
-            output_gpu: GpuTensor,
-        }
-        let mut gpu_results: Vec<GpuExpertResult> = Vec::new();
 
         for (expert_idx, tokens) in expert_tokens.iter().enumerate() {
             let n = tokens.len();
@@ -623,28 +623,20 @@ impl HasMoeFFN {
 
             let expert_out = self.experts[expert_idx]
                 .forward_batched_gpu_keep_gpu(&batch_input)?;
-            gpu_results.push(GpuExpertResult {
-                tokens: tokens.clone(),
-                output_gpu: expert_out,
-            });
+
+            // GPU scatter-add: akumulasi hasil expert langsung ke output GPU
+            // Tanpa download ke CPU — moe_scatter_add WGSL kernel handle semuanya
+            // Indices dikirim sebagai f32 (bitcast ke u32 di WGSL shader)
+            let indices_f32: Vec<f32> = tokens.iter().map(|(idx, _)| *idx as f32).collect();
+            let weights: Vec<f32> = tokens.iter().map(|(_, w)| *w).collect();
+            let indices_gpu = GpuTensor::from_slice(vec![n], &indices_f32).ok()?;
+            let weights_gpu = GpuTensor::from_slice(vec![n], &weights).ok()?;
+            ctx.moe_scatter_add(&expert_out, &indices_gpu, &weights_gpu, &output).ok()?;
         }
 
         ctx.end_batch_mode();
 
-        let mut output = ndarray::Array2::zeros((batch_size, hidden_size));
-        for result in &gpu_results {
-            let cpu_d = result.output_gpu.to_cpu().ok()?;
-            let batch_output = cpu_d.into_dimensionality::<ndarray::Ix2>().ok()?;
-            for (k, &(token_idx, weight)) in result.tokens.iter().enumerate() {
-                let out_row = batch_output.row(k);
-                for j in 0..hidden_size {
-                    output[[token_idx, j]] += out_row[j] * weight;
-                }
-            }
-        }
-
-        let flat: Vec<f32> = output.iter().copied().collect();
-        GpuTensor::from_slice(vec![batch_size, hidden_size], &flat).ok()
+        Some(output)
     }
 
     /// Get configuration
@@ -735,11 +727,11 @@ mod tests {
     }
 
     #[test]
-    fn test_default_uses_256_experts() {
+    fn test_default_uses_32_experts() {
         let moe = HasMoeFFN::default();
         let cfg = moe.config();
-        assert_eq!(cfg.num_experts, 256);
-        assert_eq!(cfg.top_k, 8);
+        assert_eq!(cfg.num_experts, 32);
+        assert_eq!(cfg.top_k, 2);
         assert_eq!(cfg.hidden_size, 768);
     }
 

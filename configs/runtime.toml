@@ -1,50 +1,54 @@
 # ==================================================
-# Runtime Configuration (20M tok/s Distributed)
+# Runtime Configuration (Optimized — minimal resource)
 # ==================================================
 
 [scheduler]
-max_concurrent_tasks = 1000000
+max_concurrent_tasks = 10000
 task_timeout_seconds = 300
-queue_size = 500000
-scheduling_policy = "PriorityAging"
-aging_boost_per_ms = 0.005
+queue_size = 5000
+# Optimasi: FIFO cukup untuk <1000 req/s (zero overhead)
+scheduling_policy = "FIFO"
+aging_boost_per_ms = 0.0
 
 [executor]
-# Multi-node: 64 cores × 8 nodes = 512 threads
-thread_pool_size = 512
-max_blocking_threads = 1024
+# Optimasi: 64 thread untuk 1-2 node (vs 512)
+thread_pool_size = 64
+max_blocking_threads = 128
 keep_alive_seconds = 120
 
 [resource]
-# Aggregated: 8× H200 = 1.1TB GPU memory
-max_memory_mb = 2097152
-max_gpu_memory_mb = 1120000
+max_memory_mb = 262144
+# Optimasi: 16GB GPU default (bisa diset sesuai GPU)
+max_gpu_memory_mb = 16384
 enable_gpu = true
-gpu_device_ids = [0, 1, 2, 3, 4, 5, 6, 7]
-enable_unified_memory = true
+gpu_device_ids = [0]
+enable_unified_memory = false
 
 [monitoring]
 enable_metrics = true
 metrics_port = 9090
-health_check_interval_seconds = 10
-enable_distributed_tracing = true
-trace_endpoint = "http://jaeger:4317"
+health_check_interval_seconds = 30
+enable_distributed_tracing = false
 
 [core]
-max_tiers_in_vram = 3
-vram_budget_mb = 0
-eviction_threshold = 0.90
+# Optimasi: 2 tier GPU (Hot+Warm), Cold di CPU
+max_tiers_in_vram = 2
+# Optimasi: explicit budget 64GB per GPU
+vram_budget_mb = 16384
+# Optimasi: evict lebih awal — 75%
+eviction_threshold = 0.75
 
 [distributed]
 node_id = "node-0"
-cluster_size = 8
-pipeline_parallelism = true
-pipeline_depth = 8
-expert_parallelism = true
-num_expert_shards = 4
-tensor_parallelism = true
-tensor_parallel_size = 2
-enable_gossip = true
-gossip_interval_ms = 500
-heartbeat_timeout_ms = 3000
-node_eviction_timeout_ms = 15000
+# Optimasi: single node default
+cluster_size = 1
+pipeline_parallelism = false
+pipeline_depth = 1
+expert_parallelism = false
+num_expert_shards = 1
+tensor_parallelism = false
+tensor_parallel_size = 1
+enable_gossip = false
+gossip_interval_ms = 5000
+heartbeat_timeout_ms = 30000
+node_eviction_timeout_ms = 60000

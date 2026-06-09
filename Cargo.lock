@@ -3574,6 +3574,7 @@ dependencies = [
  "nexora-monitoring",
  "nexora-quantization",
  "nexora-runtime",
+ "nexora-star-x",
  "nexora-tokenizer",
  "nexora-transformer",
  "nexora-utils",

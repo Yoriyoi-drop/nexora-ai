@@ -56,13 +56,13 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            max_memory_mb: 8192,      // 8GB
-            max_gpu_memory_mb: 16384, // 16GB
+            max_memory_mb: 262144,     // 256GB
+            max_gpu_memory_mb: 16384,  // 16GB (default, diset per GPU)
             cpu_affinity: None,
-            thread_pool_size: num_cpus::get(),
+            thread_pool_size: num_cpus::get().min(64),
             enable_profiling: false,
-            metrics_interval_seconds: 10,
-            resource_monitor_interval_seconds: 5,
+            metrics_interval_seconds: 30,
+            resource_monitor_interval_seconds: 15,
         }
     }
 }

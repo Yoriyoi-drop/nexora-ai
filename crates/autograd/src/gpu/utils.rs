@@ -42,6 +42,82 @@ impl GpuContext {
 
     // ── CUDA bridge helpers ──
 
+    /// Read raw bytes from a wgpu GpuTensor (I8 packed) and upload to CUDA as type-punned u32/f32.
+    /// Correctly handles I8 tensors where `cuda_read_tensor` assumes f32 (4× over-read).
+    #[cfg(feature = "cuda")]
+    pub(crate) fn cuda_read_packed_i8(
+        &self,
+        cuda: &crate::gpu::cuda::CudaRuntime,
+        tensor: &GpuTensor,
+    ) -> Result<crate::gpu::cuda::CudaTensor, GpuError> {
+        let num_bytes: usize = tensor.shape().iter().product();
+        let byte_size = num_bytes as u64;
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cuda_read_packed_staging"),
+            size: byte_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        self.flush();
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("cuda_read_packed_encoder"),
+        });
+        encoder.copy_buffer_to_buffer(tensor.buffer(), 0, &staging, 0, byte_size);
+        self.queue.submit(Some(encoder.finish()));
+
+        let raw_bytes: Vec<u8> = {
+            let _limiter_token = self.readback_limiter
+                .acquire(std::time::Duration::from_secs(30))
+                .then_some(())
+                .ok_or_else(|| GpuError::Timeout("CUDA read packed limiter".into()))?;
+            let slice = staging.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let result = loop {
+                self.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_millis(100)),
+                });
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(Ok(())) => {
+                        let mapped = slice.get_mapped_range();
+                        let v = mapped.to_vec();
+                        drop(mapped);
+                        staging.unmap();
+                        break Ok(v);
+                    }
+                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break Err(GpuError::Timeout("CUDA read packed".into()));
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() > deadline {
+                            break Err(GpuError::Timeout("CUDA read packed deadline".into()));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            };
+            crate::gpu::gpu_observability::PCIE_READ_BYTES
+                .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
+            result?
+        };
+
+        // Pad to u32 boundary and upload as f32 (type pun — CUDA kernel reads as unsigned int*)
+        let num_u32s = num_bytes.div_ceil(4);
+        let mut padded = vec![0u8; num_u32s * 4];
+        padded[..num_bytes].copy_from_slice(&raw_bytes);
+        let data_f32: Vec<f32> = padded.chunks_exact(4).map(|c| {
+            f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        }).collect();
+        drop(padded);
+        let t = crate::gpu::cuda::CudaTensor::from_cpu(
+            &cuda.transfer_stream, vec![num_u32s], &data_f32, cuda.device_id
+        ).map_err(|e| GpuError::Transfer(format!("CUDA htod packed: {e}")))?;
+        cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+        Ok(t)
+    }
+
     /// Read a wgpu GpuTensor to a CudaTensor via staging buffer round-trip.
     #[cfg(feature = "cuda")]
     pub(crate) fn cuda_read_tensor(
@@ -1481,6 +1557,27 @@ impl GpuContext {
         )
     }
 
+    pub(crate) fn compile_matmul_int2_weight(&mut self, tile: u32) -> Result<(), GpuError> {
+        if self.pipelines.contains_key("matmul_int2_weight") {
+            return Ok(());
+        }
+        let wgsl = std::borrow::Cow::Owned(
+            MATMUL_INT2_WEIGHT_WGSL.replace("{{TILE_SIZE}}", &tile.to_string()),
+        );
+        self.compile_pipeline(
+            "matmul_int2_weight",
+            &[
+                storage_binding(0, true),   // binding 0: A (f32 activations)
+                storage_binding(1, true),   // binding 1: B (packed u32 Q2 weights)
+                storage_binding(2, false),  // binding 2: C (f32 output, read_write)
+                uniform_binding(3),         // binding 3: Uniforms { M, K, N, GroupSize, Tile }
+                storage_binding(4, true),   // binding 4: scales (f32 per-group per-column)
+            ],
+            wgsl,
+            "matmul_int2_weight_main",
+        )
+    }
+
     pub(crate) fn compile_matmul_int8_weight(&mut self, tile: u32) -> Result<(), GpuError> {
         if self.pipelines.contains_key("matmul_int8_weight") {
             return Ok(());
@@ -1727,6 +1824,131 @@ impl GpuContext {
                 },
             ],
             "matmul_int4_weight_bind_group",
+        );
+
+        let wgx = m_u32.div_ceil(tile_u32);
+        let wgy = n_u32.div_ceil(tile_u32);
+        self.dispatch(pipeline, &bind_group, (wgx, wgy, 1));
+
+        Ok(GpuTensor {
+            shape: vec![a_shape[0], b_shape[1]],
+            buffer: c_buffer,
+            dtype: GpuDtype::F32,
+            device_id: 0,
+            cuda_tensor: None,
+        })
+    }
+
+    /// INT2 quantized matmul: A (f32 activations [M, K]) × packed Q2 B ([K/4, N]) → C (f32 [M, N]).
+    ///
+    /// Q2 packing: 4 values per byte (2 bits each), stored as u32 via WGSL re-interpret.
+    /// Each byte stores 4 Q2 values (bits 0-1 = val0, bits 2-3 = val1, bits 4-5 = val2, bits 6-7 = val3).
+    /// `b_packed` must have shape `[K/4, N]` and dtype `I8` (same as Q4 convention).
+    /// `scales` must have shape `[groups, N]` where groups = ceil(K / group_size).
+    /// Dequant: `val = (q2_bits - 1.5) * scale` (symmetric, centered at 0).
+    pub fn matmul_int2_weight(
+        &self,
+        a: &GpuTensor,
+        b_packed: &GpuTensor,
+        scales: &GpuTensor,
+        group_size: usize,
+    ) -> Result<GpuTensor, GpuError> {
+        if b_packed.dtype() != GpuDtype::I8 {
+            return Err(GpuError::Dtype(format!(
+                "matmul_int2_weight expects I8 for B (packed Q2), got {:?}",
+                b_packed.dtype()
+            )));
+        }
+        let a_shape = a.shape();
+        let b_shape = b_packed.shape();
+        if a_shape.len() != 2 || b_shape.len() != 2 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+        // A[M, K] × B[K/4, N] — K from A must be 4x the first dim of B
+        if a_shape[1] != b_shape[0] * 4 {
+            return Err(GpuError::MatMulShape(a_shape, b_shape));
+        }
+
+        let m = a_shape[0];
+        let k = a_shape[1];
+        let n = b_shape[1];
+
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = self.cuda {
+            let a_cuda = self.get_or_cache_cuda(a)?;
+            let b_cuda = self.cuda_read_packed_i8(cuda, b_packed)?;
+            let scales_cuda = self.get_or_cache_cuda(scales)?;
+            let result_cuda = cuda.matmul_int2_weight(&a_cuda, &b_cuda, &scales_cuda, m, n, k, group_size)
+                .map_err(|e| GpuError::Compute(format!("CUDA matmul_int2_weight: {e}")))?;
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
+        }
+
+        let _groups = k.div_ceil(group_size);
+
+        let m_u32 = u32::try_from(m)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let k_u32 = u32::try_from(k)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let n_u32 = u32::try_from(n)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+        let gs_u32 = u32::try_from(group_size)
+            .map_err(|_| GpuError::Unsupported("group_size overflow".into()))?;
+
+        let tile = self.caps.adaptive_tile_size(m, n, k);
+        let tile_u32 = u32::try_from(tile)
+            .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
+
+        let c_size = (m_u32 as u64) * (n_u32 as u64) * 4;
+        let limit = self.caps.max_storage_buffer_binding_size;
+        if c_size > limit {
+            return Err(GpuError::Buffer(format!(
+                "matmul_int2_weight output {m}×{n} = {c_size} B exceeds device limit {limit} B"
+            )));
+        }
+        let c_buffer = self.alloc_or_create_buffer(
+            c_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        );
+
+        let dims_buf = self.alloc_or_create_buffer(
+            20,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+        let dims_data: [u32; 5] = [m_u32, k_u32, n_u32, gs_u32, tile_u32];
+        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+
+        let pipeline = self
+            .pipelines
+            .get("matmul_int2_weight")
+            .ok_or_else(|| GpuError::Pipeline("matmul_int2_weight not compiled".into()))?;
+
+        let bind_group = self.get_or_create_bind_group_shared(
+            &pipeline.bind_group_layout,
+            &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b_packed.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dims_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: scales.buffer().as_entire_binding(),
+                },
+            ],
+            "matmul_int2_weight_bind_group",
         );
 
         let wgx = m_u32.div_ceil(tile_u32);
@@ -3581,10 +3803,23 @@ impl GpuContext {
         let numel = q.numel();
 
         // CUDA FlashAttention path (preferred when CUDA backend is active)
-        // Avoids Vec<u8>/Vec<f32> intermediate allocations by working directly
-        // with the mapped wgpu staging buffer and CUDA dtoh_sync_copy.
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
+            // ── FAST PATH: inline CUDA tensor cache (zero-copy, no PCIe) ──
+            // Ketika Q/K/V dibuat via from_cpu(), mereka sudah punya CudaTensor inline.
+            // Lewati wgpu→CPU→CUDA bridge — langsung compute di CUDA.
+            if let (Some(q_ct), Some(k_ct), Some(v_ct)) = (q.get_cuda(), k.get_cuda(), v.get_cuda()) {
+                let result_cuda = if q_shape[2] == 1 || q_shape[2] > 4096 {
+                    cuda.flash_decoding(q_ct, k_ct, v_ct, scale, causal)
+                        .map_err(|e| GpuError::Compute(format!("CUDA flash_decoding: {e}")))?
+                } else {
+                    cuda.fused_attention(q_ct, k_ct, v_ct, scale, causal)
+                        .map_err(|e| GpuError::Compute(format!("CUDA fused_attention: {e}")))?
+                };
+                return self.cuda_write_tensor_with_shape(cuda, &result_cuda, q_shape.clone());
+            }
+
+            // ── FALLBACK: wgpu→CPU→CUDA bridge (untuk first-time tensors) ──
             // Batch QKV into a single contiguous readback (1 staging buffer instead of 3)
             let q_size = (q.numel() * 4) as u64;
             let k_size = (k.numel() * 4) as u64;
@@ -3609,7 +3844,6 @@ impl GpuContext {
             encoder.copy_buffer_to_buffer(v.buffer(), 0, &staging, q_size + k_size, v_size);
             self.queue.submit(Some(encoder.finish()));
 
-            // Read QKV from staging, upload to CUDA — NO Vec<u8> intermediate
             let q_len = q.numel();
             let k_len = k.numel();
             let v_len = v.numel();
@@ -3664,8 +3898,6 @@ impl GpuContext {
                 result.map_err(|e| e)?
             };
 
-            // FlashDecoding for decode (S_q=1) or very long sequences (>4096);
-            // flash_attn for prefill with moderate lengths.
             let result_cuda = if q_shape[2] == 1 || q_shape[2] > 4096 {
                 cuda.flash_decoding(&q_cuda, &k_cuda, &v_cuda, scale, causal)
                     .map_err(|e| {
@@ -3678,75 +3910,8 @@ impl GpuContext {
                     })?
             };
 
-            // Write result to wgpu output buffer via staging — NO Vec<f32> intermediate
-            let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("fused_attention_output_cuda"),
-                size: (numel * 4) as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            {
-                let result_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("fused_attn_result_staging"),
-                    size: (numel * 4) as u64,
-                    usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
-                    mapped_at_creation: false,
-                });
-                let rslice = result_staging.slice(..);
-                let (tx, rx) = std::sync::mpsc::channel();
-                rslice.map_async(wgpu::MapMode::Write, move |r| {
-                    let _ = tx.send(r);
-                });
-                let deadline = std::time::Instant::now()
-                    + std::time::Duration::from_secs(30);
-                loop {
-                    self.device.poll(wgpu::PollType::Wait {
-                        submission_index: None,
-                        timeout: Some(std::time::Duration::from_millis(100)),
-                    });
-                    match rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                        Ok(Ok(())) => {
-                            let mut cpu_buf = vec![0.0f32; numel];
-                            cuda.stream
-                                .memcpy_dtoh(&result_cuda.buffer, &mut cpu_buf)
-                                .map_err(|e| GpuError::Transfer(format!("CUDA result dtoh: {e}")))?;
-                            let cpu_bytes: &[u8] = bytemuck::cast_slice(&cpu_buf);
-                            let mut mapped = rslice.get_mapped_range_mut();
-                            mapped.copy_from_slice(cpu_bytes);
-                            drop(mapped);
-                            result_staging.unmap();
-
-                            let mut encoder = self
-                                .device
-                                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                    label: Some("fused_attn_result_encoder"),
-                                });
-                            encoder.copy_buffer_to_buffer(
-                                &result_staging, 0, &out_buffer, 0, (numel * 4) as u64,
-                            );
-                            self.queue.submit(Some(encoder.finish()));
-                            break;
-                        }
-                        Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            return Err(GpuError::Timeout("fused_attn result staging map".into()));
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            if std::time::Instant::now() > deadline {
-                                return Err(GpuError::Timeout("fused_attn result staging map".into()));
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(1));
-                        }
-                    }
-                }
-            }
-
-            return Ok(GpuTensor {
-                shape: q_shape.clone(),
-                buffer: out_buffer,
-                dtype: GpuDtype::F32,
-                device_id: 0,
-                cuda_tensor: None,
-            });
+            // Write result to wgpu buffer + attach cuda_tensor untuk future zero-copy
+            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, q_shape.clone());
         }
 
         let out_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {

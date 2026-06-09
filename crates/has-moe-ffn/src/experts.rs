@@ -34,6 +34,12 @@ pub struct Expert {
     fc2_q4: Option<(Vec<u8>, Vec<f32>)>,
     /// Group size used for Q4 quantization (default 128)
     q4_group_size: Option<usize>,
+    /// Q2 quantized weights: (packed_bytes, scales) for fc1 [intermediate × hidden]
+    fc1_q2: Option<(Vec<u8>, Vec<f32>)>,
+    /// Q2 quantized weights: (packed_bytes, scales) for fc2 [hidden × intermediate]
+    fc2_q2: Option<(Vec<u8>, Vec<f32>)>,
+    /// Group size used for Q2 quantization (default 256)
+    q2_group_size: Option<usize>,
 
     /// Expert specialization domain (set by ExpertPoolConfig).
     pub domain: Option<String>,
@@ -56,6 +62,15 @@ pub struct Expert {
     fc2_q4_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
     fc2_q4_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    /// Q2 packed GPU tensors: (fc1_q2_gpu, fc1_scales_gpu, fc2_q2_gpu, fc2_scales_gpu)
+    #[cfg(feature = "gpu")]
+    fc1_q2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc1_q2_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc2_q2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    #[cfg(feature = "gpu")]
+    fc2_q2_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
     #[cfg(feature = "cuda")]
     fc1_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
@@ -90,6 +105,9 @@ impl Expert {
             fc1_q4: None,
             fc2_q4: None,
             q4_group_size: None,
+            fc1_q2: None,
+            fc2_q2: None,
+            q2_group_size: None,
             domain: None,
             tier: None,
             #[cfg(feature = "gpu")]
@@ -108,6 +126,14 @@ impl Expert {
             fc2_q4_gpu: std::sync::OnceLock::new(),
             #[cfg(feature = "gpu")]
             fc2_q4_scales_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc1_q2_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc1_q2_scales_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc2_q2_gpu: std::sync::OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            fc2_q2_scales_gpu: std::sync::OnceLock::new(),
             #[cfg(feature = "cuda")]
             fc1_cuda: std::sync::OnceLock::new(),
             #[cfg(feature = "cuda")]
@@ -255,6 +281,37 @@ impl Expert {
         self.q4_group_size = Some(group_size);
     }
 
+    /// Quantize fc1/fc2 weights to Q2 packed format using symmetric per-group quantization.
+    /// 2 bits per value, 4 values per byte. Group size default 256.
+    /// Stores packed bytes + scales, replacing the FP32 weights in memory.
+    pub fn quantize_to_q2(&mut self, group_size: usize) {
+        let h = self.config.hidden_size;
+        let i = self.config.intermediate_size;
+        if let Some(ref w1) = self.fc1_weights {
+            let mut flat_t = Vec::with_capacity(h * i);
+            for k in 0..h {
+                for j in 0..i {
+                    flat_t.push(w1[j][k]);
+                }
+            }
+            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q2(&flat_t, i, h, group_size);
+            self.fc1_q2 = Some((packed, scales));
+        }
+        if let Some(ref w2) = self.fc2_weights {
+            let mut flat_t = Vec::with_capacity(i * h);
+            for k in 0..i {
+                for j in 0..h {
+                    flat_t.push(w2[j][k]);
+                }
+            }
+            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q2(&flat_t, h, i, group_size);
+            self.fc2_q2 = Some((packed, scales));
+        }
+        self.fc1_weights = None;
+        self.fc2_weights = None;
+        self.q2_group_size = Some(group_size);
+    }
+
     /// Drop FP32 weight matrices but keep biases + Q4 data.
     /// Biases are NOT quantized and must be retained for Q4 forward.
     pub fn drop_cpu_fp32_keep_q4(&mut self) {
@@ -269,6 +326,11 @@ impl Expert {
         self.fc2_weights = None;
         self.fc2_bias = None;
         self.fc1_q4 = None;
+        self.fc2_q4 = None;
+        self.q4_group_size = None;
+        self.fc1_q2 = None;
+        self.fc2_q2 = None;
+        self.q2_group_size = None;
         self.fc2_q4 = None;
         self.q4_group_size = None;
     }
@@ -410,9 +472,12 @@ impl Expert {
     }
 
     /// Internal batched wgpu forward — all GPU ops, no readback.
-    /// Prefers Q4 path if quantized weights are available, falls back to FP32.
+    /// Prefers Q2 (most compact) over Q4 over FP32 on GPU.
     #[cfg(feature = "gpu")]
     fn forward_batched_gpu_inner(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+        if self.fc1_q2.is_some() {
+            return self.forward_batched_gpu_q2(inputs);
+        }
         if self.fc1_q4.is_some() {
             return self.forward_batched_gpu_q4(inputs);
         }
@@ -476,6 +541,54 @@ impl Expert {
 
         // fc2: [batch, intermediate] @ Q4([intermediate, hidden]) → [batch, hidden]
         let output = ctx.matmul_int4_weight(&hidden, w2_q4, w2_scales, gs).ok()?;
+        Some(output)
+    }
+
+    /// Batched wgpu forward via INT2 quantized weights.
+    /// Uses `matmul_int2_weight` kernel for compute directly from Q2 packed data.
+    #[cfg(feature = "gpu")]
+    fn forward_batched_gpu_q2(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let ctx = GpuContext::global().ok()?;
+        let (ref packed1, ref scales1) = self.fc1_q2.as_ref()?;
+        let (ref packed2, ref scales2) = self.fc2_q2.as_ref()?;
+        let gs = self.q2_group_size?;
+        let h = self.config.hidden_size;
+        let i = self.config.intermediate_size;
+        let (batch, dim) = inputs.dim();
+
+        // Lazily upload Q2 packed + scales to GPU via OnceLock
+        let b_q2 = self.fc1_q2_gpu.get_or_init(|| {
+            let shape = vec![h, i]; // original [K, N] = [hidden, intermediate]
+            GpuTensor::from_cpu_q2_packed(shape, packed1).ok()
+        }).as_ref()?;
+        let b_scales = self.fc1_q2_scales_gpu.get_or_init(|| {
+            let groups = h.div_ceil(gs);
+            let shape = vec![groups, i];
+            GpuTensor::from_slice(shape, scales1).ok()
+        }).as_ref()?;
+        let w2_q2 = self.fc2_q2_gpu.get_or_init(|| {
+            let shape = vec![i, h]; // original [K, N] = [intermediate, hidden]
+            GpuTensor::from_cpu_q2_packed(shape, packed2).ok()
+        }).as_ref()?;
+        let w2_scales = self.fc2_q2_scales_gpu.get_or_init(|| {
+            let groups = i.div_ceil(gs);
+            let shape = vec![groups, h];
+            GpuTensor::from_slice(shape, scales2).ok()
+        }).as_ref()?;
+
+        let input_data = inputs.as_slice()?;
+        let input_gpu = GpuTensor::from_slice(vec![batch, dim], input_data).ok()?;
+
+        // fc1: [batch, hidden] @ Q2([hidden, intermediate]) → [batch, intermediate]
+        // matmul_int2_weight: A[M,K] × B_packed[K/4,N] → C[M,N]
+        // A = input [batch, hidden] → K=hidden
+        let mut hidden = ctx.matmul_int2_weight(&input_gpu, b_q2, b_scales, gs).ok()?;
+        // GELU activation — in-place
+        ctx.gelu_inplace(&mut hidden).ok()?;
+
+        // fc2: [batch, intermediate] @ Q2([intermediate, hidden]) → [batch, hidden]
+        let output = ctx.matmul_int2_weight(&hidden, w2_q2, w2_scales, gs).ok()?;
         Some(output)
     }
 
@@ -666,7 +779,55 @@ impl Expert {
             .map_err(|e| format!("Q4 fc2 output shape: {e}"))
     }
 
-    /// Batched forward: processes N tokens, tries CUDA → wgpu → Q4 CPU → FP32 CPU fallback.
+    /// CPU batched forward via Q2 quantized weights.
+    /// Uses `matmul_int2` from `nexora_quantization::gemm` for compute directly from Q2.
+    fn forward_batched_q2_cpu(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
+        let (ref packed1, ref scales1) = self.fc1_q2.as_ref().ok_or_else(|| "fc1_q2 not available".to_string())?;
+        let (ref packed2, ref scales2) = self.fc2_q2.as_ref().ok_or_else(|| "fc2_q2 not available".to_string())?;
+        let gs = self.q2_group_size.ok_or_else(|| "q2_group_size not set".to_string())?;
+        let h = self.config.hidden_size;
+        let i = self.config.intermediate_size;
+        let n = inputs.shape()[0];
+
+        let input_flat = inputs.as_slice().ok_or_else(|| "input not contiguous".to_string())?;
+
+        // fc1: [N × H] → [N × I]
+        let mut hidden = vec![0.0; n * i];
+        nexora_quantization::gemm::matmul_int2(
+            input_flat, packed1, scales1,
+            &mut hidden,
+            n, i, h, gs,
+        );
+        if let Some(ref b1) = self.fc1_bias {
+            for row in 0..n {
+                for col in 0..i {
+                    hidden[row * i + col] += b1[col];
+                }
+            }
+        }
+
+        let activated: Vec<f32> = hidden.iter().map(|&x| gelu(x)).collect();
+
+        // fc2: [N × I] → [N × H]
+        let mut output = vec![0.0; n * h];
+        nexora_quantization::gemm::matmul_int2(
+            &activated, packed2, scales2,
+            &mut output,
+            n, h, i, gs,
+        );
+        if let Some(ref b2) = self.fc2_bias {
+            for row in 0..n {
+                for col in 0..h {
+                    output[row * h + col] += b2[col];
+                }
+            }
+        }
+
+        ndarray::Array2::from_shape_vec((n, h), output)
+            .map_err(|e| format!("Q2 fc2 output shape: {e}"))
+    }
+
+    /// Batched forward: processes N tokens, tries CUDA → wgpu → Q2 CPU → Q4 CPU → FP32 CPU fallback.
     /// Returns `Err` if weights are not initialized.
     pub fn forward_batched(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
         #[cfg(feature = "cuda")]
@@ -676,6 +837,10 @@ impl Expert {
         #[cfg(feature = "gpu")]
         if let Some(result) = self.forward_batched_gpu(inputs) {
             return Ok(result);
+        }
+        // Q2 CPU fallback (most compact — try first)
+        if self.fc1_q2.is_some() {
+            return self.forward_batched_q2_cpu(inputs);
         }
         // Q4 CPU fallback (no GPU available, but Q4 weights exist)
         if self.fc1_q4.is_some() {

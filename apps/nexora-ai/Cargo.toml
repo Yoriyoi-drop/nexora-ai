@@ -68,7 +68,9 @@ jsonwebtoken = { version = "9" }
 ndarray.workspace = true
 
 [features]
-default = ["gpu", "cuda", "server-auth", "server-billing", "server-dashboard", "server-gossip"]
+default = ["gpu", "server-auth"]
+# Optimasi: minimal feature — tanpa billing, dashboard, gossip
+minimal = ["gpu", "server-auth"]
 production = ["mimalloc", "server-billing"]
 blas = ["blas-src", "openblas-src"]
 server-auth = []

@@ -63,6 +63,7 @@ nexora-utils = { path = "../infrastructure/utils" }
 nexora-cognition = { path = "../cognition" }
 nexora-database = { path = "../database" }
 nexora-erp = { path = "../erp" }
+nexora-star-x = { path = "../star-x", default-features = false, features = ["std"] }
 
 [features]
 default = ["gpu"]

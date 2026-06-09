@@ -11,6 +11,7 @@ pub mod cold_storage;
 pub mod decoding;
 pub mod degradation;
 pub mod distributed;
+pub mod dynamic_quant;
 pub mod self_healing;
 pub mod speculative;
 pub mod engine;

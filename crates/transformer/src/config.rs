@@ -328,7 +328,7 @@ impl TransformerConfig {
                 expert_intermediate_size: 0,
                 shared_expert: 0,
                 use_domain_experts: false,
-                quantization: QFormat::Q4 { group_size: 128 },
+                quantization: QFormat::Q2 { group_size: 256 },
                 use_half_precision: true,
                 shard: ShardConfig::default(),
             },

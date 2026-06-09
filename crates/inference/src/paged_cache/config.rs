@@ -50,25 +50,25 @@ impl MemoryTier {
 /// For optimal performance, compute via [`PagedCacheConfig::suggest_block_size`]
 /// based on model dimensions:
 ///   block_size ≈ head_dim × num_kv_heads / gcd(head_dim, 16)   clamped to [8, 64]
-pub const DEFAULT_BLOCK_SIZE: usize = 16;
+pub const DEFAULT_BLOCK_SIZE: usize = 64;
 
 /// Default max number of blocks (scaled for 20M tok/s distributed).
-pub const DEFAULT_MAX_BLOCKS: usize = 2_097_152;
+pub const DEFAULT_MAX_BLOCKS: usize = 65_536;
 
 /// Default soft memory limit for KV cache in bytes (800 GB distributed aggregate).
-pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 858_993_459_200;
+pub const DEFAULT_MAX_CACHE_MEMORY_BYTES: usize = 214_748_364_800;
 
 /// Default watermark ratio — evict when blocks exceed this fraction of max_blocks.
-pub const DEFAULT_EVICTION_WATERMARK: f64 = 0.85;
+pub const DEFAULT_EVICTION_WATERMARK: f64 = 0.70;
 
 /// Default idle time before Hot → Warm demotion (seconds).
-pub const DEFAULT_HOT_TO_WARM_SECS: f64 = 30.0;
+pub const DEFAULT_HOT_TO_WARM_SECS: f64 = 15.0;
 
 /// Default idle time before Warm → Cold demotion (seconds).
-pub const DEFAULT_WARM_TO_COLD_SECS: f64 = 120.0;
+pub const DEFAULT_WARM_TO_COLD_SECS: f64 = 60.0;
 
 /// Default interval for background tier sweep (seconds).
-pub const DEFAULT_TIER_SWEEP_INTERVAL_SECS: f64 = 15.0;
+pub const DEFAULT_TIER_SWEEP_INTERVAL_SECS: f64 = 30.0;
 
 // ─── Global Singleton ─────────────────────────────────────────────────────────
 
@@ -157,16 +157,16 @@ impl Default for PagedCacheConfig {
         Self {
             block_size: DEFAULT_BLOCK_SIZE,
             max_blocks: DEFAULT_MAX_BLOCKS,
-            max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
+            max_memory_bytes: 0,
             eviction_policy: EvictionPolicy::default(),
             eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
-            eviction_min_age_secs: 1.0,
-            eviction_batch_size: 4,
+            eviction_min_age_secs: 2.0,
+            eviction_batch_size: 8,
             num_layers: 32,
             num_kv_heads: 1,
             head_dim: 128,
-            max_seq_len: 4096,
-            f16_storage: true,
+            max_seq_len: 32768,
+            f16_storage: false,
             q4_storage: true,
             enable_memory_tiering: true,
             hot_to_warm_secs: DEFAULT_HOT_TO_WARM_SECS,
@@ -174,8 +174,8 @@ impl Default for PagedCacheConfig {
             tier_sweep_interval_secs: DEFAULT_TIER_SWEEP_INTERVAL_SECS,
             enable_cold_disk_offload: true,
             enable_sliding_window: true,
-            num_attention_sink_tokens: 64,
-            window_size: 4096,
+            num_attention_sink_tokens: 32,
+            window_size: 2048,
         }
     }
 }

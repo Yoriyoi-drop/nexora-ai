@@ -13,6 +13,6 @@ pub enum SchedulingPolicy {
 
 impl Default for SchedulingPolicy {
     fn default() -> Self {
-        Self::PriorityAging
+        Self::Fifo
     }
 }

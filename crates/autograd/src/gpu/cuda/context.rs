@@ -332,12 +332,13 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     ) -> Result<CudaTensor, String> {
         let numel = a.numel();
         let kernel_name = format!("elem_scalar_{}", op);
+        // Baca scalar langsung dari device memory — tanpa D2H readback
         let source = format!(
             r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
-    const float* __restrict__ a, float scalar, size_t numel) {{
+    const float* __restrict__ a, const float* __restrict__ scalar, size_t numel) {{
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < numel) {{ out[i] = {expr}; }}
+    if (i < numel) {{ float s = scalar[0]; out[i] = {expr}; }}
 }}
 "#
         );
@@ -347,14 +348,9 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             .scratch_f32(numel)
             .map_err(|e| format!("CUDA scalar {} scratch: {e}", op))?;
 
-        let scalar = self
-            .stream
-            .clone_dtoh(b.buffer())
-            .map_err(|e| format!("CUDA scalar {} readback: {e}", op))?
-            .first()
-            .copied()
-            .unwrap_or(0.0);
-
+        // ── OPTIMIZED: b sebagai device pointer, tanpa D2H sync ──
+        // Kernel membaca scalar[0] langsung dari GPU memory.
+        // Ini menghilangkan 1 D2H transfer + sync point per elementwise op.
         let cfg = LaunchConfig {
             grid_dim: (((numel + 255) / 256) as u32, 1, 1),
             block_dim: (256, 1, 1),
@@ -364,7 +360,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             let mut builder = self.stream.launch_builder(&func);
             builder.arg(&mut out);
             builder.arg(a.buffer());
-            builder.arg(&scalar);
+            builder.arg(b.buffer());
             builder.arg(&numel);
             builder
                 .launch(cfg)
@@ -2413,11 +2409,25 @@ extern "C" __global__ void grad_norm_sq_f32(float* __restrict__ out,
             b.launch(cfg1).map_err(|e| format!("norm_sq launch: {e}"))?;
         }
 
-        let norm_val: f32 = self.stream.clone_dtoh(&norm_sq).map_err(|e| format!("clip norm readback: {e}"))?.first().copied().unwrap_or(0.0);
-        let norm_val = norm_val.sqrt();
-        if norm_val <= max_norm || norm_val.abs() < 1e-8 { return Ok(()); }
-        let scale = max_norm / norm_val;
-        self.scale_inplace(grads, scale)
+        // ── GPU-ONLY: baca norm_sq dari device memory, compare, scale — tanpa D2H ──
+        // Kernel ini menghilangkan 1 D2H transfer + CPU conditional per training step.
+        // Jika norm <= max_norm, kernel no-op (return early).
+        let func2 = compile_simple!(self, "grad_clip_apply_f32", r#"
+extern "C" __global__ void grad_clip_apply_f32(float* __restrict__ grads,
+    const float* __restrict__ norm_sq, float max_norm, size_t numel) {
+    float n = sqrtf(norm_sq[0]);
+    if (n <= max_norm || n < 1e-8f) return;
+    float scale = max_norm / n;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < numel) grads[i] *= scale;
+}"#)?;
+        let cfg2 = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        unsafe {
+            let mut b = self.stream.launch_builder(&func2);
+            b.arg(grads.buffer()); b.arg(&norm_sq); b.arg(&max_norm); b.arg(&numel);
+            b.launch(cfg2).map_err(|e| format!("clip_apply launch: {e}"))?;
+        }
+        Ok(())
     }
 
     pub fn gradient_allreduce(&self, grad_buffers: &CudaTensor, out: &CudaTensor, num_replicas: u32) -> Result<(), String> {
@@ -2918,6 +2928,47 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             builder.arg(scales.buffer()); builder.arg(zero_points.buffer());
             builder.arg(&m); builder.arg(&n); builder.arg(&k);
             builder.launch(cfg).map_err(|e| format!("matmul_int8_weight launch: {e}"))?;
+        }
+        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+    }
+
+    pub fn matmul_int2_weight(&self, a: &CudaTensor, b_packed: &CudaTensor, scales: &CudaTensor, m: usize, n: usize, k: usize, group_size: usize) -> Result<CudaTensor, String> {
+        let mut out = self.scratch_f32(m * n).map_err(|e| format!("matmul_int2_weight scratch: {e}"))?;
+
+        let kernel_name = format!("matmul_int2_weight_cuda_{}_{}_{}", m, n, k);
+        let source = format!(r#"
+extern "C" __global__ void {kernel_name}(float* __restrict__ out,
+    const float* __restrict__ a, const unsigned int* __restrict__ b_packed,
+    const float* __restrict__ scales,
+    size_t M, size_t N, size_t K, size_t GroupSize) {{
+    unsigned int row = blockIdx.x;
+    unsigned int col = blockIdx.y * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+    float sum = 0.0f;
+    for (size_t kk = 0; kk < K; kk++) {{
+        size_t group = kk / GroupSize;
+        float scale = scales[group * N + col];
+        size_t byte_idx = (kk / 4) * N + col;
+        unsigned int sub_idx = kk % 4;
+        unsigned int u32_val = b_packed[byte_idx / 4];
+        unsigned int byte_in_u32 = byte_idx % 4;
+        unsigned int byte_val = (u32_val >> (byte_in_u32 * 8)) & 0xFF;
+        unsigned int bits = (byte_val >> (sub_idx * 2)) & 0x03;
+        sum += a[row * K + kk] * (((float)bits - 1.5f) * scale);
+    }}
+    out[row * N + col] = sum;
+}}
+"#);
+        let func = self.get_or_compile_kernel(&kernel_name, &source)?;
+        let block = 16u32;
+        let grid_y = ((n as u32) + block - 1) / block;
+        let cfg = LaunchConfig { grid_dim: (m as u32, grid_y, 1), block_dim: (block, 1, 1), shared_mem_bytes: 0 };
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b_packed.buffer());
+            builder.arg(scales.buffer());
+            builder.arg(&m); builder.arg(&n); builder.arg(&k); builder.arg(&group_size);
+            builder.launch(cfg).map_err(|e| format!("matmul_int2_weight launch: {e}"))?;
         }
         Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
     }

@@ -20,7 +20,7 @@ wgpu = { version = "29", optional = true }
 half = { workspace = true, optional = true }
 lru.workspace = true
 reqwest = { workspace = true, optional = true }
-nexora-atqs = { path = "../atqs", optional = true }
+nexora-atqs = { path = "../atqs" }
 
 [dev-dependencies]
 criterion.workspace = true
@@ -34,4 +34,3 @@ default = ["gpu"]
 gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]
 nccl = ["nexora-autograd/cuda", "dep:reqwest"]
 http = ["dep:reqwest"]
-atqs = ["dep:nexora-atqs"]

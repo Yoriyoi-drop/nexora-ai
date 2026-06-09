@@ -1,5 +1,5 @@
 /// ATQS-compressed weight storage.
-/// Always compiled. Compression/decompression logic gated behind `atqs` feature.
+/// Always compiled. AWQ 4-bit compression/decompression always available.
 #[derive(Debug, Clone)]
 pub struct WeightsAtqs {
     pub token_embedding: Option<RawCompressedWeight>,
@@ -48,9 +48,13 @@ impl RawCompressedWeight {
     }
 }
 
-// ── Conversion from/to AWQQuantizedTensor (behind `atqs` feature) ──
+// ── Conversion from/to AWQQuantizedTensor ──
 
-#[cfg(feature = "atqs")]
+use ndarray::Array2;
+
+use crate::{TransformerError, TransformerResult};
+use crate::block::TransformerBlock;
+
 impl From<nexora_atqs::awq::AWQQuantizedTensor> for RawCompressedWeight {
     fn from(t: nexora_atqs::awq::AWQQuantizedTensor) -> Self {
         Self {
@@ -65,7 +69,6 @@ impl From<nexora_atqs::awq::AWQQuantizedTensor> for RawCompressedWeight {
     }
 }
 
-#[cfg(feature = "atqs")]
 impl From<RawCompressedWeight> for nexora_atqs::awq::AWQQuantizedTensor {
     fn from(r: RawCompressedWeight) -> Self {
         Self {
@@ -79,17 +82,8 @@ impl From<RawCompressedWeight> for nexora_atqs::awq::AWQQuantizedTensor {
     }
 }
 
-// ── Compression (behind `atqs` feature) ──
+// ── Compression ──
 
-#[cfg(feature = "atqs")]
-use ndarray::Array2;
-
-#[cfg(feature = "atqs")]
-use crate::{TransformerError, TransformerResult};
-#[cfg(feature = "atqs")]
-use crate::block::TransformerBlock;
-
-#[cfg(feature = "atqs")]
 fn compress_weight(
     engine: &nexora_atqs::awq::AWQEngine,
     weight: &Array2<f32>,
@@ -104,7 +98,6 @@ fn compress_weight(
     RawCompressedWeight::from(q)
 }
 
-#[cfg(feature = "atqs")]
 fn decompress_weight(raw: &RawCompressedWeight) -> Array2<f32> {
     let engine = nexora_atqs::awq::AWQEngine::new(
         nexora_atqs::awq::AWQConfig {
@@ -117,7 +110,6 @@ fn decompress_weight(raw: &RawCompressedWeight) -> Array2<f32> {
     engine.dequantize(&q)
 }
 
-#[cfg(feature = "atqs")]
 impl WeightsAtqs {
     /// Compress all f32 weights from a CausalLM into this cache.
     /// Uses AWQ 4-bit group quantization with column-norm activation proxy.
@@ -175,7 +167,6 @@ impl WeightsAtqs {
     }
 }
 
-#[cfg(feature = "atqs")]
 fn compress_block(
     engine: &nexora_atqs::awq::AWQEngine,
     block: &TransformerBlock,
