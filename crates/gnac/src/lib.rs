@@ -65,7 +65,7 @@ pub struct TensorDesc {
     pub numel: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DType {
     F32,
     F64,
@@ -170,8 +170,8 @@ pub enum HealthStatus {
     Dead,
 }
 
-/// Konfigurasi global GNAC
-#[derive(Debug, Clone)]
+/// Konfigurasi global GNAC — production-ready defaults
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GnacConfig {
     pub max_nodes: usize,
     pub enable_lensing: bool,
@@ -188,11 +188,11 @@ impl Default for GnacConfig {
         GnacConfig {
             max_nodes: 10_000,
             enable_lensing: true,
-            enable_swarm: true,
+            enable_swarm: false,
             enable_intervention: true,
             enable_collaboration: false,
-            enable_sandbox: false,
-            tensor_pool_size_mb: 4096,
+            enable_sandbox: true,
+            tensor_pool_size_mb: 8192,
             default_dtype: DType::F32,
         }
     }

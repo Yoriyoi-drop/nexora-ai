@@ -23,3 +23,8 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true
 
+[features]
+default = []
+gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-has-moe-ffn/gpu", "nexora-erp/gpu", "nexora-atqs/gpu"]
+cuda = ["nexora-model-core/cuda", "nexora-shared/cuda", "nexora-has-moe-ffn/cuda", "nexora-erp/cuda"]
+

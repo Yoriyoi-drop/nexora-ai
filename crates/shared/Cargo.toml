@@ -23,3 +23,20 @@ async-trait.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 ndarray.workspace = true
+
+[features]
+default = []
+gpu = [
+    "nexora-has-moe-ffn/gpu",
+    "nexora-erp/gpu",
+    "nexora-vogp/gpu",
+    "nexora-atqs/gpu",
+    "nexora-gnac/gpu",
+    "nexora-tokenizer/gpu",
+    "nexora-deeplearning/gpu",
+]
+cuda = [
+    "nexora-has-moe-ffn/cuda",
+    "nexora-erp/cuda",
+    "nexora-gnac/cuda",
+]

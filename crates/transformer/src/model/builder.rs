@@ -127,6 +127,10 @@ pub struct CausalLM {
     pub(crate) gpu_weights: OnceLock<GpuWeights>,
     #[cfg(feature = "gpu")]
     pub(crate) gpu_cache: RwLock<Option<Vec<crate::gqa::GpuKVCacheEntry>>>, // never held across await points
+    #[cfg(feature = "gpu")]
+    pub(crate) rope_cos_gpu: OnceLock<nexora_autograd::gpu::GpuTensor>,
+    #[cfg(feature = "gpu")]
+    pub(crate) rope_sin_gpu: OnceLock<nexora_autograd::gpu::GpuTensor>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -187,6 +191,8 @@ impl Clone for CausalLM {
             use_atqs: self.use_atqs,
             gpu_weights: OnceLock::new(),
             gpu_cache: RwLock::new(None),
+            rope_cos_gpu: OnceLock::new(),
+            rope_sin_gpu: OnceLock::new(),
         }
     }
 }
@@ -315,6 +321,10 @@ impl CausalLM {
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
+            #[cfg(feature = "gpu")]
+            rope_cos_gpu: OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            rope_sin_gpu: OnceLock::new(),
         };
 
         // Auto-enable ATQS AWQ 4-bit compression when Q4 is configured.
@@ -393,6 +403,10 @@ impl CausalLM {
             gpu_weights: OnceLock::new(),
             #[cfg(feature = "gpu")]
             gpu_cache: RwLock::new(None),
+            #[cfg(feature = "gpu")]
+            rope_cos_gpu: OnceLock::new(),
+            #[cfg(feature = "gpu")]
+            rope_sin_gpu: OnceLock::new(),
         }
     }
 

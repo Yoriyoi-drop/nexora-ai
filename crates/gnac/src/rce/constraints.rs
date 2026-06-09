@@ -15,6 +15,7 @@ pub enum HardwareTarget {
     EdgeTPU,
     Mobile,
     CloudGPU,
+    TPU,
 }
 
 impl ResourceConstraints {
@@ -45,6 +46,16 @@ impl ResourceConstraints {
             max_cloud_cost_per_hour: 3.0,
             target_hardware: HardwareTarget::CloudGPU,
             energy_ceiling_joules: 500.0,
+        }
+    }
+
+    pub fn tpu() -> Self {
+        ResourceConstraints {
+            max_vram_mb: 160_000.0,
+            target_latency_ms: 50.0,
+            max_cloud_cost_per_hour: 5.0,
+            target_hardware: HardwareTarget::TPU,
+            energy_ceiling_joules: 200.0,
         }
     }
 

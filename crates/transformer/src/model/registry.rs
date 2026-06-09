@@ -398,17 +398,9 @@ impl CausalLM {
         };
 
         let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
-        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
-        // Upload cos/sin to GPU ONCE — reused across all layers
-        let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, cos_slice.len()], cos_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-        )?;
-        let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, sin_slice.len()], sin_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-        )?;
+        // GPU-side RoPE slice — tidak upload dari CPU tiap forward
+        let (cos_gpu, sin_gpu) = self.rope_slice_gpu(pos)?;
 
         let collective = self.collective.as_ref();
 
@@ -485,16 +477,8 @@ impl CausalLM {
         };
 
         let pos = cache.first().map(|e| e.seq_len).unwrap_or(0);
-        let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
 
-        let cos_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, cos_slice.len()], cos_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-        )?;
-        let sin_gpu = GpuTensor::from_cpu(
-            &ndarray::ArrayD::from_shape_vec(vec![1, sin_slice.len()], sin_slice.to_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
-        )?;
+        let (cos_gpu, sin_gpu) = self.rope_slice_gpu(pos)?;
 
         let collective = self.collective.as_ref();
 
@@ -635,101 +619,120 @@ impl CausalLM {
         // the early return above prevents reaching here entirely.
         if needs_sync_back {
             let kv_elems = n_kv_heads * head_dim;
-
+            // ── BATCHED SYNC-BACK: 1 staging buffer untuk semua layer ──
+            // Hitung total bytes: K+V per layer × num_layers
+            let mut layer_offsets_k: Vec<u64> = Vec::with_capacity(num_layers);
+            let mut layer_offsets_v: Vec<u64> = Vec::with_capacity(num_layers);
+            let mut total_bytes = 0u64;
             for layer_idx in 0..num_layers {
                 let gpu_entry = &gpu_entries[layer_idx];
-                let last_idx = gpu_entry.seq_len.wrapping_sub(1);
                 let elem_size: u64 = if gpu_entry.f16_storage { 2 } else { 4 };
-                let byte_off = (last_idx * kv_elems) as u64 * elem_size;
-                let token_bytes = (kv_elems as u64) * elem_size;
+                let kv_bytes = (kv_elems as u64) * elem_size;
+                layer_offsets_k.push(total_bytes);
+                layer_offsets_v.push(total_bytes + kv_bytes);
+                total_bytes += kv_bytes * 2; // K + V
+            }
 
-                let staging_k = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("kv_sync_back_k"),
-                    size: token_bytes,
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                    mapped_at_creation: false,
-                });
-                let staging_v = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("kv_sync_back_v"),
-                    size: token_bytes,
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                    mapped_at_creation: false,
-                });
+            let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("kv_sync_back_bulk"),
+                size: total_bytes,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
 
-                ctx.batch_dispatch(|enc| {
+            // Single batched copy — semua layer K+V dalam 1 encoder pass
+            ctx.batch_dispatch(|enc| {
+                for layer_idx in 0..num_layers {
+                    let gpu_entry = &gpu_entries[layer_idx];
+                    let last_idx = gpu_entry.seq_len.wrapping_sub(1);
+                    let elem_size: u64 = if gpu_entry.f16_storage { 2 } else { 4 };
+                    let token_bytes = (kv_elems as u64) * elem_size;
+                    let byte_off = (last_idx * kv_elems) as u64 * elem_size;
+
                     enc.copy_buffer_to_buffer(
                         gpu_entry.k.buffer(),
                         byte_off,
-                        &staging_k,
-                        0,
+                        &staging,
+                        layer_offsets_k[layer_idx],
                         token_bytes,
                     );
                     enc.copy_buffer_to_buffer(
                         gpu_entry.v.buffer(),
                         byte_off,
-                        &staging_v,
-                        0,
+                        &staging,
+                        layer_offsets_v[layer_idx],
                         token_bytes,
                     );
-                    Ok(())
+                }
+                Ok(())
+            })?;
+
+            ctx.sync();
+
+            // ONE map_async + poll for all layers
+            let slice = staging.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
+            ctx.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(30)),
+            });
+            rx.recv_timeout(Duration::from_secs(30))
+                .map_err(|_| {
+                    nexora_autograd::gpu::GpuError::Timeout(
+                        "KV cache readback timed out after 30s".into(),
+                    )
+                })?
+                .map_err(|e| {
+                    nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                 })?;
 
-                ctx.sync();
+            let mapped = slice.get_mapped_range();
+            for layer_idx in 0..num_layers {
+                if layer_idx >= cpu_entries.len() {
+                    break;
+                }
+                let gpu_entry = &gpu_entries[layer_idx];
+                let elem_size: u64 = if gpu_entry.f16_storage { 2 } else { 4 };
+                let kv_bytes = (kv_elems as u64) * elem_size;
 
-                let read_back =
-                    |staging: &wgpu::Buffer,
-                     is_f16: bool|
-                     -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
-                        let slice = staging.slice(..);
-                        let (tx, rx) = std::sync::mpsc::channel();
-                        slice.map_async(wgpu::MapMode::Read, move |r| {
-                            let _ = tx.send(r);
-                        });
-                        // Called from spawn_blocking — sync device.poll(Wait) is acceptable here
-                        ctx.device.poll(wgpu::PollType::Wait {
-                            submission_index: None,
-                            timeout: Some(Duration::from_secs(30)),
-                        });
-                        rx.recv_timeout(Duration::from_secs(30))
-                            .map_err(|_| {
-                                nexora_autograd::gpu::GpuError::Timeout(
-                                    "KV cache readback timed out after 30s".into(),
-                                )
-                            })?
-                            .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
-                            })?;
-                        let out: Vec<f32> = {
-                            let mapped = slice.get_mapped_range();
-                            let result = if is_f16 {
-                                mapped
-                                    .chunks_exact(2)
-                                    .map(|c| {
-                                        let bits = u16::from_ne_bytes([c[0], c[1]]);
-                                        half::f16::from_bits(bits).to_f32()
-                                    })
-                                    .collect()
-                            } else {
-                                mapped
-                                    .chunks_exact(4)
-                                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-                                    .collect()
-                            };
-                            result
-                        };
-                        staging.unmap();
-                        Ok(out)
-                    };
+                let k_start = layer_offsets_k[layer_idx] as usize;
+                let v_start = layer_offsets_v[layer_idx] as usize;
+                let k_end = k_start + kv_bytes as usize;
+                let v_end = v_start + kv_bytes as usize;
 
-                let new_k = read_back(&staging_k, gpu_entry.f16_storage)?;
-                let new_v = read_back(&staging_v, gpu_entry.f16_storage)?;
+                let k_raw = &mapped[k_start..k_end];
+                let v_raw = &mapped[v_start..v_end];
 
-                if layer_idx < cpu_entries.len() {
-                    let cpu_entry = &mut cpu_entries[layer_idx];
-                    cpu_entry.k.extend_from_slice(&new_k);
-                    cpu_entry.v.extend_from_slice(&new_v);
+                let cpu_entry = &mut cpu_entries[layer_idx];
+                if gpu_entry.f16_storage {
+                    cpu_entry.k.extend(
+                        k_raw.chunks_exact(2).map(|c| {
+                            half::f16::from_bits(u16::from_ne_bytes([c[0], c[1]])).to_f32()
+                        }),
+                    );
+                    cpu_entry.v.extend(
+                        v_raw.chunks_exact(2).map(|c| {
+                            half::f16::from_bits(u16::from_ne_bytes([c[0], c[1]])).to_f32()
+                        }),
+                    );
+                } else {
+                    cpu_entry.k.extend(
+                        k_raw.chunks_exact(4).map(|c| {
+                            f32::from_ne_bytes([c[0], c[1], c[2], c[3]])
+                        }),
+                    );
+                    cpu_entry.v.extend(
+                        v_raw.chunks_exact(4).map(|c| {
+                            f32::from_ne_bytes([c[0], c[1], c[2], c[3]])
+                        }),
+                    );
                 }
             }
+            drop(mapped);
+            staging.unmap();
         }
 
         Ok(result)
@@ -2171,6 +2174,51 @@ impl CausalLM {
             &[]
         };
         (cos, sin)
+    }
+
+    /// Get or create GPU-resident RoPE cos/sin tensors (full precomputed arrays).
+    /// Upload sekali sebagai [max_seq_len, half] — slice per posisi GPU-side via copy_buffer.
+    #[cfg(feature = "gpu")]
+    fn get_or_init_rope_gpu(&self) -> Result<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuTensor;
+        let half = self.config.head_dim() / 2;
+        let max_seq = self.config.max_seq_len;
+
+        if self.rope_cos_gpu.get().is_none() {
+            let flat: Vec<f32> = self.precomputed_cos.iter().copied().collect();
+            let shape = vec![max_seq, half];
+            if let Ok(t) = GpuTensor::from_slice(shape, &flat) {
+                let _ = self.rope_cos_gpu.set(t);
+            }
+        }
+        if self.rope_sin_gpu.get().is_none() {
+            let flat: Vec<f32> = self.precomputed_sin.iter().copied().collect();
+            let shape = vec![max_seq, half];
+            if let Ok(t) = GpuTensor::from_slice(shape, &flat) {
+                let _ = self.rope_sin_gpu.set(t);
+            }
+        }
+        let cos_gpu = self.rope_cos_gpu.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE cos cache".into())
+        })?;
+        let sin_gpu = self.rope_sin_gpu.get().ok_or_else(|| {
+            nexora_autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE sin cache".into())
+        })?;
+        Ok((cos_gpu, sin_gpu))
+    }
+
+    /// Slice a position's cos/sin from the GPU-resident RoPE cache using GPU-side copy.
+    /// Tidak ada CPU round-trip — murni GPU copy_buffer_to_buffer.
+    #[cfg(feature = "gpu")]
+    fn rope_slice_gpu(&self, pos: usize) -> Result<(nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuTensor), nexora_autograd::gpu::GpuError> {
+        use nexora_autograd::gpu::GpuContext;
+        let ctx = GpuContext::global()?;
+        let (cos_gpu, sin_gpu) = self.get_or_init_rope_gpu()?;
+        let half = (self.config.head_dim() / 2) as u32;
+        let pos_u32 = (pos as u32) * half;
+        let cos_slice = ctx.slice_tensor(cos_gpu, pos_u32, half)?;
+        let sin_slice = ctx.slice_tensor(sin_gpu, pos_u32, half)?;
+        Ok((cos_slice, sin_slice))
     }
 
     fn get_cos_sin_arrays(&self, pos: usize) -> (ndarray::Array1<f32>, ndarray::Array1<f32>) {

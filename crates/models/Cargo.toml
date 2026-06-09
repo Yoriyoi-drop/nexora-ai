@@ -29,3 +29,34 @@ uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true
 
+[features]
+default = []
+gpu = [
+    "nexora-model-core/gpu",
+    "nexora-shared/gpu",
+    "nexora-model-omnis/gpu",
+    "nexora-model-vortex/gpu",
+    "nexora-model-aether/gpu",
+    "nexora-model-axiom/gpu",
+    "nexora-model-cipher/gpu",
+    "nexora-model-genesis/gpu",
+    "nexora-model-kronos/gpu",
+    "nexora-model-nexum/gpu",
+    "nexora-model-spectra/gpu",
+    "nexora-model-swift/gpu",
+]
+cuda = [
+    "nexora-model-core/cuda",
+    "nexora-shared/cuda",
+    "nexora-model-omnis/cuda",
+    "nexora-model-vortex/cuda",
+    "nexora-model-aether/cuda",
+    "nexora-model-axiom/cuda",
+    "nexora-model-cipher/cuda",
+    "nexora-model-genesis/cuda",
+    "nexora-model-kronos/cuda",
+    "nexora-model-nexum/cuda",
+    "nexora-model-spectra/cuda",
+    "nexora-model-swift/cuda",
+]
+

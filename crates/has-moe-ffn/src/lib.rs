@@ -509,10 +509,9 @@ impl HasMoeFFN {
         }
         let cuda = ctx.cuda_runtime()?;
 
-        // Gunakan get_or_cache_cuda untuk akses CUDA tensor tanpa download+reupload
-        let _ = ctx.get_or_cache_cuda(x).ok()?;
-
         // Download input untuk CPU routing (unavoidable — routing butuh per-token decision)
+        // get_or_cache_cuda TIDAK dipanggil di sini karena kita download ke CPU routing anyway.
+        // CUDA mirror akan di-attach otomatis saat GpuTensor::from_cpu untuk output final.
         let x_cpu: ndarray::Array2<f32> = x.to_cpu().ok()?
             .into_dimensionality::<ndarray::Ix2>().ok()?;
 

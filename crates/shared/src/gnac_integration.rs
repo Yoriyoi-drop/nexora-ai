@@ -45,7 +45,6 @@ pub struct GnacIntegrationConfig {
     /// Mode operasi GNAC
     pub mode: GnacMode,
     /// Konfigurasi dasar GNAC
-    #[serde(skip)]
     pub gnac_config: GnacConfig,
     /// Konfigurasi Swarm Agent (jika mode ArchitectureSearch)
     #[serde(skip)]
@@ -80,7 +79,7 @@ impl Default for GnacIntegrationConfig {
             resource_constraints: Some(ResourceConstraints::cloud_gpu()),
             enable_lensing: true,
             enable_anomaly_detection: true,
-            enable_elastic: false,
+            enable_elastic: true,
             enable_experiments: true,
         }
     }
@@ -300,21 +299,68 @@ impl GnacEngine {
         &self.config
     }
 
-    /// Resolve mode-specific processing
+    /// Resolve mode-specific processing — elastic inference path
+    ///
+    /// Ketika elastic enabled:
+    /// 1. Hitung kompleksitas input (mean activation)
+    /// 2. Pilih ElasticStrategy berdasarkan skor
+    /// 3. Pilih precision berdasarkan target hardware
+    /// 4. Laporan jalur mana yang dipilih
+    ///
+    /// Ketika elastic disabled:
+    ///   Pass-through (input embedding tidak dimodifikasi)
     pub async fn resolve(&self, input_embedding: &[f32]) -> Result<Vec<f32>, String> {
         if !self.config.enable_elastic {
             return Ok(input_embedding.to_vec());
         }
 
         let graph = self.graph.read().await;
-        let complexity =
-            input_embedding.iter().map(|&x| x.abs()).sum::<f32>() / input_embedding.len() as f32;
+        let complexity = if input_embedding.is_empty() {
+            0.0
+        } else {
+            input_embedding.iter().map(|&x| x.abs()).sum::<f32>() / input_embedding.len() as f32
+        };
 
-        let router = ElasticRouter::new(ElasticStrategy::Balanced);
+        // Pilih strategi berdasarkan kompleksitas
+        let strategy = if complexity < 0.3 {
+            ElasticStrategy::Lightweight
+        } else if complexity < 0.7 {
+            ElasticStrategy::Balanced
+        } else {
+            ElasticStrategy::HighPrecision
+        };
+
+        let router = ElasticRouter::new(strategy);
         let path = router.select_path(complexity as f64, &graph);
 
-        if path.len() < graph.node_count() / 2 {
-            tracing::info!("GNAC: using lightweight path ({} nodes)", path.len());
+        // Pilih precision berdasarkan target hardware
+        let precision = self.config.target_hardware.as_ref().map(|hw| {
+            nexora_gnac::elastic::PrecisionScaler::select_precision(match hw {
+                HardwareTarget::EdgeTPU => "edge_tpu",
+                HardwareTarget::Mobile => "mobile",
+                HardwareTarget::CloudGPU => "gpu",
+                HardwareTarget::TPU => "tpu",
+            })
+        });
+
+        let node_count = graph.node_count();
+        let skipped = node_count.saturating_sub(path.len());
+        let pct = if node_count > 0 {
+            (skipped as f64 / node_count as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        if skipped > 0 {
+            tracing::info!(
+                "GNAC elastic: strategy={:?} complexity={:.3} skipped={}/{} nodes ({:.0}%) precision={:?}",
+                strategy, complexity, skipped, node_count, pct, precision
+            );
+        } else {
+            tracing::debug!(
+                "GNAC elastic: strategy={:?} complexity={:.3} full path ({} nodes) precision={:?}",
+                strategy, complexity, node_count, precision
+            );
         }
 
         Ok(input_embedding.to_vec())

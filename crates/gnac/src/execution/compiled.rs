@@ -48,19 +48,31 @@ impl CompiledExecutor {
 
         match self.backend {
             ExecutionBackend::CPU => CpuBackend::execute(ir, inputs),
-            ExecutionBackend::WGPU => self.execute_gpu(ir, inputs),
+            ExecutionBackend::WGPU | ExecutionBackend::CUDA => self.execute_gpu(ir, inputs),
         }
     }
 
-    /// Execute compiled graph on GPU via the wgpu-based GpuContext.
+    /// Execute compiled graph on GPU via GpuContext (WGPU or CUDA backend).
     fn execute_gpu(
         &self,
         ir: &GraphIR,
         inputs: HashMap<String, Tensor>,
     ) -> DLResult<HashMap<String, Tensor>> {
         let ctx = GpuContext::global().map_err(|e| crate::DeepLearningError::Computation {
-            reason: format!("CUDA backend requires GPU context: {}", e),
+            reason: format!("GPU backend requires GPU context: {}", e),
         })?;
+
+        let backend_name = if self.backend == ExecutionBackend::CUDA {
+            "CUDA"
+        } else {
+            "WGPU"
+        };
+        tracing::info!(
+            "Executing compiled graph '{}' on {} with {} ops",
+            ir.name,
+            backend_name,
+            ir.operations.len()
+        );
 
         // Upload all input tensors to GPU
         let mut gpu_tensors: HashMap<String, GpuTensor> = HashMap::new();
@@ -73,8 +85,10 @@ impl CompiledExecutor {
             gpu_tensors.insert(name.clone(), gpu_tensor);
         }
 
-        // Execute each operation on GPU
-        for op in &ir.operations {
+        // Batch unsupported ops for efficient CPU fallback
+        let mut fallback_ops: Vec<(usize, _)> = Vec::new();
+
+        for (op_idx, op) in ir.operations.iter().enumerate() {
             let get_gpu = |name: &str| -> DLResult<&GpuTensor> {
                 gpu_tensors
                     .get(name)
@@ -87,7 +101,6 @@ impl CompiledExecutor {
                 IROpType::MatMul => {
                     let a = get_gpu(&op.inputs[0].name)?;
                     let b = get_gpu(&op.inputs[1].name)?;
-                    // Transpose b: GpuContext::matmul computes a * b^T
                     let b_t =
                         ctx.transpose(b)
                             .map_err(|e| crate::DeepLearningError::Computation {
@@ -193,34 +206,43 @@ impl CompiledExecutor {
                         gpu_tensors.insert(output.name.clone(), result);
                     }
                 }
-                // Fallback: download to CPU, use CPU backend dispatch, re-upload
+                // Collect unsupported ops for batched CPU fallback
                 _ => {
-                    // Collect outputs from GPU map back to Tensor map
-                    let cpu_inputs: HashMap<String, Tensor> = gpu_tensors
-                        .iter()
-                        .map(|(k, gpu)| {
-                            let arr = gpu.to_cpu().unwrap_or_else(|e| {
-                                tracing::warn!("GNAC GPU fallback readback failed: {e}");
-                                ndarray::ArrayD::zeros(gpu.shape())
-                            });
-                            (k.clone(), Tensor::new(arr))
-                        })
-                        .collect();
+                    fallback_ops.push((op_idx, op.clone()));
+                }
+            }
+        }
 
-                    // Use the CPU backend's dispatch for unsupported ops
-                    // Need one operation at a time — fallback via single-op approach
-                    let mut single_op_ir =
-                        GraphIR::new(&format!("{}_fallback", ir.name), ExecutionBackend::CPU);
-                    single_op_ir.operations.push(op.clone());
-                    let cpu_result = CpuBackend::execute(&single_op_ir, cpu_inputs)?;
+        // Batched CPU fallback: download all needed tensors once, run all fallback ops on CPU, re-upload results
+        if !fallback_ops.is_empty() {
+            tracing::info!(
+                "GNAC GPU fallback: running {} unsupported ops on CPU (batched)",
+                fallback_ops.len()
+            );
 
-                    // Re-upload CPU results to GPU
-                    for (name, tensor) in cpu_result {
-                        let data = tensor.data();
-                        if let Ok(gpu_tensor) = GpuTensor::from_cpu(&data) {
-                            gpu_tensors.insert(name, gpu_tensor);
-                        }
-                    }
+            // Download all GPU tensors to CPU
+            let cpu_tensors: HashMap<String, Tensor> = gpu_tensors
+                .iter()
+                .map(|(k, gpu)| {
+                    let arr = gpu.to_cpu().unwrap_or_else(|e| {
+                        tracing::warn!("GNAC GPU fallback readback failed: {e}");
+                        ndarray::ArrayD::zeros(gpu.shape())
+                    });
+                    (k.clone(), Tensor::new(arr))
+                })
+                .collect();
+
+            // Run all fallback ops on CPU
+            let mut fallback_ir =
+                GraphIR::new(&format!("{}_gpu_fallback", ir.name), ExecutionBackend::CPU);
+            fallback_ir.operations = fallback_ops.iter().map(|(_, op)| op.clone()).collect();
+            let cpu_results = CpuBackend::execute(&fallback_ir, cpu_tensors)?;
+
+            // Re-upload CPU results to GPU
+            for (name, tensor) in cpu_results {
+                let data = tensor.data();
+                if let Ok(gpu_tensor) = GpuTensor::from_cpu(&data) {
+                    gpu_tensors.insert(name, gpu_tensor);
                 }
             }
         }

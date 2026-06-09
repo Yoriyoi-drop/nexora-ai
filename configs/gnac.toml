@@ -1,0 +1,49 @@
+# ==================================================
+# GNAC Configuration (Production — 100% capabilities)
+# ==================================================
+
+[engine]
+max_nodes = 10000
+default_dtype = "F32"
+tensor_pool_size_mb = 8192
+
+[features]
+enable_lensing = true
+enable_swarm = false
+enable_intervention = true
+enable_collaboration = false
+enable_sandbox = true
+
+[elastic]
+enable_elastic = true
+target_hardware = "CloudGPU"
+default_strategy = "Balanced"
+
+[lensing]
+enable_gradient_lens = true
+enable_attention_lens = true
+enable_latency_lens = true
+enable_memory_lens = true
+enable_entropy_lens = true
+
+[execution]
+backend = "auto"
+enable_optimization = true
+enable_fusion = true
+
+[scheduler]
+enable_checkpointing = true
+checkpoint_frequency = 4
+enable_async = true
+enable_tensor_paging = true
+max_vram_mb = 4096
+gradient_accumulation_steps = 1
+
+[sandbox]
+encryption_required = true
+audit_enabled = true
+verify_before_deploy = true
+
+[rce]
+enable_resource_estimation = true
+enable_cost_tracking = true

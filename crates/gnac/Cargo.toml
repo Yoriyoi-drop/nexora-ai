@@ -21,3 +21,4 @@ nexora-autograd = { path = "../autograd", default-features = false, features = [
 default = ["std", "gpu"]
 std = []
 gpu = ["nexora-autograd/gpu"]
+cuda = ["nexora-autograd/cuda"]
