@@ -160,19 +160,6 @@ impl GpuContext {
             .write_buffer(dst.buffer(), 0, bytemuck::cast_slice(data));
     }
 
-    /// Allocates a raw STORAGE buffer. Avoids scattered `device.create_buffer`
-    /// calls at callsites — centralised for pool integration.
-    pub(crate) fn alloc_storage(&self, label: &'static str, size: u64) -> wgpu::Buffer {
-        self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
     /// Allocates a UNIFORM buffer for config/dims data.
     pub(crate) fn alloc_uniform(&self, label: &'static str, size: u64) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor {

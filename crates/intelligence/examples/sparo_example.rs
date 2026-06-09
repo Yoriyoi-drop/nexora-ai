@@ -290,7 +290,7 @@ fn demo_rlvf_component() -> anyhow::Result<()> {
 
     // Verifikasi trace
     let step_feedbacks = manager.verify_trace(&trace)?;
-    let judge_feedbacks = manager.feedback_to_judge_feedback(&step_feedbacks);
+    let _judge_feedbacks = manager.feedback_to_judge_feedback(&step_feedbacks);
 
     println!("Verification results:");
     for (i, feedback) in step_feedbacks.iter().enumerate() {

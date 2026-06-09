@@ -4,12 +4,12 @@ use ndarray::{Array1, Array2};
 use rand::Rng;
 use rayon::prelude::*;
 use crate::rope::RoPE;
-use super::kv_cache::{KVCacheProvider, PagedCacheReader, KVCacheEntry};
+use super::kv_cache::{KVCacheProvider, KVCacheEntry, PagedCacheReader};
 use crate::{TransformerError, TransformerResult};
 #[cfg(feature = "gpu")]
-use super::gpu::{GqaGpuWeights, GpuKVCacheEntry};
+use super::gpu::GqaGpuWeights;
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuTensor};
+use super::gpu::GpuKVCacheEntry;
 
 #[derive(Debug)]
 pub struct GQA {
@@ -705,71 +705,62 @@ impl GQA {
         let v_flat: Vec<f32> = v.iter().copied().collect();
         cache.append(seq_id, layer_idx, token_pos, &k_flat, &v_flat);
 
-        // Read all cached positions for attention computation
+        // Batch-read ALL cached positions at once using read_layer_kv()
+        // Replaces O(num_tokens) per-token read() calls with O(1) allocation per layer.
         let num_tokens = cache.num_tokens(seq_id).unwrap_or(0);
         if num_tokens == 0 {
             return Ok(Array2::zeros((batch_size, self.num_heads * self.head_dim)));
         }
 
+        let (all_k, all_v) = match cache.read_layer_kv(seq_id, layer_idx) {
+            Some(kv) => kv,
+            None => return Ok(Array2::zeros((batch_size, self.num_heads * self.head_dim))),
+        };
+
+        let kv_dim = self.num_kv_heads * self.head_dim;
+        let k_arr = Array2::from_shape_vec((num_tokens, kv_dim), all_k)
+            .map_err(|e| TransformerError::Implementation(format!("reshape K: {}", e)))?;
+        let v_arr = Array2::from_shape_vec((num_tokens, kv_dim), all_v)
+            .map_err(|e| TransformerError::Implementation(format!("reshape V: {}", e)))?;
+
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
-        let cache_ref: &dyn PagedCacheReader = &*cache;
         for b in 0..batch_size {
-            let mut results = Vec::with_capacity(self.num_heads);
             for h in 0..self.num_heads {
                 let kv_h = (h / self.num_groups).min(self.num_kv_heads - 1);
                 let kv_off = kv_h * self.head_dim;
 
                 let q_slice = q.slice(ndarray::s![b, h, ..]);
-                let mut max_score = f32::NEG_INFINITY;
-                let mut scores = Vec::with_capacity(num_tokens);
-                for t in 0..num_tokens {
-                    let (k_row, _) = match cache_ref.read(seq_id, layer_idx, t) {
-                        Some(r) => r,
-                        None => continue,
-                    };
-                    let k_view = ndarray::ArrayView1::from(&k_row[kv_off..kv_off + self.head_dim]);
-                    let score = q_slice.dot(&k_view) * self.head_dim_rs;
-                    if score > max_score {
-                        max_score = score;
-                    }
-                    scores.push(score);
-                }
 
-                if scores.is_empty() {
-                    results.push((h, Vec::new()));
+                // Batched score: dot product with all cached K positions at once
+                let k_slice = k_arr.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
+                let raw_scores: Vec<f32> = k_slice.dot(&q_slice).iter()
+                    .map(|s| *s * self.head_dim_rs)
+                    .collect();
+
+                if raw_scores.is_empty() {
                     continue;
                 }
 
+                let max_score = raw_scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let mut exp_sum = 0.0;
-                for s in scores.iter_mut() {
-                    *s = (*s - max_score).exp();
-                    exp_sum += *s;
+                let mut exp_scores = Vec::with_capacity(num_tokens);
+                for &s in &raw_scores {
+                    let e = (s - max_score).exp();
+                    exp_sum += e;
+                    exp_scores.push(e);
                 }
 
                 let inv_exp_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-                let mut out_row = vec![0.0; self.head_dim];
-                for d in 0..self.head_dim {
-                    let mut weighted = 0.0;
-                    for (t, &s) in scores.iter().enumerate() {
-                        let (_, v_row) = match cache_ref.read(seq_id, layer_idx, t) {
-                            Some(r) => r,
-                            None => continue,
-                        };
-                        weighted += s * inv_exp_sum * v_row[kv_off + d];
-                    }
-                    out_row[d] = weighted;
-                }
-                results.push((h, out_row));
-            }
 
-            for (h, row) in results {
-                if row.is_empty() {
-                    continue;
-                }
+                // Batched V aggregation: [num_tokens] · [num_tokens, head_dim] → [head_dim]
+                let v_slice = v_arr.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
+                let weights = Array1::from_vec(exp_scores.iter().map(|e| e * inv_exp_sum).collect());
+                let out_row_arr = weights.dot(&v_slice);
+
                 let out_base = h * self.head_dim;
                 for d in 0..self.head_dim {
-                    output[[b, out_base + d]] = row[d];
+                    output[[b, out_base + d]] = out_row_arr[d];
                 }
             }
         }

@@ -131,8 +131,8 @@ macro_rules! gen_binary_op {
         $extra_saved_gpu:expr,
     ) => {
         pub fn $op_name(a: &$crate::tensor::Tensor, b: &$crate::tensor::Tensor) -> $crate::tensor::Tensor {
-            let a_shape: Vec<usize> = a.shape();
-            let b_shape: Vec<usize> = b.shape();
+            let _a_shape: Vec<usize> = a.shape();
+            let _b_shape: Vec<usize> = b.shape();
             #[cfg(feature = "device-cuda")]
             {
                 let a_storage = a.storage();

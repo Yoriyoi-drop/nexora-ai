@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use tracing::info;
 use crate::model::builder::CausalLM;
-use crate::{TransformerConfig, TransformerResult, TransformerError};
+use crate::{TransformerResult, TransformerError};
 
 impl CausalLM {
     pub fn parameter_count(&self) -> usize {

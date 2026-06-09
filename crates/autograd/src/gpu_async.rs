@@ -323,8 +323,8 @@ pub fn tensor_to_cpu_async<'a>(
 
     Ok(CpuReadback {
         staging,
-        submission,
-        byte_size,
+        _submission: submission,
+        _byte_size: byte_size,
         shape: tensor.shape(),
     })
 }
@@ -332,8 +332,8 @@ pub fn tensor_to_cpu_async<'a>(
 /// A pending CPU readback. Call `poll()` to check completion.
 pub struct CpuReadback {
     staging: wgpu::Buffer,
-    submission: wgpu::SubmissionIndex,
-    byte_size: u64,
+    _submission: wgpu::SubmissionIndex,
+    _byte_size: u64,
     shape: Vec<usize>,
 }
 

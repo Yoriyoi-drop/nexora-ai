@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 
 use cudarc::cublas::{sys as cublas_sys, CudaBlas, Gemm, GemmConfig};
 use cudarc::cublaslt::{CudaBlasLT, Matmul, MatmulConfig, Activation};
-use cudarc::cublaslt::result as cublaslt_result;
 use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaFunction, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::compile_ptx;
 use once_cell::sync::OnceCell;

@@ -1,12 +1,7 @@
-use std::borrow::Cow;
-use std::sync::OnceLock;
 use ndarray::{Array1, Array2};
-use rand::Rng;
 use nexora_autograd::gpu::{GpuContext, GpuDtype, GpuTensor};
-use crate::rope::RoPE;
-use super::kv_cache::{KVCacheProvider, PagedCacheReader, KVCacheEntry, CpuKVCache};
+use super::kv_cache::{KVCacheProvider, KVCacheEntry};
 use super::gqa_cpu::GQA;
-use crate::{TransformerError, TransformerResult};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]

@@ -209,6 +209,8 @@ pub fn load_safetensors_with_meta(
         FoundationError::Configuration(format!("Invalid JSON header: {}", e))
     })?;
 
+    const MAX_TENSOR_ELEMENTS: usize = 500_000_000; // 500M elements ~ 2GB for F32
+
     let mut result = HashMap::new();
     for (name, entry) in &header.tensors {
         let start = 8 + header_len + entry.data_offsets[0];
@@ -221,6 +223,12 @@ pub fn load_safetensors_with_meta(
         }
         let bytes = &raw[start..end];
         let total: usize = entry.shape.iter().product();
+        if total > MAX_TENSOR_ELEMENTS {
+            return Err(FoundationError::Configuration(format!(
+                "Tensor '{}' has {} elements (max {})",
+                name, total, MAX_TENSOR_ELEMENTS
+            )));
+        }
 
         let floats = match entry.dtype.as_str() {
             "F32" => {

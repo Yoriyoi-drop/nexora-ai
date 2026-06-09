@@ -8,7 +8,7 @@ use crate::gen_unary_op;
 use crate::gen_binary_op;
 
 #[cfg(feature = "device-gpu")]
-use crate::gpu::{GpuContext, GpuTensor};
+use crate::gpu::GpuTensor;
 
 // ── Helpers for shape encoding ──────────────────────────────────────────────────
 

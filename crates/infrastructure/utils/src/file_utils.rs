@@ -8,16 +8,34 @@ use std::path::{Path, PathBuf};
 pub struct FileUtils;
 
 impl FileUtils {
-    /// Read file to string
+    const MAX_READ_SIZE: u64 = 512 * 1024 * 1024; // 512 MB
+
+    /// Read file to string (checks file size first)
     pub fn read_file_to_string(path: &Path) -> Result<String> {
+        let metadata = fs::metadata(path)?;
+        if metadata.len() > Self::MAX_READ_SIZE {
+            return Err(anyhow::anyhow!(
+                "File too large: {} bytes (max {}). Use streaming instead.",
+                metadata.len(),
+                Self::MAX_READ_SIZE
+            ));
+        }
         let mut file = File::open(path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
         Ok(content)
     }
 
-    /// Read file to bytes
+    /// Read file to bytes (checks file size first)
     pub fn read_file_to_bytes(path: &Path) -> Result<Vec<u8>> {
+        let metadata = fs::metadata(path)?;
+        if metadata.len() > Self::MAX_READ_SIZE {
+            return Err(anyhow::anyhow!(
+                "File too large: {} bytes (max {}). Use streaming instead.",
+                metadata.len(),
+                Self::MAX_READ_SIZE
+            ));
+        }
         let mut file = File::open(path)?;
         let mut content = Vec::new();
         file.read_to_end(&mut content)?;

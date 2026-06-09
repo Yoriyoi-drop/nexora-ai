@@ -71,6 +71,8 @@ pub struct InferenceSession {
     history: Arc<RwLock<Vec<SessionEntry>>>,
     /// Context cache
     context_cache: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    /// Max context cache entries
+    max_cache_entries: usize,
     /// Created timestamp
     created_at: DateTime<Utc>,
     /// Last activity timestamp
@@ -156,6 +158,7 @@ impl InferenceSession {
             stats: Arc::new(RwLock::new(SessionStats::default())),
             history: Arc::new(RwLock::new(Vec::new())),
             context_cache: Arc::new(RwLock::new(HashMap::new())),
+            max_cache_entries: 500,
             created_at: now,
             last_activity: Arc::new(RwLock::new(now)),
         }
@@ -290,10 +293,13 @@ impl InferenceSession {
         cache.get(key).cloned()
     }
 
-    /// Set context in cache
+    /// Set context in cache (capped at max_cache_entries)
     pub async fn set_context(&self, key: String, value: serde_json::Value) {
         {
             let mut cache = self.context_cache.write().await;
+            if !cache.contains_key(&key) && cache.len() >= self.max_cache_entries {
+                cache.clear();
+            }
             cache.insert(key, value);
         }
         self.update_last_activity().await;

@@ -2,7 +2,7 @@
 //!
 //! High-performance database abstraction layer replacing database.c
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -114,6 +114,7 @@ impl Default for MySQLConfig {
 #[cfg(feature = "mysql")]
 mod mysql_impl {
     use super::*;
+    use anyhow::anyhow;
     use mysql::prelude::Queryable;
 
     fn convert_mysql_value(val: mysql::Value) -> Value {

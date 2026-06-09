@@ -5,7 +5,9 @@ use crate::tensor::Tensor;
 use crate::gen_activation_op;
 
 #[cfg(feature = "device-gpu")]
-use crate::gpu::{GpuContext, GpuTensor};
+use crate::gpu::GpuContext;
+#[cfg(feature = "device-gpu")]
+use crate::gpu::GpuTensor;
 
 // ── relu ─────────────────────────────────────────────────────────────────────────
 
@@ -203,7 +205,6 @@ gen_activation_op!(silu,
 pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
     #[cfg(feature = "device-gpu")]
     {
-        use crate::gpu::{GpuContext, GpuError};
         let storage = input.storage();
         if let crate::device::Storage::Gpu(gpu_input, _) = &storage {
             if let Ok(ctx) = crate::gpu::GpuContext::global() {
@@ -265,7 +266,6 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
 pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
     #[cfg(feature = "device-gpu")]
     {
-        use crate::gpu::{ElemOp, GpuContext};
         let g_storage = gate.storage();
         let x_storage = x.storage();
         if let (crate::device::Storage::Gpu(gpu_gate, _), crate::device::Storage::Gpu(gpu_x, _)) =

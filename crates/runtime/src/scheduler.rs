@@ -50,6 +50,7 @@ struct SchedulerInner {
 pub struct RequestScheduler {
     max_concurrent_requests: usize,
     max_queue_time_ms: u64,
+    max_queue_depth: usize,
     strategy: SchedulingStrategy,
     inner: Arc<RwLock<SchedulerInner>>,
 }
@@ -93,6 +94,7 @@ impl RequestScheduler {
         Self {
             max_concurrent_requests,
             max_queue_time_ms: 30000,
+            max_queue_depth: 10000,
             strategy: SchedulingStrategy::Priority,
             inner: Arc::new(RwLock::new(SchedulerInner {
                 queue: VecDeque::new(),
@@ -104,6 +106,11 @@ impl RequestScheduler {
                 round_robin_index: 0,
             })),
         }
+    }
+
+    pub fn with_max_queue_depth(mut self, depth: usize) -> Self {
+        self.max_queue_depth = depth;
+        self
     }
 
     pub fn with_max_queue_time(mut self, ms: u64) -> Self {
@@ -174,6 +181,13 @@ impl RequestScheduler {
 
         {
             let mut inner = self.inner.write().await;
+            if inner.queue.len() >= self.max_queue_depth {
+                drop(inner);
+                return Err(InferenceError::InternalError(format!(
+                    "Scheduler queue full: {} requests queued (max {})",
+                    self.max_queue_depth, self.max_queue_depth
+                )).into());
+            }
             inner
                 .channels
                 .insert(request_uuid, queued_request.response_tx.clone());

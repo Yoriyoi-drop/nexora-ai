@@ -5,7 +5,7 @@ use crate::block::TransformerBlock;
 use crate::embedding_registry;
 use crate::lora::LayerLoRA;
 use crate::rope::RoPE;
-use crate::{LayerInjector, TransformerConfig, TransformerError, TransformerResult};
+use crate::{LayerInjector, TransformerConfig};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug)]

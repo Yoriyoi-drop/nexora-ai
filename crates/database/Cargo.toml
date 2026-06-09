@@ -29,6 +29,7 @@ nexora-common = { path = "../infrastructure/common" }
 
 [features]
 default = []
+tls = ["tokio-postgres-rustls", "rustls"]
 postgres = ["tokio-postgres", "tokio-postgres-rustls", "rustls"]
 sqlite = ["rusqlite"]
 sqlx = ["dep:sqlx"]

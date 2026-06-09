@@ -249,18 +249,6 @@ fn dispatch_with_reusable_encoder(
     });
 }
 
-/// Helper: copies buffer content using the reusable encoder.
-fn copy_with_reusable_encoder(
-    ctx: &GpuContext,
-    src: &wgpu::Buffer,
-    dst: &wgpu::Buffer,
-    byte_size: u64,
-) {
-    ctx.with_encoder(|enc| {
-        enc.copy_buffer_to_buffer(src, 0, dst, 0, byte_size);
-    });
-}
-
 // ─── Dispatch helpers ──────────────────────────────────────────────────────────
 
 /// Convert f32 storage buffer to f16 (packed u16) buffer.

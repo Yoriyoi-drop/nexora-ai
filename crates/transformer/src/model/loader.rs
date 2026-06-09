@@ -1,5 +1,4 @@
 use ndarray::{Array1, Array2};
-use crate::gqa::KVCacheEntry;
 use crate::model::builder::{BlockGpuWeights, CausalLM, GpuWeights};
 use crate::{TransformerConfig, TransformerError, TransformerResult};
 

@@ -422,8 +422,14 @@ fn find_text_column(headers: &[String]) -> Option<usize> {
 
 // ── JSON array ───────────────────────────────────────────────────────────────
 
+const MAX_LOAD_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
+
 #[cfg(feature = "json")]
 fn load_json(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
+    let file_size = std::fs::metadata(path).map_err(|e| format!("JSON metadata error: {}", e))?.len();
+    if file_size > MAX_LOAD_FILE_SIZE {
+        return Err(format!("JSON file too large: {} bytes (max {}). Use streaming (JSONL) instead.", file_size, MAX_LOAD_FILE_SIZE));
+    }
     let content = std::fs::read_to_string(path).map_err(|e| format!("JSON read error: {}", e))?;
 
     let value: serde_json::Value =
@@ -459,6 +465,10 @@ fn load_json(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String
 
 #[cfg(feature = "json")]
 fn load_jsonl(path: &Path, source: &SourceInfo) -> Result<Vec<DataSample>, String> {
+    let file_size = std::fs::metadata(path).map_err(|e| format!("JSONL metadata error: {}", e))?.len();
+    if file_size > MAX_LOAD_FILE_SIZE {
+        return Err(format!("JSONL file too large: {} bytes (max {}). Use stream_dataset() instead.", file_size, MAX_LOAD_FILE_SIZE));
+    }
     let content = std::fs::read_to_string(path).map_err(|e| format!("JSONL read error: {}", e))?;
 
     let mut samples = Vec::new();

@@ -575,6 +575,10 @@ impl crate::cli::commands::Cli {
                     info!("{}",
                         bold!("    └──────────────────────────────────────────────────────────────────┘"));
                     let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
+                    let max_size = 2u64 * 1024 * 1024 * 1024; // 2 GB
+                    if file_size > max_size {
+                        return Err(anyhow::anyhow!("Training file too large: {} bytes (max {}). Use stream_dataset() instead.", file_size, max_size));
+                    }
                     let file_mb = file_size as f64 / 1_048_576.0;
                     let load_start = std::time::Instant::now();
                     let raw_text = std::fs::read_to_string(data)?;
@@ -1681,6 +1685,10 @@ impl crate::cli::commands::Cli {
         info!("  Vocab size: {}", tokenizer.vocab_size());
 
         info!("Loading test data...");
+        let test_size = std::fs::metadata(test_data).map(|m| m.len()).unwrap_or(0);
+        if test_size > 2u64 * 1024 * 1024 * 1024 {
+            return Err(anyhow::anyhow!("Test file too large: {} bytes (max 2GB)", test_size));
+        }
         let raw_text = std::fs::read_to_string(test_data)?;
         let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
         info!("  {} baris teks", lines.len());

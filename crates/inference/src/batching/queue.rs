@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+const MAX_TRIE_NODES: usize = 100_000;
 
 /// A simple prefix tree (trie) for detecting shared prefixes across sequences.
 /// When `enable_prefix_sharing` is on, sequences with matching prefixes share
@@ -15,12 +16,14 @@ struct PrefixTrieNode {
 #[derive(Debug)]
 pub(crate) struct PrefixTrie {
     root: PrefixTrieNode,
+    node_count: usize,
 }
 
 impl PrefixTrie {
     pub(crate) fn new() -> Self {
         Self {
             root: PrefixTrieNode::default(),
+            node_count: 1,
         }
     }
 
@@ -28,7 +31,15 @@ impl PrefixTrie {
     pub(crate) fn insert(&mut self, seq_id: u64, prompt: &[u32]) {
         let mut node = &mut self.root;
         for &token in prompt {
-            node = node.children.entry(token).or_default();
+            if !node.children.contains_key(&token) {
+                if self.node_count >= MAX_TRIE_NODES {
+                    self.clear();
+                    break;
+                }
+                node.children.entry(token).or_default();
+                self.node_count += 1;
+            }
+            node = node.children.get_mut(&token).expect("just inserted above");
             node.seq_ids.push(seq_id);
         }
     }
@@ -64,6 +75,12 @@ impl PrefixTrie {
             }
         }
         result
+    }
+
+    /// Clear the entire trie to free memory.
+    pub(crate) fn clear(&mut self) {
+        self.root = PrefixTrieNode::default();
+        self.node_count = 1;
     }
 }
 

@@ -350,7 +350,7 @@ pub struct MemoryCoordinator {
     /// Bytes yang teralokasi oleh external consumer.
     external_used_bytes: u64,
     /// Soft limit — total allocation di atas ini trigger eviction.
-    eviction_threshold: u64,
+    _eviction_threshold: u64,
     /// Hard limit — reject allocation di atas ini.
     critical_threshold: u64,
 }
@@ -363,7 +363,7 @@ impl MemoryCoordinator {
             total_vram,
             pool_used_bytes: 0,
             external_used_bytes: 0,
-            eviction_threshold: eviction,
+            _eviction_threshold: eviction,
             critical_threshold: critical,
         }
     }

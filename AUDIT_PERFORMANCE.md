@@ -601,7 +601,7 @@
 
 | # | Item | Target | Estimasi Effort | Status |
 |---|------|--------|-----------------|--------|
-| 7 | `to_flat_cache()` → `forward_paged()` | `crates/inference/src/paged_cache/cache.rs:755` | 3 hari | 🔄 BELUM |
+| 7 | `to_flat_cache()` → `forward_paged()` | `crates/inference/src/paged_cache/cache.rs:755` | 3 hari | ✅ **SELESAI** — Added `read_layer_kv()` to `PagedCacheReader` trait + `PagedKVCache` impl using `slice_rows_into` batch read. Refactored `forward_with_paged()` (gqa_cpu.rs) to use `read_layer_kv()` — eliminates O(num_tokens) per-token Vec allocations per layer per forward (262,144 alloc/step → 64). Cold storage uses `read_layer_kv()` instead of `to_flat_cache()`. 27/27 tests pass. |
 | 8 | Unify Dual MoE (Oracle → has-moe-ffn) | `crates/oracle/src/backbone.rs` + `crates/has-moe-ffn/` | 5 hari | 🔄 BELUM |
 | 9 | Generic Classifier\<N\> (10 model) | `crates/models/src/*/classifier.rs` | 2 hari | ✅ **SELESAI** — `classifier_util::GenericClassifier<const N>` eliminates 8× identik struct + 2 varian (vortex/omnis). All delegation refactored. 0 dummy/uninit. |
 | 10 | Unify 3× Rate Limiter | `api/`, `security/`, `telemetry/` | 2 hari | ✅ **SELESAI** — Telemetry token bucket + TTL eviction + max capacity. API rate limiter converted from Vec sliding window → token bucket O(1). Security pure function preserved. |
@@ -682,6 +682,7 @@
 | 8 Jun 2026 | 4.13 | `payload.clone()` dihapus dari metrics handler | `apps/nexora-ai/src/server/handlers.rs` |
 | 8 Jun 2026 | 4.14 | LFU eviction O(n)→O(1): `entries.iter().min_by_key()` → `lru_order.last()` | `crates/runtime/src/kv_cache.rs` |
 | 8 Jun 2026 | 4.15 | Sequential clear() → concurrent `tokio::spawn` per shard | `crates/runtime/src/kv_cache.rs` |
+| 9 Jun 2026 | 2.7 | `read_layer_kv()` batch read — forward_paged O(seq) alloc → O(1) per layer | `crates/transformer/src/gqa/kv_cache.rs`, `gqa_cpu.rs`, `crates/inference/src/paged_cache/cache.rs` |
 | 5 Jun 2026 | 3.17 | CowArray backward: inner loop dx.clone eliminated, 13 .to_vec → &[usize] | `crates/autograd/src/ops/nn.rs` |
 | 5 Jun 2026 | 3.18 | Caffeine MoE: 5 static functions → real Vec\<Expert\> Xavier init + forward blend | `crates/multimodal/src/caffeine/mod.rs` |
 | 5 Jun 2026 | 3.19 | NCCL collective: real cudarc::nccl::safe::Comm via from_rank() | `crates/transformer/src/nccl_collective.rs` |

@@ -188,16 +188,6 @@ impl ReadbackLimiter {
         true
     }
 
-    /// Non-blocking try-acquire. Returns true if a permit was acquired.
-    pub fn try_acquire(&self) -> bool {
-        let mut avail = self.available.lock().unwrap_or_else(|e| e.into_inner());
-        if *avail == 0 {
-            return false;
-        }
-        *avail -= 1;
-        true
-    }
-
     /// Release a permit back to the pool, waking one waiter.
     pub fn release(&self) {
         let mut avail = self.available.lock().unwrap_or_else(|e| e.into_inner());
@@ -229,14 +219,14 @@ pub struct GpuContext {
     /// Uses `std::sync::Mutex` — all GPU dispatch methods are sync. Never used in async context.
     pub(crate) memory_pool: Mutex<crate::gpu_memory::GpuMemoryPool>,
     /// Unified memory coordinator — tracks pool + external allocations.
-    pub(crate) memory_coordinator: Mutex<crate::gpu_memory::MemoryCoordinator>,
+    pub(crate) _memory_coordinator: Mutex<crate::gpu_memory::MemoryCoordinator>,
     pub(crate) profiling_query_set: Option<wgpu::QuerySet>,
     pub(crate) query_pool_size: usize,
     pub(crate) query_index: std::sync::atomic::AtomicUsize,
     /// Reusable query resolve buffer to avoid alloc per profiled dispatch
-    pub(crate) query_resolve_buf: Option<wgpu::Buffer>,
+    pub(crate) _query_resolve_buf: Option<wgpu::Buffer>,
     /// Reusable readback buffer for timestamp queries
-    pub(crate) query_readback_buf: Option<Mutex<wgpu::Buffer>>,
+    pub(crate) _query_readback_buf: Option<Mutex<wgpu::Buffer>>,
     // ── Reusable command encoder (Mutex-protected for &self access) ───
     // WARNING: This is a global encoder mutex which can cause contention under
     // heavy multi-threaded GPU dispatch. For high-throughput GPU workloads (>100 ops/sec),

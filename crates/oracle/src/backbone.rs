@@ -48,163 +48,6 @@ impl Default for OracleBackboneConfig {
     }
 }
 
-/// Sparse Mixture of Experts Layer
-///
-/// Inference: delegates to HasMoeFFN (nexora-has-moe-ffn).
-/// Training params are extracted from HasMoeFFN at training time —
-/// no redundant ndarray mirror.
-pub struct SparseMoELayer {
-    pub _config: OracleBackboneConfig,
-    /// Forward/inference — HasMoeFFN
-    pub moe: HasMoeFFN,
-}
-
-impl SparseMoELayer {
-    pub fn new(config: OracleBackboneConfig) -> Self {
-        let moe_config = HasMoeFFNConfig {
-            num_experts: config.n_experts,
-            top_k: config.top_k,
-            hidden_size: config.d_model,
-            intermediate_size: config.mlp_hidden,
-            ..Default::default()
-        };
-        Self {
-            _config: config.clone(),
-            moe: HasMoeFFN::new(moe_config),
-        }
-    }
-
-    pub fn forward<S>(&self, x: &ArrayBase<S, ndarray::Ix2>) -> Result<Array2<f32>>
-    where
-        S: Data<Elem = f32>,
-    {
-        let x_owned = x.to_owned();
-        Ok(self.moe.forward(&x_owned))
-    }
-
-    #[cfg(feature = "gpu")]
-    pub fn forward_gpu(&self, x: &GpuTensor) -> Result<GpuTensor> {
-        self.moe.forward_gpu(x)
-            .map_err(|e| anyhow::anyhow!("HasMoeFFN GPU forward: {e}"))
-    }
-
-    pub fn get_expert_usage<S>(&self, _x: &ArrayBase<S, ndarray::Ix2>) -> Result<Vec<f32>>
-    where
-        S: Data<Elem = f32>,
-    {
-        Ok(vec![0.0; self._config.n_experts])
-    }
-
-    /// Collect MoE parameters in Oracle checkpoint format:
-    /// [gate_w, gate_b, (expert_w1, expert_b1, expert_w2, expert_b2) × n_experts]
-    /// gate_w: [d_model, n_experts], gate_b: [n_experts]
-    /// expert_w1: [d_model, mlp_hidden], expert_b1: [mlp_hidden]
-    /// expert_w2: [mlp_hidden, d_model], expert_b2: [d_model]
-    ///
-    /// Reads from HasMoeFFN and transposes to Oracle layout.
-    pub fn collect_training_params(&self) -> Vec<(Vec<f32>, Vec<usize>)> {
-        let ne = self._config.n_experts;
-
-        let moe_params = self.moe.collect_params();
-        let mut out = Vec::with_capacity(2 + 4 * ne);
-
-        // moe_params[0] = router_weights [ne, h] → gate_w [h, ne]
-        let (ref flat_rw, ref shape_rw) = moe_params[0];
-        let nh = shape_rw[1];
-        let nne = shape_rw[0];
-        let mut gate_w = vec![0.0f32; nh * nne];
-        for r in 0..nne {
-            for c in 0..nh {
-                gate_w[c * nne + r] = flat_rw[r * nh + c];
-            }
-        }
-        out.push((gate_w, vec![nh, nne]));
-        out.push((vec![0.0f32; nne], vec![nne])); // gate_b (no bias in Router)
-
-        for e in 0..ne {
-            let base = 1 + 4 * e;
-            // fc1 [i, h] → expert_w1 [h, i]
-            let (ref flat_fc1, ref shape_fc1) = moe_params[base];
-            let ni = shape_fc1[0];
-            let nh2 = shape_fc1[1];
-            let mut w1 = vec![0.0f32; nh2 * ni];
-            for r in 0..ni {
-                for c in 0..nh2 {
-                    w1[c * ni + r] = flat_fc1[r * nh2 + c];
-                }
-            }
-            out.push((w1, vec![nh2, ni]));
-            // fc1_bias
-            out.push(moe_params[base + 1].clone());
-            // fc2 [h, i] → expert_w2 [i, h]
-            let (ref flat_fc2, ref shape_fc2) = moe_params[base + 2];
-            let nh3 = shape_fc2[0];
-            let ni2 = shape_fc2[1];
-            let mut w2 = vec![0.0f32; ni2 * nh3];
-            for r in 0..nh3 {
-                for c in 0..ni2 {
-                    w2[c * nh3 + r] = flat_fc2[r * ni2 + c];
-                }
-            }
-            out.push((w2, vec![ni2, nh3]));
-            // fc2_bias
-            out.push(moe_params[base + 3].clone());
-        }
-
-        out
-    }
-
-    /// Sync parameters from Oracle checkpoint format into HasMoeFFN.
-    /// Inverse of `collect_training_params`.
-    pub fn sync_training_params(&mut self, params: &[(Vec<f32>, Vec<usize>)]) {
-        let ne = self._config.n_experts;
-
-        let mut moe_params: Vec<(Vec<f32>, Vec<usize>)> = Vec::with_capacity(1 + 4 * ne);
-
-        // gate_w [h, ne] → router_weights [ne, h]
-        let (ref gate_w, ref shape_gw) = params[0];
-        let h_sz = shape_gw[0];
-        let ne_sz = shape_gw[1];
-        let mut rw = vec![0.0f32; ne_sz * h_sz];
-        for c in 0..h_sz {
-            for r in 0..ne_sz {
-                rw[r * h_sz + c] = gate_w[c * ne_sz + r];
-            }
-        }
-        moe_params.push((rw, vec![ne_sz, h_sz]));
-
-        for e in 0..ne {
-            let base = 2 + 4 * e;
-            // expert_w1 [h, i] → fc1 [i, h]
-            let (ref ow1, ref shape_ow1) = params[base];
-            let h2 = shape_ow1[0];
-            let i_sz = shape_ow1[1];
-            let mut fc1 = vec![0.0f32; i_sz * h2];
-            for c in 0..h2 {
-                for r in 0..i_sz {
-                    fc1[r * h2 + c] = ow1[c * i_sz + r];
-                }
-            }
-            moe_params.push((fc1, vec![i_sz, h2]));
-            moe_params.push(params[base + 1].clone()); // b1
-            // expert_w2 [i, h] → fc2 [h, i]
-            let (ref ow2, ref shape_ow2) = params[base + 2];
-            let i2 = shape_ow2[0];
-            let h3 = shape_ow2[1];
-            let mut fc2 = vec![0.0f32; h3 * i2];
-            for c in 0..i2 {
-                for r in 0..h3 {
-                    fc2[r * i2 + c] = ow2[c * h3 + r];
-                }
-            }
-            moe_params.push((fc2, vec![h3, i2]));
-            moe_params.push(params[base + 3].clone()); // b2
-        }
-
-        self.moe.sync_params(&moe_params);
-    }
-}
-
 fn xavier_uniform(in_dim: usize, out_dim: usize) -> f32 {
     let limit = (6.0 / (in_dim + out_dim) as f32).sqrt();
     rand::random::<f32>() * 2.0 * limit - limit
@@ -422,7 +265,7 @@ impl LatentAttentionHead {
 
                 // Row-wise softmax
                 for i in 0..n_q {
-                    let abs_qi = q_start + i;
+                    let _abs_qi = q_start + i;
                     let mut max_val = f32::NEG_INFINITY;
                     for j in 0..seq_len {
                         if scores[i * seq_len + j] > max_val {
@@ -655,7 +498,7 @@ impl LinearLayer {
 pub struct OracleBackbone {
     pub config: OracleBackboneConfig,
     pub embedding: EmbeddingLayer,
-    pub moe_layers: Vec<SparseMoELayer>,
+    pub moe_layers: Vec<HasMoeFFN>,
     pub attention_layers: Vec<MultiHeadLatentAttention>,
     pub norm_layers: Vec<LayerNorm>,
     pub output_projection: LinearLayer,
@@ -664,12 +507,19 @@ pub struct OracleBackbone {
 impl OracleBackbone {
     pub fn new(config: OracleBackboneConfig, vocab_size: usize) -> Self {
         let n_layers = 12; // Default number of transformer layers
+        let moe_config = HasMoeFFNConfig {
+            num_experts: config.n_experts,
+            top_k: config.top_k,
+            hidden_size: config.d_model,
+            intermediate_size: config.mlp_hidden,
+            ..Default::default()
+        };
 
         Self {
             config: config.clone(),
             embedding: EmbeddingLayer::new(vocab_size, config.d_model),
             moe_layers: (0..n_layers)
-                .map(|_| SparseMoELayer::new(config.clone()))
+                .map(|_| HasMoeFFN::new(moe_config.clone()))
                 .collect(),
             attention_layers: (0..n_layers)
                 .map(|_| MultiHeadLatentAttention::new(config.clone()))
@@ -698,8 +548,8 @@ impl OracleBackbone {
 
             // MoE layer - reshape from 3D to 2D
             let (b, s, d) = hidden.dim();
-            let hidden_2d = hidden.view().into_shape((b * s, d))?;
-            let moe_output = self.moe_layers[i].forward(&hidden_2d)?;
+            let hidden_2d = hidden.view().into_shape((b * s, d))?.to_owned();
+            let moe_output = self.moe_layers[i].forward(&hidden_2d);
             let moe_output_3d = moe_output.into_shape((b, s, d))?;
             hidden = hidden + moe_output_3d;
 
@@ -736,7 +586,8 @@ impl OracleBackbone {
             let gpu_normed = self.norm_layers[i].forward_gpu(&hidden, &ctx, d_model)?;
 
             // MoE layer — HasMoeFFN handles GPU internally if available
-            let moe_out = self.moe_layers[i].forward_gpu(&gpu_normed)?;
+            let moe_out = self.moe_layers[i].forward_gpu(&gpu_normed)
+                .map_err(|e| anyhow::anyhow!("HasMoeFFN GPU forward: {e}"))?;
             hidden = ctx.add(&gpu_normed, &moe_out)?;
 
             // Attention via MLA GPU forward (weight cache via LinearLayer OnceLock)
@@ -763,8 +614,13 @@ impl OracleBackbone {
         let mut usage_stats = Vec::new();
 
         for moe_layer in &self.moe_layers {
-            let usage = moe_layer.get_expert_usage(&hidden_2d)?;
-            usage_stats.push(usage);
+            let hidden_2d_owned = hidden_2d.to_owned();
+            let routing = moe_layer.router().forward(&hidden_2d_owned);
+            let avg_usage: Vec<f32> = routing
+                .mean_axis(ndarray::Axis(0))
+                .map(|a| a.to_vec())
+                .unwrap_or_else(|| vec![0.0; self.config.n_experts]);
+            usage_stats.push(avg_usage);
         }
 
         Ok(usage_stats)
@@ -961,8 +817,8 @@ impl OracleBackbone {
                 tensors.push(mk_tensor(&d, &s));
             }
 
-            // MoE parameters — read from HasMoeFFN via bridge
-            for (data, shape) in self.moe_layers[i].collect_training_params() {
+            // MoE parameters — native HasMoeFFN format (no transpose bridge)
+            for (data, shape) in self.moe_layers[i].collect_params() {
                 tensors.push(mk_tensor(&data, &shape));
             }
 
@@ -1037,9 +893,9 @@ impl OracleBackbone {
             copy_tensor_to_arr1(&tensors[idx].data(), &mut self.norm_layers[i].bias);
             idx += 1;
 
-            // MoE parameters — sync into HasMoeFFN via bridge
+            // MoE parameters — native HasMoeFFN format (no transpose bridge)
             {
-                let n_moe = 2 + 4 * self.config.n_experts;
+                let n_moe = 1 + 4 * self.config.n_experts;
                 let mut moe_slice = Vec::with_capacity(n_moe);
                 for j in 0..n_moe {
                     let arr = tensors[idx + j].data();
@@ -1047,7 +903,7 @@ impl OracleBackbone {
                     let s = tensors[idx + j].shape().to_vec();
                     moe_slice.push((d, s));
                 }
-                self.moe_layers[i].sync_training_params(&moe_slice);
+                self.moe_layers[i].sync_params(&moe_slice);
                 idx += n_moe;
             }
 
@@ -1108,8 +964,9 @@ impl OracleBackbone {
             h = ops::nn::layer_norm_2d(&h, Some(norm_w), Some(norm_b), 1e-6);
 
             // --- MoE with soft gating (differentiable) ---
+            // Native HasMoeFFN format: router_w [ne, h], need h @ router_w^T
             let gate_scores =
-                ops::nn::softmax(&h.matmul(&params[lo.gate_w]).add(&params[lo.gate_b]), 1);
+                ops::nn::softmax(&h.matmul(&params[lo.router_w].transpose()), 1);
             // gate_scores: [n, n_experts]
 
             // Soft MoE: weighted sum of all experts
@@ -1118,14 +975,14 @@ impl OracleBackbone {
 
             // Compute each expert's output and aggregate
             for e in 0..n_experts {
-                let ew1 = &params[lo.expert_w1(e)];
-                let eb1 = &params[lo.expert_b1(e)];
-                let ew2 = &params[lo.expert_w2(e)];
-                let eb2 = &params[lo.expert_b2(e)];
+                let ef1 = &params[lo.fc1_w(e)].transpose();
+                let eb1 = &params[lo.fc1_b(e)];
+                let ef2 = &params[lo.fc2_w(e)].transpose();
+                let eb2 = &params[lo.fc2_b(e)];
 
-                // expert_out = gelu(x @ W1 + b1) @ W2 + b2
-                let expert_h = h.matmul(ew1).add(eb1).gelu();
-                let expert_out = expert_h.matmul(ew2).add(eb2);
+                // expert_out = gelu(x @ W1^T + b1) @ W2^T + b2
+                let expert_h = h.matmul(ef1).add(eb1).gelu();
+                let expert_out = expert_h.matmul(ef2).add(eb2);
 
                 // Create gate score mask for this expert: select column e of gate_scores
                 // Build a one-hot selector: [n, n_experts], column e = 1
@@ -1224,8 +1081,8 @@ impl TensorParamIndexer {
         Self {
             emb: 0,
             params_per_layer: 2  // norms (w+b)
-                + 2              // gate (w+b)
-                + n_experts * 4  // experts (w1+b1+w2+b2)
+                + 1              // router weight (no bias in Router)
+                + n_experts * 4  // experts (fc1_w+b+fc2_w+b)
                 + 2              // norm2 (w+b)
                 + 4, // q,k,v,out projections
             n_experts,
@@ -1237,15 +1094,14 @@ impl TensorParamIndexer {
         LayerTensorOffset {
             norm1_w: base,
             norm1_b: base + 1,
-            gate_w: base + 2,
-            gate_b: base + 3,
-            expert_start: base + 4,
-            norm2_w: base + 4 + self.n_experts * 4,
-            norm2_b: base + 5 + self.n_experts * 4,
-            q_proj: base + 6 + self.n_experts * 4,
-            k_proj: base + 7 + self.n_experts * 4,
-            v_proj: base + 8 + self.n_experts * 4,
-            attn_out_proj: base + 9 + self.n_experts * 4,
+            router_w: base + 2,
+            expert_start: base + 3,
+            norm2_w: base + 3 + self.n_experts * 4,
+            norm2_b: base + 4 + self.n_experts * 4,
+            q_proj: base + 5 + self.n_experts * 4,
+            k_proj: base + 6 + self.n_experts * 4,
+            v_proj: base + 7 + self.n_experts * 4,
+            attn_out_proj: base + 8 + self.n_experts * 4,
         }
     }
 
@@ -1262,8 +1118,7 @@ impl TensorParamIndexer {
 struct LayerTensorOffset {
     norm1_w: usize,
     norm1_b: usize,
-    gate_w: usize,
-    gate_b: usize,
+    router_w: usize,
     expert_start: usize,
     norm2_w: usize,
     norm2_b: usize,
@@ -1274,16 +1129,16 @@ struct LayerTensorOffset {
 }
 
 impl LayerTensorOffset {
-    fn expert_w1(&self, e: usize) -> usize {
+    fn fc1_w(&self, e: usize) -> usize {
         self.expert_start + e * 4
     }
-    fn expert_b1(&self, e: usize) -> usize {
+    fn fc1_b(&self, e: usize) -> usize {
         self.expert_start + e * 4 + 1
     }
-    fn expert_w2(&self, e: usize) -> usize {
+    fn fc2_w(&self, e: usize) -> usize {
         self.expert_start + e * 4 + 2
     }
-    fn expert_b2(&self, e: usize) -> usize {
+    fn fc2_b(&self, e: usize) -> usize {
         self.expert_start + e * 4 + 3
     }
 }

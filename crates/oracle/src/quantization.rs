@@ -1,7 +1,7 @@
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
-use crate::backbone::{LinearLayer, OracleBackboneConfig};
+use crate::backbone::LinearLayer;
 
 /// Skema kuantisasi
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

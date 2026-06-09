@@ -3,6 +3,7 @@
 //! Contoh lengkap penggunaan ORACLE framework untuk pelatihan
 //! model bahasa dengan semua komponen terintegrasi.
 
+use nexora_foundation::has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use nexora_foundation::oracle::alignment::utils;
 use nexora_foundation::oracle::prelude::*;
 use nexora_foundation::oracle::pretraining;
@@ -416,16 +417,24 @@ fn demo_backbone_components() -> anyhow::Result<()> {
     println!("\n🏗️ Backbone Components Demo");
     println!("============================");
 
-    // Test Sparse MoE
-    println!("Testing Sparse MoE Layer...");
+    // Test HasMoeFFN directly (unified MoE — no SparseMoELayer wrapper)
+    println!("Testing HasMoeFFN (unified MoE)...");
     let config = OracleBackboneConfig::default();
-    let moe_layer = SparseMoELayer::new(config.clone());
+    let moe_config = HasMoeFFNConfig {
+        num_experts: config.n_experts,
+        top_k: config.top_k,
+        hidden_size: config.d_model,
+        intermediate_size: config.mlp_hidden,
+        ..Default::default()
+    };
+    let moe_layer = HasMoeFFN::new(moe_config);
 
     let mut test_input = ndarray::Array3::zeros((2, 4, 4096));
     test_input.fill(0.1);
 
-    let output = moe_layer.forward(&test_input.clone().into_shape((8, 4096))?.to_owned())?;
-    println!("✅ Sparse MoE output shape: {:?}", output.dim());
+    let flat_input = test_input.clone().into_shape((8, 4096))?.to_owned();
+    let output = moe_layer.forward(&flat_input);
+    println!("✅ HasMoeFFN output shape: {:?}", output.dim());
 
     // Test Multi-head Latent Attention
     println!("Testing Multi-head Latent Attention...");
@@ -435,10 +444,13 @@ fn demo_backbone_components() -> anyhow::Result<()> {
     let attn_output = mla.forward(&test_input.clone(), mask.as_ref())?;
     println!("✅ MLA output shape: {:?}", attn_output.dim());
 
-    // Test expert usage
-    let usage_stats =
-        moe_layer.get_expert_usage(&test_input.clone().into_shape((8, 4096))?.to_owned())?;
-    println!("✅ Expert usage: {:?}", usage_stats);
+    // Test routing weights (expert usage via router)
+    let routing = moe_layer.router().forward(&flat_input);
+    let avg_usage: Vec<f32> = routing
+        .mean_axis(ndarray::Axis(0))
+        .map(|a| a.to_vec())
+        .unwrap_or_else(|| vec![0.0; config.n_experts]);
+    println!("✅ Expert routing probs: {:?}", &avg_usage[..4]);
 
     Ok(())
 }
@@ -453,7 +465,7 @@ fn demo_rope_components() -> anyhow::Result<()> {
 
     // Test position embeddings
     let positions = vec![0, 1, 2, 3, 4];
-    let (cos_emb, sin_emb) = rope.get_position_embeddings(&positions)?;
+    let (cos_emb, _sin_emb) = rope.get_position_embeddings(&positions)?;
     println!("✅ Position embeddings shape: {:?}", cos_emb.dim());
 
     // Test cross-file awareness

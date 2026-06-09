@@ -524,6 +524,21 @@ impl Expert {
     #[cfg(feature = "cuda")]
     pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
         use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+        let gpu_t = self.forward_batched_cuda_keep_gpu(inputs)?;
+        let out_cpu = gpu_t.to_cpu_vec(&cuda.stream).ok()?;
+        ndarray::Array2::from_shape_vec((inputs.shape()[0], self.config.hidden_size), out_cpu).ok()
+    }
+
+    /// Batched CUDA forward yang return CudaTensor tanpa readback.
+    /// Untuk chaining ke GPU ops berikutnya.
+    #[cfg(feature = "cuda")]
+    pub fn forward_batched_cuda_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::cuda::CudaTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
         use cudarc::cublaslt::safe::{Matmul, MatmulConfig, Activation};
 
         let ctx = GpuContext::global().ok()?;
@@ -547,19 +562,14 @@ impl Expert {
         ).ok()?;
 
         // ── CublasLt fused path ────────────────────────────────
-        // Try matmul + bias (+ activation) in one launch via cuBLASLt epilogue.
-        // This saves 2-3 kernel launches per expert and may use TF32 tensor cores.
-        // Falls back to sequential cuBLAS gemm + add + activation calls.
         let try_fused = |a: &nexora_autograd::gpu::cuda::CudaTensor,
                          w: &nexora_autograd::gpu::cuda::CudaTensor,
                          bias: &nexora_autograd::gpu::cuda::CudaTensor,
                          act: Option<Activation>,
                          out_shape: Vec<usize>| -> Option<_> {
-            // Geometry mirrors the existing cuBLAS GemmConfig:
-            //   C [m,n] = op(A) * op(B) where op(A)=A^T (transa=T), op(B)=B^T (transb=T)
-            let m_dim = w.shape[1] as u64;  // output cols (hidden or inter)
-            let n_dim = a.shape[0] as u64;  // batch
-            let k_dim = a.shape[1] as u64;  // inner dim
+            let m_dim = w.shape[1] as u64;
+            let n_dim = a.shape[0] as u64;
+            let k_dim = a.shape[1] as u64;
             let result_len = (m_dim * n_dim) as usize;
             let mut result = cuda.scratch_f32(result_len).ok()?;
             let cfg = MatmulConfig {
@@ -589,7 +599,7 @@ impl Expert {
         };
 
         // fc1: [n, dim] @ [inter, dim] → [n, inter], bias + GELU fused
-        let mut hidden = try_fused(&input_gpu, w1, b1, Some(Activation::Gelu), vec![n, inter])
+        let hidden = try_fused(&input_gpu, w1, b1, Some(Activation::Gelu), vec![n, inter])
             .or_else(|| {
                 let h = cuda.matmul(&input_gpu, w1).ok()?;
                 let h = cuda.add(&h, b1).ok()?;
@@ -597,15 +607,11 @@ impl Expert {
             })?;
 
         // fc2: [n, inter] @ [dim, inter] → [n, dim], bias only (no activation)
-        let output = try_fused(&hidden, w2, b2, None, vec![n, dim])
+        try_fused(&hidden, w2, b2, None, vec![n, dim])
             .or_else(|| {
                 let o = cuda.matmul(&hidden, w2).ok()?;
                 cuda.add(&o, b2).ok()
-            })?;
-
-        // Readback
-        let out_cpu = output.to_cpu_vec(&cuda.stream).ok()?;
-        ndarray::Array2::from_shape_vec((n, self.config.hidden_size), out_cpu).ok()
+            })
     }
 
     /// CPU batched forward via Q4 quantized weights.

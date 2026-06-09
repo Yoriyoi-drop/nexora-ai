@@ -134,6 +134,33 @@ pub trait PagedCacheReader {
     fn num_tokens(&self, seq_id: u64) -> Option<usize>;
     /// Append a token's KV data (single position).
     fn append(&mut self, seq_id: u64, layer: usize, token_pos: usize, k_row: &[f32], v_row: &[f32]);
+
+    /// Read ALL K/V data for a layer into flat buffers.
+    /// Returns `(k_flat, v_flat)` where each is `[num_tokens, kv_dim]` in row-major order.
+    /// Default implementation calls `read()` per token — override for efficient batch read.
+    fn read_layer_kv(&self, seq_id: u64, layer: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+        let num_tokens = self.num_tokens(seq_id)?;
+        if num_tokens == 0 {
+            return Some((Vec::new(), Vec::new()));
+        }
+        if let Some((first_k, first_v)) = self.read(seq_id, layer, 0) {
+            let kv_dim = first_k.len();
+            let total = num_tokens * kv_dim;
+            let mut k_flat = Vec::with_capacity(total);
+            let mut v_flat = Vec::with_capacity(total);
+            k_flat.extend_from_slice(&first_k);
+            v_flat.extend_from_slice(&first_v);
+            for t in 1..num_tokens {
+                if let Some((k_row, v_row)) = self.read(seq_id, layer, t) {
+                    k_flat.extend_from_slice(&k_row);
+                    v_flat.extend_from_slice(&v_row);
+                }
+            }
+            Some((k_flat, v_flat))
+        } else {
+            None
+        }
+    }
 }
 
 

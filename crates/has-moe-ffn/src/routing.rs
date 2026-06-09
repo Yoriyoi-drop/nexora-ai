@@ -276,6 +276,17 @@ impl Router {
         cpu_d.into_dimensionality::<ndarray::Ix2>().ok()
     }
 
+    /// GPU forward yang return GpuTensor tanpa readback — untuk chaining ke expert GPU.
+    #[cfg(feature = "gpu")]
+    pub fn forward_keep_gpu(&self, input: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        let weights_t = self.ensure_weights_gpu()?;
+        let input_gpu = GpuTensor::from_cpu(&input.clone().into_dyn()).ok()?;
+        let ctx = GpuContext::global().ok()?;
+        let scores = ctx.matmul(&input_gpu, weights_t).ok()?;
+        ctx.softmax(&scores).ok()
+    }
+
     /// Lazily upload router weights to CUDA — cached via OnceLock.
     /// Weight matrix is stored as [hidden_size, num_experts] (transposed for cuBLAS matmul).
     #[cfg(feature = "cuda")]
@@ -303,9 +314,6 @@ impl Router {
         let cuda = ctx.cuda_runtime()?;
 
         let weights = self.ensure_weights_cuda(cuda)?;
-        // weights cached as [num_experts, hidden_size]; no transpose needed
-        // cuBLAS transposes both operands internally, so layout is already correct
-
         let n = input.shape()[0];
         let dim = input.shape()[1];
         let input_flat: Vec<f32> = input.iter().copied().collect();
@@ -313,12 +321,49 @@ impl Router {
             &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
         ).ok()?;
 
-        // scores = input @ weights → [batch, num_experts]  (cuBLAS handles transpose)
         let scores = cuda.matmul(&input_gpu, weights).ok()?;
         let probs = cuda.softmax(&scores).ok()?;
 
         let out_cpu = probs.to_cpu_vec(&cuda.stream).ok()?;
         ndarray::Array2::from_shape_vec((n, self.config.num_experts), out_cpu).ok()
+    }
+
+    /// CUDA forward + argtopk: compute probs di GPU, readback hanya top-k indices (8 bytes/token).
+    /// Menghindari readback full [batch, num_experts] matrix.
+    #[cfg(feature = "cuda")]
+    pub fn forward_cuda_topk(&self, input: &ndarray::Array2<f32>) -> Option<(Vec<Vec<usize>>, Vec<Vec<f32>>)> {
+        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        let ctx = GpuContext::global().ok()?;
+        if ctx.backend() != GpuBackend::Cuda {
+            return None;
+        }
+        let cuda = ctx.cuda_runtime()?;
+        let weights = self.ensure_weights_cuda(cuda)?;
+        let n = input.shape()[0];
+        let dim = input.shape()[1];
+        let topk = self.config.top_k;
+        let input_flat: Vec<f32> = input.iter().copied().collect();
+        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+            &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
+        ).ok()?;
+
+        let scores = cuda.matmul(&input_gpu, weights).ok()?;
+        let probs = cuda.softmax(&scores).ok()?;
+
+        let out_cpu = probs.to_cpu_vec(&cuda.stream).ok()?;
+        let probs_2d = ndarray::Array2::from_shape_vec((n, self.config.num_experts), out_cpu).ok()?;
+
+        let mut indices = Vec::with_capacity(n);
+        let mut weights_out = Vec::with_capacity(n);
+        for row in probs_2d.rows() {
+            let mut row_idx: Vec<(usize, &f32)> = row.iter().enumerate().collect();
+            row_idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let top: Vec<usize> = row_idx.iter().take(topk).map(|(i, _)| *i).collect();
+            let top_w: Vec<f32> = row_idx.iter().take(topk).map(|(_, v)| **v).collect();
+            indices.push(top);
+            weights_out.push(top_w);
+        }
+        Some((indices, weights_out))
     }
 
     pub fn route_single(&self, input: &ndarray::Array1<f32>) -> Result<Vec<usize>, String> {

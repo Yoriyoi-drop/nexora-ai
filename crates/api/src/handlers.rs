@@ -404,21 +404,26 @@ impl ApiHandler for InfoHandler {
     }
 }
 
-/// Test handler for development
+/// Test handler for development (capped at 1000 entries)
 #[derive(Debug)]
 pub struct TestHandler {
     test_data: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    max_entries: usize,
 }
 
 impl TestHandler {
     pub fn new() -> Self {
         Self {
             test_data: Arc::new(RwLock::new(HashMap::new())),
+            max_entries: 1000,
         }
     }
 
     pub async fn set_test_data(&self, key: String, value: serde_json::Value) {
         let mut data = self.test_data.write().await;
+        if !data.contains_key(&key) && data.len() >= self.max_entries {
+            data.clear();
+        }
         data.insert(key, value);
     }
 

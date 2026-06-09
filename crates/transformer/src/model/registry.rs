@@ -2,12 +2,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
 use ndarray::{Array1, Array2};
-use crate::block::TransformerBlock;
 use crate::gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};
-use crate::rope::RoPE;
-use crate::model::builder::{BlockGpuWeights, CausalLM, GpuWeights};
+use crate::model::builder::CausalLM;
 use tracing::warn;
 use crate::model::config::{sample_token, sample_token_gpu_keep_gpu};
+#[cfg(feature = "gpu")]
+use crate::model::builder::GpuWeights;
 #[cfg(feature = "gpu")]
 use crate::model::config::sample_token_gpu;
 use crate::{TransformerConfig, TransformerError, TransformerResult};

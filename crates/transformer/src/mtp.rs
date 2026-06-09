@@ -255,7 +255,6 @@ impl MTPInference {
                         let verified_id = crate::sample_token(&verified_logits, 0.0, 0);
                         if verified_id == draft_id {
                             output.push(draft_id);
-                            last_id = draft_id;
                         }
                     }
                 }

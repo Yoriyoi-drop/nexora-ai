@@ -331,16 +331,40 @@ impl PagedKVCache {
         candidates.sort_by(|a, b| a.1.cmp(&b.1));
         let (seq_id, _) = candidates[0];
 
-        // Convert ke flat KVCacheEntry (compressed)
-        let entries = match self.to_flat_cache(seq_id) {
-            Some(e) => e,
-            None => return 0,
-        };
-        let token_ids: Vec<u32> = (0..entries.first().map(|e| e.seq_len()).unwrap_or(0))
+        // Convert ke flat KVCacheEntry via read_layer_kv() (avoids to_flat_cache() 2GB alloc)
+        let num_layers = self.config.num_layers;
+        let mut entries = Vec::with_capacity(num_layers);
+        let token_ids: Vec<u32> = (0..self.sequences.get(&seq_id).map(|t| t.num_tokens).unwrap_or(0))
             .map(|i| i as u32)
             .collect();
+        let cols = self.config.num_kv_heads * self.config.head_dim;
+        for layer in 0..num_layers {
+            let (k, v) = match self.read_layer_kv(seq_id, layer) {
+                Some(kv) => kv,
+                None => {
+                    entries.push(KVCacheEntry {
+                        k: Vec::new(), v: Vec::new(), kv_dim: cols,
+                        num_kv_heads: self.config.num_kv_heads, head_dim: self.config.head_dim,
+                        k_compressed: Vec::new(), v_compressed: Vec::new(),
+                        k_scales: Vec::new(), v_scales: Vec::new(), compressed_seq_len: 0,
+                    });
+                    continue;
+                }
+            };
+            entries.push(KVCacheEntry {
+                k, v,
+                kv_dim: cols,
+                num_kv_heads: self.config.num_kv_heads,
+                head_dim: self.config.head_dim,
+                k_compressed: Vec::new(),
+                v_compressed: Vec::new(),
+                k_scales: Vec::new(),
+                v_scales: Vec::new(),
+                compressed_seq_len: 0,
+            });
+        }
 
-        // Save to cold storage (separate scope to avoid borrow conflict)
+        // Save to cold storage
         let result = self.cold_storage.as_mut().map(|cold| cold.save(&token_ids, &entries));
         match result {
             Some(Ok(())) => {
@@ -742,6 +766,43 @@ impl PagedKVCache {
         Some((k, v))
     }
 
+    /// Read ALL K/V data for a layer into flat buffers using block-level batch reads.
+    /// Uses `slice_rows_into` for zero-intermediate-alloc bulk reads per block.
+    /// This replaces per-token `read()` calls with O(1) allocations per layer.
+    pub fn read_layer_kv(&self, seq_id: u64, layer: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+        let table = self.sequences.get(&seq_id)?;
+        let num_tokens = table.num_tokens;
+        if num_tokens == 0 {
+            return Some((Vec::new(), Vec::new()));
+        }
+
+        let cols = self.config.num_kv_heads * self.config.head_dim;
+        let total = num_tokens * cols;
+        let mut k_flat = Vec::with_capacity(total);
+        let mut v_flat = Vec::with_capacity(total);
+
+        let mut pos = 0;
+        while pos < num_tokens {
+            let logical = pos / self.config.block_size;
+            let offset = pos % self.config.block_size;
+            let remaining_in_block = self.config.block_size - offset;
+            let tokens_in_block = remaining_in_block.min(num_tokens - pos);
+
+            if let Some(phys) = table.layers[layer].get(logical).copied().flatten() {
+                if let Some(block) = self.blocks[layer].get(phys) {
+                    let valid = tokens_in_block.min(block.filled.saturating_sub(offset));
+                    if valid > 0 {
+                        block.k.slice_rows_into(offset, valid, &mut k_flat);
+                        block.v.slice_rows_into(offset, valid, &mut v_flat);
+                    }
+                }
+            }
+            pos += tokens_in_block;
+        }
+
+        Some((k_flat, v_flat))
+    }
+
     /// Share prefix blocks between sequences (PrefixDAG).
     ///
     /// Copies the block table entries for the first `prefix_tokens` from `src_seq`
@@ -951,6 +1012,10 @@ impl nexora_transformer::PagedCacheReader for PagedKVCache {
         v_row: &[f32],
     ) {
         PagedKVCache::append(self, seq_id, layer, token_pos, k_row, v_row);
+    }
+
+    fn read_layer_kv(&self, seq_id: u64, layer: usize) -> Option<(Vec<f32>, Vec<f32>)> {
+        PagedKVCache::read_layer_kv(self, seq_id, layer)
     }
 }
 

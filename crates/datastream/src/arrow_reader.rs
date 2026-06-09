@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 use uuid::Uuid;
 

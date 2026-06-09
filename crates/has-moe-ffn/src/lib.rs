@@ -124,6 +124,11 @@ impl HasMoeFFN {
         1 + self.config.num_experts * 4
     }
 
+    /// Access the internal router for routing probability queries.
+    pub fn router(&self) -> &crate::routing::Router {
+        &self.router
+    }
+
     /// Collect all parameters as (flat_f32_data, shape) pairs for checkpoint save.
     /// Order: [router_weight, (fc1, b1, fc2, b2) × num_experts]
     pub fn collect_params(&self) -> Vec<(Vec<f32>, Vec<usize>)> {

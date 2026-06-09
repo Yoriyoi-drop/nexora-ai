@@ -327,8 +327,14 @@ impl ReflectionEngine for DefaultReflector {
             },
         };
 
-        // Persist to history immediately so stats are live
-        self.history.write().await.push(result.clone());
+        // Persist to history immediately so stats are live (capped at 1000)
+        {
+            let mut history = self.history.write().await;
+            history.push(result.clone());
+            if history.len() > 1000 {
+                history.remove(0);
+            }
+        }
 
         Ok(result)
     }

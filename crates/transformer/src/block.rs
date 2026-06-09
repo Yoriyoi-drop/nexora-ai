@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, ArrayD};
+use ndarray::{Array1, Array2};
 
 use super::gqa::{KVCacheEntry, PagedCacheReader, GQA};
 use super::rms_norm::RMSNorm;

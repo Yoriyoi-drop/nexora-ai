@@ -1,5 +1,4 @@
 use crate::TransformerResult;
-use std::sync::Arc;
 
 /// NCCL collective communication wrapper.
 ///
