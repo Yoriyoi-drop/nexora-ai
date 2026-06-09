@@ -419,6 +419,7 @@ impl crate::cli::commands::Cli {
         model_id: &str,
         parallel: bool,
         half_precision: bool,
+        num_replicas: usize,
     ) -> Result<()> {
         info!("=== NEXORA TRAINING ===");
         if let Some(hf) = hf_dataset {
@@ -428,8 +429,8 @@ impl crate::cli::commands::Cli {
             info!("Data: {:?}", d);
         }
         info!("Output: {:?}", output);
-        info!("Epochs: {}, Batch: {}, LR: {}, GPU: {}, SeqLen: {}, Resume: {}, Model: {}, Parallel: {}",
-            epochs, batch_size, learning_rate, gpu, seq_length, resume, model_id, parallel);
+        info!("Epochs: {}, Batch: {}, LR: {}, GPU: {}, SeqLen: {}, Resume: {}, Model: {}, Parallel: {}, Replicas: {}",
+            epochs, batch_size, learning_rate, gpu, seq_length, resume, model_id, parallel, num_replicas);
         init_gpu(gpu);
 
         if let Some(parent) = output.parent() {
@@ -447,9 +448,10 @@ impl crate::cli::commands::Cli {
 
         let (raw_samples, _raw_text, loaded_count): (Vec<DataSample>, String, usize) =
             if let Some(hf) = hf_dataset {
-                let max_s = if hf_max_samples > 0 { hf_max_samples } else { 10000 };
-                let provider = nexora_datastream::source::huggingface::HuggingFaceDatasetProvider::new(hf, max_s)
+                let max_s = if hf_max_samples > 0 { hf_max_samples } else { usize::MAX };
+                let mut provider = nexora_datastream::source::huggingface::HuggingFaceDatasetProvider::new(hf, max_s)
                     .with_split(hf_split);
+                provider.resolve_config().await;
                 let samples = provider.fetch_samples().await;
                 let count = samples.len();
                 info!("[HF] Fetched {} raw samples from '{}'", count, hf);
@@ -825,7 +827,7 @@ impl crate::cli::commands::Cli {
             val_every_steps: (max_steps / epochs.max(1)).max(1),
             early_stop_patience: 3,
             use_gpu: gpu,
-            num_replicas: 1,
+            num_replicas,
         };
 
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));

@@ -195,41 +195,46 @@ pub enum Commands {
         /// Enable half-precision (f16) GPU weights — 2x VRAM savings
         #[arg(long)]
         half_precision: bool,
+
+        /// Number of model replicas for gradient averaging (1 = single model).
+        /// Requires `--features nccl` for multi-GPU distributed training.
+        #[arg(long, default_value = "1")]
+        num_replicas: usize,
     },
 
-    /// Collect dataset from web sources and save as .arrow
-    #[command(aliases = &["cd"])]
+    /// Collect dataset from web sources (hackernews, wikipedia, reddit) and save as .arrow
+    #[command(aliases = &["collect"])]
     CollectData {
-        /// Source providers (comma-separated: hackernews,wikipedia,reddit). Empty = all.
-        #[arg(short, long, default_value = "")]
+        /// Comma-separated list of sources (hackernews,wikipedia,reddit)
+        #[arg(short, long, default_value = "hackernews,wikipedia,reddit")]
         sources: String,
 
-        /// Max total samples to collect
-        #[arg(short = 'm', long, default_value = "500")]
+        /// Maximum number of samples to collect (0 = all available)
+        #[arg(short = 'm', long, default_value = "1000")]
         max_samples: usize,
 
-        /// Max shard size in MB (dataset split into shards)
+        /// Maximum shard size in MB for .arrow output
         #[arg(long, default_value = "500")]
         max_shard_size_mb: usize,
 
-        /// Output .arrow file or directory
+        /// Output file path (.arrow)
         #[arg(short, long)]
         output: PathBuf,
     },
 
-    /// Load a trained checkpoint into a model
-    #[command(aliases = &["lc"])]
+    /// Load checkpoint into a model
+    #[command(aliases = &["load", "restore"])]
     LoadCheckpoint {
-        /// Model ID to load into (e.g. omnis, swift)
+        /// Model ID (omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis)
         #[arg(short, long)]
         model: String,
 
-        /// Path to .safetensors checkpoint
+        /// Path to checkpoint .safetensors file
         #[arg(short, long)]
         path: PathBuf,
 
-        /// Load directly to GPU (no CPU weights kept)
-        #[arg(long)]
+        /// Enable GPU acceleration (default: enabled)
+        #[arg(short = 'g', long, default_value_t = true)]
         gpu: bool,
     },
 
@@ -296,6 +301,11 @@ pub enum Commands {
         /// Enable half-precision (f16) GPU weights — 2x VRAM savings
         #[arg(long)]
         half_precision: bool,
+
+        /// Number of model replicas for gradient averaging (1 = single model).
+        /// Requires `--features nccl` for multi-GPU distributed training.
+        #[arg(long, default_value = "1")]
+        num_replicas: usize,
     },
 
     /// Evaluate model

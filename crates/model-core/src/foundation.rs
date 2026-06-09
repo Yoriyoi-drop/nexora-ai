@@ -216,14 +216,28 @@ impl FoundationModel {
             e.into_inner()
         });
         if guard.is_none() {
+            // Resolve dari RedundantBackboneRegistry — primary + standby failover
             match nexora_transformer::resolve_single_backbone() {
                 Ok(backbone) => {
+                    if nexora_transformer::is_failover_active() {
+                        tracing::info!("Using STANDBY backbone (failover active)");
+                    } else {
+                        tracing::info!("Using shared PRIMARY backbone (get_or_init_model)");
+                    }
                     *guard = Some(backbone);
-                    tracing::info!("Using shared single backbone (get_or_init_model)");
                 }
                 Err(_) => {
-                    *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
-                    tracing::info!("No shared backbone available, created standalone model");
+                    tracing::warn!("Backbone resolve failed, retrying once...");
+                    match nexora_transformer::resolve_single_backbone() {
+                        Ok(backbone) => {
+                            tracing::info!("Backbone resolved on retry (standby)");
+                            *guard = Some(backbone);
+                        }
+                        Err(_) => {
+                            *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
+                            tracing::info!("Backbone retry also failed, created standalone model");
+                        }
+                    }
                 }
             }
         }

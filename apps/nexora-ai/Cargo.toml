@@ -83,6 +83,7 @@ gpu = [
     "nexora-inference/gpu",
 ]
 cuda = ["gpu", "nexora-autograd/cuda"]
+nccl = ["cuda", "nexora-transformer/nccl"]
 
 [[bin]]
 name = "nexora"

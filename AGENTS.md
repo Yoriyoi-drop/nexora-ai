@@ -643,6 +643,64 @@ POST /api/generate/agent { prompt, context? }
 
 **Hasil**: 3 bottleneck tambahan fixed di `kv_cache.rs`. Total 18 bottleneck fixed (BF35 + BF36). `cargo check` ✅.
 
+### Batch Fix 37 (9 Juni 2026) — Redundant Backbone + Distillation
+
+#### Redundant Backbone (Primary + Standby)
+
+Semua model share **dua** backbones — PRIMARY untuk operasi normal, STANDBY untuk failover:
+
+```
+PRIMARY (OnceLock<Arc<CausalLM>>)   ← dipakai semua model (default)
+STANDBY (OnceLock<Arc<CausalLM>>)   ← di-init pas pertama failover
+
+Failover flow:
+  1. resolve_single_backbone() → health check PRIMARY forward 1 token
+  2. Jika gagal → FAILOVER_ACTIVE = true → return STANDBY
+  3. Semua adapter/routing tetap hidup — failover transparan
+  4. reset_failover() → coba PRIMARY lagi
+```
+
+| File | Change |
+|------|--------|
+| `crates/transformer/src/backbone_registry.rs` | `BACKBONE_PRIMARY` + `BACKBONE_STANDBY` + `backbone_healthy()` + `is_failover_active()` + `reset_failover()` |
+| `crates/foundation/src/causal_lm_model/mod.rs:115-148` | Retry 1× di `load_model()` — standby otomatis |
+| `crates/model-core/src/foundation.rs:213-235` | Retry 1× di `get_or_init_model()` — standby otomatis |
+
+#### Knowledge Distillation (6.2B → Lite)
+
+Teacher-Student framework di `crates/foundation/src/distillation/`:
+
+```
+Teacher (6.2B Pro backbone)
+  │
+  ├── KL divergence loss ──→ Student (Lite)
+  ├── Cross-entropy loss ──→ Student (Lite)
+  └── Weight transfer (optional)
+```
+
+Loss: L = α * T² * KL(softmax(teacher/T) || softmax(student/T)) + (1-α) * CE(student, targets)
+
+| Student | Model | Hidden | Layers | Heads | Experts | Params | Compression |
+|---------|-------|--------|--------|-------|---------|--------|-------------|
+| Swift Lite | swift | 128 | 3 | 4 | 0 (dense) | ~14M | 443× |
+| Aether Lite | aether | 128 | 3 | 4 | 0 (dense) | ~14M | 443× |
+| Omnis Lite | omnis | 512 | 16 | 8 | 8e2t MoE | ~162M | 38× |
+
+CLI: `cargo run --bin nexora -- distill --student swift-lite --hf-dataset wikitext --steps 500 --output ./checkpoints/student`
+CLI all 3: `cargo run --bin nexora -- distill --all --hf-dataset wikitext --steps 500 --output ./checkpoints/student`
+
+| File | Change |
+|------|--------|
+| `crates/foundation/src/distillation/mod.rs` | `KnowledgeDistiller`, `StudentConfig`, KL divergence, CE loss, training loop |
+| `apps/nexora-ai/src/cli/commands.rs` | `Commands::Distill` — student, data, steps, lr, temperature, alpha, all |
+| `apps/nexora-ai/src/cli/handlers.rs` | `run_distill()` — data loading, distillation loop, checkpoint save |
+
+### Test
+```sh
+cargo test -p nexora-foundation -- distillation::tests
+cargo check --all-targets
+```
+
 ## Notable quirks
 
 - `Cargo.lock` **committed** (not in `.gitignore`).

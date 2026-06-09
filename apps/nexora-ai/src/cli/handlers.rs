@@ -215,6 +215,7 @@ impl Cli {
                         parallel,
                         gpu,
                         half_precision,
+                        num_replicas,
                     } => self
                         .run_train_foundation(
                             &nexora,
@@ -232,6 +233,7 @@ impl Cli {
                             *parallel,
                             *gpu,
                             *half_precision,
+                            *num_replicas,
                         )
                         .await
                         .map_err(|e| {
@@ -306,6 +308,7 @@ impl Cli {
                         model_id,
                         parallel,
                         half_precision,
+                        num_replicas,
                     } => self
                         .run_train(
                             &nexora,
@@ -324,6 +327,7 @@ impl Cli {
                             model_id,
                             *parallel,
                             *half_precision,
+                            *num_replicas,
                         )
                         .await
                         .map_err(|e| {
@@ -569,14 +573,16 @@ impl Cli {
         parallel: bool,
         gpu: bool,
         half_precision: bool,
+        num_replicas: usize,
     ) -> NexoraResult<()> {
         info!("=== FOUNDATION TRAINING ===");
         info!("Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
 
         let lines = if let Some(hf) = hf_dataset {
             info!("[1/2] Fetching dataset '{}' from HuggingFace live...", hf);
-            let provider = HuggingFaceDatasetProvider::new(hf, hf_max_samples.max(1))
+            let mut provider = HuggingFaceDatasetProvider::new(hf, hf_max_samples.max(1))
                 .with_split(hf_split);
+            provider.resolve_config().await;
             let samples = provider.fetch_samples().await;
             info!("  Fetched {} raw samples from HuggingFace", samples.len());
             let lines = filter_dataset(samples).await?;
@@ -648,7 +654,7 @@ impl Cli {
             val_every_steps: (steps / 5).max(1),
             early_stop_patience: 3,
             use_gpu: gpu,
-            num_replicas: 1,
+            num_replicas,
         };
 
         // Initialize GPU if enabled
