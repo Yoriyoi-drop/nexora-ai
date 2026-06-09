@@ -146,15 +146,35 @@ cargo run --bin nexora -- train-foundation \
   --parallel
 ```
 
-### Full pipeline example
+### Full pipeline example (recommended)
 ```sh
 cargo run --bin nexora -- train \
   --data training_data.txt \
-  --output ./checkpoints/model \
-  --tokenizer ./checkpoints/tokenizer.json \
-  --epochs 3 \
-  --batch-size 8 \
-  --learning-rate 0.001
+  --output ./checkpoints \
+  --gpu \
+  --resume \
+  --epochs 100 \
+  --batch-size 64 \
+  --seq-length 512 \
+  --learning-rate 0.0003 \
+  --half-precision \
+  --parallel
+```
+
+### Production-grade training (multi-GPU, long context)
+```sh
+./target/release/nexora train \
+  --data training_data \
+  --output ./checkpoints \
+  --gpu \
+  --resume \
+  --epochs 200 \
+  --batch-size 128 \
+  --seq-length 1024 \
+  --learning-rate 0.0002 \
+  --half-precision \
+  --parallel \
+  --num-replicas 2
 ```
 
 ### HuggingFace dataset live fetching
