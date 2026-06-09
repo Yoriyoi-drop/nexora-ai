@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@4c946fe0e406d4550a79c84ac250f0a18e50eb51 # v5.3.0
       - uses: dtolnay/rust-toolchain@33d243787e916e49d247e6a9185d65e853805b31 # stable
-      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.7.5
       - run: cargo check --workspace
 
   fmt:
@@ -38,7 +38,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@a54bb11570c928b55dc0f0e46d2c72a02d2c1ea1 # stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.7.5
       - run: cargo clippy --all-targets -- -D warnings
 
   test:
@@ -47,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@a54bb11570c928b55dc0f0e46d2c72a02d2c1ea1 # stable
-      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.5
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.7.5
       - run: cargo nextest run --workspace
 
   deny:
