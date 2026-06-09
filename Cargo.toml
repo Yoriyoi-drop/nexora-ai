@@ -138,7 +138,7 @@ argon2 = "0.5"
 # Terminal UI dependencies
 ratatui = "0.26"
 crossterm = "0.27"
-tui-input = "0.8"
+tui-input = "0.15"
 arboard = "3.3"  # For clipboard access
 sysinfo = "0.30"  # For system monitoring
 # psutil removed — use sysinfo (already included) for process stats
