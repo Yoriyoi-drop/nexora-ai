@@ -10,4 +10,4 @@ serde.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-appender = "0.2"
-prometheus = "0.13"
+prometheus = "0.14"
