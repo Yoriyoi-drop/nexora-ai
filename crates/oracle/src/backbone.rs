@@ -9,6 +9,9 @@ use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
 use nexora_autograd::{ops, Tensor, TensorOps};
 use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+use crate::rope::ExtendedRope;
 #[cfg(feature = "gpu")]
 use nexora_autograd::gpu::{GpuContext, GpuTensor};
 
@@ -66,15 +69,20 @@ pub struct MultiHeadLatentAttention {
     pub attention_heads: Vec<LatentAttentionHead>,
     pub output_projection: LinearLayer,
     pub latent_compression: LatentCompression,
+    pub rope: Arc<ExtendedRope>,
 }
 
 impl MultiHeadLatentAttention {
-    pub fn new(config: OracleBackboneConfig) -> Self {
+    pub fn new(config: OracleBackboneConfig, rope: Arc<ExtendedRope>) -> Self {
         let mut attention_heads = Vec::new();
         let head_dim = config.d_model / config.n_heads;
 
         for _ in 0..config.n_heads {
-            attention_heads.push(LatentAttentionHead::new(head_dim, config.latent_dim));
+            attention_heads.push(LatentAttentionHead::new(
+                head_dim,
+                config.latent_dim,
+                Arc::clone(&rope),
+            ));
         }
 
         Self {
@@ -83,10 +91,16 @@ impl MultiHeadLatentAttention {
             attention_heads,
             output_projection: LinearLayer::new(config.latent_dim, config.d_model),
             latent_compression: LatentCompression::new(config.latent_dim),
+            rope,
         }
     }
 
-    pub fn forward(&self, x: &Array3<f32>, mask: Option<&Array2<f32>>) -> Result<Array3<f32>> {
+    pub fn forward(
+        &self,
+        x: &Array3<f32>,
+        mask: Option<&Array2<f32>>,
+        positions: &[usize],
+    ) -> Result<Array3<f32>> {
         let (batch_size, seq_len, d_model) = (x.dim().0, x.dim().1, x.dim().2);
 
         let x_reshaped = x.view().into_shape((batch_size * seq_len, d_model))?;
@@ -97,7 +111,7 @@ impl MultiHeadLatentAttention {
 
         let mut head_outputs = Vec::new();
         for head in &self.attention_heads {
-            let head_output = head.forward(&compressed, mask)?;
+            let head_output = head.forward(&compressed, mask, positions)?;
             head_outputs.push(head_output);
         }
 
@@ -167,10 +181,11 @@ pub struct LatentAttentionHead {
     pub k_proj: LinearLayer,
     pub v_proj: LinearLayer,
     pub out_proj: LinearLayer,
+    pub rope: Arc<ExtendedRope>,
 }
 
 impl LatentAttentionHead {
-    pub fn new(head_dim: usize, latent_dim: usize) -> Self {
+    pub fn new(head_dim: usize, latent_dim: usize, rope: Arc<ExtendedRope>) -> Self {
         Self {
             head_dim,
             latent_dim,
@@ -178,10 +193,16 @@ impl LatentAttentionHead {
             k_proj: LinearLayer::new(latent_dim, head_dim),
             v_proj: LinearLayer::new(latent_dim, head_dim),
             out_proj: LinearLayer::new(head_dim, latent_dim),
+            rope,
         }
     }
 
-    pub fn forward(&self, x: &Array3<f32>, mask: Option<&Array2<f32>>) -> Result<Array3<f32>> {
+    pub fn forward(
+        &self,
+        x: &Array3<f32>,
+        mask: Option<&Array2<f32>>,
+        positions: &[usize],
+    ) -> Result<Array3<f32>> {
         let (batch_size, seq_len, _) = x.dim();
 
         // Project to Q, K, V
@@ -196,6 +217,9 @@ impl LatentAttentionHead {
         let q_3d = q.into_shape((batch_size, seq_len, self.head_dim))?;
         let k_3d = k.into_shape((batch_size, seq_len, self.head_dim))?;
         let v_3d = v.into_shape((batch_size, seq_len, self.head_dim))?;
+
+        // Apply Rotary Position Embedding to Q and K before attention
+        let (q_3d, k_3d) = self.rope.apply_rotary_emb(&q_3d, &k_3d, positions)?;
 
         // Scaled dot-product attention — uses cpu_flash_attention for O(n) memory
         let attention_output = self.scaled_dot_product_attention(&q_3d, &k_3d, &v_3d, mask)?;
@@ -502,6 +526,7 @@ pub struct OracleBackbone {
     pub attention_layers: Vec<MultiHeadLatentAttention>,
     pub norm_layers: Vec<LayerNorm>,
     pub output_projection: LinearLayer,
+    pub rope: Arc<ExtendedRope>,
 }
 
 impl OracleBackbone {
@@ -515,6 +540,14 @@ impl OracleBackbone {
             ..Default::default()
         };
 
+        let rope_config = crate::rope::ExtendedRopeConfig {
+            d_model: config.d_model,
+            n_heads: config.n_heads,
+            max_seq_len: config.context_size,
+            ..Default::default()
+        };
+        let rope = Arc::new(ExtendedRope::new(rope_config));
+
         Self {
             config: config.clone(),
             embedding: EmbeddingLayer::new(vocab_size, config.d_model),
@@ -522,12 +555,13 @@ impl OracleBackbone {
                 .map(|_| HasMoeFFN::new(moe_config.clone()))
                 .collect(),
             attention_layers: (0..n_layers)
-                .map(|_| MultiHeadLatentAttention::new(config.clone()))
+                .map(|_| MultiHeadLatentAttention::new(config.clone(), Arc::clone(&rope)))
                 .collect(),
             norm_layers: (0..n_layers + 1)
                 .map(|_| LayerNorm::new(config.d_model))
                 .collect(),
             output_projection: LinearLayer::new(config.d_model, vocab_size),
+            rope,
         }
     }
 
@@ -537,6 +571,9 @@ impl OracleBackbone {
         mask: Option<&Array2<f32>>,
     ) -> Result<Array3<f32>> {
         let (batch_size, seq_len) = input_ids.dim();
+
+        // Generate standard sequential positions for RoPE
+        let positions: Vec<usize> = (0..seq_len).collect();
 
         // Embedding
         let mut hidden = self.embedding.forward(input_ids)?;
@@ -556,8 +593,8 @@ impl OracleBackbone {
             // Pre-norm
             hidden = self.norm_layers[i + 1].forward(&hidden)?;
 
-            // Attention layer
-            let attn_output = self.attention_layers[i].forward(&hidden, mask)?;
+            // Attention layer with RoPE
+            let attn_output = self.attention_layers[i].forward(&hidden, mask, &positions)?;
             hidden = hidden + attn_output;
         }
 
@@ -799,8 +836,7 @@ impl OracleBackbone {
         // 0: embedding
         {
             let d: Vec<f32> = self.embedding.embeddings.iter().copied().collect();
-            let s = self.embedding.embeddings.shape().to_vec();
-            tensors.push(mk_tensor(&d, &s));
+            tensors.push(mk_tensor(&d, self.embedding.embeddings.shape()));
         }
 
         // Per-layer parameters
@@ -808,13 +844,11 @@ impl OracleBackbone {
             // norm1_weight, norm1_bias
             {
                 let d: Vec<f32> = self.norm_layers[i].weight.iter().copied().collect();
-                let s = self.norm_layers[i].weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, self.norm_layers[i].weight.shape()));
             }
             {
                 let d: Vec<f32> = self.norm_layers[i].bias.iter().copied().collect();
-                let s = self.norm_layers[i].bias.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, self.norm_layers[i].bias.shape()));
             }
 
             // MoE parameters — native HasMoeFFN format (no transpose bridge)
@@ -825,13 +859,11 @@ impl OracleBackbone {
             // norm2_weight, norm2_bias
             {
                 let d: Vec<f32> = self.norm_layers[i + 1].weight.iter().copied().collect();
-                let s = self.norm_layers[i + 1].weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, self.norm_layers[i + 1].weight.shape()));
             }
             {
                 let d: Vec<f32> = self.norm_layers[i + 1].bias.iter().copied().collect();
-                let s = self.norm_layers[i + 1].bias.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, self.norm_layers[i + 1].bias.shape()));
             }
 
             // Attention projections from first head (all heads use same projection in MLA)
@@ -839,39 +871,33 @@ impl OracleBackbone {
             // q_proj: [latent_dim, head_dim]
             {
                 let d: Vec<f32> = head0.q_proj.weight.iter().copied().collect();
-                let s = head0.q_proj.weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, head0.q_proj.weight.shape()));
             }
             // k_proj
             {
                 let d: Vec<f32> = head0.k_proj.weight.iter().copied().collect();
-                let s = head0.k_proj.weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, head0.k_proj.weight.shape()));
             }
             // v_proj
             {
                 let d: Vec<f32> = head0.v_proj.weight.iter().copied().collect();
-                let s = head0.v_proj.weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, head0.v_proj.weight.shape()));
             }
             // out_proj (head output to latent)
             {
                 let d: Vec<f32> = head0.out_proj.weight.iter().copied().collect();
-                let s = head0.out_proj.weight.shape().to_vec();
-                tensors.push(mk_tensor(&d, &s));
+                tensors.push(mk_tensor(&d, head0.out_proj.weight.shape()));
             }
         }
 
         // Output projection weight + bias
         {
             let d: Vec<f32> = self.output_projection.weight.iter().copied().collect();
-            let s = self.output_projection.weight.shape().to_vec();
-            tensors.push(mk_tensor(&d, &s));
+            tensors.push(mk_tensor(&d, self.output_projection.weight.shape()));
         }
         {
             let d: Vec<f32> = self.output_projection.bias.iter().copied().collect();
-            let s = self.output_projection.bias.shape().to_vec();
-            tensors.push(mk_tensor(&d, &s));
+            tensors.push(mk_tensor(&d, self.output_projection.bias.shape()));
         }
 
         tensors
@@ -1187,14 +1213,14 @@ pub mod utils {
     use super::*;
 
     /// Calculate model parameters count
-    pub fn count_parameters(model: &OracleBackbone) -> usize {
+    pub fn _count_parameters(model: &OracleBackbone) -> usize {
         // This is a simplified calculation
         // In practice, you'd sum all parameters from all layers
         model.config.d_model * model.config.d_model * 100 // Rough estimate
     }
 
     /// Calculate FLOPs for forward pass
-    pub fn calculate_flops(
+    pub fn _calculate_flops(
         config: &OracleBackboneConfig,
         batch_size: usize,
         seq_len: usize,

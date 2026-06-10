@@ -10,10 +10,10 @@ use rand::Rng;
 
 /// 2-layer MLP for mel-spectrogram to embedding projection.
 struct AudioMLP {
-    w1: Array2<f32>,
-    b1: Array1<f32>,
-    w2: Array2<f32>,
-    b2: Array1<f32>,
+    pub(crate) w1: Array2<f32>,
+    pub(crate) b1: Array1<f32>,
+    pub(crate) w2: Array2<f32>,
+    pub(crate) b2: Array1<f32>,
 }
 
 impl AudioMLP {
@@ -359,5 +359,15 @@ impl AudioEncoder {
     /// Get configuration
     pub fn config(&self) -> &crate::caffeine::config::AudioEncoderConfig {
         &self.config
+    }
+
+    /// Collect all trainable weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        vec![
+            ("audio_encoder.mel_proj.w1".to_string(), self.mel_projection.w1.clone().into_dyn()),
+            ("audio_encoder.mel_proj.b1".to_string(), self.mel_projection.b1.clone().into_dyn()),
+            ("audio_encoder.mel_proj.w2".to_string(), self.mel_projection.w2.clone().into_dyn()),
+            ("audio_encoder.mel_proj.b2".to_string(), self.mel_projection.b2.clone().into_dyn()),
+        ]
     }
 }

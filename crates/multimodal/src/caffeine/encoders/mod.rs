@@ -247,6 +247,15 @@ impl MultiModalEncoders {
         self.video_encoder.encode(input)
     }
 
+    /// Collect all encoder weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        let mut all = self.image_encoder.collect_weights();
+        all.extend(self.audio_encoder.collect_weights());
+        all.extend(self.video_encoder.collect_weights());
+        all.extend(self.text_encoder.collect_weights());
+        all
+    }
+
     /// Get encoder statistics
     pub fn get_stats(&self) -> EncoderStats {
         EncoderStats {

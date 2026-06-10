@@ -1,5 +1,6 @@
 //! Attention mechanisms for HAS-MoE-FFN
 
+use crate::error::HasMoeFfnError;
 use serde::{Deserialize, Serialize};
 
 /// Attention configuration
@@ -24,14 +25,16 @@ pub struct Attention {
 
 impl Attention {
     /// Create new attention mechanism
-    pub fn new(hidden_size: usize, num_heads: usize, dropout_rate: f32) -> Self {
+    pub fn new(hidden_size: usize, num_heads: usize, dropout_rate: f32) -> Result<Self, HasMoeFfnError> {
+        if num_heads == 0 {
+            return Err(HasMoeFfnError::config("num_heads must be positive"));
+        }
         let config = AttentionConfig {
             hidden_size,
             num_heads,
             dropout_rate,
         };
 
-        assert!(num_heads > 0, "num_heads must be positive");
         let head_dim = hidden_size / num_heads;
 
         // Initialize projections with random weights
@@ -40,14 +43,14 @@ impl Attention {
         let v_proj = Self::init_projection(hidden_size, hidden_size);
         let o_proj = Self::init_projection(hidden_size, hidden_size);
 
-        Self {
+        Ok(Self {
             config,
             head_dim,
             q_proj,
             k_proj,
             v_proj,
             o_proj,
-        }
+        })
     }
 
     /// Initialize projection weights
@@ -179,6 +182,7 @@ impl Attention {
     }
 
     /// Softmax function
+    #[allow(dead_code)]
     fn softmax(&self, input: &[f32]) -> Vec<f32> {
         // Find max for numerical stability
         let max_val = input.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
@@ -208,12 +212,12 @@ mod tests {
     use super::*;
 
     fn small_attention() -> Attention {
-        Attention::new(8, 2, 0.0)
+        Attention::new(8, 2, 0.0).unwrap()
     }
 
     #[test]
     fn test_new_attention_config() {
-        let a = Attention::new(12, 4, 0.1);
+        let a = Attention::new(12, 4, 0.1).unwrap();
         assert_eq!(a.config.hidden_size, 12);
         assert_eq!(a.config.num_heads, 4);
         assert_eq!(a.head_dim, 3);
@@ -229,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_forward_different_qkv_dims() {
-        let a = Attention::new(6, 3, 0.0);
+        let a = Attention::new(6, 3, 0.0).unwrap();
         let q = vec![0.5; 6];
         let k = vec![0.3; 6];
         let v = vec![0.7; 6];
@@ -259,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_reshape_to_heads() {
-        let a = Attention::new(8, 4, 0.0);
+        let a = Attention::new(8, 4, 0.0).unwrap();
         let input = (0..8).map(|i| i as f32).collect::<Vec<_>>();
         let heads = a.reshape_to_heads(&input);
         assert_eq!(heads.len(), 4);
@@ -270,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_concatenate_heads() {
-        let a = Attention::new(8, 4, 0.0);
+        let a = Attention::new(8, 4, 0.0).unwrap();
         let heads = vec![
             vec![0.0, 1.0],
             vec![2.0, 3.0],
@@ -282,9 +286,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "num_heads must be positive")]
-    fn test_zero_heads_panics() {
-        let _ = Attention::new(8, 0, 0.0);
+    fn test_zero_heads_returns_error() {
+        let result = Attention::new(8, 0, 0.0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("num_heads must be positive"));
     }
 
     #[test]
@@ -306,13 +311,13 @@ mod tests {
 
     #[test]
     fn test_head_dim() {
-        let a = Attention::new(16, 4, 0.1);
+        let a = Attention::new(16, 4, 0.1).unwrap();
         assert_eq!(a.head_dim(), 4);
     }
 
     #[test]
     fn test_compute_scaled_dot_product_attention() {
-        let a = Attention::new(4, 2, 0.0);
+        let a = Attention::new(4, 2, 0.0).unwrap();
         let q = vec![0.5, 0.5, 0.5, 0.5];
         let k = vec![0.3, 0.3, 0.3, 0.3];
         let v = vec![1.0, 1.0, 1.0, 1.0];

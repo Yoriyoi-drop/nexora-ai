@@ -779,10 +779,10 @@ impl CausalLM {
 
         ctx.flush();
 
-        // Prefill prompt tokens
+        // Prefill prompt tokens — pakai keep_gpu, discard output (hanya butuh KV cache side-effect)
         for &token_id in prompt_ids {
             if self
-                .forward_gpu_with_cache(&[token_id], &mut gpu_cache)
+                .forward_gpu_with_cache_keep_gpu(&[token_id], &mut gpu_cache)
                 .is_err()
             {
                 let (tokens, _) =
@@ -795,9 +795,23 @@ impl CausalLM {
         let mut last_id = *prompt_ids.last().unwrap_or(&0);
 
         for _ in 0..max_tokens {
-            match self.forward_gpu_with_cache(&[last_id], &mut gpu_cache) {
-                Ok(logits) => {
-                    let next_id = sample_token_gpu(&logits, temperature, top_k, 0.0, 12345);
+            match self.forward_gpu_with_cache_keep_gpu(&[last_id], &mut gpu_cache) {
+                Ok(logits_gpu) => {
+                    let token_gpu = match sample_token_gpu_keep_gpu(&logits_gpu, temperature, top_k, 0.0, 12345) {
+                        Ok(t) => t,
+                        Err(_) => {
+                            let logits = self
+                                .forward(&[last_id], &mut self.reset_cache())
+                                .unwrap_or_else(|_| Array1::zeros(self.config.vocab_size));
+                            let next_id = sample_token(&logits, temperature, top_k);
+                            output.push(next_id);
+                            if next_id == 0 { break; }
+                            last_id = next_id;
+                            continue;
+                        }
+                    };
+                    let raw = token_gpu.to_cpu_raw_bytes().unwrap_or_default();
+                    let next_id = u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]);
                     output.push(next_id);
                     if next_id == 0 {
                         break;

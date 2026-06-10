@@ -58,7 +58,7 @@ fn sanitize_xdotool_text(text: &str) -> String {
 
 /// Mesin eksekusi untuk menjalankan tindakan
 pub struct ExecutionEngine {
-    action_config: crate::caffeine::config::ActionConfig,
+    _action_config: crate::caffeine::config::ActionConfig,
     action_handlers: HashMap<ActionType, Box<dyn ActionHandler>>,
     execution_history: Vec<ExecutionRecord>,
 }
@@ -78,7 +78,7 @@ impl ExecutionEngine {
         action_handlers.insert(ActionType::Analyze, Box::new(AnalyzeHandler::new()));
 
         Ok(Self {
-            action_config: config,
+            _action_config: config,
             action_handlers,
             execution_history: Vec::new(),
         })
@@ -293,14 +293,14 @@ impl ActionHandler for ClickHandler {
 /// Menggunakan `xdotool type` untuk mengetik teks, dengan fallback simulasi
 /// jika `xdotool` tidak tersedia di sistem.
 pub struct TypeHandler {
-    typing_delay_ms: u64,
+    _typing_delay_ms: u64,
 }
 
 impl TypeHandler {
     /// Membuat handler ketik baru
     pub fn new() -> Self {
         Self {
-            typing_delay_ms: 50,
+            _typing_delay_ms: 50,
         }
     }
 }
@@ -606,14 +606,14 @@ impl ActionHandler for WaitHandler {
 /// Menggunakan `xdg-open` untuk membuka URL di browser default. Mengembalikan
 /// error jika `xdg-open` tidak tersedia atau gagal.
 pub struct NavigateHandler {
-    navigation_timeout_ms: u64,
+    _navigation_timeout_ms: u64,
 }
 
 impl NavigateHandler {
     /// Membuat handler navigasi baru
     pub fn new() -> Self {
         Self {
-            navigation_timeout_ms: 5000,
+            _navigation_timeout_ms: 5000,
         }
     }
 }
@@ -677,13 +677,13 @@ impl ActionHandler for NavigateHandler {
 /// Handler untuk tindakan ekstraksi
 /// Mengekstrak URL, email, nomor telepon, teks, atau pola kustom dari parameter.
 pub struct ExtractHandler {
-    extraction_timeout_ms: u64,
+    _extraction_timeout_ms: u64,
 }
 
 impl ExtractHandler {
     pub fn new() -> Self {
         Self {
-            extraction_timeout_ms: 3000,
+            _extraction_timeout_ms: 3000,
         }
     }
 }
@@ -770,13 +770,13 @@ impl ActionHandler for ExtractHandler {
 /// Melakukan analisis sentimen, entity recognition, length counting,
 /// keyword extraction, atau summarization pada teks.
 pub struct AnalyzeHandler {
-    analysis_timeout_ms: u64,
+    _analysis_timeout_ms: u64,
 }
 
 impl AnalyzeHandler {
     pub fn new() -> Self {
         Self {
-            analysis_timeout_ms: 2000,
+            _analysis_timeout_ms: 2000,
         }
     }
 }

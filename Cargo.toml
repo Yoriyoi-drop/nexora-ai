@@ -132,6 +132,7 @@ memmap2 = "0.9"
 sha2 = "0.11"
 hex = "0.4"
 half = "2.4"
+
 rustls-pemfile = "2.0"
 argon2 = "0.5"
 

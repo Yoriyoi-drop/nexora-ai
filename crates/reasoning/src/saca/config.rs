@@ -1,13 +1,10 @@
 //! Configuration for SACA framework components
 
-use nexora_core::async_executor::ExecutorConfig;
 use serde::{Deserialize, Serialize};
 
 /// Main SACA configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SACAConfig {
-    #[serde(skip)]
-    pub executor_config: ExecutorConfig,
     pub cot_config: CoTConfig,
     pub decompose_config: DecomposeConfig,
     pub context_config: ContextConfig,
@@ -27,7 +24,6 @@ pub struct SACAConfig {
 impl Default for SACAConfig {
     fn default() -> Self {
         Self {
-            executor_config: ExecutorConfig::default(),
             cot_config: CoTConfig::default(),
             decompose_config: DecomposeConfig::default(),
             context_config: ContextConfig::default(),

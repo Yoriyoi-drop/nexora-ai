@@ -41,7 +41,7 @@ pub struct Caffeine {
     // #4 Multimodal Cache
     cache: Option<std::sync::Arc<std::sync::Mutex<crate::caffeine::cache::MultiModalCache>>>,
     cache_config: crate::caffeine::cache::CacheConfig,
-    streaming_video: Option<crate::caffeine::cache::StreamingVideoProcessor>,
+    _streaming_video: Option<crate::caffeine::cache::StreamingVideoProcessor>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -152,6 +152,98 @@ impl CaffeineProcessor {
             ),
         })
     }
+
+    /// Save all trainable weights to safetensors checkpoint
+    pub fn save_checkpoint(&self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let caffeine = self.caffeine.as_ref().ok_or("Caffeine not initialized")?;
+        let weights = caffeine.collect_weights();
+
+        let mut header_map = std::collections::HashMap::new();
+        let mut data_bytes: Vec<u8> = Vec::new();
+        let mut offset: usize = 0;
+
+        for (name, arr) in &weights {
+            let flat: Vec<u8> = arr.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let len = flat.len();
+            header_map.insert(
+                name.clone(),
+                serde_json::json!({
+                    "dtype": "F32",
+                    "shape": arr.shape(),
+                    "data_offsets": [offset, offset + len],
+                }),
+            );
+            data_bytes.extend_from_slice(&flat);
+            offset += len;
+        }
+
+        let header_obj = serde_json::json!({
+            "__metadata__": null,
+            "tensors": header_map,
+        });
+        let header_json = serde_json::to_string(&header_obj)?;
+        let header_bytes = header_json.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut out = Vec::with_capacity(8 + header_bytes.len() + data_bytes.len());
+        out.extend_from_slice(&header_len.to_le_bytes());
+        out.extend_from_slice(header_bytes);
+        out.extend_from_slice(&data_bytes);
+
+        std::fs::write(path, &out)?;
+        tracing::info!("Checkpoint saved to {} ({} bytes, {} tensors)", path, out.len(), weights.len());
+        Ok(())
+    }
+
+    /// Load weights from safetensors checkpoint into all sub-components
+    pub fn load_checkpoint(&mut self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let raw = std::fs::read(path)?;
+        if raw.len() < 8 {
+            return Err("File too small for safetensors".into());
+        }
+
+        let header_len = u64::from_le_bytes(raw[0..8].try_into()?) as usize;
+        let header_end = 8 + header_len;
+        if header_end > raw.len() {
+            return Err("Header exceeds file size".into());
+        }
+
+        let header_json = std::str::from_utf8(&raw[8..header_end])?;
+        let header: serde_json::Value = serde_json::from_str(header_json)?;
+        let tensors = header["tensors"].as_object().ok_or("Invalid safetensors header")?;
+
+        let mut weights: std::collections::HashMap<String, ndarray::ArrayD<f32>> = std::collections::HashMap::new();
+
+        for (name, entry) in tensors {
+            let shape: Vec<usize> = entry["shape"].as_array()
+                .ok_or("Missing shape")?
+                .iter()
+                .map(|v| v.as_u64().ok_or("Invalid shape value").map(|v| v as usize))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let offsets: Vec<usize> = entry["data_offsets"].as_array()
+                .ok_or("Missing data_offsets")?
+                .iter()
+                .map(|v| v.as_u64().ok_or("Invalid offset").map(|v| v as usize))
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            let start = 8 + header_len + offsets[0];
+            let end = 8 + header_len + offsets[1];
+            let bytes = &raw[start..end];
+            let floats: Vec<f32> = bytes.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+
+            let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), floats)?;
+            weights.insert(name.clone(), arr);
+        }
+
+        if let Some(ref mut caffeine) = self.caffeine {
+            caffeine.load_weights(&weights);
+        }
+
+        tracing::info!("Checkpoint loaded from {} ({} tensors)", path, weights.len());
+        Ok(())
+    }
 }
 
 impl Caffeine {
@@ -233,7 +325,7 @@ impl Caffeine {
             cleanup_interval_secs: 300,
         };
 
-        let streaming_video = if config.enable_cache {
+        let _streaming_video = if config.enable_cache {
             Some(crate::caffeine::cache::StreamingVideoProcessor::new(cache_config.clone()))
         } else {
             None
@@ -250,7 +342,7 @@ impl Caffeine {
             has_moe_experts,
             cache: None,
             cache_config,
-            streaming_video,
+            _streaming_video,
         })
     }
 
@@ -583,6 +675,78 @@ impl Caffeine {
             Ok(processed_tokens)
         } else {
             Ok(tokens)
+        }
+    }
+
+    /// Collect all trainable weights for checkpoint
+    pub fn collect_weights(&self) -> std::collections::HashMap<String, ndarray::ArrayD<f32>> {
+        let mut all = std::collections::HashMap::new();
+
+        // Encoder weights
+        for (name, arr) in self.encoders.collect_weights() {
+            all.insert(name, arr);
+        }
+
+        // QFormer weights
+        for (name, arr) in self.qformer.collect_weights() {
+            all.insert(name, arr);
+        }
+
+        // MoE expert weights
+        if let Some(ref experts) = self.has_moe_experts {
+            for (i, expert) in experts.iter().enumerate() {
+                if let Some((data, shape)) = expert.get_fc1() {
+                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    all.insert(format!("moe.expert_{}.fc1.weight", i), arr);
+                }
+                if let Some((data, shape)) = expert.fc1_bias_params() {
+                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    all.insert(format!("moe.expert_{}.fc1.bias", i), arr);
+                }
+                if let Some((data, shape)) = expert.get_fc2() {
+                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    all.insert(format!("moe.expert_{}.fc2.weight", i), arr);
+                }
+                if let Some((data, shape)) = expert.fc2_bias_params() {
+                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    all.insert(format!("moe.expert_{}.fc2.bias", i), arr);
+                }
+            }
+        }
+
+        // MoE router weights
+        if let Some(ref router) = self.has_moe_router {
+            if let Some((data, shape)) = router.get_weights_flat() {
+                let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                all.insert("moe.router.weight".to_string(), arr);
+            }
+        }
+
+        all
+    }
+
+    /// Apply loaded weights back to sub-components
+    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, ndarray::ArrayD<f32>>) {
+        // MoE expert weights
+        if let Some(ref mut experts) = self.has_moe_experts {
+            for (i, expert) in experts.iter_mut().enumerate() {
+                let fc1_key = format!("moe.expert_{}.fc1.weight", i);
+                let fc1b_key = format!("moe.expert_{}.fc1.bias", i);
+                let fc2_key = format!("moe.expert_{}.fc2.weight", i);
+                let fc2b_key = format!("moe.expert_{}.fc2.bias", i);
+                if let Some(arr) = weights.get(&fc1_key) {
+                    expert.set_fc1(arr.as_slice().unwrap_or(&[]), arr.shape());
+                }
+                if let Some(arr) = weights.get(&fc1b_key) {
+                    expert.set_fc1_bias(arr.as_slice().unwrap_or(&[]), arr.shape());
+                }
+                if let Some(arr) = weights.get(&fc2_key) {
+                    expert.set_fc2(arr.as_slice().unwrap_or(&[]), arr.shape());
+                }
+                if let Some(arr) = weights.get(&fc2b_key) {
+                    expert.set_fc2_bias(arr.as_slice().unwrap_or(&[]), arr.shape());
+                }
+            }
         }
     }
 

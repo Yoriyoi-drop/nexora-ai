@@ -5,7 +5,6 @@
 use super::generators::*;
 use super::strategies::*;
 use crate::saca::{config::*, error::*, types::*};
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -13,7 +12,6 @@ use uuid::Uuid;
 /// Large-Scale Sampling engine
 pub struct SamplingEngine {
     config: SamplingConfig,
-    executor: Arc<AsyncTaskExecutor>,
     algorithm_generators: Vec<Arc<dyn AlgorithmGenerator>>,
     diversity_calculator: Arc<DiversityCalculator>,
     random_strategy: Arc<RandomSamplingStrategy>,
@@ -25,10 +23,6 @@ pub struct SamplingEngine {
 impl SamplingEngine {
     /// Create new Sampling engine
     pub fn new(config: SamplingConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         let algorithm_generators: Vec<Arc<dyn AlgorithmGenerator>> = vec![
             Arc::new(StandardAlgorithmGenerator::new()),
             Arc::new(OptimizedAlgorithmGenerator::new()),
@@ -51,7 +45,6 @@ impl SamplingEngine {
 
         Ok(Self {
             config,
-            executor,
             algorithm_generators,
             diversity_calculator,
             random_strategy,

@@ -12,10 +12,10 @@ use std::collections::HashMap;
 
 /// 2-layer MLP with GELU activation for image patch projection.
 struct PatchMLP {
-    w1: Array2<f32>,
-    b1: Array1<f32>,
-    w2: Array2<f32>,
-    b2: Array1<f32>,
+    pub(crate) w1: Array2<f32>,
+    pub(crate) b1: Array1<f32>,
+    pub(crate) w2: Array2<f32>,
+    pub(crate) b2: Array1<f32>,
 }
 
 impl PatchMLP {
@@ -221,20 +221,31 @@ impl ImageEncoder {
     pub fn config(&self) -> &crate::caffeine::config::ImageEncoderConfig {
         &self.config
     }
+
+    /// Collect all trainable weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        vec![
+            ("image_encoder.patch_proj.w1".to_string(), self.patch_projection.w1.clone().into_dyn()),
+            ("image_encoder.patch_proj.b1".to_string(), self.patch_projection.b1.clone().into_dyn()),
+            ("image_encoder.patch_proj.w2".to_string(), self.patch_projection.w2.clone().into_dyn()),
+            ("image_encoder.patch_proj.b2".to_string(), self.patch_projection.b2.clone().into_dyn()),
+        ]
+    }
 }
 
 /// Regional contrastive alignment for visual features
+#[allow(dead_code)]
 pub struct RegionalContrastiveAligner {
-    temperature: f32,
-    num_regions: usize,
+    _temperature: f32,
+    _num_regions: usize,
 }
 
 impl RegionalContrastiveAligner {
     /// Create new regional aligner
     pub fn new(num_regions: usize, temperature: f32) -> Self {
         Self {
-            temperature,
-            num_regions,
+            _temperature: temperature,
+            _num_regions: num_regions,
         }
     }
 

@@ -5,7 +5,6 @@
 
 use super::{config::*, error::*, types::*};
 use futures::future::join_all;
-use nexora_core::async_executor::AsyncTaskExecutor;
 use nexora_oracle::linters::performance::PerformanceThresholds;
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -14,7 +13,6 @@ use tracing::{debug, info, warn};
 /// Mathematical Reranking engine
 pub struct RerankEngine {
     config: RerankConfig,
-    _executor: Arc<AsyncTaskExecutor>,
     metric_calculators: Vec<Arc<dyn MetricCalculator>>,
     normalizer: Arc<dyn ScoreNormalizer>,
 }
@@ -22,10 +20,6 @@ pub struct RerankEngine {
 impl RerankEngine {
     /// Create new Rerank engine
     pub fn new(config: RerankConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         let metric_calculators: Vec<Arc<dyn MetricCalculator>> = vec![
             Arc::new(CorrectnessCalculator::new()),
             Arc::new(PerformanceCalculator::new()),
@@ -49,7 +43,6 @@ impl RerankEngine {
 
         Ok(Self {
             config,
-            _executor: executor,
             metric_calculators,
             normalizer,
         })

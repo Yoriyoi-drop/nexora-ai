@@ -955,6 +955,41 @@ impl TriQueryFormer {
         Ok(ArrayD::from_shape_vec(shape, attention_weights)?)
     }
 
+    /// Collect all trainable weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        let mut weights = Vec::new();
+        for (i, q) in self.semantic_queries.get_embeddings().iter().enumerate() {
+            let arr = ndarray::ArrayD::from_shape_vec(vec![q.len()], q.clone()).unwrap_or_default();
+            weights.push((format!("qformer.semantic_query.{}", i), arr));
+        }
+        for (i, q) in self.spatial_queries.get_embeddings().iter().enumerate() {
+            let arr = ndarray::ArrayD::from_shape_vec(vec![q.len()], q.clone()).unwrap_or_default();
+            weights.push((format!("qformer.spatial_query.{}", i), arr));
+        }
+        for (i, q) in self.temporal_queries.get_embeddings().iter().enumerate() {
+            let arr = ndarray::ArrayD::from_shape_vec(vec![q.len()], q.clone()).unwrap_or_default();
+            weights.push((format!("qformer.temporal_query.{}", i), arr));
+        }
+        // Cross-modal attention projection weights
+        weights.push(("qformer.cross_attn.q_proj".to_string(), ndarray::ArrayD::from_shape_vec(
+            vec![self.config.hidden_dim, self.config.hidden_dim],
+            self.attention_mechanism.q_proj.clone(),
+        ).unwrap_or_default()));
+        weights.push(("qformer.cross_attn.k_proj".to_string(), ndarray::ArrayD::from_shape_vec(
+            vec![self.config.hidden_dim, self.config.hidden_dim],
+            self.attention_mechanism.k_proj.clone(),
+        ).unwrap_or_default()));
+        weights.push(("qformer.cross_attn.v_proj".to_string(), ndarray::ArrayD::from_shape_vec(
+            vec![self.config.hidden_dim, self.config.hidden_dim],
+            self.attention_mechanism.v_proj.clone(),
+        ).unwrap_or_default()));
+        weights.push(("qformer.cross_attn.o_proj".to_string(), ndarray::ArrayD::from_shape_vec(
+            vec![self.config.hidden_dim, self.config.hidden_dim],
+            self.attention_mechanism.o_proj.clone(),
+        ).unwrap_or_default()));
+        weights
+    }
+
     /// Get query statistics
     pub fn get_query_stats(&self) -> QueryStats {
         QueryStats {

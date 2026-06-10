@@ -5,54 +5,6 @@
 use crate::caffeine::error::Result;
 use ndarray::ArrayD;
 use std::collections::HashMap;
-use std::sync::Arc;
-
-/// Memory pool for efficient buffer reuse
-///
-/// Uses `std::sync::Mutex` intentionally — this pool is accessed only from
-/// synchronous CPU compute methods. Never used in async context.
-#[derive(Debug, Clone)]
-struct MemoryPool {
-    buffers: Arc<std::sync::Mutex<Vec<Vec<f32>>>>,
-    _max_pool_size: usize,
-}
-
-impl MemoryPool {
-    fn new(max_pool_size: usize) -> Self {
-        Self {
-            buffers: Arc::new(std::sync::Mutex::new(Vec::with_capacity(max_pool_size))),
-            _max_pool_size: max_pool_size,
-        }
-    }
-
-    fn get_buffer(&self, size: usize) -> Vec<f32> {
-        let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
-            tracing::warn!("Mutex poisoned: {}", e);
-            e.into_inner()
-        });
-        if let Some(mut buffer) = buffers.pop() {
-            if buffer.capacity() >= size {
-                buffer.clear();
-                buffer.resize(size, 0.0);
-                buffer
-            } else {
-                vec![0.0f32; size]
-            }
-        } else {
-            vec![0.0f32; size]
-        }
-    }
-
-    fn return_buffer(&self, buffer: Vec<f32>) {
-        let mut buffers = self.buffers.lock().unwrap_or_else(|e| {
-            tracing::warn!("Mutex poisoned: {}", e);
-            e.into_inner()
-        });
-        if buffers.len() < self._max_pool_size {
-            buffers.push(buffer);
-        }
-    }
-}
 
 /// Cross-modal attention mechanism with proper Q/K/V projections
 pub struct CrossModalAttention {
@@ -60,12 +12,11 @@ pub struct CrossModalAttention {
     num_heads: usize,
     head_dim: usize,
     _dropout_rate: f32,
-    q_proj: Vec<f32>,
-    k_proj: Vec<f32>,
-    v_proj: Vec<f32>,
-    o_proj: Vec<f32>,
+    pub(crate) q_proj: Vec<f32>,
+    pub(crate) k_proj: Vec<f32>,
+    pub(crate) v_proj: Vec<f32>,
+    pub(crate) o_proj: Vec<f32>,
     projection_weights: HashMap<String, Vec<f32>>,
-    memory_pool: MemoryPool,
 }
 
 impl CrossModalAttention {
@@ -112,8 +63,6 @@ impl CrossModalAttention {
             projection_weights.insert(pair_name.to_string(), weights);
         }
 
-        let memory_pool = MemoryPool::new(10);
-
         Ok(Self {
             hidden_dim,
             num_heads,
@@ -124,7 +73,6 @@ impl CrossModalAttention {
             v_proj,
             o_proj,
             projection_weights,
-            memory_pool,
         })
     }
 

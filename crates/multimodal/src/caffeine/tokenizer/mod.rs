@@ -13,8 +13,6 @@ use rand::Rng;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-const VOCAB_SIZE: usize = 50257;
-
 struct NgramModel {
     order: usize,
     counts: Vec<std::collections::HashMap<Vec<usize>, usize>>,

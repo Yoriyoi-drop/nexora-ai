@@ -5,15 +5,13 @@
 
 use super::config::FeedbackConfig;
 use super::{error::*, types::*};
-use nexora_core::async_executor::AsyncTaskExecutor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 /// Feedback system for SACA
 pub struct FeedbackSystem {
     config: FeedbackConfig,
-    executor: Arc<AsyncTaskExecutor>,
     feedback_history: Arc<RwLock<std::collections::HashMap<uuid::Uuid, Vec<SACAFeedback>>>>,
     pattern_analyzer: Arc<PatternAnalyzer>,
 }
@@ -21,9 +19,6 @@ pub struct FeedbackSystem {
 impl FeedbackSystem {
     /// Create new Feedback system
     pub fn new(config: FeedbackConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
         let pattern_analyzer = Arc::new(PatternAnalyzer::new());
 
         info!(
@@ -33,7 +28,6 @@ impl FeedbackSystem {
 
         Ok(Self {
             config,
-            executor,
             feedback_history: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pattern_analyzer,
         })
@@ -54,9 +48,19 @@ impl FeedbackSystem {
         let issues_identified = self.identify_issues(solution, &quality_analysis).await?;
 
         // Generate improvement suggestions
-        let improvement_suggestions = self
+        let mut improvement_suggestions = self
             .generate_improvements(solution, &issues_identified)
             .await?;
+
+        // Inject pattern analysis from historical feedback
+        if let Ok(patterns) = self.pattern_analyzer.analyze_patterns() {
+            for pattern in patterns {
+                let suggestion = format!("[Pattern] {}", pattern);
+                if !improvement_suggestions.contains(&suggestion) {
+                    improvement_suggestions.push(suggestion);
+                }
+            }
+        }
 
         // Determine new constraints
         let new_constraints = self
@@ -86,6 +90,9 @@ impl FeedbackSystem {
         // Store feedback in history
         self.store_feedback(solution.session_id, feedback.clone())
             .await?;
+
+        // Record feedback in pattern analyzer for cross-session tracking
+        self.pattern_analyzer.record_feedback(feedback.clone());
 
         info!(
             "Feedback generated with confidence score: {:.3}",
@@ -425,6 +432,7 @@ struct QualityAnalysis {
 struct PatternAnalyzer {
     min_frequency: usize,
     window_size: usize,
+    history: Mutex<Vec<(uuid::Uuid, Vec<SACAFeedback>)>>,
 }
 
 impl PatternAnalyzer {
@@ -432,13 +440,26 @@ impl PatternAnalyzer {
         Self {
             min_frequency: 2,
             window_size: 10,
+            history: Mutex::new(Vec::new()),
         }
     }
 
-    fn analyze_patterns(
-        &self,
-        history: &[(uuid::Uuid, Vec<SACAFeedback>)],
-    ) -> SACAResult<Vec<String>> {
+    fn record_feedback(&self, feedback: SACAFeedback) {
+        let session_id = feedback.feedback_id;
+        if let Ok(mut history) = self.history.lock() {
+            if let Some(entry) = history.iter_mut().find(|(sid, _)| *sid == session_id) {
+                entry.1.push(feedback);
+            } else {
+                history.push((session_id, vec![feedback]));
+            }
+        }
+    }
+
+    fn analyze_patterns(&self) -> SACAResult<Vec<String>> {
+        let history = match self.history.lock() {
+            Ok(h) => h,
+            Err(_) => return Ok(vec![]),
+        };
         if history.is_empty() {
             return Ok(vec![]);
         }

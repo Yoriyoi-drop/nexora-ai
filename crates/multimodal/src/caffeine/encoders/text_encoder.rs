@@ -57,8 +57,8 @@ impl TokenEmbedding {
 
 /// 2-layer MLP with GELU activation for text FFN
 struct TextFFN {
-    fc1: Array2<f32>,
-    fc2: Array2<f32>,
+    pub(crate) fc1: Array2<f32>,
+    pub(crate) fc2: Array2<f32>,
 }
 
 impl TextFFN {
@@ -199,7 +199,7 @@ impl TextEncoder {
         }
 
         let shape = vec![1, seq_len, embed_dim];
-        Ok(ArrayD::from_shape_vec(shape, hidden.into_raw_vec())?)
+        Ok(ArrayD::from_shape_vec(shape, hidden.into_raw_vec_and_offset().0)?)
     }
 
     /// Multi-head self-attention
@@ -269,6 +269,18 @@ impl TextEncoder {
     pub fn config(&self) -> &crate::caffeine::config::TextEncoderConfig {
         &self.config
     }
+
+    /// Collect all trainable weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        let mut weights = Vec::new();
+        weights.push(("text_encoder.token_embed.weight".to_string(), self.token_embedding.weight.clone().into_dyn()));
+        weights.push(("text_encoder.qkv_proj".to_string(), self.qkv_proj.clone().into_dyn()));
+        for (i, ffn) in self.ffn_layers.iter().enumerate() {
+            weights.push((format!("text_encoder.ffn_{}.fc1", i), ffn.fc1.clone().into_dyn()));
+            weights.push((format!("text_encoder.ffn_{}.fc2", i), ffn.fc2.clone().into_dyn()));
+        }
+        weights
+    }
 }
 
 fn layer_norm(x: &Array2<f32>, _dim: usize) -> Array2<f32> {
@@ -312,6 +324,7 @@ fn softmax_2d(x: &Array2<f32>) -> Array2<f32> {
 }
 
 /// Multi-lingual text processor
+#[allow(dead_code)]
 pub struct MultiLingualProcessor {
     supported_languages: Vec<String>,
     language_detectors: std::collections::HashMap<String, f32>,

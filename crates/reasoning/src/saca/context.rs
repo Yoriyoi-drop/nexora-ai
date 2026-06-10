@@ -4,7 +4,6 @@
 //! Implements SWE-bench methodology for repository-level understanding
 
 use super::{config::*, error::*, types::*};
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -14,7 +13,6 @@ use tracing::{debug, info, warn};
 /// Repository Context engine
 pub struct ContextEngine {
     config: ContextConfig,
-    _executor: Arc<AsyncTaskExecutor>,
     context_cache: Arc<RwLock<std::collections::HashMap<String, RepositoryContext>>>,
     file_analyzers: Vec<Arc<dyn FileAnalyzer>>,
 }
@@ -31,10 +29,6 @@ struct FunctionalityCheck {
 impl ContextEngine {
     /// Create new Context engine
     pub fn new(config: ContextConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         let file_analyzers: Vec<Arc<dyn FileAnalyzer>> = vec![
             Arc::new(RustAnalyzer::new()),
             Arc::new(PythonAnalyzer::new()),
@@ -49,7 +43,6 @@ impl ContextEngine {
 
         Ok(Self {
             config,
-            _executor: executor,
             context_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
             file_analyzers,
         })

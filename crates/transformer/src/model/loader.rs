@@ -847,10 +847,10 @@ impl CausalLM {
 
     /// Save checkpoint by reading back from GPU (or using resident CPU weights).
     pub fn save_checkpoint(&self, path: &str) -> crate::TransformerResult<()> {
-        let tensors = self.readback_weights()?;
+        let mut tensors = self.readback_weights()?;
         let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors
-            .iter()
-            .map(|(name, arr)| (name.as_str(), arr.clone()))
+            .iter_mut()
+            .map(|(name, arr)| (name.as_str(), std::mem::take(arr)))
             .collect();
         let mut meta = std::collections::HashMap::new();
         meta.insert(

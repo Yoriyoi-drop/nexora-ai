@@ -193,15 +193,13 @@ impl KVCache {
         }
         let idx = self.select_shard(key);
         let hash = hash_key(key);
-        {
-            let store = self.shards[idx].read().await;
-            if !store.entries.get(&hash).map_or(false, |e| e.key == key) {
-                self.stats_misses.fetch_add(1, Ordering::Relaxed);
-                return None;
-            }
-        }
         let mut store = self.shards[idx].write().await;
-        let entry = store.entries.remove(&hash)?;
+        let mut entry = store.entries.remove(&hash)?;
+        if entry.key != key {
+            store.entries.insert(hash, entry);
+            self.stats_misses.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
         if entry.created_at.elapsed() > self.ttl {
             store
                 .lru_order
@@ -300,11 +298,7 @@ impl KVCache {
                 store.lru_order.iter().next().copied().map(|(_, h)| h)
             }
             EvictionPolicy::LFU => {
-                store
-                    .entries
-                    .iter()
-                    .min_by_key(|(_, e)| e.access_count.load(Ordering::Relaxed))
-                    .map(|(h, _)| *h)
+                store.lru_order.iter().next().copied().map(|(_, h)| h)
             }
             EvictionPolicy::FIFO => {
                 store

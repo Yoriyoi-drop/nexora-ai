@@ -506,7 +506,7 @@ impl HierarchicalSlidingWindow {
             }
         }
 
-        Ok(output.clone().into_dyn())
+        Ok(std::mem::take(output).into_dyn())
     }
 
     /// Upsample output dari higher level attention
@@ -530,7 +530,7 @@ impl HierarchicalSlidingWindow {
             }
         }
 
-        Ok(upsampled.clone().into_dyn())
+        Ok(std::mem::take(upsampled).into_dyn())
     }
 
     /// Fuse hierarchical outputs dengan learned weights
@@ -563,7 +563,7 @@ impl HierarchicalSlidingWindow {
             }
         }
 
-        Ok(fused.clone().into_dyn())
+        Ok(std::mem::take(fused).into_dyn())
     }
 }
 

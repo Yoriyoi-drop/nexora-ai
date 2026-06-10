@@ -51,9 +51,9 @@ pub struct QuerySet {
     hidden_dim: usize,
     query_type: String,
     attention_weights: Option<ArrayD<f32>>,
-    wq: Vec<Vec<f32>>,
-    wk: Vec<Vec<f32>>,
-    wv: Vec<Vec<f32>>,
+    _wq: Vec<Vec<f32>>,
+    _wk: Vec<Vec<f32>>,
+    _wv: Vec<Vec<f32>>,
 }
 
 impl QuerySet {
@@ -80,9 +80,9 @@ impl QuerySet {
             hidden_dim,
             query_type,
             attention_weights: None,
-            wq,
-            wk,
-            wv,
+            _wq: wq,
+            _wk: wk,
+            _wv: wv,
         })
     }
 
@@ -263,9 +263,9 @@ pub struct QueryProcessor {
     hidden_dim: usize,
     num_heads: usize,
     _dropout_rate: f32,
-    wq: Vec<Vec<f32>>,
-    wk: Vec<Vec<f32>>,
-    wv: Vec<Vec<f32>>,
+    _wq: Vec<Vec<f32>>,
+    _wk: Vec<Vec<f32>>,
+    _wv: Vec<Vec<f32>>,
     wo: Vec<Vec<f32>>,
 }
 
@@ -290,9 +290,9 @@ impl QueryProcessor {
             hidden_dim,
             num_heads,
             _dropout_rate,
-            wq,
-            wk,
-            wv,
+            _wq: wq,
+            _wk: wk,
+            _wv: wv,
             wo,
         }
     }

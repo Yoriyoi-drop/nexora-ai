@@ -178,7 +178,7 @@ impl DistributedRouter {
                 loop {
                     match buffer.find('\n') {
                         Some(nl) => {
-                            let line = buffer[..nl].trim().to_string();
+                            let line = buffer[..nl].trim();
                             buffer.drain(..nl + 1);
 
                             if line.is_empty() {

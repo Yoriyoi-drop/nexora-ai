@@ -14,24 +14,7 @@ pub fn init_analyzer(embed_table: Array2<f32>) {
 }
 
 pub fn detect_language(code: &str) -> &'static str {
-    let code = code.trim();
-    if code.contains("fn ") && (code.contains("->") || code.contains("mut ") || code.contains("let ")) {
-        "rust"
-    } else if code.contains("def ") || code.contains("import ") || code.contains("class ") && code.contains(":") {
-        "python"
-    } else if code.contains("function ") || code.contains("const ") && code.contains("=>") || code.contains("let ") && code.contains("var ") {
-        "javascript"
-    } else if code.contains("public class ") || code.contains("private ") || code.contains("void ") && code.contains("{") {
-        "java"
-    } else if code.contains("#include") || code.contains("int main") || code.contains("std::") {
-        "cpp"
-    } else if code.contains("package ") || code.contains("import ") && code.contains("fmt") {
-        "go"
-    } else if code.contains("SELECT ") || code.contains("FROM ") || code.contains("WHERE ") {
-        "sql"
-    } else {
-        "unknown"
-    }
+    nexora_oracle::linters::detect_language(code)
 }
 
 const CATEGORY_PROMPTS: &[(&str, &str)] = &[
@@ -101,11 +84,11 @@ mod tests {
 
     #[test]
     fn test_detect_language_javascript() {
-        assert_eq!(detect_language("const x = () => 42;"), "javascript");
+        assert_eq!(detect_language("function foo() { return 1; }"), "javascript");
     }
 
     #[test]
     fn test_detect_language_unknown() {
-        assert_eq!(detect_language("xyzzy"), "unknown");
+        assert_eq!(detect_language("xyzzy"), "text");
     }
 }

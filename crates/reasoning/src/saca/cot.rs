@@ -4,7 +4,6 @@
 //! Implements structured thinking process to identify edge cases, assumptions, and risks
 
 use super::{config::*, error::*, types::*};
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -12,17 +11,12 @@ use tracing::{debug, info, warn};
 /// Chain-of-Thought reasoning engine
 pub struct CoTEngine {
     config: CoTConfig,
-    _executor: Arc<AsyncTaskExecutor>,
     reasoning_cache: Arc<RwLock<std::collections::HashMap<String, CoTResult>>>,
 }
 
 impl CoTEngine {
     /// Create new CoT engine
     pub fn new(config: CoTConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         info!(
             "CoT Engine initialized with {} max reasoning steps",
             config.max_reasoning_steps
@@ -30,7 +24,6 @@ impl CoTEngine {
 
         Ok(Self {
             config,
-            _executor: executor,
             reasoning_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
         })
     }

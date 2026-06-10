@@ -77,7 +77,7 @@ impl FusedLinearActivation {
         // Perform fused operation
         self.fused_linear_activation_impl(input_view, output.view_mut())?;
 
-        Ok(output.clone().into_dyn())
+        Ok(std::mem::take(output).into_dyn())
     }
 
     /// GPU-accelerated forward pass: upload → matmul → activation → download

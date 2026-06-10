@@ -15,7 +15,6 @@ use crate::kv_cache::KVCache;
 use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
 use crate::paged_provider::PagedKVCacheProvider;
 use crate::speculative::{SpeculativeDecodingConfig, SpeculativeEngine};
-use std::sync::Mutex as StdMutex;
 use std::sync::RwLock as StdRwLock;
 use crate::prefix_cache::PrefixCache;
 use crate::runtime::InferenceRuntime;
@@ -128,7 +127,7 @@ pub struct InferenceEngine {
     kv_cache: Arc<RwLock<KVCache>>,
     session_manager: Arc<RwLock<HashMap<Uuid, InferenceSession>>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
+    tokenizer: Option<Arc<Mutex<BpeTokenizer>>>,
     streaming_engine: Option<Arc<RwLock<StreamingEngine>>>,
     prefix_cache: Arc<PrefixCache>,
     shared_paged: Option<Arc<StdRwLock<PagedKVCache>>>,
@@ -240,7 +239,7 @@ impl InferenceEngine {
 
     pub fn with_model(
         model: Arc<CausalLM>,
-        tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
+        tokenizer: Option<Arc<Mutex<BpeTokenizer>>>,
         config: InferenceConfig,
     ) -> Self {
         let (request_tx, request_rx) = mpsc::channel(config.queue_size_limit.max(1));
@@ -629,13 +628,7 @@ impl InferenceEngine {
 
         let task = tokio::spawn(async move {
             let prompt_ids: Vec<u32> = match &tokenizer {
-                Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
-                    Ok(t) => t.encode(&augmented_prompt),
-                    Err(e) => {
-                        warn!("Tokenizer lock poisoned for streaming request {}: {}", request_id, e);
-                        return;
-                    }
-                },
+                Some(tok) => tok.lock().await.encode(&augmented_prompt),
                 None => {
                     warn!(
                         "No tokenizer configured for streaming request {}",
@@ -709,13 +702,7 @@ impl InferenceEngine {
                     };
 
                     let token_text = match &tokenizer {
-                        Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
-                            Ok(t) => t.decode(&[token_id]),
-                            Err(e) => {
-                                warn!("Tokenizer lock poisoned: {}", e);
-                                token_id_to_text_fallback(token_id)
-                            }
-                        },
+                        Some(tok) => tok.lock().await.decode(&[token_id]),
                         None => token_id_to_text_fallback(token_id),
                     };
                     let token = GeneratedToken::new(token_id, token_text, log_prob, pos);
@@ -758,13 +745,7 @@ impl InferenceEngine {
             if let Some(ref memory) = memory_clone {
                 if !generated_ids.is_empty() {
                     let response_text = match &tokenizer {
-                        Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
-                            Ok(t) => t.decode(&generated_ids),
-                            Err(e) => {
-                                warn!("Tokenizer lock poisoned: {}", e);
-                                format!("[{} tokens generated]", generated_ids.len())
-                            }
-                        },
+                        Some(tok) => tok.lock().await.decode(&generated_ids),
                         None => format!("[{} tokens generated]", generated_ids.len()),
                     };
                     let _ = memory
@@ -998,29 +979,26 @@ impl InferenceEngine {
             // Build responses
             let mut results = Vec::with_capacity(sequences.len());
             for seq in sequences {
-                let text: String = seq
-                    .generated
-                    .iter()
-                    .map(|&id| {
-                        if let Some(ref tok) = tokenizer {
-                            match tok.lock() {
-                                Ok(t) => t.decode(&[id]),
-                                Err(e) => {
-                                    warn!("Tokenizer lock poisoned: {}", e);
-                                    format!("[{}]", id)
-                                }
-                            }
-                        } else {
-                            format!("[{}]", id)
-                        }
-                    })
-                    .collect();
-                let tokens: Vec<GeneratedToken> = seq
-                    .generated
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &id)| GeneratedToken::new(id, format!("[{}]", id), 0.0, i))
-                    .collect();
+                let (text, tokens) = if let Some(ref tok) = tokenizer {
+                    let tok = tok.blocking_lock();
+                    let text = tok.decode(&seq.generated);
+                    let tokens: Vec<GeneratedToken> = seq
+                        .generated
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &id)| GeneratedToken::new(id, tok.decode(&[id]), 0.0, i))
+                        .collect();
+                    (text, tokens)
+                } else {
+                    let text: String = seq.generated.iter().map(|&id| format!("[{}]", id)).collect();
+                    let tokens: Vec<GeneratedToken> = seq
+                        .generated
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &id)| GeneratedToken::new(id, format!("[{}]", id), 0.0, i))
+                        .collect();
+                    (text, tokens)
+                };
                 results.push(InferenceResponse {
                     request_id: seq.request_id,
                     tokens,
@@ -1083,8 +1061,8 @@ impl InferenceEngine {
         }
 
         // Memory-based RAG: enrich prompt with relevant past context (no clone: move prompt)
-        let prompt = request.prompt;
-        let original_prompt = prompt.clone();
+        let original_prompt = request.prompt.clone();
+        let prompt = original_prompt.clone();
         let augmented_prompt = if let Some(memory) = &self.memory {
             let mem = memory.lock().await;
             match mem.search(&prompt).await {
@@ -1206,13 +1184,7 @@ impl InferenceEngine {
                     let mut finish_reason = FinishReason::Unknown;
                     for (i, &token_id) in out_tokens.iter().enumerate() {
                         let token_text: String = match &self.tokenizer {
-                        Some(tok) => match tok.lock() {
-                            Ok(t) => t.decode(&[token_id]),
-                            Err(e) => {
-                                warn!("Tokenizer lock poisoned: {}", e);
-                                token_id_to_text_fallback(token_id)
-                            }
-                        },
+                        Some(tok) => tok.lock().await.decode(&[token_id]),
                         None => token_id_to_text_fallback(token_id),
                     };
                         let log_prob = 0.0;
@@ -1511,9 +1483,8 @@ impl InferenceEngine {
     }
 
     /// Spawn a batch processing task with proper panic recovery and state tracking.
-    async fn spawn_batch_processor(&self, batch: crate::batching::Batch) {
-        let batch_semaphore = Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT));
-        let engine = InferenceEngineHandle {
+    fn make_handle(&self) -> InferenceEngineHandle {
+        InferenceEngineHandle {
             scheduler: self.scheduler.clone(),
             model: Arc::clone(&self.model),
             tokenizer: self.tokenizer.clone(),
@@ -1523,9 +1494,13 @@ impl InferenceEngine {
             use_gpu_cache: self.config.use_gpu_cache,
             shared_paged: self.shared_paged.clone(),
             prefix_cache: self.prefix_cache.clone(),
-            batch_semaphore,
+            batch_semaphore: Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT)),
             generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
-        };
+        }
+    }
+
+    async fn spawn_batch_processor(&self, batch: crate::batching::Batch) {
+        let engine = self.make_handle();
         Self::spawn_batch_processor_inner(&engine, &self.active_requests, batch).await;
     }
 
@@ -1548,19 +1523,7 @@ impl InferenceEngine {
         let active_handle = self.active_requests.clone();
         let session_manager = self.session_manager.clone();
 
-        let engine = InferenceEngineHandle {
-            scheduler: self.scheduler.clone(),
-            model: Arc::clone(&self.model),
-            tokenizer: self.tokenizer.clone(),
-            state: self.state.clone(),
-            use_gpu: self.config.use_gpu,
-            #[cfg(feature = "gpu")]
-            use_gpu_cache: self.config.use_gpu_cache,
-            shared_paged: self.shared_paged.clone(),
-            prefix_cache: self.prefix_cache.clone(),
-            batch_semaphore: Arc::new(Semaphore::new(BATCH_CONCURRENCY_LIMIT)),
-            generation_timeout: Duration::from_secs(self.config.generation_timeout_seconds),
-        };
+        let engine = self.make_handle();
 
         let cleanup_interval = Duration::from_secs(self.config.cleanup_interval_seconds);
         let recv_timeout = Duration::from_millis(self.config.recv_timeout_millis);
@@ -1711,9 +1674,7 @@ impl InferenceEngine {
     async fn encode_prompt(&self, prompt: &str) -> Result<Vec<u32>> {
         match &self.tokenizer {
             Some(tok) => {
-                let guard = tokio::task::block_in_place(|| tok.lock()).map_err(|e| {
-                    InferenceError::InternalError(format!("Tokenizer lock poisoned: {}", e))
-                })?;
+                let guard = tok.lock().await;
                 Ok(guard.encode(prompt))
             }
             None => Err(InferenceError::InvalidRequest(
@@ -1724,13 +1685,7 @@ impl InferenceEngine {
 
     async fn token_id_to_text(&self, token_id: u32) -> String {
         match &self.tokenizer {
-            Some(tok) => match tokio::task::block_in_place(|| tok.lock()) {
-                Ok(guard) => guard.decode(&[token_id]),
-                Err(e) => {
-                    warn!("Tokenizer lock poisoned: {}", e);
-                    token_id_to_text_fallback(token_id)
-                }
-            },
+            Some(tok) => tok.lock().await.decode(&[token_id]),
             None => token_id_to_text_fallback(token_id),
         }
     }
@@ -1789,7 +1744,7 @@ fn run_generation_loop(
     max_gen: usize,
     sampler: &mut crate::sampler::Sampler,
     kv_state: &mut dyn KVCacheProvider,
-    tokenizer: Option<&Arc<StdMutex<BpeTokenizer>>>,
+    tokenizer: Option<&Arc<Mutex<BpeTokenizer>>>,
     prefix_len: usize,
     prefix_logits: Vec<f32>,
     generation_timeout: Duration,
@@ -1909,13 +1864,7 @@ fn run_generation_loop(
         }
 
         let token_text: String = match tokenizer {
-            Some(tok) => match tok.lock() {
-                Ok(t) => t.decode(&[token_id]),
-                Err(e) => {
-                    warn!("Tokenizer lock poisoned: {}", e);
-                    token_id_to_text_fallback(token_id)
-                }
-            },
+            Some(tok) => tok.blocking_lock().decode(&[token_id]),
             None => token_id_to_text_fallback(token_id),
         };
 
@@ -1960,7 +1909,7 @@ const BATCH_CONCURRENCY_LIMIT: usize = 64;
 struct InferenceEngineHandle {
     scheduler: Arc<RwLock<RequestScheduler>>,
     model: Arc<CausalLM>,
-    tokenizer: Option<Arc<StdMutex<BpeTokenizer>>>,
+    tokenizer: Option<Arc<Mutex<BpeTokenizer>>>,
     state: Arc<RwLock<EngineState>>,
     use_gpu: bool,
     #[cfg(feature = "gpu")]
@@ -2042,10 +1991,7 @@ impl InferenceEngineHandle {
 
                 let encode_outcome: std::result::Result<Vec<u32>, &str> = {
                     match &tokenizer {
-                        Some(tok) => match tok.lock() {
-                            Ok(guard) => Ok(guard.encode(&breq.prompt)),
-                            Err(_) => Err("Tokenizer lock poisoned"),
-                        },
+                        Some(tok) => Ok(tok.lock().await.encode(&breq.prompt)),
                         None => Err("No tokenizer configured"),
                     }
                 };

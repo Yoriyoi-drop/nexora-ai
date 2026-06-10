@@ -58,9 +58,9 @@ pub struct HasMoeFFN {
     experts: Vec<crate::experts::Expert>,
     router: crate::routing::Router,
     /// Expert domain assignments (index → domain).
-    domain_assignments: Option<Vec<ExpertAssignment>>,
+    _domain_assignments: Option<Vec<ExpertAssignment>>,
     /// Expert pool configuration for domain-aware routing.
-    pool_config: Option<ExpertPoolConfig>,
+    _pool_config: Option<ExpertPoolConfig>,
 }
 
 impl HasMoeFFN {
@@ -114,8 +114,8 @@ impl HasMoeFFN {
             config,
             experts,
             router,
-            domain_assignments: assignments,
-            pool_config: pool,
+            _domain_assignments: assignments,
+            _pool_config: pool,
         }
     }
 

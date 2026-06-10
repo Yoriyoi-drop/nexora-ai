@@ -2,10 +2,89 @@ use crate::caffeine::error::Result;
 use crate::caffeine::types::*;
 use rand::Rng;
 use std::collections::HashMap;
+use std::path::Path;
 
 const VOCAB_SIZE: usize = 50257;
 
-struct EmbeddingLookup {
+/// Vocabulary that maps token IDs to words.
+/// Can load from a file (one word per line, line index = token ID)
+/// or fall back to the common word hash + embedding lookup.
+pub struct WordVocabulary {
+    words: Vec<String>,
+    common: HashMap<usize, String>,
+}
+
+impl WordVocabulary {
+    pub fn new() -> Self {
+        let mut common: HashMap<usize, String> = HashMap::new();
+        let common_pairs = [
+            (0_usize, "the"), (1, "a"), (2, "an"), (3, "is"), (4, "are"),
+            (5, "was"), (6, "were"), (7, "be"), (8, "been"), (9, "being"),
+            (10, "have"), (11, "has"), (12, "had"), (13, "do"), (14, "does"),
+            (15, "did"), (16, "will"), (17, "would"), (18, "can"), (19, "could"),
+            (20, "shall"), (21, "should"), (22, "may"), (23, "might"), (24, "must"),
+            (25, "i"), (26, "you"), (27, "he"), (28, "she"), (29, "it"),
+            (30, "we"), (31, "they"), (32, "me"), (33, "him"), (34, "her"),
+            (35, "us"), (36, "them"), (37, "my"), (38, "your"), (39, "his"),
+            (40, "its"), (41, "our"), (42, "their"), (43, "this"), (44, "that"),
+            (45, "these"), (46, "those"), (47, "some"), (48, "any"), (49, "no"),
+            (50, "all"), (51, "both"), (52, "each"), (53, "every"), (54, "few"),
+            (55, "more"), (56, "most"), (57, "other"), (58, "such"), (59, "what"),
+            (60, "which"), (61, "who"), (62, "whom"), (63, "when"), (64, "where"),
+            (65, "why"), (66, "how"), (67, "and"), (68, "or"), (69, "but"),
+            (70, "if"), (71, "because"), (72, "as"), (73, "until"), (74, "while"),
+            (75, "of"), (76, "at"), (77, "by"), (78, "for"), (79, "with"),
+            (80, "about"), (81, "between"), (82, "into"), (83, "through"), (84, "during"),
+            (85, "before"), (86, "after"), (87, "above"), (88, "below"), (89, "to"),
+            (90, "from"), (91, "up"), (92, "down"), (93, "in"), (94, "out"),
+            (95, "on"), (96, "off"), (97, "over"), (98, "under"), (99, "again"),
+        ];
+        for (k, v) in common_pairs {
+            common.insert(k, v.to_string());
+        }
+
+        Self { words: Vec::new(), common }
+    }
+
+    /// Load vocabulary from a file (one word per line, line number = token ID)
+    pub fn load_from_file(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        let words: Vec<String> = content.lines().map(|l| l.trim().to_string()).collect();
+        Ok(Self { words, common: HashMap::new() })
+    }
+
+    /// Lookup a token ID — first try file-based vocab, then common words, then hash-based fallback
+    pub(crate) fn lookup(&self, token_id: usize, embedding: &EmbeddingLookup) -> String {
+        // Try file-based vocabulary first
+        if !self.words.is_empty() {
+            if token_id < self.words.len() {
+                let w = self.words[token_id].clone();
+                if !w.is_empty() {
+                    return w;
+                }
+            }
+        }
+
+        // Try common words
+        if let Some(word) = self.common.get(&(token_id % 100)) {
+            return word.clone();
+        }
+
+        // Hash-based fallback from embedding
+        let emb = embedding.lookup(token_id);
+        let hash: u64 = emb.iter().map(|v| v.to_bits() as u64).sum();
+        let word_idx = hash % 500;
+        let fallback_words = [
+            "analyze", "generate", "process", "compute", "transform",
+            "extract", "predict", "classify", "optimize", "evaluate",
+            "integrate", "configure", "deploy", "synthesize", "aggregate",
+            "parse", "render", "execute", "simulate", "calibrate",
+        ];
+        fallback_words[(word_idx as usize) % fallback_words.len()].to_string()
+    }
+}
+
+pub(crate) struct EmbeddingLookup {
     table: Vec<Vec<f32>>,
     dim: usize,
 }
@@ -151,6 +230,7 @@ pub struct TextOutputGenerator {
     max_length: usize,
     _temperature: f32,
     embedding: EmbeddingLookup,
+    vocabulary: WordVocabulary,
 }
 
 impl TextOutputGenerator {
@@ -159,7 +239,14 @@ impl TextOutputGenerator {
             max_length: 512,
             _temperature: 0.7,
             embedding: EmbeddingLookup::new(embed_dim),
+            vocabulary: WordVocabulary::new(),
         })
+    }
+
+    /// Load vocabulary from file for better token-to-word mapping
+    pub fn load_vocab(&mut self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        self.vocabulary = WordVocabulary::load_from_file(path)?;
+        Ok(())
     }
 
     pub fn generate(
@@ -206,43 +293,7 @@ impl TextOutputGenerator {
     }
 
     fn token_to_word(&self, token_id: usize) -> Result<String> {
-        let common_words: HashMap<usize, &str> = [
-            (0, "the"), (1, "a"), (2, "an"), (3, "is"), (4, "are"),
-            (5, "was"), (6, "were"), (7, "be"), (8, "been"), (9, "being"),
-            (10, "have"), (11, "has"), (12, "had"), (13, "do"), (14, "does"),
-            (15, "did"), (16, "will"), (17, "would"), (18, "can"), (19, "could"),
-            (20, "shall"), (21, "should"), (22, "may"), (23, "might"), (24, "must"),
-            (25, "i"), (26, "you"), (27, "he"), (28, "she"), (29, "it"),
-            (30, "we"), (31, "they"), (32, "me"), (33, "him"), (34, "her"),
-            (35, "us"), (36, "them"), (37, "my"), (38, "your"), (39, "his"),
-            (40, "its"), (41, "our"), (42, "their"), (43, "this"), (44, "that"),
-            (45, "these"), (46, "those"), (47, "some"), (48, "any"), (49, "no"),
-            (50, "all"), (51, "both"), (52, "each"), (53, "every"), (54, "few"),
-            (55, "more"), (56, "most"), (57, "other"), (58, "such"), (59, "what"),
-            (60, "which"), (61, "who"), (62, "whom"), (63, "when"), (64, "where"),
-            (65, "why"), (66, "how"), (67, "and"), (68, "or"), (69, "but"),
-            (70, "if"), (71, "because"), (72, "as"), (73, "until"), (74, "while"),
-            (75, "of"), (76, "at"), (77, "by"), (78, "for"), (79, "with"),
-            (80, "about"), (81, "between"), (82, "into"), (83, "through"), (84, "during"),
-            (85, "before"), (86, "after"), (87, "above"), (88, "below"), (89, "to"),
-            (90, "from"), (91, "up"), (92, "down"), (93, "in"), (94, "out"),
-            (95, "on"), (96, "off"), (97, "over"), (98, "under"), (99, "again"),
-        ].iter().cloned().collect();
-
-        if let Some(&word) = common_words.get(&(token_id % 100)) {
-            Ok(word.to_string())
-        } else {
-            let embedding = self.embedding.lookup(token_id);
-            let hash: u64 = embedding.iter().map(|v| v.to_bits() as u64).sum();
-            let word_idx = hash % 500;
-            let fallback_words = [
-                "analyze", "generate", "process", "compute", "transform",
-                "extract", "predict", "classify", "optimize", "evaluate",
-                "integrate", "configure", "deploy", "synthesize", "aggregate",
-                "parse", "render", "execute", "simulate", "calibrate",
-            ];
-            Ok(fallback_words[(word_idx as usize) % fallback_words.len()].to_string())
-        }
+        Ok(self.vocabulary.lookup(token_id, &self.embedding))
     }
 }
 

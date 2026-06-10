@@ -5,7 +5,6 @@
 
 use super::{config::*, error::*, prelude::*, types::*};
 use chrono::Utc;
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -13,7 +12,6 @@ use tracing::{debug, info, warn};
 /// Pipeline orchestrator for SACA
 pub struct SACAPipeline {
     config: SACAConfig,
-    _executor: Arc<AsyncTaskExecutor>,
 
     // Phase engines
     cot_engine: Arc<CoTEngine>,
@@ -34,10 +32,6 @@ pub struct SACAPipeline {
 impl SACAPipeline {
     /// Create new pipeline instance
     pub async fn new(config: SACAConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         // Initialize phase engines
         let cot_engine = Arc::new(CoTEngine::new(config.cot_config.clone())?);
         let decompose_engine = Arc::new(DecomposeEngine::new(config.decompose_config.clone())?);
@@ -53,7 +47,6 @@ impl SACAPipeline {
 
         Ok(Self {
             config,
-            _executor: executor,
             cot_engine,
             decompose_engine,
             context_engine,

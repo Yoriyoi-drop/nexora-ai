@@ -6,6 +6,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -152,6 +153,22 @@ pub struct BeamHypothesis {
     pub finish_reason: Option<String>,
     /// Generation metadata (Arc for O(1) clone)
     pub metadata: Arc<HashMap<String, serde_json::Value>>,
+}
+
+impl Default for BeamHypothesis {
+    fn default() -> Self {
+        Self {
+            id: Uuid::nil(),
+            tokens: None,
+            token_count: 0,
+            cumulative_log_prob: 0.0,
+            score: 0.0,
+            length_penalty: 0.0,
+            finished: false,
+            finish_reason: None,
+            metadata: Arc::new(HashMap::new()),
+        }
+    }
 }
 
 impl BeamHypothesis {
@@ -580,9 +597,9 @@ impl BeamSearchEngine {
                     .unwrap_or(Ordering::Equal)
             });
 
-            remaining.push(state.hypotheses[group[0]].clone());
+            remaining.push(mem::take(&mut state.hypotheses[group[0]]));
             for &idx in group.iter().skip(1) {
-                let mut converged_hypothesis = state.hypotheses[idx].clone();
+                let mut converged_hypothesis = mem::take(&mut state.hypotheses[idx]);
                 converged_hypothesis.finish("converged".to_string());
                 converged.push(converged_hypothesis);
             }

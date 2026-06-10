@@ -134,17 +134,18 @@ pub async fn get_subscription(
     }
 }
 
-/// Map plan name to Stripe Price ID (must be a real Stripe Price ID like price_XXXXXXX)
-fn stripe_price_id(plan_name: &str) -> Option<&'static str> {
+/// Map plan name to Stripe Price ID from config.
+/// Set STRIPE_PRO_PRICE_ID / STRIPE_ENTERPRISE_PRICE_ID env vars or config values.
+fn stripe_price_id(plan_name: &str, config: &super::config::billing::BillingConfig) -> Option<String> {
     match plan_name {
-        "pro" => {
-            tracing::info!("Using Stripe price ID for pro plan — replace 'price_1PRO_MONTHLY_PLACEHOLDER' with your real Stripe price ID in production");
-            Some("price_1PRO_MONTHLY_PLACEHOLDER")
-        }
-        "enterprise" => {
-            tracing::info!("Using Stripe price ID for enterprise plan — replace 'price_1ENT_MONTHLY_PLACEHOLDER' with your real Stripe price ID in production");
-            Some("price_1ENT_MONTHLY_PLACEHOLDER")
-        }
+        "pro" => config.stripe_pro_price_id.clone().or_else(|| {
+            tracing::warn!("STRIPE_PRO_PRICE_ID not configured; set env var or add to config");
+            None
+        }),
+        "enterprise" => config.stripe_enterprise_price_id.clone().or_else(|| {
+            tracing::warn!("STRIPE_ENTERPRISE_PRICE_ID not configured; set env var or add to config");
+            None
+        }),
         _ => None,
     }
 }
@@ -157,9 +158,10 @@ async fn create_stripe_checkout(
     plan: &BillingPlan,
     success_url: &str,
     cancel_url: &str,
+    config: &super::config::billing::BillingConfig,
 ) -> Result<String, String> {
-    let price = stripe_price_id(plan_name).ok_or_else(|| {
-        format!("Plan '{}' does not have a Stripe price configured", plan_name)
+    let price = stripe_price_id(plan_name, config).ok_or_else(|| {
+        format!("Plan '{}' does not have a Stripe price configured. Set STRIPE_PRO_PRICE_ID or STRIPE_ENTERPRISE_PRICE_ID", plan_name)
     })?;
 
     let client = reqwest::Client::new();
@@ -255,7 +257,7 @@ pub async fn subscribe(
             .cancel_url
             .unwrap_or_else(|| "https://nexora.ai/billing/cancel".to_string());
 
-        match create_stripe_checkout(secret_key, &plan_name, &plan, &success_url, &cancel_url).await
+        match create_stripe_checkout(secret_key, &plan_name, &plan, &success_url, &cancel_url, &config).await
         {
             Ok(url) => Some(url),
             Err(e) => {

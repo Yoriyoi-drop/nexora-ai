@@ -17,7 +17,7 @@ use crate::code_utils::CodeTokenizer;
 use crate::pretraining::{
     OraclePretrainer, OraclePretrainingConfig, TrainingBatch, TrainingExample,
 };
-use crate::rope::{CrossFilePositionTracker, ExtendedRope, ExtendedRopeConfig};
+use crate::rope::ExtendedRopeConfig;
 
 /// Konfigurasi lengkap ORACLE
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,12 +137,10 @@ pub struct TrainingMetrics {
 pub struct OracleTrainer {
     config: OracleConfig,
     backbone: OracleBackbone,
-    rope: ExtendedRope,
     pretrainer: OraclePretrainer,
     dpo_trainer: CodeDpoTrainer,
     tokenizer: CodeTokenizer,
     linter: crate::linters::CodeLinterManager,
-    position_tracker: CrossFilePositionTracker,
     training_state: OracleTrainingState,
     /// Differentiable parameter wrappers for autograd training
     trainable_params: Vec<nexora_autograd::Tensor>,
@@ -162,7 +160,6 @@ impl OracleTrainer {
     pub fn new(config: OracleConfig, vocab_size: usize) -> Result<Self> {
         // Initialize components
         let backbone = OracleBackbone::new(config.backbone.clone(), vocab_size);
-        let rope = ExtendedRope::new(config.rope.clone());
         let pretrainer = OraclePretrainer::new(config.pretraining.clone());
 
         // Create reference model for DPO
@@ -174,7 +171,6 @@ impl OracleTrainer {
 
         let tokenizer = CodeTokenizer::new();
         let linter = crate::linters::CodeLinterManager::new();
-        let position_tracker = CrossFilePositionTracker::new();
 
         // Create differentiable training parameters for the backbone
         let trainable_params = backbone.collect_training_tensors();
@@ -186,12 +182,10 @@ impl OracleTrainer {
         Ok(Self {
             config,
             backbone,
-            rope,
             pretrainer,
             dpo_trainer,
             tokenizer,
             linter,
-            position_tracker,
             training_state: OracleTrainingState::default(),
             trainable_params,
             optimizer,
@@ -313,7 +307,9 @@ impl OracleTrainer {
                 loss_t.backward();
 
                 // ── 6. Optimizer step: update all trainable params ──
-                self.optimizer.step();
+                self.optimizer
+                    .step()
+                    .map_err(|e| anyhow::anyhow!("Optimizer step failed: {}", e))?;
 
                 // ── 7. Sync updated params back to backbone ndarray ──
                 self.backbone.sync_from_tensors(&self.trainable_params);
@@ -324,9 +320,6 @@ impl OracleTrainer {
                 // Update training state
                 self.pretrainer.training_state.step_count += 1;
                 self.pretrainer.training_state.total_loss += loss_val;
-
-                // Update position tracker
-                self.update_position_tracker(&batch.examples)?;
 
                 // Logging
                 if batch_idx % 10 == 0 {
@@ -608,27 +601,6 @@ impl OracleTrainer {
         Ok(input_ids)
     }
 
-    /// Update position tracker
-    fn update_position_tracker(&mut self, examples: &[TrainingExample]) -> Result<()> {
-        for example in examples {
-            // Extract file ID from metadata (simplified)
-            let file_id = example
-                .metadata
-                .get("file_id")
-                .map(|s| s.as_str())
-                .unwrap_or("0")
-                .parse::<usize>()
-                .unwrap_or(0);
-
-            // Add position for each token
-            for _ in &example.tokens {
-                self.position_tracker.add_position(file_id);
-            }
-        }
-
-        Ok(())
-    }
-
     /// Check early stopping
     fn check_early_stopping(&mut self, current_loss: f32) -> bool {
         if current_loss < self.training_state.best_validation_loss {
@@ -860,24 +832,6 @@ pub mod utils {
             total_flops,
             estimated_hours,
         }
-    }
-
-    fn estimate_flops_per_step(backbone_config: &OracleBackboneConfig, vocab_size: usize) -> u64 {
-        // Simplified FLOP estimation
-        let d_model = backbone_config.d_model;
-        let _n_heads = backbone_config.n_heads;
-        let seq_len = 8192; // Default sequence length
-
-        // Attention FLOPs
-        let attention_flops = (seq_len * seq_len * d_model) as u64;
-
-        // MoE FLOPs
-        let moe_flops = (d_model * backbone_config.mlp_hidden * backbone_config.top_k) as u64;
-
-        // Output projection FLOPs
-        let output_flops = (d_model * vocab_size) as u64;
-
-        (attention_flops + moe_flops + output_flops) * 12 // 12 layers
     }
 
     #[derive(Debug, Clone)]

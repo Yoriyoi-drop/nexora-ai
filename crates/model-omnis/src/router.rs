@@ -27,7 +27,10 @@ impl OmnisMoERouter {
             return vec![(DOMAINS[0].to_string(), 1.0)];
         }
         let avg = classifier_util::embed_average(&self.embed_table, token_ids);
-        let input = avg.clone().into_shape((1, avg.len())).expect("reshape 1D→2D with matching element count");
+        let input = avg.clone().into_shape((1, avg.len())).unwrap_or_else(|e| {
+            tracing::warn!("Omnis router reshape failed: {}, using fallback zeros", e);
+            Array2::<f32>::zeros((1, avg.len()))
+        });
         let probs = self.moe_router.forward(&input);
 
         let mut results: Vec<_> = DOMAINS

@@ -42,10 +42,10 @@ pub struct BatchProcessor {
     stats: Arc<RwLock<BatchStats>>,
     /// State
     state: Arc<RwLock<ProcessorState>>,
-    /// Sender for batch completion notifications
-    batch_sender: mpsc::Sender<Batch>,
+    /// Sender for batch completion notifications (sends batch_id, avoids Batch clone)
+    batch_sender: mpsc::Sender<Uuid>,
     /// Receiver for batch completion notifications
-    batch_receiver: Arc<RwLock<Option<mpsc::Receiver<Batch>>>>,
+    batch_receiver: Arc<RwLock<Option<mpsc::Receiver<Uuid>>>>,
     /// Tracked background task handles for shutdown/cancellation
     background_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
@@ -70,7 +70,7 @@ impl BatchProcessor {
     /// Create new batch processor
     pub fn new(config: BatchConfig) -> Self {
         let capacity = config.max_batch_size.max(1) * 4;
-        let (batch_sender, batch_receiver) = mpsc::channel(capacity);
+        let (batch_sender, batch_receiver) = mpsc::channel::<Uuid>(capacity);
 
         Self {
             config,
@@ -217,16 +217,14 @@ impl BatchProcessor {
             Batch::new(batch_items, &self.config).map_err(|e| InferenceError::BatchError(e))?;
         let batch_id = batch.batch_id;
 
-        // Move batch into map, then clone for send (1 clone vs 2)
         let items_count = batch.items.len();
-        let batch_for_send = batch.clone();
         self.active_batches
             .write()
             .await
             .insert(batch_id, batch);
         self.stats.write().await.increment_in_progress();
 
-        if let Err(e) = self.batch_sender.send(batch_for_send).await {
+        if let Err(e) = self.batch_sender.send(batch_id).await {
             error!("Failed to send batch for processing: {}", e);
             self.active_batches.write().await.remove(&batch_id);
             let mut stats = self.stats.write().await;
@@ -271,9 +269,7 @@ impl BatchProcessor {
     }
 
     /// Process completed batch
-    async fn process_completed_batch(&self, batch: Batch) -> Result<()> {
-        let batch_id = batch.batch_id;
-
+    async fn process_completed_batch(&self, batch_id: Uuid) -> Result<()> {
         // Remove from active batches
         let mut active_batches = self.active_batches.write().await;
         if let Some(mut batch) = active_batches.remove(&batch_id) {
@@ -315,10 +311,10 @@ impl BatchProcessor {
             };
 
             if let Some(ref mut rx) = receiver {
-                while let Some(batch) = rx.recv().await {
+                while let Some(batch_id) = rx.recv().await {
                     if tokio::time::timeout(
                         std::time::Duration::from_secs(60),
-                        processor.process_completed_batch(batch),
+                        processor.process_completed_batch(batch_id),
                     )
                     .await
                     .is_err()

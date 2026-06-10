@@ -7,10 +7,10 @@ use ndarray::ArrayD;
 
 /// Multi-head attention mechanism
 pub struct MultiHeadAttention {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     num_heads: usize,
     head_dim: usize,
-    dropout_rate: f32,
+    _dropout_rate: f32,
     query_weights: Vec<Vec<f32>>,
     key_weights: Vec<Vec<f32>>,
     value_weights: Vec<Vec<f32>>,
@@ -36,10 +36,10 @@ impl MultiHeadAttention {
         let output_weights = Self::init_weights(num_heads * head_dim, hidden_dim)?;
 
         Ok(Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             num_heads,
             head_dim,
-            dropout_rate,
+            _dropout_rate: dropout_rate,
             query_weights,
             key_weights,
             value_weights,
@@ -110,11 +110,11 @@ impl MultiHeadAttention {
 
         for h in 0..nh {
             q_all.extend(gpu_compute::try_gpu_matmul(q_slice, &self.query_weights[h],
-                batch_size, seq_len, self.hidden_dim, dh)?);
+                batch_size, seq_len, self._hidden_dim, dh)?);
             k_all.extend(gpu_compute::try_gpu_matmul(k_slice, &self.key_weights[h],
-                batch_size, seq_len, self.hidden_dim, dh)?);
+                batch_size, seq_len, self._hidden_dim, dh)?);
             v_all.extend(gpu_compute::try_gpu_matmul(v_slice, &self.value_weights[h],
-                batch_size, seq_len, self.hidden_dim, dh)?);
+                batch_size, seq_len, self._hidden_dim, dh)?);
         }
 
         // Fused attention: [B, H, S, D] layout
@@ -140,10 +140,10 @@ impl MultiHeadAttention {
         // Output projection
         let output = gpu_compute::try_gpu_matmul(
             &concat, &self.output_weights,
-            batch_size, seq_len, nh * dh, self.hidden_dim,
+            batch_size, seq_len, nh * dh, self._hidden_dim,
         )?;
 
-        let shape = vec![batch_size, seq_len, self.hidden_dim];
+        let shape = vec![batch_size, seq_len, self._hidden_dim];
         ArrayD::from_shape_vec(shape, output).ok()
     }
 
@@ -284,41 +284,6 @@ impl MultiHeadAttention {
         Ok(ArrayD::from_shape_vec(output_shape, concatenated)?)
     }
 
-    /// Softmax for 3D tensor
-    fn softmax_3d(&self, scores: &[f32], batch_size: usize, seq_len: usize) -> Result<Vec<f32>> {
-        let mut softmax_scores = vec![0.0f32; scores.len()];
-
-        for b in 0..batch_size {
-            for i in 0..seq_len {
-                // Find max for numerical stability
-                let mut max_score = f32::NEG_INFINITY;
-                for j in 0..seq_len {
-                    let idx = b * seq_len * seq_len + i * seq_len + j;
-                    max_score = max_score.max(scores[idx]);
-                }
-
-                // Compute exp and sum
-                let mut sum = 0.0f32;
-                for j in 0..seq_len {
-                    let idx = b * seq_len * seq_len + i * seq_len + j;
-                    let exp_val = (scores[idx] - max_score).exp();
-                    softmax_scores[idx] = exp_val;
-                    sum += exp_val;
-                }
-
-                // Normalize
-                for j in 0..seq_len {
-                    let idx = b * seq_len * seq_len + i * seq_len + j;
-                    if sum > 0.0 {
-                        softmax_scores[idx] /= sum;
-                    }
-                }
-            }
-        }
-
-        Ok(softmax_scores)
-    }
-
     /// Initialize weights
     fn init_weights(input_dim: usize, output_dim: usize) -> Result<Vec<f32>> {
         let mut weights = vec![0.0f32; input_dim * output_dim];
@@ -334,7 +299,7 @@ impl MultiHeadAttention {
 
 /// Query attention mechanism
 pub struct QueryAttention {
-    hidden_dim: usize,
+    _hidden_dim: usize,
     _num_queries: usize,
     attention_weights: Option<ArrayD<f32>>,
 }
@@ -343,7 +308,7 @@ impl QueryAttention {
     /// Create new query attention
     pub fn new(hidden_dim: usize, _num_queries: usize) -> Self {
         Self {
-            hidden_dim,
+            _hidden_dim: hidden_dim,
             _num_queries,
             attention_weights: None,
         }
@@ -361,7 +326,7 @@ impl QueryAttention {
         let mut attention_weights = vec![0.0f32; num_queries * context_len];
 
         // Streaming output: compute per-query, never store full score matrix
-        let mut output = vec![0.0f32; num_queries * self.hidden_dim];
+        let mut output = vec![0.0f32; num_queries * self._hidden_dim];
 
         for i in 0..num_queries {
             // Compute scores: Q[i] @ context[j] for all j
@@ -370,7 +335,7 @@ impl QueryAttention {
 
             for j in 0..context_len {
                 let mut dot = 0.0f32;
-                for d in 0..self.hidden_dim {
+                for d in 0..self._hidden_dim {
                     if let (Some(&q), Some(&c)) = (queries.get([0, i, d]), context.get([0, j, d])) {
                         dot += q * c;
                     }
@@ -400,14 +365,14 @@ impl QueryAttention {
             }
 
             // Weighted sum of context
-            for d in 0..self.hidden_dim {
+            for d in 0..self._hidden_dim {
                 let mut acc = 0.0f32;
                 for j in 0..context_len {
                     if let Some(&c) = context.get([0, j, d]) {
                         acc += scores[j] * c;
                     }
                 }
-                output[i * self.hidden_dim + d] = acc;
+                output[i * self._hidden_dim + d] = acc;
             }
 
             // FIX 6: Early free — scores dropped here
@@ -420,41 +385,8 @@ impl QueryAttention {
             attention_weights,
         )?);
 
-        let output_shape = vec![1, num_queries, self.hidden_dim];
+        let output_shape = vec![1, num_queries, self._hidden_dim];
         Ok(ArrayD::from_shape_vec(output_shape, output)?)
-    }
-
-    /// Softmax for 2D tensor
-    fn softmax_2d(&self, scores: &[f32], rows: usize, cols: usize) -> Result<Vec<f32>> {
-        let mut softmax_scores = vec![0.0f32; scores.len()];
-
-        for i in 0..rows {
-            // Find max for numerical stability
-            let mut max_score = f32::NEG_INFINITY;
-            for j in 0..cols {
-                let idx = i * cols + j;
-                max_score = max_score.max(scores[idx]);
-            }
-
-            // Compute exp and sum
-            let mut sum = 0.0f32;
-            for j in 0..cols {
-                let idx = i * cols + j;
-                let exp_val = (scores[idx] - max_score).exp();
-                softmax_scores[idx] = exp_val;
-                sum += exp_val;
-            }
-
-            // Normalize
-            for j in 0..cols {
-                let idx = i * cols + j;
-                if sum > 0.0 {
-                    softmax_scores[idx] /= sum;
-                }
-            }
-        }
-
-        Ok(softmax_scores)
     }
 
     /// Get attention weights

@@ -397,6 +397,10 @@ impl CodeDpoTrainer {
 }
 
 /// Code model with trainable weights
+///
+/// TODO: Replace this toy bigram model with OracleBackbone::forward() as the policy model.
+/// Current implementation is a placeholder — a real DPO pipeline should use OracleBackbone
+/// logits for π_θ and π_ref, with KL-constrained preference optimization.
 pub struct CodeModel {
     pub vocab_size: usize,
     max_seq_len: usize,

@@ -4,7 +4,6 @@
 //! Implements CodeChain methodology with clear I/O contracts
 
 use super::{config::*, error::*, types::*};
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -13,17 +12,12 @@ use uuid::Uuid;
 /// Modular Decomposition engine
 pub struct DecomposeEngine {
     config: DecomposeConfig,
-    _executor: Arc<AsyncTaskExecutor>,
     decomposition_cache: Arc<RwLock<std::collections::HashMap<String, Vec<Module>>>>,
 }
 
 impl DecomposeEngine {
     /// Create new Decompose engine
     pub fn new(config: DecomposeConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         info!(
             "Decompose Engine initialized with max {} modules",
             config.max_modules
@@ -31,7 +25,6 @@ impl DecomposeEngine {
 
         Ok(Self {
             config,
-            _executor: executor,
             decomposition_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
         })
     }

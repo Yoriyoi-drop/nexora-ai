@@ -116,7 +116,7 @@ fn test_dense_layer_as_component() {
 
 #[test]
 fn test_attention_in_isolation() {
-    let attn = Attention::new(8, 2, 0.0);
+    let attn = Attention::new(8, 2, 0.0).unwrap();
     let input = vec![0.5; 8];
     let output = attn.forward(&input, &input, &input);
     assert_eq!(output.len(), 8);

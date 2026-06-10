@@ -1,4 +1,3 @@
-pub mod activation;
 pub mod alignment;
 /// ORACLE - Optimized Retrieval-Augmented Code Learning Engine
 ///
@@ -22,13 +21,7 @@ pub mod shared_memory;
 pub mod trainer;
 /// Oracle TTL — time-to-live eviction untuk segment Oracle (Fix 6)
 pub mod ttl;
-#[deprecated(note = "renamed to linters — accurate naming for regex-based pattern detectors")]
-pub mod verifiers {
-    pub use super::linters::*;
-}
-
 // Re-export main components for easier access
-pub use activation::*;
 pub use alignment::*;
 pub use backbone::*;
 pub use code_utils::*;
@@ -45,7 +38,6 @@ pub use ttl::*;
 
 /// Prelude module untuk import umum
 pub mod prelude {
-    pub use super::activation::*;
     pub use super::alignment::*;
     pub use super::backbone::*;
     pub use super::code_utils::*;

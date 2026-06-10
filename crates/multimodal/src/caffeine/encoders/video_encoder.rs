@@ -4,10 +4,10 @@ use ndarray::{Array1, Array2, ArrayD};
 use rand::Rng;
 
 struct FramePatchMLP {
-    w1: Array2<f32>,
-    b1: Array1<f32>,
-    w2: Array2<f32>,
-    b2: Array1<f32>,
+    pub(crate) w1: Array2<f32>,
+    pub(crate) b1: Array1<f32>,
+    pub(crate) w2: Array2<f32>,
+    pub(crate) b2: Array1<f32>,
 }
 
 impl FramePatchMLP {
@@ -58,10 +58,10 @@ impl FramePatchMLP {
 
 struct TemporalAttention {
     num_heads: usize,
-    wq: Array2<f32>,
-    wk: Array2<f32>,
-    wv: Array2<f32>,
-    wo: Array2<f32>,
+    pub(crate) wq: Array2<f32>,
+    pub(crate) wk: Array2<f32>,
+    pub(crate) wv: Array2<f32>,
+    pub(crate) wo: Array2<f32>,
 }
 
 impl TemporalAttention {
@@ -404,5 +404,19 @@ impl VideoEncoder {
 
     pub fn config(&self) -> &crate::caffeine::config::VideoEncoderConfig {
         &self.config
+    }
+
+    /// Collect all trainable weights for checkpoint
+    pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
+        let mut weights = Vec::new();
+        weights.push(("video_encoder.patch_proj.w1".to_string(), self.patch_projection.w1.clone().into_dyn()));
+        weights.push(("video_encoder.patch_proj.b1".to_string(), self.patch_projection.b1.clone().into_dyn()));
+        weights.push(("video_encoder.patch_proj.w2".to_string(), self.patch_projection.w2.clone().into_dyn()));
+        weights.push(("video_encoder.patch_proj.b2".to_string(), self.patch_projection.b2.clone().into_dyn()));
+        weights.push(("video_encoder.temporal_attn.wq".to_string(), self.temporal_attention.wq.clone().into_dyn()));
+        weights.push(("video_encoder.temporal_attn.wk".to_string(), self.temporal_attention.wk.clone().into_dyn()));
+        weights.push(("video_encoder.temporal_attn.wv".to_string(), self.temporal_attention.wv.clone().into_dyn()));
+        weights.push(("video_encoder.temporal_attn.wo".to_string(), self.temporal_attention.wo.clone().into_dyn()));
+        weights
     }
 }

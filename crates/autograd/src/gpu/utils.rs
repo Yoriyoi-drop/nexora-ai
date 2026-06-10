@@ -2038,7 +2038,7 @@ impl GpuContext {
                     ElemOp::Silu => cuda.silu(&input_cuda),
                     ElemOp::Ln => cuda.ln(&input_cuda),
                     ElemOp::Powf => cuda.powf(&input_cuda, 2.0),
-                    _ => unreachable!(),
+                    _ => return Err(GpuError::Compute(format!("CUDA unary op not supported: {op:?}"))),
                 };
                 let result_cuda = result_cuda
                     .map_err(|e| GpuError::Compute(format!("CUDA elementwise_unary: {e}")))?;
@@ -2233,7 +2233,7 @@ impl GpuContext {
                     ElemOp::Sub => cuda.sub(&a_cuda, &b_cuda),
                     ElemOp::Mul => cuda.mul(&a_cuda, &b_cuda),
                     ElemOp::Div => cuda.div(&a_cuda, &b_cuda),
-                    _ => unreachable!(),
+                    _ => return Err(GpuError::Compute(format!("CUDA binary op not supported: {op:?}"))),
                 };
                 let result_cuda = result_cuda
                     .map_err(|e| GpuError::Compute(format!("CUDA elementwise_binary: {e}")))?;
@@ -2337,7 +2337,7 @@ impl GpuContext {
                         ElemOp::Silu => cuda.silu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused silu: {e}")))?,
                         ElemOp::Ln => cuda.ln(&x).map_err(|e| GpuError::Compute(format!("CUDA fused ln: {e}")))?,
                         ElemOp::Powf => cuda.powf(&x, 2.0).map_err(|e| GpuError::Compute(format!("CUDA fused powf: {e}")))?,
-                        _ => unreachable!(),
+                        other => return Err(GpuError::Compute(format!("CUDA fused unary op not supported: {other:?}"))),
                     };
                 }
                 return self.cuda_write_tensor(cuda, &x);

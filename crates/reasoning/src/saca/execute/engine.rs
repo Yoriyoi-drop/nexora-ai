@@ -9,7 +9,6 @@ use crate::saca::{config::*, error::*, types::*};
 
 // Re-export PerformanceMetrics from types
 pub use crate::saca::types::PerformanceMetrics;
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
@@ -19,7 +18,6 @@ use tracing::{debug, info, warn};
 /// Execute-Fail-Fix Loop engine
 pub struct ExecuteEngine {
     config: ExecuteConfig,
-    executor: Arc<AsyncTaskExecutor>,
     code_executor: Arc<dyn CodeExecutor>,
     error_analyzer: Arc<ErrorAnalyzer>,
     fix_generator: Arc<FixGenerator>,
@@ -31,10 +29,6 @@ pub struct ExecuteEngine {
 impl ExecuteEngine {
     /// Create new Execute engine
     pub fn new(config: ExecuteConfig) -> SACAResult<Self> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         let code_executor = Arc::new(SandboxCodeExecutor::new());
         let error_analyzer = Arc::new(ErrorAnalyzer::new(config.error_analysis_depth.clone()));
         let fix_generator = Arc::new(FixGenerator::new());
@@ -49,7 +43,6 @@ impl ExecuteEngine {
 
         Ok(Self {
             config,
-            executor,
             code_executor,
             error_analyzer,
             fix_generator,
@@ -241,7 +234,6 @@ impl Clone for ExecuteEngine {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
-            executor: Arc::clone(&self.executor),
             code_executor: Arc::clone(&self.code_executor),
             error_analyzer: Arc::clone(&self.error_analyzer),
             fix_generator: Arc::clone(&self.fix_generator),

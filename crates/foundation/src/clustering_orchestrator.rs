@@ -268,7 +268,7 @@ impl ClusteringOrchestrator {
             // Assignment step (parallel)
             let new_labels: Vec<usize> = request
                 .data
-                .iter()
+                .par_iter()
                 .map(|point| {
                     centroids
                         .iter()

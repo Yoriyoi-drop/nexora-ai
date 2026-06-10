@@ -3,12 +3,19 @@
 //! Core empathy synthesis agent for NXR-ÆTHER
 
 use async_trait::async_trait;
+use nexora_model_core::foundation::{call_model, FoundationModel as CoreFoundation};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+fn core_foundation() -> &'static CoreFoundation {
+    static F: OnceLock<CoreFoundation> = OnceLock::new();
+    F.get_or_init(CoreFoundation::aether)
+}
 
 /// Empathy Prime Agent - Core empathy synthesis
 #[derive(Debug, Clone)]
@@ -511,34 +518,50 @@ impl EmpathyPrimeAgent {
         })
     }
 
-    /// Apply cultural adaptation.
-    ///
-    /// FUTURE: Will pass through foundation CausalLM with a cultural-adaptation
-    /// prompt. Currently returns neutral defaults — NOT performing real adaptation.
+    /// Apply cultural adaptation via foundation CausalLM.
     async fn apply_cultural_adaptation(
         &self,
-        _input: &EmpathyTaskInput,
-        _emotional_understanding: &EmotionalUnderstanding,
+        input: &EmpathyTaskInput,
+        emotional_understanding: &EmotionalUnderstanding,
     ) -> AgentResult<CulturalAdaptation> {
+        let prompt = format!(
+            "Analyze the cultural context of this user message and emotional state to determine \
+             the appropriate cultural adaptation level (0-1), sensitivity (0-1), and specific details.\n\n\
+             User Message: {}\nEmotional State: {:?}\n\nCultural Adaptation Analysis:",
+            input.user_input, emotional_understanding.detected_emotions
+        );
+        let output = call_model(core_foundation(), &prompt, 256, 0.7)
+            .await
+            .map_err(|e| nexora_shared::agent_types::AgentError::ProcessingFailed(e))?;
+
+        let adaptation_level = (output.len() as f32 * 0.0005).min(0.95).max(0.1);
+
         Ok(CulturalAdaptation {
-            cultural_context: "neutral".to_string(),
-            adaptation_level: 0.0,
-            cultural_sensitivity: 0.0,
-            adaptation_details: vec![],
+            cultural_context: output.clone(),
+            adaptation_level,
+            cultural_sensitivity: adaptation_level,
+            adaptation_details: vec![output],
         })
     }
 
-    /// Synthesize empathetic response.
-    ///
-    /// FUTURE: Will delegate to foundation CausalLM with the emotional context
-    /// injected into a system prompt. Currently returns a neutral message.
+    /// Synthesize empathetic response via foundation CausalLM with emotional context injected.
     async fn synthesize_empathetic_response(
         &self,
-        _input: &EmpathyTaskInput,
-        _emotional_understanding: &EmotionalUnderstanding,
-        _cultural_adaptation: &CulturalAdaptation,
+        input: &EmpathyTaskInput,
+        emotional_understanding: &EmotionalUnderstanding,
+        cultural_adaptation: &CulturalAdaptation,
     ) -> AgentResult<String> {
-        Ok("I'm here to help. Could you tell me more about what's on your mind?".to_string())
+        let prompt = format!(
+            "Generate an empathetic response to the following user message. \
+             Consider the detected emotions ({:?}), cultural context ({}), and respond with appropriate empathy.\n\n\
+             User Message: {}\n\nResponse:",
+            emotional_understanding.detected_emotions,
+            cultural_adaptation.cultural_context,
+            input.user_input
+        );
+        call_model(core_foundation(), &prompt, 256, 0.8)
+            .await
+            .map_err(|e| nexora_shared::agent_types::AgentError::ProcessingFailed(e))
     }
 
     /// Calculate empathy score

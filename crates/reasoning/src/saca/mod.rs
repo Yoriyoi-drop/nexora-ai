@@ -32,7 +32,6 @@ pub use integration::*;
 pub use pipeline::*;
 pub use types::*;
 
-use nexora_core::async_executor::AsyncTaskExecutor;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -41,7 +40,6 @@ use tracing::{debug, info, warn};
 #[derive(Clone)]
 pub struct SACA {
     config: SACAConfig,
-    _executor: Arc<AsyncTaskExecutor>,
 
     // 6 core phases
     cot_engine: Arc<super::cot::CoTEngine>,
@@ -99,10 +97,6 @@ impl SacaEngine {
 impl SACA {
     /// Create new SACA instance with full 6-phase pipeline
     pub async fn new(config: SACAConfig) -> Result<Self, SACAError> {
-        let executor = Arc::new(AsyncTaskExecutor::new(
-            nexora_core::async_executor::ExecutorConfig::default(),
-        ));
-
         // Initialize all 6 phase engines
         let cot_engine = Arc::new(cot::CoTEngine::new(config.cot_config.clone())?);
         let decompose_engine = Arc::new(decompose::DecomposeEngine::new(
@@ -127,7 +121,6 @@ impl SACA {
 
         Ok(Self {
             config,
-            _executor: executor,
             cot_engine,
             decompose_engine,
             context_engine,
