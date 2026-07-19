@@ -11,7 +11,7 @@ ndarray.workspace = true
 serde.workspace = true
 rand.workspace = true
 uuid.workspace = true
-ndarray-rand = "0.15"
+ndarray-rand = "0.16"
 regex.workspace = true
 once_cell = { workspace = true }
 chrono.workspace = true
