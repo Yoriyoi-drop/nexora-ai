@@ -16,7 +16,7 @@ uuid.workspace = true
 chrono.workspace = true
 
 # Config
-config = "0.14"
+config = "0.15"
 toml = "0.8"
 
 # Logging
