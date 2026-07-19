@@ -19,6 +19,7 @@ use tracing::{debug, info, warn};
 
 use super::agent_handlers::*;
 use super::handlers::*;
+use super::system_handlers::*;
 use crate::config::server::ServerConfig;
 use crate::security::{SecurityConfig, SecurityValidator};
 use crate::NexoraAI;
@@ -141,6 +142,12 @@ pub async fn create_router(nexora: Arc<NexoraAI>, config: &ServerConfig) -> Resu
             .route("/cluster/gossip/push", post(gossip_push_handler))
             .route("/cluster/gossip/pull", post(gossip_pull_handler));
     }
+
+    // System dashboard (always available)
+    app = app
+        .route("/api/system/dashboard", get(system_dashboard))
+        .route("/api/system/metrics", get(system_metrics_prometheus))
+        .route("/api/system/cost-stats", get(system_cost_stats));
 
     #[cfg(feature = "server-auth")]
     {

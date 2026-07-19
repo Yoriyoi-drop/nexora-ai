@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.0
+
+### Phase 6 — Infrastructure Expansion (18 Juli 2026)
+
+**3 new crates:**
+- `nexora-eventbus` — Event-driven pub/sub backbone with 25+ system topics
+- `nexora-cost-optimizer` — Cascade routing (Regex → RuleEngine → Small → Medium → Large)
+- `nexora-scheduler-v2` — DAG-based task scheduler with topological sort, EDF, GPU/NUMA-aware
+
+**7 new subsystems:**
+- Agent Scaling — K8s-like autoscaler (3-49 agents, CPU/mem/queue based)
+- Hybrid Cache — 7-layer cache (Prompt, Embedding, Retrieval, Tool, HTTP, Token, Model)
+- Memory Pools — Pre-allocated block pools (4KB→256MB), Tensor, Embedding, KV Cache, Buffer
+- Zero-Copy — ArcBuffer, CoWString/Buffer, MmapFile, Arena allocator, ObjectPool
+- Observability — 33 metrics, broadcast distribution, Prometheus output, failure tree
+- GPU Runtime — Multi-priority GPU kernel scheduling, stream management, async uploads
+- System Integration — NexoraSystem hub wiring all subsystems, 3 API endpoints
+
+**6 new dashboard pages:** Overview, Inference, Models, Training, Tests, Logs
+
+**Shared delegation base:** `crates/model-core/src/delegation_base.rs` for all 10 NXR model crates
+
+**Fixes:**
+- `apps/nexora-ai/src/lib.rs` — fixed shadowed variable `system` (NexoraSystem vs sysinfo::System)
+- `apps/nexora-ai/src/system.rs` — `running: AtomicBool` → `Arc<AtomicBool>`, added `#[derive(Clone)]`
+
+### Batch Fix 40 — Subsystem Wiring (18 Juli 2026)
+
+**Work-stealing wired into DagScheduler:**
+- `push_global()` on every enqueue, per-worker `pop(worker_idx)` replacing global queue
+
+**Observability real HW metrics:**
+- `sysinfo` for live CPU/memory, `tool_call_avg_ms` fixed (was ignoring duration)
+- Background task now computes latency/cost/hallucination rates properly
+- `shutdown()` properly stops background loop
+
+**Agent scaling wired into AgentManager:**
+- `ManagerAutoscaler` bridge — scaling policy → AgentManager command channel
+- `with_autoscaling()` builder, `StopRandomAgent` for scale-down
+
+`cargo check --all-targets` ✅ 0 errors
+
 ## 0.4.0
 
 ### Batch Fix 34 — CVE & SACA Sandbox (8 Juni 2026)

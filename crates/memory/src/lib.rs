@@ -14,6 +14,9 @@ pub mod episodic;
 pub mod layers;
 pub mod memory_model;
 pub mod types;
+pub mod pool;
+pub mod zero_copy;
+pub mod hybrid_cache;
 
 pub use cache::{LRUCache, MemoryCache};
 pub use compression::{CompressedContext, ContextCompressor};
@@ -25,6 +28,8 @@ pub use memory_model::{
     NeuralAttentionMemoryConfig, NeuralMemoryEntry,
 };
 pub use types::*;
+pub use pool::*;
+pub use hybrid_cache::*;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

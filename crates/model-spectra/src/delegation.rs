@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
@@ -36,9 +36,7 @@ fn init_classifier() {
 }
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_style(text: &str) -> Vec<(String, f32)> {
@@ -91,14 +89,14 @@ pub async fn delegate_multimodal(
 
     let temps = [base_temp - 0.1, base_temp, base_temp + 0.2];
     let mut results: Vec<(String, f64)> = Vec::new();
-    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     for &t in &temps {
         let creative_prompt = format!(
             "[Spectra creative | style: {primary} | multimodal: {mm_summary} | temperature={t:.1}]\n\
              {framing}\n\n\
              Generate original content for: {sanitized_prompt}"
         );
-        if let Ok(text) = nexora_model_core::foundation::call_model(foundation(), &creative_prompt, 256, t).await {
+        if let Ok(text) = delegation_base::call_model(foundation(), &creative_prompt, 256, t).await {
             let score = unique_word_ratio(&text);
             results.push((text, score));
         }

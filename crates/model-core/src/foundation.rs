@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::MutexGuard;
 use std::time::Instant;
 use tracing::instrument;
 
@@ -210,40 +209,6 @@ impl FoundationModel {
         None
     }
 
-    fn get_or_init_model(&self) -> MutexGuard<'_, Option<Arc<CausalLM>>> {
-        let mut guard = self.model.lock().unwrap_or_else(|e| {
-            tracing::warn!("Mutex poisoned in get_or_init_model, recovering");
-            e.into_inner()
-        });
-        if guard.is_none() {
-            // Resolve dari RedundantBackboneRegistry — primary + standby failover
-            match nexora_transformer::resolve_single_backbone() {
-                Ok(backbone) => {
-                    if nexora_transformer::is_failover_active() {
-                        tracing::info!("Using STANDBY backbone (failover active)");
-                    } else {
-                        tracing::info!("Using shared PRIMARY backbone (get_or_init_model)");
-                    }
-                    *guard = Some(backbone);
-                }
-                Err(_) => {
-                    tracing::warn!("Backbone resolve failed, retrying once...");
-                    match nexora_transformer::resolve_single_backbone() {
-                        Ok(backbone) => {
-                            tracing::info!("Backbone resolved on retry (standby)");
-                            *guard = Some(backbone);
-                        }
-                        Err(_) => {
-                            *guard = Some(Arc::new(CausalLM::new(self.model_config.clone())));
-                            tracing::info!("Backbone retry also failed, created standalone model");
-                        }
-                    }
-                }
-            }
-        }
-        guard
-    }
-
     pub fn set_model_arc(&self, model: Arc<CausalLM>) {
         let mut guard = self.model.lock().unwrap_or_else(|e| {
             tracing::warn!("Mutex poisoned in set_model_arc, recovering");
@@ -394,30 +359,68 @@ impl NxrModel for FoundationModel {
     }
 
     async fn state(&self) -> Result<Self::State, NxrModelError> {
-        let status = self
-            .model
-            .lock()
-            .ok()
-            .map(|g| if g.is_some() { "ready" } else { "uninitialized" })
-            .unwrap_or("poisoned");
+        let model = self.model.clone();
+        let model_id = self.model_id.to_string();
+        let inferences = self.inference_count.load(Ordering::Relaxed);
+        let status = tokio::task::spawn_blocking(move || {
+            model.lock()
+                .ok()
+                .map(|g| if g.is_some() { "ready" } else { "uninitialized" })
+                .unwrap_or("poisoned")
+                .to_string()
+        })
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("state() blocking task failed: {e}");
+            "blocking_failed".to_string()
+        });
         Ok(serde_json::json!({
             "status": status,
-            "model": self.model_id.to_string(),
-            "inferences": self.inference_count.load(Ordering::Relaxed),
+            "model": model_id,
+            "inferences": inferences,
         }))
     }
 
     async fn initialize(&mut self, _config: Self::Config) -> Result<(), NxrModelError> {
-        self.get_or_init_model();
+        let model = self.model.clone();
+        let config = self.model_config.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = model.lock().unwrap_or_else(|e| {
+                tracing::warn!("Mutex poisoned in initialize, recovering");
+                e.into_inner()
+            });
+            if guard.is_none() {
+                match nexora_transformer::resolve_single_backbone() {
+                    Ok(backbone) => *guard = Some(backbone),
+                    Err(_) => {
+                        tracing::warn!("Backbone resolve failed, retrying once...");
+                        match nexora_transformer::resolve_single_backbone() {
+                            Ok(backbone) => *guard = Some(backbone),
+                            Err(_) => {
+                                *guard = Some(Arc::new(CausalLM::new(config)));
+                                tracing::info!("Backbone retry failed, created standalone model");
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|e| NxrModelError::Inference(format!("initialize blocking task failed: {e}")))?;
         Ok(())
     }
 
     async fn reset(&self) -> Result<(), NxrModelError> {
-        let mut guard = self.model.lock().unwrap_or_else(|e| {
-            tracing::warn!("Mutex poisoned in reset, recovering");
-            e.into_inner()
-        });
-        *guard = None;
+        let model = self.model.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = model.lock().unwrap_or_else(|e| {
+                tracing::warn!("Mutex poisoned in reset, recovering");
+                e.into_inner()
+            });
+            *guard = None;
+        })
+        .await
+        .map_err(|e| NxrModelError::Inference(format!("reset blocking task failed: {e}")))?;
         self.inference_count.store(0, Ordering::Relaxed);
         self.total_generated.store(0, Ordering::Relaxed);
         self.total_time_ms.store(0, Ordering::Relaxed);
@@ -696,11 +699,15 @@ impl NxrModel for FoundationModel {
     }
 
     async fn is_ready(&self) -> bool {
-        self.model
-            .lock()
-            .ok()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+        let model = self.model.clone();
+        tokio::task::spawn_blocking(move || {
+            model.lock()
+                .ok()
+                .map(|g| g.is_some())
+                .unwrap_or(false)
+        })
+        .await
+        .unwrap_or(false)
     }
 
     async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

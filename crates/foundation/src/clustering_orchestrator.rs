@@ -273,7 +273,7 @@ impl ClusteringOrchestrator {
                     centroids
                         .iter()
                         .enumerate()
-                        .map(|(j, c)| (j, self.euclidean(point, c)))
+                        .map(|(j, c)| (j, euclidean_dist(point, c)))
                         .min_by(|(_, a), (_, b)| {
                             a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
                         })
@@ -558,11 +558,7 @@ impl ClusteringOrchestrator {
     }
 
     fn euclidean(&self, a: &[f32], b: &[f32]) -> f32 {
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x - y).powi(2))
-            .sum::<f32>()
-            .sqrt()
+        euclidean_dist(a, b)
     }
 
     /// Get distance between two points, using cached matrix if available
@@ -621,6 +617,14 @@ impl ClusteringOrchestrator {
         *self.cached_distances.borrow_mut() = None;
         self.cached_data_len.set(0);
     }
+}
+
+fn euclidean_dist(a: &[f32], b: &[f32]) -> f32 {
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f32>()
+        .sqrt()
 }
 
 impl Default for ClusteringOrchestrator {

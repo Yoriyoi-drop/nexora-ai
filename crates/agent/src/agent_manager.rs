@@ -16,6 +16,7 @@ use crate::communication::MessageBus;
 use crate::inference_agent::InferenceEngine;
 use crate::lifecycle::LifecycleManager;
 use crate::registry::AgentRegistry;
+use crate::scaling::ManagerAutoscaler;
 use crate::state::AgentState;
 use crate::{
     Agent, AgentConfig, AgentError, AgentMessage, AgentResponse, AgentStats, AgentStatus, Result,
@@ -78,6 +79,8 @@ pub struct AgentManager {
     quarantine: StdArc<tokio::sync::RwLock<QuarantineManager>>,
     /// Full isolation orchestrator (L0-L6, firewall, kill switch, permissions)
     isolation: Option<IsolationOrchestrator>,
+    /// Agent auto-scaler (managed pool 3-49 agents)
+    autoscaler: Option<StdArc<tokio::sync::RwLock<ManagerAutoscaler>>>,
 }
 
 /// Command yang bisa dikirim ke AgentManager
@@ -141,6 +144,10 @@ pub enum ManagerCommand {
     Shutdown {
         response_tx: oneshot::Sender<Result<()>>,
     },
+    /// Stop a random agent (for autoscaler scale-down)
+    StopRandomAgent {
+        response_tx: oneshot::Sender<Result<()>>,
+    },
 }
 
 impl AgentManager {
@@ -170,7 +177,18 @@ impl AgentManager {
             inference_engine: StdArc::new(tokio::sync::RwLock::new(None)),
             quarantine: StdArc::new(tokio::sync::RwLock::new(QuarantineManager::new())),
             isolation: None,
+            autoscaler: None,
         }
+    }
+
+    /// Enable auto-scaling with default config
+    pub fn with_autoscaling(mut self) -> Self {
+        use crate::scaling::AgentScalingConfig;
+        let scaling_config = AgentScalingConfig::default();
+        let tx = (*self.command_tx).clone();
+        let autoscaler = ManagerAutoscaler::new(scaling_config, tx);
+        self.autoscaler = Some(StdArc::new(tokio::sync::RwLock::new(autoscaler)));
+        self
     }
 
     /// Set isolation orchestrator for L0-L6 checks, firewall, kill switch
@@ -225,6 +243,18 @@ impl AgentManager {
             });
             if let Ok(mut handles) = self.background_handles.lock() {
                 handles.push(handle2);
+            }
+        }
+
+        // Start auto-scaler if configured
+        if let Some(ref autoscaler) = self.autoscaler {
+            let a = autoscaler.clone();
+            let handle3 = tokio::spawn(async move {
+                let guard = a.write().await;
+                guard.start().await;
+            });
+            if let Ok(mut handles) = self.background_handles.lock() {
+                handles.push(handle3);
             }
         }
 
@@ -326,6 +356,18 @@ impl AgentManager {
                         let result = self.list_agent_ids_internal().await;
                         if response_tx.send(result).is_err() {
                             warn!("ListAgentIds response channel closed");
+                        }
+                    }
+                    ManagerCommand::StopRandomAgent { response_tx } => {
+                        let agents = self.list_agent_ids_internal().await;
+                        let agent_ids: Vec<Uuid> = agents.values().flat_map(|v| v.iter()).copied().collect();
+                        let result = if let Some(id) = agent_ids.into_iter().next() {
+                            self.stop_agent_internal(id).await
+                        } else {
+                            Ok(())
+                        };
+                        if response_tx.send(result).is_err() {
+                            warn!("StopRandomAgent response channel closed");
                         }
                     }
                     ManagerCommand::Shutdown { response_tx } => {
@@ -898,6 +940,7 @@ impl Clone for AgentManager {
             inference_engine: StdArc::clone(&self.inference_engine),
             quarantine: StdArc::clone(&self.quarantine),
             isolation: self.isolation.clone(),
+            autoscaler: self.autoscaler.clone(),
             background_handles: StdArc::clone(&self.background_handles),
         }
     }

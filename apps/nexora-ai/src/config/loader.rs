@@ -12,6 +12,7 @@ use super::memory::MemoryConfig;
 use super::models::ModelsConfig;
 use super::server::ServerConfig;
 use super::tokenizer::TokenizerConfig;
+use super::system::SystemConfig;
 use super::utils::UtilsConfig;
 
 /// Main configuration for Nexora AI system
@@ -59,6 +60,10 @@ pub struct NexoraConfig {
     /// Billing configuration
     #[serde(default)]
     pub billing: BillingConfig,
+
+    /// New subsystems configuration
+    #[serde(default)]
+    pub system: SystemConfig,
 }
 
 impl Default for NexoraConfig {
@@ -74,6 +79,7 @@ impl Default for NexoraConfig {
             logging: LoggingConfig::default(),
             isolation: nexora_isolation::config::IsolationConfig::default(),
             billing: BillingConfig::default(),
+            system: SystemConfig::default(),
         }
     }
 }

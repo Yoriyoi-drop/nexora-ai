@@ -20,7 +20,7 @@ chrono.workspace = true
 serde_json.workspace = true
 num_cpus = "1.16"
 
-# GPU (optional, gated by "gpu" feature)
+# GPU (optional, ga ted by "gpu" feature)
 wgpu = { version = "29", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", optional = true }

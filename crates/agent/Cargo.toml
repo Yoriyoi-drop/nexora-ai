@@ -20,6 +20,7 @@ chrono.workspace = true
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest.workspace = true
+dashmap.workspace = true
 
 # Internal dependencies
 nexora-core = { path = "../core" }

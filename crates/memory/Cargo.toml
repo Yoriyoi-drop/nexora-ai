@@ -18,6 +18,10 @@ parking_lot.workspace = true
 once_cell.workspace = true
 uuid.workspace = true
 rand.workspace = true
+dashmap.workspace = true
+memmap2.workspace = true
+bytes = "1.0"
+chrono = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 mockall.workspace = true

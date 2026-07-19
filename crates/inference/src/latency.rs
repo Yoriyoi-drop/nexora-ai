@@ -305,8 +305,6 @@ impl LatencyTracker {
             return ComponentBreakdown::default();
         }
 
-        let _total_count = measurements.len() as f64;
-
         let breakdown = ComponentBreakdown {
             queue_percentage: (measurements
                 .iter()

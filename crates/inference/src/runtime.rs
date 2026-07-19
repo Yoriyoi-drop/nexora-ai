@@ -527,8 +527,6 @@ impl InferenceRuntime {
         interval_requests: u64,
         interval_tokens: u64,
     ) -> Result<()> {
-        let _metrics = self.performance_metrics.write().await;
-
         // Store interval-based metrics (could be stored in a separate history)
         let interval_throughput = if interval_requests > 0 {
             interval_requests as f64 / self.config.metrics_interval_seconds as f64

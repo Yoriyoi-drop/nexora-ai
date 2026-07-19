@@ -2,7 +2,7 @@
 
 ## Workspace
 
-21-member Cargo workspace (resolver = "2"). Root `Cargo.lock` is committed (not in `.gitignore`).
+~55-member Cargo workspace (resolver = "2"). Root `Cargo.lock` is committed (not in `.gitignore`).
 
 ## Binaries
 
@@ -19,7 +19,7 @@
 | `crates/intelligence` | `nexora_model` (`[lib] name = "nexora_model"`) | Model registry, serving, unified API |
 | `crates/deeplearning` | `nexora-deeplearning` | Autograd engine, STar-X tensor, GNAC, Echo Net |
 | `crates/core` | `nexora-core` | Controller, types, execution, async executor |
-| `crates/runtime` | `nexora-runtime` | Scheduler, batching, resource pooling, KV cache, cluster/gossip, distributed scheduler |
+| `crates/runtime` | `nexora-runtime` | Scheduler, batching, resource pooling, KV cache, cluster/gossip, distributed scheduler, GPU runtime |
 | `crates/inference` | `nexora-inference` | KV cache, sampling, beam search, speculative decoding, distributed routing |
 | `crates/blaa` | `nexora-blaa` | External "Black Language Model API" bridge |
 | `crates/infrastructure` | `nexora-infrastructure` | Re-exports sub-crates `common` (`nexora-common`) and `utils` (`nexora-utils`) |
@@ -27,6 +27,9 @@
 | `crates/database` | `nexora-database` | Features: `postgres`, `sqlite`, `sqlx`, `mysql`, `all` |
 | `crates/api` | `nexora-api` | Features: `cors`, `metrics`, `tls` |
 | `crates/isolation` | `nexora-isolation` | Multi-layered isolation architecture (L0-L6, Firewall, Kill Switch, Multi-Cluster) |
+| `crates/eventbus` | `nexora-eventbus` | Event-driven pub/sub backbone. Topics, subscribers, message queues, broadcast channel |
+| `crates/cost-optimizer` | `nexora-cost-optimizer` | Cascade routing cost optimizer. Regex → RuleEngine → Small → Medium → Large |
+| `crates/scheduler-v2` | `nexora-scheduler-v2` | Next-gen DAG-based task scheduler. Topological sort, priority queue, deadline EDF, GPU-aware |
 
 ## Commands
 
@@ -87,7 +90,10 @@ nexora-inference     # depends on core, intelligence, foundation, common, blaa, 
 nexora-agent         # depends on core, intelligence, memory, common
 nexora-memory        # depends on core
 nexora-isolation     # depends on core; L0-L6 isolation, firewall, kill-switch, multi-cluster
-nexora-ai (app)      # depends on core, runtime, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure
+nexora-eventbus      # standalone — no internal deps
+nexora-cost-optimizer # standalone — regex + routing logic
+nexora-scheduler-v2  # depends on core, eventbus; DAG scheduling, GPU/NUMA-aware, work-stealing
+nexora-ai (app)      # depends on core, runtime, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure, eventbus, cost-optimizer, scheduler-v2
 nexora-dashboard     # standalone TUI (ratatui)
 ```
 
@@ -769,6 +775,101 @@ Optimasi resource besar-besaran — 18 perubahan di 8 files. Target: 70% lebih h
 | Thread pool | 512 | 64 | **8×** |
 | GPU quota | 8× 1.12TB | 1× 16GB | **~98%** |
 | **VRAM estimasi (Pro)** | ~171 GB | ~35 GB | **~80%** |
+
+## Phase 6 — Infrastructure Expansion (18 Juli 2026)
+
+### New Crates
+
+| Crate | Package | Purpose |
+|-------|---------|---------|
+| `crates/eventbus` | `nexora-eventbus` | Event-driven pub/sub backbone. Topics, subscribers, message queues, broadcast channel, 25+ predefined system topics |
+| `crates/cost-optimizer` | `nexora-cost-optimizer` | Cascade routing cost optimizer. Routes via Regex → RuleEngine → Small → Medium → Large. Tracks savings vs always-using-Large |
+| `crates/scheduler-v2` | `nexora-scheduler-v2` | Next-gen DAG-based task scheduler. Topological sort, priority queue, deadline EDF, GPU-aware placement, NUMA-aware, work-stealing |
+
+### New Subsystems (dalam crate existing)
+
+| Subsystem | Parent Crate | Files | Purpose |
+|-----------|-------------|-------|---------|
+| **Agent Scaling** | `nexora-agent` | `src/scaling/` (5 files) | K8s-like autoscaler for agent pools. Dynamic 3-49 agents based on CPU/mem/queue depth. Cooldown, consecutive threshold tracking |
+| **Hybrid Cache** | `nexora-memory` | `src/hybrid_cache/` (10 files) | 7-layer cache: Prompt, Embedding, Retrieval, Tool, HTTP, Token, Model. TTL, hit/miss/eviction tracking. `HybridCacheManager` aggregates all 7 |
+| **Memory Pools** | `nexora-memory` | `src/pool/` (7 files) | Pre-allocated block pools (4KB→256MB), TensorPool (Vec<f32>), EmbeddingPool, KVCachePool (ref-counted), BufferPool. `UnifiedMemoryManager` ties together |
+| **Zero-Copy** | `nexora-memory` | `src/zero_copy/` (7 files) | `ArcBuffer`, `CoWString`, `CoWBuffer`, `SharedString`, `MmapFile`, `Arena` bump allocator, `ObjectPool`. No-copy data sharing |
+| **Observability** | `nexora-monitoring` | `src/observability/` (5 files) | 33 metrics: CPU/GPU/RAM, tokens, latency (avg/p95/p99), queue, cache hit, cost, hallucination, agents, failure rate. Broadcast-based distribution, Prometheus output, failure tree |
+| **GPU Runtime** | `nexora-runtime` | `src/gpu_runtime/` (7 files) | GPU kernel scheduling: multi-priority queues, stream management, async uploads, batching, prefetching. Orchestration layer (no actual GPU calls yet) |
+| **System Integration** | `nexora-ai` | `src/system.rs`, `config/system.rs`, `server/system_handlers.rs` | `NexoraSystem` hub: wires EventBus → scheduler, GPU, agent, cache, cost optimizer, observability. 3 API endpoints: `/api/system/status`, `/api/system/metrics`, `/api/system/optimizer` |
+
+### Dashboard Pages (6 new)
+
+| Page | File | Purpose |
+|------|------|---------|
+| Overview | `page_overview.rs` | CPU/Memory/GPU gauges, health, subsystem status (10 items), quick stats |
+| Inference | `page_inference.rs` | Throughput gauges, request metrics, KV cache detail, GPU backend chain |
+| Models | `page_models.rs` | All 10 NXR models with tier/params/specialty/classifier/wiring |
+| Training | `page_training.rs` | Training gauges (loss, LR, grad norm), checkpoint info, distillation students table |
+| Tests | `page_tests.rs` | Test list with pass/fail, detail output, summary stats |
+| Logs | `page_logs.rs` | Scrollable log viewer (PgUp/PgDn/End), log stats sidebar (CRIT/ERROR/WARN/INFO counts) |
+
+### Delegation Base
+
+| File | Purpose |
+|------|---------|
+| `crates/model-core/src/delegation_base.rs` | Shared delegation utilities: `token_ids()`, `init_embedding_classifier()`, `embed_average()`, `sanitize_prompt()`, `call_model()` — shared by all 10 NXR model crates |
+
+### Wiring Architecture
+
+```
+NexoraAI::new()
+  └── NexoraSystem::new()
+        ├── EventBus (pub/sub backbone)
+        ├── UnifiedMemoryManager (memory pools)
+        ├── HybridCacheManager (7-layer cache)
+        ├── CostOptimizer (cascade routing)
+        └── ObservabilityCollector (33 metrics)
+              └── MetricsReporter (JSON + Prometheus)
+  ├── optional: DagScheduler (DAG-based task scheduling)
+  ├── optional: GpuScheduler (GPU kernel scheduling)
+  └── optional: AgentAutoscaler (dynamic pool 3-49)
+
+Dashboard (ratatui TUI):
+  App → active_tab → render_page() → 6 pages (Overview/Inference/Models/Training/Tests/Logs)
+```
+
+### API Endpoints (new)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/system/status` | GET | Dashboard JSON (all 33 metrics + uptime) |
+| `/api/system/metrics` | GET | Prometheus-formatted metrics text |
+| `/api/system/optimizer` | GET | Cost optimizer stats (savings rate, tier counts) |
+
+### Batch Fix 39 (18 Juli 2026) — Infrastructure Expansion
+
+- **2 compile errors fixed** in `apps/nexora-ai/src/lib.rs`:
+  - Shadowed variable `system` (NexoraSystem vs sysinfo::System) — renamed to `sys_info`
+  - `NexoraSystem.running: AtomicBool` not `Clone` — changed to `Arc<AtomicBool>`, added `#[derive(Clone)]`
+- **3 new crates**: `nexora-eventbus`, `nexora-cost-optimizer`, `nexora-scheduler-v2`
+- **7 new subsystems**: Agent Scaling, Hybrid Cache, Memory Pools, Zero-Copy, Observability, GPU Runtime, System Integration
+- **6 new dashboard pages**: Overview, Inference, Models, Training, Tests, Logs
+- **Shared delegation base**: `delegation_base.rs` — common utilities for all 10 model crates
+
+### Batch Fix 40 (18 Juli 2026) — Subsystem Wiring Fixes
+
+- **Work-stealing wired into DagScheduler** (`crates/scheduler-v2/src/scheduler.rs`):
+  - `WorkStealingScheduler` field + init in `DagScheduler::new()`
+  - `push_global()` on every `enqueue_task()`
+  - Per-worker `pop(worker_idx)` replacing single global `priority_queue.pop()`
+- **Observability real HW metrics** (`crates/monitoring/src/observability/collector.rs`):
+  - `sysinfo` dependency added — live CPU/memory via `refresh_system_info()`
+  - `tool_call_avg_ms` fixed — `_duration_ms` now tracked as `tool_call_duration_ms` counter
+  - Background broadcast task now computes `cost_per_request`, `hallucination_rate`, `tool_call_avg_ms`
+  - `shutdown()` properly stops background task via `Arc<AtomicBool>` shared with loop
+- **Agent scaling wired into AgentManager** (`crates/agent/src/`):
+  - New `ManagerAutoscaler` bridges scaling policy with AgentManager command channel
+  - `ManagerAutoscaler::evaluate()` splits locking from async execution — no parking_lot guard across `.await`
+  - `AgentManager.with_autoscaling()` builder method enables autoscaler
+  - `AgentManager::start()` spawns autoscaler background loop
+  - `StopRandomAgent` command variant added for scale-down
+- **`cargo check --all-targets`** ✅ 0 errors
 
 ## Notable quirks
 

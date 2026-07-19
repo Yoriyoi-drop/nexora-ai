@@ -25,18 +25,28 @@ impl DynamicQuantManager {
         let engine = match QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic) {
             Ok(e) => e,
             Err(e) => {
-                tracing::warn!("Failed to create QuantizationEngine: {e}, using fallback");
-                QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)
-                    .expect("QuantizationEngine must be constructable")
+                tracing::warn!("QuantizationEngine init failed: {e}");
+                match QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Static) {
+                    Ok(fb) => fb,
+                    Err(fatal) => {
+                        tracing::error!("All QuantizationEngine paths failed: {e}, {fatal}");
+                        panic!("Quantization subsystem unavailable")
+                    }
+                }
             }
         };
 
         let mixed = match MixedPrecisionEngine::new(QuantPrecision::FP16) {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!("Failed to create MixedPrecisionEngine: {e}");
-                MixedPrecisionEngine::new(QuantPrecision::FP16)
-                    .expect("MixedPrecisionEngine must be constructable")
+                tracing::warn!("MixedPrecisionEngine init failed: {e}");
+                match MixedPrecisionEngine::new(QuantPrecision::INT8) {
+                    Ok(fb) => fb,
+                    Err(fatal) => {
+                        tracing::error!("All MixedPrecisionEngine paths failed: {e}, {fatal}");
+                        panic!("MixedPrecision subsystem unavailable")
+                    }
+                }
             }
         };
 

@@ -26,6 +26,9 @@ nexora-isolation = { path = "../../crates/isolation" }
 nexora-hallucination = { path = "../../crates/hallucination" }
 nexora-benchmark = { path = "../../crates/benchmark" }
 nexora-autograd = { path = "../../crates/autograd", default-features = false, features = ["std"] }
+nexora-eventbus = { path = "../../crates/eventbus" }
+nexora-cost-optimizer = { path = "../../crates/cost-optimizer" }
+nexora-scheduler-v2 = { path = "../../crates/scheduler-v2" }
 
 tokio.workspace = true
 serde.workspace = true
@@ -68,7 +71,7 @@ jsonwebtoken = { version = "9" }
 ndarray.workspace = true
 
 [features]
-default = ["gpu", "server-auth"]
+default = ["gpu", "server-auth", "mimalloc"]
 # Optimasi: minimal feature — tanpa billing, dashboard, gossip
 minimal = ["gpu", "server-auth"]
 production = ["mimalloc", "server-billing"]

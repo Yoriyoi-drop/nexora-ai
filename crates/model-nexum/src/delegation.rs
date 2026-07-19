@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
@@ -41,9 +41,7 @@ fn init_classifier() {
 static SACA: OnceLock<SacaEngine> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_complexity(text: &str) -> Vec<(String, f32)> {
@@ -80,8 +78,8 @@ pub async fn delegate(prompt: &str) -> String {
     let strategy = classifier::decomposition_strategy(primary);
 
     if primary == "simple" {
-        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
-        return nexora_model_core::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
+        return delegation_base::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -118,8 +116,8 @@ pub async fn delegate(prompt: &str) -> String {
     };
 
     if subtasks.len() <= 1 {
-        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
-        return nexora_model_core::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
+        return delegation_base::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -129,13 +127,13 @@ pub async fn delegate(prompt: &str) -> String {
     let mut results: Vec<(String, f32)> = Vec::new();
 
     for (i, task) in subtasks.iter().enumerate() {
-        let sanitized_task = classifier_util::sanitize_prompt(task);
+        let sanitized_task = delegation_base::sanitize_prompt(task);
         let sub_prompt = format!(
             "[Nexum subtask {i} | complexity: {primary}]\n\
              {strategy}\n\n\
              {sanitized_task}"
         );
-        match nexora_model_core::foundation::call_model(foundation(), &sub_prompt, 256, 0.6).await {
+        match delegation_base::call_model(foundation(), &sub_prompt, 256, 0.6).await {
             Ok(r) => {
                 let quality = linter.verify_code(&r, "text").unwrap_or(0.5);
                 tracing::debug!("nexum subtask {i} quality: {:.2}", quality);
@@ -149,8 +147,8 @@ pub async fn delegate(prompt: &str) -> String {
     }
 
     if results.is_empty() {
-        let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
-        return nexora_model_core::foundation::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
+        let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
+        return delegation_base::call_model(foundation(), &sanitized_prompt, 512, 0.6).await.unwrap_or_else(|e| {
             tracing::warn!("nexum delegation call failed: {}", e);
             format!("[nexum inference error: {}]", e)
         });
@@ -173,7 +171,7 @@ pub async fn delegate(prompt: &str) -> String {
             }
         };
 
-        let synthesis = nexora_model_core::foundation::call_model(
+        let synthesis = delegation_base::call_model(
             foundation(),
             &format!(
                 "[Nexum synthesis | multi-domain | avg quality: {avg_quality:.2}]{alignment_insight}\n\

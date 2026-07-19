@@ -1,0 +1,29 @@
+[advisories]
+severity-threshold = "high"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+skip = [
+    # ndarray ecosystem — beberapa crate masih depend on older ndarray
+    { name = "ndarray", version = "0.15" },
+]
+skip-tree = []
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "MIT OR Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[sources]
+allow-git = []
+unknown-registry = "deny"
+unknown-git = "deny"

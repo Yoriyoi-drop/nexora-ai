@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_reasoning::SacaEngine;
@@ -40,9 +40,7 @@ static SACA: OnceLock<SacaEngine> = OnceLock::new();
 static REFLECTOR: OnceLock<DefaultReflector> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_quality(text: &str) -> Vec<(String, f32)> {
@@ -71,8 +69,8 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("genesis SACA reasoning unavailable, using direct generation");
-            let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
-            nexora_model_core::foundation::call_model(foundation(), &sanitized_prompt, 256, 0.8).await.unwrap_or_else(|e| {
+            let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
+            delegation_base::call_model(foundation(), &sanitized_prompt, 256, 0.8).await.unwrap_or_else(|e| {
                 format!("[genesis inference error: {}]", e)
             })
         }
@@ -113,8 +111,8 @@ pub async fn delegate(prompt: &str) -> String {
                 current = r.conclusion;
             }
             _ => {
-                let sanitized_current = classifier_util::sanitize_prompt(&current);
-                let improved = nexora_model_core::foundation::call_model(
+                let sanitized_current = delegation_base::sanitize_prompt(&current);
+                let improved = delegation_base::call_model(
                     foundation(),
                     &format!(
                         "[Genesis refinement | iter {iteration} | focus: {refinement_hint}]\n\

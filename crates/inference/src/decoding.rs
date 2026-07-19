@@ -633,7 +633,6 @@ impl DecodingContext {
 
     /// Add generated token
     pub fn add_token(&mut self, token: Arc<GeneratedToken>) {
-        let _token_id = token.token_id as usize;
         *self.token_frequencies.entry(token.token_id).or_insert(0) += 1;
         self.generated_tokens.push(token);
         self.step += 1;

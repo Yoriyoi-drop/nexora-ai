@@ -1,5 +1,5 @@
 use crate::classifier;
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use nexora_reasoning::SacaEngine;
 use std::sync::Arc;
@@ -33,9 +33,7 @@ fn init_classifier() {
 }
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_reasoning(text: &str) -> Vec<(String, f32)> {
@@ -59,14 +57,14 @@ pub async fn delegate(prompt: &str) -> String {
         }
         _ => {
             tracing::warn!("axiom SACA reasoning unavailable (type: {primary}), using prompt-based reasoning");
-            let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+            let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
             let framed = format!(
                 "[Axiom reasoning | type: {primary}]\n\
                  {focus}\n\n\
                  Input: {sanitized_prompt}\n\
                  Conclusion:"
             );
-            nexora_model_core::foundation::call_model(foundation(), &framed, 512, 0.3).await.unwrap_or_else(|e| {
+            delegation_base::call_model(foundation(), &framed, 512, 0.3).await.unwrap_or_else(|e| {
                 tracing::warn!("axiom delegation call failed: {}", e);
                 format!("[axiom inference error: {}]", e)
             })

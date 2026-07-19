@@ -1,5 +1,5 @@
 use crate::classifier;
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
 use nexora_multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
@@ -34,15 +34,15 @@ fn init_classifier() {
     }
 }
 
+fn token_ids(text: &str) -> Vec<u32> {
+    delegation_base::token_ids(foundation(), text)
+}
+
 fn classify(text: &str) -> Vec<(String, f32)> {
     let f = foundation();
     if let Ok(guard) = f.model.try_lock() {
         if let Some(ref model) = *guard {
-            let tokenizer = f.tokenizer.as_ref();
-            let ids = tokenizer.map_or_else(
-                || nexora_model_core::foundation::byte_encode(text),
-                |tk| tk.read().encode(text),
-            );
+            let ids = token_ids(text);
             return classifier::detect_emotions(text, &ids);
         }
     }
@@ -85,14 +85,14 @@ pub async fn delegate_multimodal(
     });
     let mm_summary = mm_result.processing_summary;
 
-    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     let framed = format!(
         "[Empathetic response | detected emotion: {dominant} | multimodal: {mm_summary}]\n\
          Consider the emotional context and psychological aspects.\n\
          User input: {sanitized_prompt}\n\
          Response (empathetic, emotionally aware):"
     );
-    nexora_model_core::foundation::call_model(foundation(), &framed, 512, 0.8).await.unwrap_or_else(|e| {
+    delegation_base::call_model(foundation(), &framed, 512, 0.8).await.unwrap_or_else(|e| {
         tracing::warn!("aether delegation call failed: {}", e);
         format!("[aether inference error: {}]", e)
     })

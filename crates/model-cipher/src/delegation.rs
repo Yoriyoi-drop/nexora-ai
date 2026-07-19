@@ -1,5 +1,5 @@
 use crate::classifier;
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use nexora_oracle::CodeLinterManager;
 use std::sync::Arc;
@@ -35,9 +35,7 @@ fn init_classifier() {
 static LINTER: OnceLock<CodeLinterManager> = OnceLock::new();
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_threat(text: &str) -> Vec<(String, f32)> {
@@ -110,7 +108,7 @@ pub async fn delegate(prompt: &str) -> String {
         }
     };
 
-    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     let checklist = format!(
         "[Cipher security | primary threat: {primary}]\n\
          Oracle security scan: {findings}\n\
@@ -125,7 +123,7 @@ pub async fn delegate(prompt: &str) -> String {
          {sanitized_prompt}\n\n\
          Security findings:"
     );
-    nexora_model_core::foundation::call_model(foundation(), &checklist, 512, 0.3).await.unwrap_or_else(|e| {
+    delegation_base::call_model(foundation(), &checklist, 512, 0.3).await.unwrap_or_else(|e| {
         tracing::warn!("cipher delegation call failed: {}", e);
         format!("[cipher inference error: {}]", e)
     })

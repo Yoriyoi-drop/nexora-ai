@@ -1298,6 +1298,104 @@ extern "C" __global__ void scatter_add_weighted(float* __restrict__ output,
         Ok(())
     }
 
+    // ── Fused MoE Expert Forward ──────────────────────────────────────
+
+    /// Single fused kernel: fc1 → bias → GELU → fc2 → bias in one launch.
+    ///
+    /// One block per token. Shared memory holds intermediate fc1 output.
+    /// Eliminates 4 intermediate buffer allocations and 4 launch overheads
+    /// compared to per-op cuBLAS calls.
+    pub fn moe_expert_forward_fused(
+        &self,
+        input: &CudaTensor,
+        fc1_weight: &CudaTensor,
+        fc1_bias: &CudaTensor,
+        fc2_weight: &CudaTensor,
+        fc2_bias: &CudaTensor,
+        output: &mut CudaTensor,
+        n: usize,
+        hidden: usize,
+        inter: usize,
+    ) -> Result<(), String> {
+        let func = self.get_or_compile_kernel(
+            "moe_expert_fused",
+            r#"
+extern "C" __global__ void moe_expert_fused(
+    const float* __restrict__ input,
+    const float* __restrict__ fc1_w,
+    const float* __restrict__ fc1_b,
+    const float* __restrict__ fc2_w,
+    const float* __restrict__ fc2_b,
+    float* __restrict__ output,
+    int n, int hidden, int inter) {
+
+    int token_idx = blockIdx.x;
+    if (token_idx >= n) return;
+
+    extern __shared__ float shared[];
+    float* hidden_buf = shared;
+
+    // Phase 1: fc1 = input @ fc1_w.T + fc1_b
+    // fc1[j] = sum(input[k] * fc1_w[j * hidden + k]) + fc1_b[j]
+    for (int j = threadIdx.x; j < inter; j += blockDim.x) {
+        float sum = fc1_b[j];
+        for (int k = 0; k < hidden; k++) {
+            sum += input[token_idx * hidden + k] * fc1_w[j * hidden + k];
+        }
+        hidden_buf[j] = sum;
+    }
+    __syncthreads();
+
+    // GELU in-place
+    for (int j = threadIdx.x; j < inter; j += blockDim.x) {
+        float x = hidden_buf[j];
+        hidden_buf[j] = 0.5f * x * (1.0f + tanhf(0.79788456f * (x + 0.044715f * x * x * x)));
+    }
+    __syncthreads();
+
+    // fc2: output = hidden @ fc2_w.T + fc2_b
+    for (int j = threadIdx.x; j < hidden; j += blockDim.x) {
+        float sum = fc2_b[j];
+        for (int k = 0; k < inter; k++) {
+            sum += hidden_buf[k] * fc2_w[j * inter + k];
+        }
+        output[token_idx * hidden + j] = sum;
+    }
+}"#,
+        )?;
+
+        let grid_dim = n as u32;
+        let block_dim = 256u32;
+        let shared_mem = (inter * 4) as u32;
+
+        let cfg = LaunchConfig {
+            grid_dim: (grid_dim, 1, 1),
+            block_dim: (block_dim, 1, 1),
+            shared_mem_bytes: shared_mem,
+        };
+
+        unsafe {
+            let mut builder = self.stream.launch_builder(&func);
+            builder.arg(input.buffer());
+            builder.arg(fc1_weight.buffer());
+            builder.arg(fc1_bias.buffer());
+            builder.arg(fc2_weight.buffer());
+            builder.arg(fc2_bias.buffer());
+            builder.arg(&mut output.buffer);
+            let n_i32 = n as i32;
+            let hidden_i32 = hidden as i32;
+            let inter_i32 = inter as i32;
+            builder.arg(&n_i32);
+            builder.arg(&hidden_i32);
+            builder.arg(&inter_i32);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("CUDA moe_expert_fused launch: {e}"))?;
+        }
+
+        Ok(())
+    }
+
     // ── INT4 Matmul ──────────────────────────────────────────────────
 
     /// INT4 matmul: `C[M, N] = A[M, K] @ B_int4[K/2, N]` with per-group scales.

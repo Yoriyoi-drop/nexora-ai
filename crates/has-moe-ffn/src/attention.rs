@@ -12,6 +12,7 @@ pub struct AttentionConfig {
 }
 
 /// Attention mechanism
+#[derive(Debug)]
 pub struct Attention {
     config: AttentionConfig,
     head_dim: usize,

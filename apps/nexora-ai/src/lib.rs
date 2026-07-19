@@ -7,7 +7,8 @@ use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -22,6 +23,7 @@ pub mod error;
 pub mod metrics;
 pub mod security;
 pub mod server;
+pub mod system;
 pub mod telemetry;
 
 pub use api::{ApiConfig, ApiResponse, NexoraApi};
@@ -44,6 +46,7 @@ use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift,
 // --- Tier Router ---
 use crate::core::debate::DebateOrchestrator;
 use crate::core::tier_router::IntentRouter;
+use crate::system::NexoraSystem;
 
 /// Route a prompt through the active model's delegation agent.
 /// Each agent classifies the input, applies domain-specific framing,
@@ -396,6 +399,9 @@ pub struct NexoraAI {
 
     /// Gossip protocol for distributed cluster communication
     pub gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>>,
+
+    /// New subsystems (event bus, memory pools, DAG scheduler, cost optimizer, observability)
+    pub system: NexoraSystem,
 }
 
 impl NexoraAI {
@@ -514,6 +520,26 @@ impl NexoraAI {
         let _bench_sample = nexora_benchmark::MetricSample::from_samples(&[]);
         info!("Nexora benchmark crate wired (MetricSample ready)");
 
+        // Step 2j: Initialize NexoraSystem (event bus, memory pools, cost optimizer, observability)
+        let mut system_builder = NexoraSystem::new().await;
+        if config.system.enable_dag_scheduler {
+            system_builder = system_builder.with_dag_scheduler(config.system.dag_workers, config.system.gpu_count);
+        }
+        if config.system.enable_gpu_scheduler {
+            system_builder = system_builder.with_gpu_scheduler(config.system.gpu_count);
+        }
+        if config.system.enable_agent_scaling {
+            system_builder = system_builder.with_agent_autoscaler();
+        }
+        system_builder.start().await;
+        let system = system_builder;
+        info!("NexoraSystem initialized (eventbus={}, pools={}, costopt={}, observability={})",
+            config.system.enable_eventbus,
+            config.system.enable_memory_pools,
+            config.system.enable_cost_optimizer,
+            config.system.enable_observability,
+        );
+
         // Step 2: Initialize Intent Router — classifies input → model
         // Semua model pakai satu shared backbone (no tiers, no VRAM eviction)
         let intent_router = Arc::new(IntentRouter::new());
@@ -528,13 +554,13 @@ impl NexoraAI {
         );
 
         // Step 3: Initialize system monitoring and shared state
-        let mut system = sysinfo::System::new_all();
-        system.refresh_all();
+        let mut sys_info = sysinfo::System::new_all();
+        sys_info.refresh_all();
 
         debug!(
             "System initialized with {} cores, {}MB total memory",
-            system.cpus().len(),
-            system.total_memory() / (1024 * 1024)
+            sys_info.cpus().len(),
+            sys_info.total_memory() / (1024 * 1024)
         );
 
         let system_info_cache = Arc::new(RwLock::new(None));
@@ -680,6 +706,7 @@ impl NexoraAI {
             billing,
             telemetry,
             gossip_protocol,
+            system,
         })
     }
 

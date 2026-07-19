@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::analyzer;
 use nexora_oracle::CodeLinterManager;
@@ -33,13 +33,7 @@ fn init_analyzer() {
 }
 
 fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer
-        .map_or_else(
-            || nexora_model_core::foundation::byte_encode(text),
-            |tk| tk.read().encode(text),
-        )
+    delegation_base::token_ids(foundation(), text)
 }
 
 fn classify_review(text: &str) -> Vec<(String, f32)> {
@@ -91,7 +85,7 @@ pub async fn delegate(prompt: &str) -> String {
 
     let verification = run_linters(prompt, lang);
 
-    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     let framed = format!(
         "[Vortex code review | focus: {primary} | language: {lang}]\n\
          Automated code analysis results:\n\
@@ -100,7 +94,7 @@ pub async fn delegate(prompt: &str) -> String {
          ```\n{sanitized_prompt}\n```\n\n\
          Code review:"
     );
-    nexora_model_core::foundation::call_model(foundation(), &framed, 512, 0.4).await.unwrap_or_else(|e| {
+    delegation_base::call_model(foundation(), &framed, 512, 0.4).await.unwrap_or_else(|e| {
         tracing::warn!("vortex delegation call failed: {}", e);
         format!("[vortex inference error: {}]", e)
     })

@@ -46,16 +46,12 @@ impl DistributedRouter {
     }
 
     fn register_load_fn(registry: &Arc<NodeRegistry>) {
-        let _reg = Arc::clone(registry);
         registry.set_dynamic_load_fn(Some(Arc::new(move || {
             use crate::inference_trait::{
-                KV_CACHE_EXTERNAL_FRAG, KV_CACHE_INTERNAL_FRAG, KV_CACHE_TOTAL_BLOCKS,
-                KV_CACHE_USED_BLOCKS, SCHEDULER_QUEUE_DEPTH,
+                KV_CACHE_EXTERNAL_FRAG, KV_CACHE_INTERNAL_FRAG, SCHEDULER_QUEUE_DEPTH,
             };
             use std::sync::atomic::Ordering;
 
-            let _used = KV_CACHE_USED_BLOCKS.load(Ordering::Relaxed);
-            let _total = KV_CACHE_TOTAL_BLOCKS.load(Ordering::Relaxed);
             let int_frag = KV_CACHE_INTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0;
             let ext_frag = KV_CACHE_EXTERNAL_FRAG.load(Ordering::Relaxed) as f64 / 1_000_000.0;
 
@@ -178,7 +174,7 @@ impl DistributedRouter {
                 loop {
                     match buffer.find('\n') {
                         Some(nl) => {
-                            let line = buffer[..nl].trim();
+                            let line = buffer[..nl].trim().to_owned();
                             buffer.drain(..nl + 1);
 
                             if line.is_empty() {

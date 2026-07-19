@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_has_moe_ffn::Router;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
 
-static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static INITIALIZED: OnceLock<bool> = OnceLock::new();
 static ATQS: OnceLock<AtqsCompression> = OnceLock::new();
 static ERP: OnceLock<std::sync::Mutex<ERPEngine>> = OnceLock::new();
 
@@ -22,48 +22,38 @@ pub fn inject_model(model_arc: Arc<CausalLM>) {
 }
 
 fn init_classifier() {
-    if INITIALIZED.get().is_some() {
-        return;
-    }
     let f = foundation();
-    if let Ok(guard) = f.model.try_lock() {
-        if let Some(ref model) = *guard {
-            if let Some(ref embed) = model.token_embedding {
-                classifier::init_classifier(embed.clone());
-                let _ = INITIALIZED.set(true);
-            }
-        }
-    }
-}
-
-fn token_ids(text: &str) -> Vec<u32> {
-    let f = foundation();
-    let tokenizer = f.tokenizer.as_ref();
-    tokenizer.map_or_else(|| nexora_model_core::foundation::byte_encode(text), |tk| tk.read().encode(text))
+    delegation_base::init_embedding_classifier(&INITIALIZED, f, |embed| {
+        classifier::init_classifier(embed);
+    });
 }
 
 fn classify_task(text: &str) -> Vec<(String, f32)> {
-    let ids = token_ids(text);
+    let f = foundation();
+    let ids = delegation_base::token_ids(f, text);
     classifier::detect_task_type(text, &ids)
 }
 
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
+    let f = foundation();
     let tasks = classify_task(prompt);
     let primary = tasks.first().map(|(t, _)| t.as_str()).unwrap_or("qa");
     let (max_tokens, temperature) = classifier::task_params(primary);
 
-    let ids = token_ids(prompt);
+    let ids = delegation_base::token_ids(f, prompt);
     let expert_route = {
-        let f = foundation();
         match f.model.lock() {
             Ok(guard) => {
                 guard.as_ref().and_then(|m| m.token_embedding.as_ref()).and_then(|embed_table| {
-                    let avg = classifier_util::embed_average(embed_table, &ids);
+                    let avg = delegation_base::embed_average(embed_table, &ids);
                     let embed_dim = avg.len();
                     if embed_dim == 0 { return None; }
                     let moe = Router::new(embed_dim, 5, 1);
-                    let input_array = avg.into_shape((1, embed_dim)).ok()?;
+                    let input_array = match ndarray::ArrayBase::from_shape_vec((1, embed_dim), avg) {
+                        Ok(v) => v,
+                        Err(_) => return None,
+                    };
                     let moe_weights = moe.forward(&input_array);
                     let top_expert = (0..moe_weights.shape()[1])
                         .max_by(|&a, &b| moe_weights[[0, a]].partial_cmp(&moe_weights[[0, b]]).unwrap_or(std::cmp::Ordering::Equal))
@@ -106,7 +96,7 @@ pub async fn delegate(prompt: &str) -> String {
         }
     };
 
-    let sanitized_prompt = classifier_util::sanitize_prompt(prompt);
+    let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     let optimization_tag = if !edge_insight.is_empty() || !erp_insight.is_empty() {
         format!("[{} | {}]", edge_insight, erp_insight)
     } else {
@@ -126,7 +116,7 @@ pub async fn delegate(prompt: &str) -> String {
              {sanitized_prompt}"
         )
     };
-    nexora_model_core::foundation::call_model(foundation(), &framed, max_tokens, temperature).await.unwrap_or_else(|e| {
+    delegation_base::call_model(f, &framed, max_tokens, temperature).await.unwrap_or_else(|e| {
         tracing::warn!("swift delegation call failed: {}", e);
         format!("[swift inference error: {}]", e)
     })

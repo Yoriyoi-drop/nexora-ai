@@ -8,6 +8,7 @@ pub mod logging;
 pub mod memory;
 pub mod models;
 pub mod server;
+pub mod system;
 pub mod tokenizer;
 pub mod utils;
 
@@ -21,4 +22,5 @@ pub use memory::MemoryConfig;
 pub use models::ModelsConfig;
 pub use server::ServerConfig;
 pub use tokenizer::{SpecialTokens, TokenizerConfig};
+pub use system::SystemConfig;
 pub use utils::UtilsConfig;

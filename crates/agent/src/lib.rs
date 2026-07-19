@@ -15,6 +15,7 @@ pub mod planner_agent;
 pub mod registry;
 pub mod response_agent;
 pub mod routing_agent;
+pub mod scaling;
 pub mod state;
 pub mod validation_agent;
 pub mod worker_agent;

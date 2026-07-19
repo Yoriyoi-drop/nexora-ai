@@ -14,7 +14,7 @@ use nexora_inference::{GeneratedToken, InferenceRequest};
 use nexora_tokenizer::{BpeConfig, BpeTokenizer};
 use nexora_quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 

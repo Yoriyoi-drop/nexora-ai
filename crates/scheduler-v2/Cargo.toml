@@ -1,0 +1,25 @@
+[package]
+name = "nexora-scheduler-v2"
+version = "0.2.0"
+edition = "2021"
+description = "Next-Gen DAG Scheduler — DAG execution, work stealing, priority/deadline queue, GPU-aware, NUMA-aware"
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+parking_lot = { workspace = true }
+crossbeam = { workspace = true }
+dashmap = "6"
+priority-queue = "2"
+num_cpus = "1.16"
+fastrand = "2.0"
+nexora-core = { path = "../core" }
+nexora-eventbus = { path = "../eventbus" }

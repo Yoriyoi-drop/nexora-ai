@@ -15,6 +15,7 @@ use nexora_foundation::oracle::{
 };
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
     println!("🚀 ORACLE Framework Example");
@@ -438,10 +439,21 @@ fn demo_backbone_components() -> anyhow::Result<()> {
 
     // Test Multi-head Latent Attention
     println!("Testing Multi-head Latent Attention...");
-    let mla = MultiHeadLatentAttention::new(config.clone());
+    let rope_config = ExtendedRopeConfig {
+        d_model: config.d_model,
+        n_heads: config.n_heads,
+        base: 10000.0,
+        scaling_factor: 1.0,
+        max_seq_len: config.context_size,
+        dynamic_frequency: true,
+        cross_file_factor: 0.1,
+    };
+    let rope = Arc::new(ExtendedRope::new(rope_config));
+    let mla = MultiHeadLatentAttention::new(config.clone(), rope);
     let mask = Some(ndarray::Array2::ones((4, 4)));
 
-    let attn_output = mla.forward(&test_input.clone(), mask.as_ref())?;
+    let positions: Vec<usize> = (0..4).collect();
+    let attn_output = mla.forward(&test_input.clone(), mask.as_ref(), &positions)?;
     println!("✅ MLA output shape: {:?}", attn_output.dim());
 
     // Test routing weights (expert usage via router)

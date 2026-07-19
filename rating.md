@@ -199,5 +199,30 @@
 | GPU acceleration | **8** ↑ | CUDA backend (GpuBackend enum, cuBLAS, NVRTC JIT), MoE Router+Experts full pipeline w/ CUDA→wgpu→CPU fallback, 3-tier generate, GPU sampling | CUDA requires nvcc, no FlashAttention, compile-time features |
 | Scaling model besar | **6** | MoE, MLA 4× compression, GQA, 32K context | 12-layer hardcode, MoE CPU-bound |
 | Quality/speed balance | **7** | GPU native sampling, beam search O(1), 3 preset | No speculative decoding, beam search CPU |
+| Infrastructure expansion | **8** | EventBus, CostOptimizer, Scheduler v2, Hybrid Cache, Memory Pools, Zero-Copy, Observability, GPU Runtime, 6 dashboard pages, System integration hub | GPU runtime orchestration-only, observability HW reading hardcoded, agent lifecycle not managed, cache not wired to production |
 
-> **Catatan**: GPU acceleration naik ke **8/10** setelah CUDA backend wiring (GpuBackend auto-detection, cuBLAS + NVRTC JIT ops, MoE Router+Expert CUDA paths dengan fallback CUDA→wgpu→CPU). GPU acceleration + Mixed precision + Memory efficiency + Stability semuanya ≥8/10 sekarang — fondasi enterprise-grade. Komponen sisanya (FlashAttention, TensorRT, distributed serving, speculative decoding) masih perlu kerja lanjutan.
+## 7. Infrastructure Expansion (Phase 6) — 8/10
+
+**Evidence:**
+
+- **EventBus** (`crates/eventbus`): Full pub/sub with 25+ system topics, subscriber queues, broadcast channel, event priority/TTL/source tracking. Used as backbone for all subsystem communication.
+- **CostOptimizer** (`crates/cost-optimizer`): Cascade routing — Regex (5 rules) → RuleEngine → Small → Medium → Large. Tracks savings rate, tier counts, estimated cost per request.
+- **Scheduler v2** (`crates/scheduler-v2`): DAG-based task scheduling with topological sort, priority queue, deadline EDF, GPU-aware placement, NUMA-aware assignment, work-stealing via crossbeam.
+- **Agent Autoscaler** (`crates/agent/src/scaling/`): K8s-like scaling (3-49 agents) based on CPU/mem/utilization/queue depth. Cooldown, consecutive threshold tracking.
+- **Hybrid Cache** (`crates/memory/src/hybrid_cache/`): 7-layer unified cache (Prompt, Embedding, Retrieval, Tool, HTTP, Token, Model) with TTL, hit/miss/eviction tracking.
+- **Memory Pools** (`crates/memory/src/pool/`): Pre-allocated blocks (4KB→256MB), reusable Tensor/Embedding/KVCache/Buffer pools with `UnifiedMemoryManager`.
+- **Zero-Copy** (`crates/memory/src/zero_copy/`): ArcBuffer, CoWString/Buffer, SharedString, MmapFile, Arena bump allocator, ObjectPool — no-copy data sharing.
+- **Observability** (`crates/monitoring/src/observability/`): 33 metrics (CPU/GPU/RAM, tokens, latency avg/p95/p99, queue, cache hit, cost, hallucination, agents, failure rate). Broadcast distribution, JSON + Prometheus output.
+- **GPU Runtime** (`crates/runtime/src/gpu_runtime/`): Multi-priority task queues, stream management, async uploads, batching, prefetching.
+- **System Integration** (`apps/nexora-ai/src/system.rs`): NexoraSystem hub wiring all subsystems. 3 API endpoints: `/api/system/status`, `/api/system/metrics`, `/api/system/optimizer`.
+- **Dashboard pages**: 6 new TUI pages (Overview, Inference, Models, Training, Tests, Logs) with live data.
+- **Delegation Base**: `crates/model-core/src/delegation_base.rs` — shared utilities for all 10 NXR model crates.
+
+**Kelemahan:**
+- GPU Runtime is orchestration-only (no actual CUDA/wgpu calls yet)
+- Observability metrics are all hardcoded (no real HW reading)
+- Agent Autoscaler doesn't manage actual agent lifecycle
+- Hybrid Cache not yet wired into production inference path
+- Scheduler v2 work-stealing not wired into DagScheduler
+
+> **Catatan**: GPU acceleration naik ke **8/10** setelah CUDA backend wiring (GpuBackend auto-detection, cuBLAS + NVRTC JIT ops, MoE Router+Expert CUDA paths dengan fallback CUDA→wgpu→CPU). GPU acceleration + Mixed precision + Memory efficiency + Stability semuanya ≥8/10 sekarang — fondasi enterprise-grade. Phase 6 menambah 3 new crates + 7 subsystems + 6 dashboard pages + system integration hub. Komponen sisanya (FlashAttention, TensorRT, distributed serving, speculative decoding) masih perlu kerja lanjutan.

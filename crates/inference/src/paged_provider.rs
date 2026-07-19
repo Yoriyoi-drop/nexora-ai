@@ -319,7 +319,6 @@ impl PagedKVCacheProvider {
             Ok(c) => c,
             _ => return,
         };
-        let _kv_elems = self.gpu_num_kv_heads * self.gpu_head_dim;
 
         // For each layer, read existing tokens from paged cache and upload to GPU
         let guard = match self.cache.read() {

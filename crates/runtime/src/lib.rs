@@ -83,6 +83,7 @@ pub mod scheduler;
 pub mod vram_budget;
 pub mod scheduler_trait;
 pub mod streaming;
+pub mod gpu_runtime;
 
 // Distributed scheduler modules — Phase 5c+
 pub mod cluster;

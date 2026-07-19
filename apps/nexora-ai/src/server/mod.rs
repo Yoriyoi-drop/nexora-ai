@@ -26,6 +26,7 @@ pub mod auth_handlers;
 pub mod billing_handlers;
 #[cfg(feature = "server-dashboard")]
 pub mod dashboard_handlers;
+pub mod system_handlers;
 #[cfg(feature = "server-gossip")]
 pub mod gossip_handlers;
 pub mod telemetry_handlers;

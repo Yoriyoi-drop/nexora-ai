@@ -1319,6 +1319,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3046,6 +3060,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "crossbeam",
+ "dashmap",
  "futures",
  "mockall",
  "nexora-autograd",
@@ -3097,8 +3112,10 @@ dependencies = [
  "nexora-benchmark",
  "nexora-blaa",
  "nexora-core",
+ "nexora-cost-optimizer",
  "nexora-datastream",
  "nexora-deeplearning",
+ "nexora-eventbus",
  "nexora-foundation",
  "nexora-hallucination",
  "nexora-inference",
@@ -3110,6 +3127,7 @@ dependencies = [
  "nexora-monitoring",
  "nexora-quantization",
  "nexora-runtime",
+ "nexora-scheduler-v2",
  "nexora-tokenizer",
  "nexora-transformer",
  "once_cell",
@@ -3283,6 +3301,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexora-cost-optimizer"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "dashmap",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "nexora-dashboard"
 version = "0.3.0"
 dependencies = [
@@ -3415,6 +3449,25 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "nexora-eventbus"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "crossbeam",
+ "dashmap",
+ "futures",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3694,6 +3747,10 @@ name = "nexora-memory"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "bytes",
+ "chrono",
+ "dashmap",
+ "memmap2",
  "mockall",
  "nexora-core",
  "nexora-database",
@@ -3986,12 +4043,17 @@ dependencies = [
 name = "nexora-monitoring"
 version = "0.2.0"
 dependencies = [
+ "chrono",
+ "parking_lot",
  "prometheus",
  "serde",
+ "serde_json",
+ "sysinfo",
  "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4083,15 +4145,43 @@ dependencies = [
  "async-trait",
  "chrono",
  "criterion",
+ "crossbeam",
+ "dashmap",
+ "fastrand",
  "mockall",
  "nexora-core",
  "nexora-isolation",
  "nexora-monitoring",
  "nexora-utils",
  "num_cpus",
+ "parking_lot",
  "proptest",
  "rand 0.8.6",
  "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "nexora-scheduler-v2"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "crossbeam",
+ "dashmap",
+ "fastrand",
+ "futures",
+ "nexora-core",
+ "nexora-eventbus",
+ "num_cpus",
+ "parking_lot",
+ "priority-queue",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4980,6 +5070,17 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "priority-queue"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93980406f12d9f8140ed5abe7155acb10bb1e69ea55c88960b9c2f117445ef96"
+dependencies = [
+ "equivalent",
+ "indexmap",
+ "serde",
 ]
 
 [[package]]

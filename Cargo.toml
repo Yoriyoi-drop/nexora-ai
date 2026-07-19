@@ -53,6 +53,9 @@ members = [
     "crates/model-nexum",
     "crates/model-spectra",
     "crates/model-swift",
+    "crates/eventbus",
+    "crates/cost-optimizer",
+    "crates/scheduler-v2",
     "apps/nexora-ai",
     "apps/dashboard",
     "crates/benchmark",
@@ -67,6 +70,21 @@ repository = "https://github.com/nexora-ai/nexora"
 
 [workspace.metadata]
 docs-rs = { all-features = true }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+debug = 1
+
+[profile.bench]
+lto = "fat"
+codegen-units = 1
 
 
 [workspace.dependencies]
@@ -123,6 +141,12 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 # Dataset format parsers
 csv = "1.3"
 parquet = { version = "53", default-features = false, features = ["arrow", "snap"] }
+
+# High-performance concurrent map
+dashmap = "6"
+
+# Priority queue
+priority-queue = "2"
 
 # Dataset streaming
 zstd = "0.13"
