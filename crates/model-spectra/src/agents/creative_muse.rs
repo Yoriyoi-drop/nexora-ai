@@ -3,7 +3,7 @@
 //! Core creative synthesis agent for NXR-SPECTRA
 
 use async_trait::async_trait;
-use nexora_model_core::foundation::{call_model, FoundationModel as CoreFoundation};
+use nexora_foundation::model_core::foundation::{call_model, FoundationModel as CoreFoundation};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentError, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{AgentLifecycle, BaseAgent, BaseAgentConfig},

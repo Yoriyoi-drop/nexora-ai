@@ -89,7 +89,7 @@ impl CausalLM {
         kv_cache: &mut dyn KVCacheProvider,
     ) -> TransformerResult<Array1<f32>> {
         #[cfg(feature = "gpu")]
-        let gpu_available = nexora_autograd::gpu::GpuContext::global().is_ok();
+        let gpu_available = nexora_deeplearning::autograd::gpu::GpuContext::global().is_ok();
 
         #[cfg(feature = "gpu")]
         if gpu_available {
@@ -292,10 +292,10 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
-        cos_gpu: &nexora_autograd::gpu::GpuTensor,
-        sin_gpu: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
+        sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -303,7 +303,7 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -312,7 +312,7 @@ impl CausalLM {
             Some(&token_id) => {
                 let tid = token_id as usize;
                 if tid >= self.config.vocab_size {
-                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                    return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                         "Token ID {} out of range [0, {})",
                         tid, self.config.vocab_size
                     )));
@@ -356,8 +356,8 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         cache: &mut [crate::gqa::GpuKVCacheEntry],
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -365,7 +365,7 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -374,7 +374,7 @@ impl CausalLM {
             Some(&token_id) => {
                 let tid = token_id as usize;
                 if tid >= self.config.vocab_size {
-                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                    return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                         "Token ID {} out of range [0, {})",
                         tid, self.config.vocab_size
                     )));
@@ -413,7 +413,7 @@ impl CausalLM {
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
                     let mut guard = injector.lock().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
                     guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
@@ -435,8 +435,8 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         cache: &mut [crate::gqa::GpuKVCacheEntry],
-    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -444,7 +444,7 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -453,7 +453,7 @@ impl CausalLM {
             Some(&token_id) => {
                 let tid = token_id as usize;
                 if tid >= self.config.vocab_size {
-                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                    return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                         "Token ID {} out of range [0, {})",
                         tid, self.config.vocab_size
                     )));
@@ -490,7 +490,7 @@ impl CausalLM {
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
                     let mut guard = injector.lock().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
                     guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
@@ -512,7 +512,7 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut dyn KVCacheProvider,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
         self.forward_gpu_with_cache_provider_inner(input_ids, kv_cache, false)
     }
 
@@ -521,9 +521,9 @@ impl CausalLM {
         input_ids: &[u32],
         kv_cache: &mut dyn KVCacheProvider,
         needs_sync_back: bool,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global()?;
 
@@ -539,13 +539,13 @@ impl CausalLM {
 
         // Get or create GPU-side cache mirroring the CpuKVCache
         let cpu_entries = kv_cache.as_cpu_entries().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "forward_gpu_with_cache_provider needs CpuKVCache or GpuKVCache".into(),
             )
         })?;
 
         let mut cache_guard = self.gpu_cache.write().map_err(|e| {
-            nexora_autograd::gpu::GpuError::Unsupported(format!("GPU cache lock poisoned: {}", e))
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("GPU cache lock poisoned: {}", e))
         })?;
         if cache_guard.is_none() {
             let mut gpu_entries: Vec<crate::gqa::GpuKVCacheEntry> = (0..num_layers)
@@ -568,12 +568,12 @@ impl CausalLM {
                     let k_cpu =
                         ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.k.clone())
                             .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                             })?;
                     let v_cpu =
                         ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.v.clone())
                             .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                             })?;
 
                     let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
@@ -606,7 +606,7 @@ impl CausalLM {
         }
 
         let gpu_entries = cache_guard.as_mut().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU cache not initialized after write".into(),
             )
         })?;
@@ -681,12 +681,12 @@ impl CausalLM {
             });
             rx.recv_timeout(Duration::from_secs(30))
                 .map_err(|_| {
-                    nexora_autograd::gpu::GpuError::Timeout(
+                    nexora_deeplearning::autograd::gpu::GpuError::Timeout(
                         "KV cache readback timed out after 30s".into(),
                     )
                 })?
                 .map_err(|e| {
-                    nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
+                    nexora_deeplearning::autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                 })?;
 
             let mapped = slice.get_mapped_range();
@@ -749,7 +749,7 @@ impl CausalLM {
         temperature: f32,
         top_k: usize,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
@@ -878,7 +878,7 @@ impl CausalLM {
         top_p: f32,
         seed: u64,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
         let ctx = match GpuContext::global() {
             Ok(c) => c,
             Err(_) => return self.generate(prompt_ids, max_tokens, temperature, top_k),
@@ -1009,8 +1009,8 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -1018,7 +1018,7 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1027,7 +1027,7 @@ impl CausalLM {
             Some(&token_id) => {
                 let tid = token_id as usize;
                 if tid >= self.config.vocab_size {
-                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                    return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                         "Token ID {} out of range [0, {})",
                         tid, self.config.vocab_size
                     )));
@@ -1064,7 +1064,7 @@ impl CausalLM {
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
                     let mut guard = injector.lock().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
                     guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
@@ -1090,8 +1090,8 @@ impl CausalLM {
         &self,
         input_ids: &[u32],
         kv_cache: &mut Vec<KVCacheEntry>,
-    ) -> Result<Array1<f32>, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -1099,7 +1099,7 @@ impl CausalLM {
         let batch_size = 1;
         let hidden_size = self.config.hidden_size;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1108,7 +1108,7 @@ impl CausalLM {
             Some(&token_id) => {
                 let tid = token_id as usize;
                 if tid >= self.config.vocab_size {
-                    return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                    return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                         "Token ID {} out of range [0, {})",
                         tid, self.config.vocab_size
                     )));
@@ -1143,7 +1143,7 @@ impl CausalLM {
             for (target_layer, injector) in &self.injectors {
                 if *target_layer == layer_idx {
                     let mut guard = injector.lock().map_err(|e| {
-                        nexora_autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector lock: {}", e))
                     })?;
                     guard.after_layer_gpu(layer_idx, &mut h, pos, ctx)?;
                 }
@@ -1169,9 +1169,9 @@ impl CausalLM {
     fn prepare_f16_temps(
         &self,
         _gw: &GpuWeights,
-        _ctx: &nexora_autograd::gpu::GpuContext,
+        _ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
         _num_layers: usize,
-    ) -> Result<Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Option<(Vec<[nexora_deeplearning::autograd::gpu::GpuTensor; 7]>, Option<nexora_deeplearning::autograd::gpu::GpuTensor>)>, nexora_deeplearning::autograd::gpu::GpuError> {
         // F16 matmul uses native packed F16 weights directly via auto-dispatch in
         // GpuContext::matmul(). No upconversion needed — saves 2x VRAM bandwidth
         // and eliminates per-forward f16_packed→f32 overhead.
@@ -1182,13 +1182,13 @@ impl CausalLM {
     fn forward_gpu_single_token_core(
         &self,
         batch_tokens: &[u32],
-        ctx: &nexora_autograd::gpu::GpuContext,
+        ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
         gpu_caches: &mut [Vec<crate::gqa::GpuKVCacheEntry>],
-        _f16_temps: &Option<(Vec<[nexora_autograd::gpu::GpuTensor; 7]>, Option<nexora_autograd::gpu::GpuTensor>)>,
+        _f16_temps: &Option<(Vec<[nexora_deeplearning::autograd::gpu::GpuTensor; 7]>, Option<nexora_deeplearning::autograd::gpu::GpuTensor>)>,
         gw: &GpuWeights,
-    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::GpuTensor;
+        use nexora_deeplearning::autograd::gpu::GpuTensor;
 
         let batch_size = batch_tokens.len();
         let hidden_size = self.config.hidden_size;
@@ -1206,7 +1206,7 @@ impl CausalLM {
         for &token_id in batch_tokens.iter() {
             let tid = token_id as usize;
             if tid >= vocab_size {
-                return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                     "Token ID {} out of range [0, {})",
                     tid, vocab_size
                 )));
@@ -1241,21 +1241,21 @@ impl CausalLM {
 
             // Batched QKV projection: 3 matmuls with [batch_size, hidden_size]
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some(ref wq_f16) = block_gw.wq_f16 {
                 ctx.matmul(&normed, wq_f16)?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some(ref wk_f16) = block_gw.wk_f16 {
                 ctx.matmul(&normed, wk_f16)?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some(ref wv_f16) = block_gw.wv_f16 {
                 ctx.matmul(&normed, wv_f16)?
             } else {
@@ -1269,19 +1269,19 @@ impl CausalLM {
                 let pos = gpu_caches[seq_idx].first().map(|e| e.seq_len).unwrap_or(0);
                 let (cos_slice, sin_slice) = self.get_cos_sin_arrays(pos);
                 cos_flat.extend_from_slice(cos_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
                 })?);
                 sin_flat.extend_from_slice(sin_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
                 })?);
             }
             let cos_gpu_batch = GpuTensor::from_cpu(
                 &ArrayD::from_shape_vec(vec![batch_size, half], cos_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                    .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?,
             )?;
             let sin_gpu_batch = GpuTensor::from_cpu(
                 &ArrayD::from_shape_vec(vec![batch_size, half], sin_flat)
-                    .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                    .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?,
             )?;
 
             let mut q_rows: Vec<GpuTensor> = Vec::with_capacity(batch_size);
@@ -1357,7 +1357,7 @@ impl CausalLM {
 
             // Batched output projection + residual
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some(ref wo_f16) = block_gw.wo_f16 {
                 ctx.matmul(&attn_concat, wo_f16)?
             } else {
@@ -1369,14 +1369,14 @@ impl CausalLM {
             // Batched FFN sub-block
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some(ref w1_f16) = block_gw.w1_f16 {
                 ctx.matmul(&normed_ffn, w1_f16)?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some(ref w3_f16) = block_gw.w3_f16 {
                 ctx.matmul(&normed_ffn, w3_f16)?
             } else {
@@ -1384,7 +1384,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some(ref w2_f16) = block_gw.w2_f16 {
                 ctx.matmul(&ffn_silu_mul, w2_f16)?
             } else {
@@ -1397,7 +1397,7 @@ impl CausalLM {
         // ── 3. Final norm + SINGLE LM head matmul (batched) ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some(ref lm_head_f16) = gw.lm_head_f16 {
             ctx.matmul(&h, lm_head_f16)?
         } else {
@@ -1412,9 +1412,9 @@ impl CausalLM {
         &self,
         batch_tokens: &[u32],
         kv_caches: &mut [Vec<KVCacheEntry>],
-    ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Vec<Array1<f32>>, nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -1430,7 +1430,7 @@ impl CausalLM {
         let _scale = 1.0 / (head_dim as f32).sqrt();
         let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1471,12 +1471,12 @@ impl CausalLM {
                     let k_cpu =
                         ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.k.clone())
                             .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                             })?;
                     let v_cpu =
                         ArrayD::from_shape_vec(vec![seq, n_kv_heads, head_dim], ce.v.clone())
                             .map_err(|e| {
-                                nexora_autograd::gpu::GpuError::Unsupported(e.to_string())
+                                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                             })?;
                     let k_gpu = GpuTensor::from_cpu(&k_cpu)?;
                     let v_gpu = GpuTensor::from_cpu(&v_cpu)?;
@@ -1562,7 +1562,7 @@ impl CausalLM {
                 let read_back =
                     |staging: &wgpu::Buffer,
                      is_f16: bool|
-                     -> Result<Vec<f32>, nexora_autograd::gpu::GpuError> {
+                     -> Result<Vec<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
                         let slice = staging.slice(..);
                         let (tx, rx) = std::sync::mpsc::channel();
                         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -1587,7 +1587,7 @@ impl CausalLM {
                             }
                         };
                         let _map_result = map_result.map_err(|e| {
-                            nexora_autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
+                            nexora_deeplearning::autograd::gpu::GpuError::Device(format!("map_async: {e:?}"))
                         })?;
                         let out: Vec<f32> = {
                             let mapped = slice.get_mapped_range();
@@ -1662,9 +1662,9 @@ impl CausalLM {
         batch_tokens: &[u32],
         gpu_caches: &mut [Vec<crate::gqa::GpuKVCacheEntry>],
         needs_logits: &[bool],
-    ) -> Result<Vec<Option<Array1<f32>>>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Vec<Option<Array1<f32>>>, nexora_deeplearning::autograd::gpu::GpuError> {
         
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         self.preupload_weights_gpu()?;
 
@@ -1679,7 +1679,7 @@ impl CausalLM {
         let _scale = 1.0 / (head_dim as f32).sqrt();
         let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1734,9 +1734,9 @@ impl CausalLM {
         top_ks: &[u32],
         top_ps: &[f32],
         seeds: &[u64],
-    ) -> Result<Vec<u32>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Vec<u32>, nexora_deeplearning::autograd::gpu::GpuError> {
         
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         self.preupload_weights_gpu()?;
 
@@ -1751,7 +1751,7 @@ impl CausalLM {
         let _scale = 1.0 / (head_dim as f32).sqrt();
         let _half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1824,9 +1824,9 @@ impl CausalLM {
         &self,
         batch_inputs: &[&[u32]],
         gpu_caches: &mut [Vec<crate::gqa::GpuKVCacheEntry>],
-    ) -> Result<Vec<Array1<f32>>, nexora_autograd::gpu::GpuError> {
+    ) -> Result<Vec<Array1<f32>>, nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         self.preupload_weights_gpu()?;
 
@@ -1844,7 +1844,7 @@ impl CausalLM {
         let scale = 1.0 / (head_dim as f32).sqrt();
         let half = head_dim / 2;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GPU weights not initialized after preupload".into(),
             )
         })?;
@@ -1868,7 +1868,7 @@ impl CausalLM {
         for &token_id in &flat_tokens {
             let tid = token_id as usize;
             if tid >= vocab_size {
-                return Err(nexora_autograd::gpu::GpuError::Unsupported(format!(
+                return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                     "Token ID {} out of range [0, {})",
                     tid, vocab_size
                 )));
@@ -1917,20 +1917,20 @@ impl CausalLM {
                     Array1::zeros(half)
                 };
                 cos_flat.extend_from_slice(cos_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported("cos_slice not contiguous".into())
                 })?);
                 sin_flat.extend_from_slice(sin_slice.as_slice().ok_or_else(|| {
-                    nexora_autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported("sin_slice not contiguous".into())
                 })?);
             }
         }
         let cos_gpu = GpuTensor::from_cpu(
             &ArrayD::from_shape_vec(vec![total_tokens, half], cos_flat)
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
         let sin_gpu = GpuTensor::from_cpu(
             &ArrayD::from_shape_vec(vec![total_tokens, half], sin_flat)
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?,
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?,
         )?;
 
         // ── 2. Forward through all blocks ──
@@ -1946,21 +1946,21 @@ impl CausalLM {
             let normed = block.attention_norm.forward_gpu(&h)?;
 
             let q_proj = if let Some(ref wq_i8) = block_gw.wq_i8 {
-                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wq_i8, block_gw.wq_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wq_scales required".into()))?, block_gw.wq_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wq_zero_points required".into()))?)?
             } else if let Some(ref wq_f16) = block_gw.wq_f16 {
                 ctx.matmul(&normed, wq_f16)?
             } else {
                 ctx.matmul(&normed, &block_gw.wq_t)?
             };
             let k_proj = if let Some(ref wk_i8) = block_gw.wk_i8 {
-                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wk_i8, block_gw.wk_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wk_scales required".into()))?, block_gw.wk_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wk_zero_points required".into()))?)?
             } else if let Some(ref wk_f16) = block_gw.wk_f16 {
                 ctx.matmul(&normed, wk_f16)?
             } else {
                 ctx.matmul(&normed, &block_gw.wk_t)?
             };
             let v_proj = if let Some(ref wv_i8) = block_gw.wv_i8 {
-                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed, wv_i8, block_gw.wv_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wv_scales required".into()))?, block_gw.wv_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wv_zero_points required".into()))?)?
             } else if let Some(ref wv_f16) = block_gw.wv_f16 {
                 ctx.matmul(&normed, wv_f16)?
             } else {
@@ -2015,7 +2015,7 @@ impl CausalLM {
 
             // ── 2e. Batched Wo + residual ──
             let attn_proj = if let Some(ref wo_i8) = block_gw.wo_i8 {
-                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&attn_concat, wo_i8, block_gw.wo_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wo_scales required".into()))?, block_gw.wo_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: wo_zero_points required".into()))?)?
             } else if let Some(ref wo_f16) = block_gw.wo_f16 {
                 ctx.matmul(&attn_concat, wo_f16)?
             } else {
@@ -2027,14 +2027,14 @@ impl CausalLM {
             // ── 2f. Batched FFN ──
             let normed_ffn = block.ffn_norm.forward_gpu(&h)?;
             let ffn_gate = if let Some(ref w1_i8) = block_gw.w1_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed_ffn, w1_i8, block_gw.w1_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w1_scales required".into()))?, block_gw.w1_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w1_zero_points required".into()))?)?
             } else if let Some(ref w1_f16) = block_gw.w1_f16 {
                 ctx.matmul(&normed_ffn, w1_f16)?
             } else {
                 ctx.matmul(&normed_ffn, &block_gw.w1_t)?
             };
             let ffn_hidden = if let Some(ref w3_i8) = block_gw.w3_i8 {
-                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&normed_ffn, w3_i8, block_gw.w3_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w3_scales required".into()))?, block_gw.w3_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w3_zero_points required".into()))?)?
             } else if let Some(ref w3_f16) = block_gw.w3_f16 {
                 ctx.matmul(&normed_ffn, w3_f16)?
             } else {
@@ -2042,7 +2042,7 @@ impl CausalLM {
             };
             let ffn_silu_mul = ctx.mul(&ctx.silu(&ffn_gate)?, &ffn_hidden)?;
             let ffn_out = if let Some(ref w2_i8) = block_gw.w2_i8 {
-                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
+                ctx.matmul_int8_weight(&ffn_silu_mul, w2_i8, block_gw.w2_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w2_scales required".into()))?, block_gw.w2_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: w2_zero_points required".into()))?)?
             } else if let Some(ref w2_f16) = block_gw.w2_f16 {
                 ctx.matmul(&ffn_silu_mul, w2_f16)?
             } else {
@@ -2055,7 +2055,7 @@ impl CausalLM {
         // ── 3. Final norm + batched LM head ──
         h = self.norm.forward_gpu(&h)?;
         let logits = if let Some(ref lm_head_i8) = gw.lm_head_i8 {
-            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
+            ctx.matmul_int8_weight(&h, lm_head_i8, gw.lm_head_scales.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: lm_head_scales required".into()))?, gw.lm_head_zero_points.as_ref().ok_or_else(|| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("int8: lm_head_zero_points required".into()))?)?
         } else if let Some(ref lm_head_f16) = gw.lm_head_f16 {
             ctx.matmul(&h, lm_head_f16)?
         } else {
@@ -2157,7 +2157,7 @@ impl CausalLM {
         top_p: f32,
         seed: u64,
     ) -> (Vec<u32>, Vec<KVCacheEntry>) {
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         match GpuContext::global() {
             Ok(_) => self.generate_gpu_keep_gpu_impl(
@@ -2193,8 +2193,8 @@ impl CausalLM {
     /// Get or create GPU-resident RoPE cos/sin tensors (full precomputed arrays).
     /// Upload sekali sebagai [max_seq_len, half] — slice per posisi GPU-side via copy_buffer.
     #[cfg(feature = "gpu")]
-    fn get_or_init_rope_gpu(&self) -> Result<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuTensor;
+    fn get_or_init_rope_gpu(&self) -> Result<(&nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::GpuTensor;
         let half = self.config.head_dim() / 2;
         let max_seq = self.config.max_seq_len;
 
@@ -2213,10 +2213,10 @@ impl CausalLM {
             }
         }
         let cos_gpu = self.rope_cos_gpu.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE cos cache".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE cos cache".into())
         })?;
         let sin_gpu = self.rope_sin_gpu.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE sin cache".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("Failed to init GPU RoPE sin cache".into())
         })?;
         Ok((cos_gpu, sin_gpu))
     }
@@ -2224,8 +2224,8 @@ impl CausalLM {
     /// Slice a position's cos/sin from the GPU-resident RoPE cache using GPU-side copy.
     /// Tidak ada CPU round-trip — murni GPU copy_buffer_to_buffer.
     #[cfg(feature = "gpu")]
-    fn rope_slice_gpu(&self, pos: usize) -> Result<(nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuTensor), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuContext;
+    fn rope_slice_gpu(&self, pos: usize) -> Result<(nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuTensor), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::GpuContext;
         let ctx = GpuContext::global()?;
         let (cos_gpu, sin_gpu) = self.get_or_init_rope_gpu()?;
         let half = (self.config.head_dim() / 2) as u32;

@@ -3,7 +3,7 @@
 //! Mengkoordinasikan semua komponen SPARO untuk pelatihan end-to-end
 
 use anyhow::Result;
-use nexora_autograd::{Adam, Tensor};
+use nexora_deeplearning::autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;

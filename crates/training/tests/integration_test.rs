@@ -1,5 +1,5 @@
-use nexora_autograd::{Adam, TensorOps};
-use nexora_quantization::QFormat;
+use nexora_deeplearning::autograd::{Adam, TensorOps};
+use nexora_deeplearning::quantization::QFormat;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::trainable::TrainableCausalLM;
 use nexora_transformer::{CausalLM, TransformerConfig};
@@ -181,7 +181,7 @@ fn test_gradient_accumulation_matches_non_accumulated() {
 fn test_adam_converges_on_quadratic() {
     let target = 3.14159f32;
 
-    let x = nexora_autograd::Tensor::from_slice(&[1.0f32], &[1]);
+    let x = nexora_deeplearning::autograd::Tensor::from_slice(&[1.0f32], &[1]);
     x.set_requires_grad(true);
 
     let mut opt = Adam::new(vec![x.clone()], 0.1);
@@ -189,7 +189,7 @@ fn test_adam_converges_on_quadratic() {
     let mut prev_loss = f32::INFINITY;
     for step in 0..100 {
         let pred = x.clone().mul(&x.clone());
-        let t_tensor = nexora_autograd::Tensor::from_slice(&[target * target], &[1]);
+        let t_tensor = nexora_deeplearning::autograd::Tensor::from_slice(&[target * target], &[1]);
         let loss = (pred.sub(&t_tensor)).powf(2.0).mean();
         loss.backward();
 

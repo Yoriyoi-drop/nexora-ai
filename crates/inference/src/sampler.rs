@@ -74,7 +74,7 @@ impl Sampler {
     pub fn new(config: SamplingConfig) -> Self {
         let rng = config.seed.map(rand::rngs::StdRng::seed_from_u64);
         #[cfg(feature = "gpu")]
-        let use_gpu = nexora_autograd::gpu::GpuContext::is_available();
+        let use_gpu = nexora_deeplearning::autograd::gpu::GpuContext::is_available();
         #[cfg(not(feature = "gpu"))]
         let use_gpu = false;
         Self {
@@ -102,7 +102,7 @@ impl Sampler {
             rng: Some(rand::rngs::StdRng::seed_from_u64(seed)),
             config: cfg,
             #[cfg(feature = "gpu")]
-            use_gpu: nexora_autograd::gpu::GpuContext::is_available(),
+            use_gpu: nexora_deeplearning::autograd::gpu::GpuContext::is_available(),
             #[cfg(not(feature = "gpu"))]
             use_gpu: false,
             gpu_fallback_count: AtomicU64::new(0),
@@ -195,7 +195,7 @@ impl Sampler {
 
     #[cfg(feature = "gpu")]
     fn sample_gpu_impl(&mut self, logits: &[f32]) -> Result<usize> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()
             .map_err(|e| InferenceError::DecodingError(format!("GpuContext::global: {}", e)))?;
         let shape = vec![1, logits.len()];
@@ -290,7 +290,7 @@ impl Sampler {
     /// Falls back to per-sequence CPU sampling on GPU error if allow_gpu_fallback is enabled.
     #[cfg(feature = "gpu")]
     pub fn sample_gpu_batched(&mut self, batch_logits: &[&[f32]]) -> Result<Vec<usize>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let batch = batch_logits.len();
         if batch == 0 {
             return Ok(Vec::new());
@@ -405,9 +405,9 @@ impl Sampler {
     #[cfg(feature = "gpu")]
     pub fn sample_gpu_tensor(
         &mut self,
-        logits_gpu: &nexora_autograd::gpu::GpuTensor,
+        logits_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
     ) -> Result<usize> {
-        use nexora_autograd::gpu::{GpuContext, GpuDtype};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuDtype};
         self.total_attempts += 1;
         self.gpu_attempts.fetch_add(1, Ordering::Relaxed);
         let ctx = match GpuContext::global() {
@@ -480,9 +480,9 @@ impl Sampler {
     #[cfg(feature = "gpu")]
     fn sample_gpu_tensor_cpu_fallback(
         &mut self,
-        logits_gpu: &nexora_autograd::gpu::GpuTensor,
+        logits_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
     ) -> Result<usize> {
-        use nexora_autograd::gpu::GpuDtype;
+        use nexora_deeplearning::autograd::gpu::GpuDtype;
         let raw = logits_gpu
             .to_cpu_raw_bytes()
             .map_err(|e| InferenceError::DecodingError(format!("CPU fallback readback: {}", e)))?;
@@ -511,9 +511,9 @@ impl Sampler {
     #[cfg(feature = "gpu")]
     pub fn sample_gpu_tensor_batched(
         &mut self,
-        batch_logits: &[&nexora_autograd::gpu::GpuTensor],
+        batch_logits: &[&nexora_deeplearning::autograd::gpu::GpuTensor],
     ) -> Result<Vec<usize>> {
-        use nexora_autograd::gpu::{GpuContext, GpuDtype};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuDtype};
         let batch = batch_logits.len();
         if batch == 0 {
             return Ok(Vec::new());

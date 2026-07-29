@@ -10,8 +10,7 @@ thiserror.workspace = true
 ndarray.workspace = true
 rand.workspace = true
 tracing.workspace = true
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
-nexora-quantization = { path = "../quantization" }
+nexora-deeplearning = { path = "../deeplearning" }
 
 [dependencies.cudarc]
 version = "0.19"
@@ -19,5 +18,5 @@ optional = true
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu"]
-cuda = ["nexora-autograd/cuda", "cudarc"]
+gpu = ["nexora-deeplearning/gpu"]
+cuda = ["nexora-deeplearning/cuda", "cudarc"]

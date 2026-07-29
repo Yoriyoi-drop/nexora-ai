@@ -187,7 +187,7 @@ impl MTPInference {
     pub fn generate(&self, prompt_ids: &[u32], max_tokens: usize) -> (Vec<u32>, CpuKVCache) {
         let mut cache: Box<dyn KVCacheProvider> = {
             #[cfg(feature = "gpu")]
-            if nexora_autograd::gpu::GpuContext::global().is_ok() {
+            if nexora_deeplearning::autograd::gpu::GpuContext::global().is_ok() {
                 let num_layers = self.model.config.num_layers;
                 let n_kv_heads = self.model.config.num_kv_heads;
                 let head_dim = self.model.config.head_dim();

@@ -78,9 +78,9 @@ pub struct Router {
     router_weights: Option<Vec<Vec<f32>>>,
     last_aux_loss: f32,
     #[cfg(feature = "gpu")]
-    router_weights_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    router_weights_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "cuda")]
-    router_weights_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    router_weights_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Router {
@@ -249,8 +249,8 @@ impl Router {
     /// GPU-accelerated forward: upload input → matmul → softmax → readback
     /// Returns None if GPU unavailable or any GPU operation fails (CPU fallback).
     #[cfg(feature = "gpu")]
-    fn ensure_weights_gpu(&self) -> Option<&nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::GpuContext;
+    fn ensure_weights_gpu(&self) -> Option<&nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::GpuContext;
         let ctx = GpuContext::global().ok()?;
         let entry = self.router_weights_gpu.get_or_init(|| {
             let num_experts = self.config.num_experts;
@@ -258,7 +258,7 @@ impl Router {
             let w = self.router_weights.as_ref()?;
             let flat: Vec<f32> = w.iter().flatten().copied().collect();
             let cpu = ndarray::Array2::from_shape_vec((num_experts, hidden_size), flat).ok()?;
-            let gpu = nexora_autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
+            let gpu = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
             ctx.transpose(&gpu).ok()
         });
         entry.as_ref()
@@ -266,7 +266,7 @@ impl Router {
 
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let weights_t = self.ensure_weights_gpu()?;
         let input_gpu = GpuTensor::from_cpu(&input.clone().into_dyn()).ok()?;
         let ctx = GpuContext::global().ok()?;
@@ -278,8 +278,8 @@ impl Router {
 
     /// GPU forward yang return GpuTensor tanpa readback — untuk chaining ke expert GPU.
     #[cfg(feature = "gpu")]
-    pub fn forward_keep_gpu(&self, input: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    pub fn forward_keep_gpu(&self, input: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let weights_t = self.ensure_weights_gpu()?;
         let input_gpu = GpuTensor::from_cpu(&input.clone().into_dyn()).ok()?;
         let ctx = GpuContext::global().ok()?;
@@ -290,8 +290,8 @@ impl Router {
     /// Lazily upload router weights to CUDA — cached via OnceLock.
     /// Weight matrix is stored as [hidden_size, num_experts] (transposed for cuBLAS matmul).
     #[cfg(feature = "cuda")]
-    fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<&nexora_autograd::gpu::cuda::CudaTensor> {
-        use nexora_autograd::gpu::cuda::CudaTensor;
+    fn ensure_weights_cuda(&self, cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime) -> Option<&nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
+        use nexora_deeplearning::autograd::gpu::cuda::CudaTensor;
         let entry = self.router_weights_cuda.get_or_init(|| {
             let num_experts = self.config.num_experts;
             let hidden_size = self.config.hidden_size;
@@ -306,7 +306,7 @@ impl Router {
     /// Returns None if CUDA unavailable.
     #[cfg(feature = "cuda")]
     fn forward_cuda(&self, input: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -317,7 +317,7 @@ impl Router {
         let n = input.shape()[0];
         let dim = input.shape()[1];
         let input_flat: Vec<f32> = input.iter().copied().collect();
-        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+        let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
             &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
         ).ok()?;
 
@@ -332,7 +332,7 @@ impl Router {
     /// Menghindari readback full [batch, num_experts] matrix.
     #[cfg(feature = "cuda")]
     pub fn forward_cuda_topk(&self, input: &ndarray::Array2<f32>) -> Option<(Vec<Vec<usize>>, Vec<Vec<f32>>)> {
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -343,7 +343,7 @@ impl Router {
         let dim = input.shape()[1];
         let topk = self.config.top_k;
         let input_flat: Vec<f32> = input.iter().copied().collect();
-        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+        let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
             &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
         ).ok()?;
 

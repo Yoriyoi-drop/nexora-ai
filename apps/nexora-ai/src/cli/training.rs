@@ -24,8 +24,8 @@ use nexora_datastream::{
 use nexora_deeplearning::autograd::TensorOps;
 use nexora_foundation::training::{Trainer, TrainerConfig};
 use nexora_foundation::NxrModelId;
-use nexora_tokenizer::BpeTokenizer;
-use nexora_quantization::QFormat;
+use nexora_foundation::tokenizer::BpeTokenizer;
+use nexora_deeplearning::quantization::QFormat;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 
 // ── ANSI terminal color helpers ──

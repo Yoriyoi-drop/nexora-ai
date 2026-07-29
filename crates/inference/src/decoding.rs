@@ -268,7 +268,7 @@ impl DecodingStrategy for TemperatureSampling {
         // GPU-accelerated sampling: softmax + top-k + top-p + sample in one GPU call
         #[cfg(feature = "gpu")]
         {
-            use nexora_autograd::gpu::GpuContext;
+            use nexora_deeplearning::autograd::gpu::GpuContext;
             if GpuContext::is_available() {
                 let token_id = self.gpu_sample_full(&adjusted_logits, config)?;
                 let log_prob = adjusted_logits[token_id].ln();
@@ -334,7 +334,7 @@ impl TemperatureSampling {
     fn gpu_sample_full(&self, adjusted_logits: &[f32], config: &DecodingConfig) -> Result<usize> {
         #[cfg(feature = "gpu")]
         {
-            use nexora_autograd::gpu::{GpuContext, GpuTensor};
+            use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
             if let Ok(ctx) = GpuContext::global() {
                 let shape = vec![1, adjusted_logits.len()];
                 let cpu = match ndarray::ArrayD::from_shape_vec(shape, adjusted_logits.to_vec()) {
@@ -698,12 +698,12 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
 }
 
 use std::sync::OnceLock;
-static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_tokenizer::BpeTokenizer>>> =
+static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_foundation::tokenizer::BpeTokenizer>>> =
     OnceLock::new();
 
 /// Set the global tokenizer for use by `alloc_token_text`.
 /// Called once during engine initialization.
-pub fn set_global_tokenizer(tokenizer: nexora_tokenizer::BpeTokenizer) {
+pub fn set_global_tokenizer(tokenizer: nexora_foundation::tokenizer::BpeTokenizer) {
     let lock = GLOBAL_TOKENIZER.get_or_init(|| parking_lot::RwLock::new(None));
     *lock.write() = Some(tokenizer);
 }

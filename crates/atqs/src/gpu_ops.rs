@@ -1,5 +1,5 @@
 use ndarray::{Array, ArrayD, IxDyn};
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
 use crate::ATQSError;
 

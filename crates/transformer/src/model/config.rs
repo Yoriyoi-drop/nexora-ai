@@ -23,23 +23,23 @@ pub trait LayerInjector: std::fmt::Debug + Send {
     fn after_layer_gpu(
         &mut self,
         layer_idx: usize,
-        h: &mut nexora_autograd::gpu::GpuTensor,
+        h: &mut nexora_deeplearning::autograd::gpu::GpuTensor,
         pos: usize,
-        _ctx: &nexora_autograd::gpu::GpuContext,
-    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+        _ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         let h_cpu = h.to_cpu()?;
         let dims = h_cpu.shape().to_vec();
         let mut h_2d = h_cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
-            nexora_autograd::gpu::GpuError::Unsupported(format!(
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
                 "injector reshape [{}x{}]: {}",
                 dims[0], dims[1], e
             ))
         })?;
         self.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-            nexora_autograd::gpu::GpuError::Unsupported(format!("injector after_layer: {}", e))
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector after_layer: {}", e))
         })?;
         let h_dyn = h_2d.into_dyn();
-        *h = nexora_autograd::gpu::GpuTensor::from_cpu(&h_dyn)?;
+        *h = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&h_dyn)?;
         Ok(())
     }
 }
@@ -65,7 +65,7 @@ pub(crate) fn sample_token_gpu(
     top_p: f32,
     seed: u64,
 ) -> u32 {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let fallback = || sample_token(logits, temperature, top_k);
     let ctx = match GpuContext::global() {
         Ok(c) => c,
@@ -117,13 +117,13 @@ pub(crate) fn sample_token_gpu(
 /// Takes logits that are ALREADY on GPU, returns sampled token as GPU tensor (still on GPU).
 #[cfg(feature = "gpu")]
 pub fn sample_token_gpu_keep_gpu(
-    logits_gpu: &nexora_autograd::gpu::GpuTensor,
+    logits_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
     temperature: f32,
     top_k: usize,
     top_p: f32,
     seed: u64,
-) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-    use nexora_autograd::gpu::GpuContext;
+) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    use nexora_deeplearning::autograd::gpu::GpuContext;
 
     let ctx = GpuContext::global()?;
     ctx.gpu_sample(

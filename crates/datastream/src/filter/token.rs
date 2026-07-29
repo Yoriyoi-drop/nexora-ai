@@ -11,7 +11,7 @@ pub struct TokenFilter {
     pub max_tokens: usize,
     pub max_token_ratio: f64,
     pub block_tokens: Vec<String>,
-    pub tokenizer: Option<Arc<RwLock<nexora_tokenizer::BpeTokenizer>>>,
+    pub tokenizer: Option<Arc<RwLock<nexora_foundation::tokenizer::BpeTokenizer>>>,
 }
 
 impl Default for TokenFilter {
@@ -32,7 +32,7 @@ impl Default for TokenFilter {
 }
 
 impl TokenFilter {
-    pub fn with_tokenizer(t: Arc<RwLock<nexora_tokenizer::BpeTokenizer>>) -> Self {
+    pub fn with_tokenizer(t: Arc<RwLock<nexora_foundation::tokenizer::BpeTokenizer>>) -> Self {
         Self {
             tokenizer: Some(t),
             ..Default::default()

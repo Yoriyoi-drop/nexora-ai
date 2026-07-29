@@ -315,7 +315,7 @@ impl GeneratedToken {
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: quantized weight loading for inference
-pub fn check_quantized(dtype: nexora_quantization::QuantizedDtype) -> usize {
+pub fn check_quantized(dtype: nexora_deeplearning::quantization::QuantizedDtype) -> usize {
     dtype.bits_per_element()
 }
 

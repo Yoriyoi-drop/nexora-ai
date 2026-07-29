@@ -98,18 +98,18 @@ impl RoPE {
     #[cfg(feature = "gpu")]
     pub fn apply_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
         cos_cpu: &Array1<f32>,
         sin_cpu: &Array1<f32>,
-    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         let half_vec = vec![cos_cpu.len()];
         let cos_arr = ndarray::ArrayD::from_shape_vec(half_vec.clone(), cos_cpu.to_vec())
-            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
         let cos_gpu = GpuTensor::from_cpu(&cos_arr)?;
         let sin_arr = ndarray::ArrayD::from_shape_vec(half_vec, sin_cpu.to_vec())
-            .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
         let sin_gpu = GpuTensor::from_cpu(&sin_arr)?;
         ctx.rotary_embedding(x, &cos_gpu, &sin_gpu, self.head_dim as u32)
     }

@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use nexora_model_core::foundation;
+use nexora_foundation::model_core::foundation;
 use nexora_shared::{
     base_model::{
         ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
@@ -39,7 +39,7 @@ pub struct FoundationModel {
     capabilities: AxiomCapabilities,
     components: FoundationComponents,
     config: AxiomConfig,
-    hallucination: Option<nexora_hallucination::HallucinationGuard>,
+    hallucination: Option<nexora_alignment::hallucination::HallucinationGuard>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,8 +148,8 @@ impl FoundationModel {
             capabilities,
             components: FoundationComponents::new(),
             config,
-            hallucination: Some(nexora_hallucination::HallucinationGuard::new(
-                nexora_hallucination::GuardConfig::default(),
+            hallucination: Some(nexora_alignment::hallucination::HallucinationGuard::new(
+                nexora_alignment::hallucination::GuardConfig::default(),
             )),
         }
     }
@@ -288,8 +288,8 @@ impl FoundationModel {
     }
 
     pub fn enable_hallucination_guard(&mut self) {
-        let h = nexora_hallucination::HallucinationGuard::new(
-            nexora_hallucination::GuardConfig::default(),
+        let h = nexora_alignment::hallucination::HallucinationGuard::new(
+            nexora_alignment::hallucination::GuardConfig::default(),
         );
         self.hallucination = Some(h);
     }
@@ -305,7 +305,7 @@ impl FoundationModel {
 
     pub fn with_hallucination_guard(
         mut self,
-        guard: nexora_hallucination::HallucinationGuard,
+        guard: nexora_alignment::hallucination::HallucinationGuard,
     ) -> Self {
         self.hallucination = Some(guard);
         self
@@ -314,7 +314,7 @@ impl FoundationModel {
     async fn run_hallucination_check(
         &self,
         input: &nexora_shared::base_model::NxrInput,
-    ) -> Option<nexora_hallucination::PipelineResult> {
+    ) -> Option<nexora_alignment::hallucination::PipelineResult> {
         if let Some(ref h) = self.hallucination {
             let text = match &input.data {
                 nexora_shared::base_model::InputData::Text(t) => t.clone(),
@@ -436,9 +436,9 @@ impl NxrModel for FoundationModel {
         }
 
         let augmented = augment_axiom_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_foundation::model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::axiom());
+        let foundation = FOUNDATION.get_or_init(|| nexora_foundation::model_core::foundation::FoundationModel::axiom());
         foundation.infer_stream(&augmented, callback).await
     }
 

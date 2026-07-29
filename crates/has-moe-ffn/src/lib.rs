@@ -262,7 +262,7 @@ impl HasMoeFFN {
         input: &ndarray::Array2<f32>,
         routing_weights: &ndarray::Array2<f32>,
     ) -> Option<ndarray::Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global().ok()?;
         let (batch_size, hidden_size) = input.dim();
@@ -337,8 +337,8 @@ impl HasMoeFFN {
         input: &ndarray::Array2<f32>,
         routing_weights: &ndarray::Array2<f32>,
     ) -> Option<ndarray::Array2<f32>> {
-        use nexora_autograd::gpu::cuda::{CudaTensor, CudaSlice};
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_deeplearning::autograd::gpu::cuda::{CudaTensor, CudaSlice};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -462,8 +462,8 @@ impl HasMoeFFN {
     /// Eliminates CPU round-trips by keeping computation on GPU.
     /// Falls back to CPU forward + re-upload when GPU unavailable.
     #[cfg(feature = "gpu")]
-    pub fn forward_gpu(&self, x: &nexora_autograd::gpu::GpuTensor) -> Result<nexora_autograd::gpu::GpuTensor, String> {
-        use nexora_autograd::gpu::GpuTensor;
+    pub fn forward_gpu(&self, x: &nexora_deeplearning::autograd::gpu::GpuTensor) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, String> {
+        use nexora_deeplearning::autograd::gpu::GpuTensor;
 
         let shape = x.shape();
         if shape.len() != 2 {
@@ -497,12 +497,12 @@ impl HasMoeFFN {
     #[cfg(feature = "cuda")]
     fn forward_cuda_fused_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
         batch_size: usize,
         hidden_size: usize,
-    ) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::cuda::{CudaSlice, CudaTensor};
-        use nexora_autograd::gpu::{GpuContext, GpuBackend, GpuTensor};
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::cuda::{CudaSlice, CudaTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -581,11 +581,11 @@ impl HasMoeFFN {
     #[cfg(feature = "gpu")]
     fn forward_wgpu_fused_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
         batch_size: usize,
         hidden_size: usize,
-    ) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global().ok()?;
         let x_cpu: ndarray::Array2<f32> = x.to_cpu().ok()?

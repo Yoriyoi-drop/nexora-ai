@@ -1,4 +1,4 @@
-use nexora_quantization::QFormat;
+use nexora_deeplearning::quantization::QFormat;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Hash, Serialize, Deserialize, PartialEq, Eq)]

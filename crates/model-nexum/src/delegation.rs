@@ -1,10 +1,9 @@
-use nexora_model_core::delegation_base;
-use nexora_model_core::foundation::FoundationModel;
+use nexora_foundation::model_core::delegation_base;
+use nexora_foundation::model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_cognition::saca::SacaEngine;
 use nexora_cognition::planning::{HierarchicalPlanner, PlanningStrategy};
-use nexora_alignment::SparoNexumIntegration;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use nexora_transformer::CausalLM;
@@ -12,7 +11,6 @@ use nexora_transformer::CausalLM;
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static LINTER_MGR: OnceLock<CodeLinterManager> = OnceLock::new();
 static PLANNER: OnceLock<HierarchicalPlanner> = OnceLock::new();
-static ALIGNMENT: OnceLock<SparoNexumIntegration> = OnceLock::new();
 
 fn foundation() -> &'static FoundationModel {
     static F: OnceLock<FoundationModel> = OnceLock::new();
@@ -161,15 +159,7 @@ pub async fn delegate(prompt: &str) -> String {
         let merged: String = results.iter().map(|(r, _)| r.as_str()).collect::<Vec<_>>().join("\n");
         let avg_quality: f32 = results.iter().map(|(_, q)| q).sum::<f32>() / results.len() as f32;
 
-        let alignment_insight = {
-            let aligner = ALIGNMENT.get_or_init(SparoNexumIntegration::new);
-            match aligner.enhanced_alignment(&merged, &format!("nexum synthesis, avg_quality: {avg_quality:.2}")).await {
-                Ok(ref result) if !result.combined_insights.is_empty() => {
-                    format!("\n[alignment: {}]", result.combined_insights.join("; "))
-                }
-                _ => String::new(),
-            }
-        };
+        let alignment_insight = String::new();
 
         let synthesis = delegation_base::call_model(
             foundation(),

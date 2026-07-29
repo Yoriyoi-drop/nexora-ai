@@ -33,18 +33,14 @@ nexora-oracle = { path = "../oracle" }
 nexora-training = { path = "../training" }
 nexora-cognition = { path = "../cognition" }
 nexora-models = { path = "../models" }
-nexora-quantization = { path = "../quantization" }
+nexora-deeplearning = { path = "../deeplearning" }
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
-nexora-deeplearning = { path = "../deeplearning" }
-nexora-tokenizer = { path = "../tokenizer" }
-nexora-hallucination = { path = "../hallucination" }
-nexora-echo-net = { path = "../echo-net", features = ["examples"] }
+# tokenizer + model_core modules are now internal (merged into foundation)
 nexora-monitoring = { path = "../monitoring" }
 nexora-memory = { path = "../memory" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-database = { path = "../database", features = ["postgres", "sqlite"] }
-nexora-isolation = { path = "../isolation" }
 
 # Framework-specific dependencies
 async-trait.workspace = true

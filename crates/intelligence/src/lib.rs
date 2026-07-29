@@ -28,8 +28,8 @@ pub mod unified_api;
 
 // Re-export foundation frameworks - modules verified existing
 pub use nexora_foundation::atqs;
-pub use nexora_foundation::multimodal::caffeine::Caffeine;
-pub use nexora_foundation::reasoning::saca::SACA;
+pub use nexora_foundation::multimodal::Caffeine;
+pub use nexora_cognition::saca::SACA;
 
 // Re-export main components for easier access
 pub use model_registry::*;
@@ -64,8 +64,8 @@ pub fn intel_monitoring() -> nexora_monitoring::MonitoringSystem {
 }
 
 // Nyata: quantized weight loading untuk model registry
-pub fn intel_quantize(weights: &ndarray::Array2<f32>) -> nexora_quantization::QuantizedTensor {
-    nexora_quantization::quantize_linear(weights, nexora_quantization::QuantizedDtype::Int8)
+pub fn intel_quantize(weights: &ndarray::Array2<f32>) -> nexora_deeplearning::quantization::QuantizedTensor {
+    nexora_deeplearning::quantization::quantize_linear(weights, nexora_deeplearning::quantization::QuantizedDtype::Int8)
 }
 
 

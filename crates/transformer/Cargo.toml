@@ -13,8 +13,7 @@ thiserror.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
-nexora-quantization = { path = "../quantization" }
+nexora-deeplearning = { path = "../deeplearning" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 wgpu = { version = "29", optional = true }
 half = { workspace = true, optional = true }
@@ -31,6 +30,6 @@ harness = false
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu", "dep:wgpu", "dep:half"]
-nccl = ["nexora-autograd/cuda", "dep:reqwest"]
+gpu = ["nexora-deeplearning/gpu", "dep:wgpu", "dep:half"]
+nccl = ["nexora-deeplearning/cuda", "dep:reqwest"]
 http = ["dep:reqwest"]

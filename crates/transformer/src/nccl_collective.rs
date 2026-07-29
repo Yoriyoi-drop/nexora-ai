@@ -23,7 +23,7 @@ pub struct NcclCollective {
 #[cfg(feature = "nccl")]
 #[derive(Debug)]
 struct NcclInner {
-    comm: nexora_autograd::gpu::nccl::safe::Comm,
+    comm: nexora_deeplearning::autograd::gpu::nccl::safe::Comm,
 }
 
 impl NcclCollective {
@@ -63,9 +63,9 @@ impl NcclCollective {
         num_shards: usize,
         shard_rank: usize,
     ) -> TransformerResult<NcclInner> {
-        use nexora_autograd::gpu::nccl::safe::{Comm, Id};
+        use nexora_deeplearning::autograd::gpu::nccl::safe::{Comm, Id};
 
-        let rt = nexora_autograd::gpu::cuda::CudaRuntime::init(device_id as usize)
+        let rt = nexora_deeplearning::autograd::gpu::cuda::CudaRuntime::init(device_id as usize)
             .map_err(|e| {
                 crate::TransformerError::Implementation(format!("CUDA init for NCCL: {e}"))
             })?;
@@ -96,7 +96,7 @@ impl NcclCollective {
     pub fn all_reduce(&self, buf: &mut [f32]) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            use nexora_deeplearning::autograd::gpu::nccl::safe::ReduceOp;
             let stream = self.inner.comm.stream();
             let send = stream.clone_htod(buf).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
@@ -172,7 +172,7 @@ impl NcclCollective {
     pub fn reduce_scatter(&self, sendbuf: &[f32], recvbuf: &mut [f32]) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            use nexora_deeplearning::autograd::gpu::nccl::safe::ReduceOp;
             let stream = self.inner.comm.stream();
             let send = stream.clone_htod(sendbuf).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
@@ -208,7 +208,7 @@ impl NcclCollective {
 
     /// Access the inner NCCL communicator for GPU-native operations.
     #[cfg(feature = "nccl")]
-    pub fn comm(&self) -> &nexora_autograd::gpu::nccl::safe::Comm {
+    pub fn comm(&self) -> &nexora_deeplearning::autograd::gpu::nccl::safe::Comm {
         &self.inner.comm
     }
 
@@ -219,12 +219,12 @@ impl NcclCollective {
     /// tensor data on GPU.
     pub fn all_reduce_gpu_inplace(
         &self,
-        ctx: &nexora_autograd::gpu::GpuContext,
-        tensor: &mut nexora_autograd::gpu::GpuTensor,
+        ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
+        tensor: &mut nexora_deeplearning::autograd::gpu::GpuTensor,
     ) -> TransformerResult<()> {
         #[cfg(feature = "nccl")]
         {
-            use nexora_autograd::gpu::nccl::safe::ReduceOp;
+            use nexora_deeplearning::autograd::gpu::nccl::safe::ReduceOp;
             let mut ct = ctx.get_or_cache_cuda(tensor).map_err(|e| {
                 crate::TransformerError::Implementation(format!("GPU NCCL get CUDA tensor: {e}"))
             })?;
@@ -253,9 +253,9 @@ impl NcclCollective {
     /// is left untouched.
     pub fn all_reduce_gpu(
         &self,
-        ctx: &nexora_autograd::gpu::GpuContext,
-        tensor: &nexora_autograd::gpu::GpuTensor,
-    ) -> TransformerResult<nexora_autograd::gpu::GpuTensor> {
+        ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
+        tensor: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> TransformerResult<nexora_deeplearning::autograd::gpu::GpuTensor> {
         #[cfg(feature = "nccl")]
         {
             let mut clone = tensor.clone();
@@ -279,10 +279,10 @@ impl NcclCollective {
 /// hold a device pointer.
 #[cfg(feature = "nccl")]
 pub fn collective_gpu_all_reduce(
-    nccl: &nexora_autograd::gpu::nccl::safe::Comm,
-    buf: &mut nexora_autograd::gpu::CudaSlice<f32>,
+    nccl: &nexora_deeplearning::autograd::gpu::nccl::safe::Comm,
+    buf: &mut nexora_deeplearning::autograd::gpu::CudaSlice<f32>,
 ) -> TransformerResult<()> {
-    use nexora_autograd::gpu::nccl::safe::ReduceOp;
+    use nexora_deeplearning::autograd::gpu::nccl::safe::ReduceOp;
     nccl.all_reduce_in_place(buf, &ReduceOp::Sum)
         .map_err(|e| {
             crate::TransformerError::Implementation(format!("NCCL all_reduce_in_place: {e:?}"))

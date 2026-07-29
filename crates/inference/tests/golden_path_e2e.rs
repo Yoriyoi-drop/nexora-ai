@@ -11,8 +11,8 @@ use std::time::Duration;
 use nexora_inference::engine::{InferenceConfig, InferenceEngine};
 use nexora_inference::sampler::{Sampler, SamplingConfig, SamplingMethod};
 use nexora_inference::{GeneratedToken, InferenceRequest};
-use nexora_tokenizer::{BpeConfig, BpeTokenizer};
-use nexora_quantization::QFormat;
+use nexora_foundation::tokenizer::{BpeConfig, BpeTokenizer};
+use nexora_deeplearning::quantization::QFormat;
 use nexora_transformer::{CausalLM, TransformerConfig};
 use tokio::sync::Mutex;
 

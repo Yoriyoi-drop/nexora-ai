@@ -6,19 +6,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ndarray::ArrayD;
-use nexora_autograd::compute_grad_norm;
-use nexora_autograd::ops::cross_entropy_loss;
-use nexora_autograd::{clear_tape, Adam, Tensor, TensorOps};
+use nexora_deeplearning::autograd::compute_grad_norm;
+use nexora_deeplearning::autograd::ops::cross_entropy_loss;
+use nexora_deeplearning::autograd::{clear_tape, Adam, Tensor, TensorOps};
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu_adam::GpuAdam;
+use nexora_deeplearning::autograd::gpu_adam::GpuAdam;
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu_async::{AsyncReadback, GpuStagingPool};
+use nexora_deeplearning::autograd::gpu_async::{AsyncReadback, GpuStagingPool};
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu_grad_clip::GpuGradClipResult;
+use nexora_deeplearning::autograd::gpu_grad_clip::GpuGradClipResult;
 #[cfg(feature = "gpu")]
-use nexora_autograd::{Device, Storage};
+use nexora_deeplearning::autograd::{Device, Storage};
 use tracing::{info, warn};
 
 use nexora_transformer::{safetensors, CausalLM, TrainableCausalLM, TransformerConfig};
@@ -202,7 +202,7 @@ impl Trainer {
                         match GpuTensor::from_cpu(&p.data()) {
                             Ok(gpu_t) => {
                                 let shape = gpu_t.shape();
-                                p.set_storage(nexora_autograd::Storage::Gpu(gpu_t, shape));
+                                p.set_storage(nexora_deeplearning::autograd::Storage::Gpu(gpu_t, shape));
                                 p.set_device(Device::Gpu(0));
                             }
                             Err(e) => {
@@ -218,7 +218,7 @@ impl Trainer {
                         let owned_gpu_params: Vec<GpuTensor> = params
                             .iter()
                             .filter_map(|p| match p.storage() {
-                                nexora_autograd::Storage::Gpu(g, _) => Some(g),
+                                nexora_deeplearning::autograd::Storage::Gpu(g, _) => Some(g),
                                 _ => {
                                     tracing::warn!(
                                         "Non-GPU tensor in GPU training optimizer setup — skipping"
@@ -245,7 +245,7 @@ impl Trainer {
                         };
                     }
                     if gpu_ok {
-                        nexora_autograd::tensor::set_gpu_auto_create(true);
+                        nexora_deeplearning::autograd::tensor::set_gpu_auto_create(true);
                         let batch_shape = vec![self.config.seq_length];
                         gpu_ok = match GpuTensor::zeros(&batch_shape) {
                             Ok(buf) => {
@@ -283,7 +283,7 @@ impl Trainer {
                         self.trainable = Some(trainable);
                         return;
                     }
-                    nexora_autograd::tensor::set_gpu_auto_create(false);
+                    nexora_deeplearning::autograd::tensor::set_gpu_auto_create(false);
                     self.gpu_optimizer = None;
                     self.gpu_input_buf = None;
                     self.gpu_target_buf = None;
@@ -770,12 +770,12 @@ fn train_batch_gpu(
 
     let input_t = Tensor::from_gpu(
         input_buffer.view_as(vec![seq]),
-        nexora_autograd::tensor::next_tensor_id(),
+        nexora_deeplearning::autograd::tensor::next_tensor_id(),
         false,
     );
     let target_t = Tensor::from_gpu(
         target_buffer.view_as(vec![seq]),
-        nexora_autograd::tensor::next_tensor_id(),
+        nexora_deeplearning::autograd::tensor::next_tensor_id(),
         false,
     );
 
@@ -786,7 +786,7 @@ fn train_batch_gpu(
 
     // ── Queue loss copy to staging INSIDE batch (overlaps copy with backward) ──
     let loss_gpu = match loss.storage() {
-        nexora_autograd::Storage::Gpu(g, _) => g,
+        nexora_deeplearning::autograd::Storage::Gpu(g, _) => g,
         _ => return None,
     };
     let loss_staging = ctx.create_readback_staging(loss_gpu.buffer(), 4, "loss");
@@ -802,7 +802,7 @@ fn train_batch_gpu(
         .parameters()
         .iter()
         .filter_map(|p| match p.storage() {
-            nexora_autograd::Storage::Gpu(g, _) => Some(g),
+            nexora_deeplearning::autograd::Storage::Gpu(g, _) => Some(g),
             _ => {
                 tracing::warn!("Non-GPU tensor in GPU backward train — skipping");
                 None
@@ -828,7 +828,7 @@ fn train_batch_gpu(
             .parameters()
             .iter()
             .filter_map(|p| match p.storage() {
-                nexora_autograd::Storage::Gpu(g, _) => Some(g),
+                nexora_deeplearning::autograd::Storage::Gpu(g, _) => Some(g),
                 _ => {
                     tracing::warn!("Non-GPU tensor in GPU gradient accumulation — skipping");
                     None
@@ -982,12 +982,12 @@ fn evaluate_loss_gpu(
 
             let input_t = Tensor::from_gpu(
                 input_buffer.view_as(vec![seq]),
-                nexora_autograd::tensor::next_tensor_id(),
+                nexora_deeplearning::autograd::tensor::next_tensor_id(),
                 false,
             );
             let target_t = Tensor::from_gpu(
                 target_buffer.view_as(vec![seq]),
-                nexora_autograd::tensor::next_tensor_id(),
+                nexora_deeplearning::autograd::tensor::next_tensor_id(),
                 false,
             );
 
@@ -995,7 +995,7 @@ fn evaluate_loss_gpu(
             let loss = cross_entropy_loss(&logits, &target_t).mean();
 
             match loss.storage() {
-                nexora_autograd::Storage::Gpu(g, _) => {
+                nexora_deeplearning::autograd::Storage::Gpu(g, _) => {
                     let loss_cpu = g.to_cpu().unwrap_or_else(|e| {
                         tracing::warn!("Training eval GPU readback failed: {e}");
                         ndarray::ArrayD::zeros(vec![1])

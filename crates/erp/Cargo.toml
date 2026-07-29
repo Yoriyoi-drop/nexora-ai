@@ -6,8 +6,8 @@ description = "Entropic Resonance Pruning (ERP) - Strengthened Architecture"
 
 [features]
 default = []
-gpu = ["nexora-autograd/gpu"]
-cuda = ["nexora-autograd/cuda"]
+gpu = ["nexora-deeplearning/gpu"]
+cuda = ["nexora-deeplearning/cuda"]
 
 [dependencies]
 ndarray.workspace = true
@@ -18,4 +18,4 @@ thiserror.workspace = true
 tracing.workspace = true
 lru = { workspace = true }
 uuid.workspace = true
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
+nexora-deeplearning = { path = "../deeplearning", default-features = false, features = ["std"] }

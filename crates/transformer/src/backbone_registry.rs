@@ -198,7 +198,7 @@ pub fn is_failover() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexora_quantization::QFormat;
+    use nexora_deeplearning::quantization::QFormat;
 
     /// Tiny config for tests — avoids loading 13B param model in CI
     fn tiny_backbone(name: &str) -> Arc<CausalLM> {

@@ -1,7 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Extension, Json};
 use nexora_agent::agent_manager::ManagerCommand;
-use nexora_isolation::killswitch::{KillTarget, KillTrigger};
-use nexora_isolation::layer1_mode::ModeId;
+use nexora_alignment::isolation::killswitch::{KillTarget, KillTrigger};
+use nexora_alignment::isolation::layer1_mode::ModeId;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;

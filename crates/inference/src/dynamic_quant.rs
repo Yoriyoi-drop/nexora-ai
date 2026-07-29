@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use nexora_star_x::quantization::{
+use nexora_deeplearning::star_x::quantization::{
     QuantizationEngine, QuantMethod, QuantPrecision, MixedPrecisionEngine,
 };
 
@@ -82,7 +82,7 @@ impl DynamicQuantManager {
         &self,
         weights: &ndarray::Array2<f32>,
         activations: Option<&ndarray::Array2<f32>>,
-    ) -> Option<nexora_star_x::quantization::QuantizedTensor> {
+    ) -> Option<nexora_deeplearning::star_x::quantization::QuantizedTensor> {
         let mut engine = self.engine.write().await;
 
         let result = match self.method {
@@ -117,7 +117,7 @@ impl DynamicQuantManager {
     /// Dequantize back to f32.
     pub async fn dequantize(
         &self,
-        tensor: &nexora_star_x::quantization::QuantizedTensor,
+        tensor: &nexora_deeplearning::star_x::quantization::QuantizedTensor,
     ) -> Option<ndarray::Array2<f32>> {
         let mut engine = self.engine.write().await;
         engine.dequantize(tensor).ok()
@@ -142,7 +142,7 @@ impl DynamicQuantManager {
     pub async fn auto_quantize(
         &self,
         layer_weights: &[(&str, &ndarray::Array2<f32>)],
-    ) -> Vec<nexora_star_x::quantization::QuantizedTensor> {
+    ) -> Vec<nexora_deeplearning::star_x::quantization::QuantizedTensor> {
         let mut results = Vec::with_capacity(layer_weights.len());
 
         for (_name, weights) in layer_weights {

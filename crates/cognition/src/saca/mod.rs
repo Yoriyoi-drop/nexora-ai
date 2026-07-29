@@ -42,15 +42,15 @@ pub struct SACA {
     config: SACAConfig,
 
     // 6 core phases
-    cot_engine: Arc<super::cot::CoTEngine>,
-    decompose_engine: Arc<super::decompose::DecomposeEngine>,
-    context_engine: Arc<super::context::ContextEngine>,
-    sampling_engine: Arc<super::sampling::SamplingEngine>,
-    execute_engine: Arc<super::execute::ExecuteEngine>,
-    rerank_engine: Arc<super::rerank::RerankEngine>,
+    cot_engine: Arc<cot::CoTEngine>,
+    decompose_engine: Arc<decompose::DecomposeEngine>,
+    context_engine: Arc<context::ContextEngine>,
+    sampling_engine: Arc<sampling::SamplingEngine>,
+    execute_engine: Arc<execute::ExecuteEngine>,
+    rerank_engine: Arc<rerank::RerankEngine>,
 
     // Feedback loop system
-    feedback_system: Arc<super::feedback::FeedbackSystem>,
+    feedback_system: Arc<feedback::FeedbackSystem>,
 
     // State management
     current_session: Arc<RwLock<Option<SACASession>>>,

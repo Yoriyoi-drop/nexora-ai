@@ -32,13 +32,13 @@ pub use config::NexoraConfig;
 pub use nexora_benchmark;
 pub use core::*;
 pub use server::{NexoraServer, ServerConfig};
-use nexora_isolation::{IsolationOrchestrator, IsolationCheckError};
+use nexora_alignment::isolation::{IsolationOrchestrator, IsolationCheckError};
 use nexora_memory::MemoryManager;
 
 // --- Foundation model integration ---
 use nexora_alignment::sparo::SparoSystem;
 use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::global_registry};
-use nexora_tokenizer::{BpeConfig, BpeTokenizer};
+use nexora_foundation::tokenizer::{BpeConfig, BpeTokenizer};
 
 // --- Model delegation agents ---
 use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis};
@@ -1031,10 +1031,10 @@ impl NexoraAI {
     /// Trigger kill switch for a target agent/mode/cluster
     pub fn trigger_kill_switch(
         &self,
-        target: nexora_isolation::killswitch::KillTarget,
+        target: nexora_alignment::isolation::killswitch::KillTarget,
         reason: &str,
-        trigger: nexora_isolation::killswitch::KillTrigger,
-    ) -> Result<nexora_isolation::killswitch::KillEvent, IsolationCheckError> {
+        trigger: nexora_alignment::isolation::killswitch::KillTrigger,
+    ) -> Result<nexora_alignment::isolation::killswitch::KillEvent, IsolationCheckError> {
         self.isolation.trigger_kill_switch(target, reason, trigger)
     }
 }

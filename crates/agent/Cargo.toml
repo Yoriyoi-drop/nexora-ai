@@ -27,10 +27,10 @@ nexora-core = { path = "../core" }
 nexora-intelligence = { path = "../intelligence" }
 nexora-memory = { path = "../memory" }
 nexora-common = { path = "../infrastructure/common" }
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-deeplearning = { path = "../deeplearning", optional = true }
 
 # Cross-layer dependencies (Phase 5 wiring)
-nexora-isolation = { path = "../isolation" }
+nexora-alignment = { path = "../alignment" }
 nexora-database = { path = "../database" }
 nexora-cognition = { path = "../cognition" }
 nexora-monitoring = { path = "../monitoring" }
@@ -39,7 +39,7 @@ nexora-validation = { path = "../validation" }
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

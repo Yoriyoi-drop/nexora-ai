@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ndarray::Array1;
-use nexora_tokenizer::BpeTokenizer;
+use nexora_foundation::tokenizer::BpeTokenizer;
 use tracing::{debug, warn};
 
 use super::admission::SchedulingPolicy;
@@ -143,7 +143,7 @@ where
             use_gpu: {
                 #[cfg(feature = "gpu")]
                 {
-                    nexora_autograd::gpu::GpuContext::is_available()
+                    nexora_deeplearning::autograd::gpu::GpuContext::is_available()
                 }
                 #[cfg(not(feature = "gpu"))]
                 {
@@ -309,7 +309,7 @@ where
                 Some(t) => t,
                 None => return,
             };
-            let ctx = match nexora_autograd::gpu::GpuContext::global() {
+            let ctx = match nexora_deeplearning::autograd::gpu::GpuContext::global() {
                 Ok(c) => c,
                 _ => return,
             };

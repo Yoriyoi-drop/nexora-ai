@@ -64,8 +64,8 @@ impl CausalLM {
         if let Some(meta) = meta {
             if let Some(qstr) = meta.get("quantization") {
                 match qstr.as_str() {
-                    "F16" => config.quantization = nexora_quantization::QFormat::F16,
-                    "BF16" => config.quantization = nexora_quantization::QFormat::BF16,
+                    "F16" => config.quantization = nexora_deeplearning::quantization::QFormat::F16,
+                    "BF16" => config.quantization = nexora_deeplearning::quantization::QFormat::BF16,
                     other => {
                         tracing::warn!(
                             "from_checkpoint: unknown quantization '{}' in file metadata, using config default",
@@ -147,7 +147,7 @@ impl CausalLM {
         model.keep_on_gpu = {
             #[cfg(feature = "gpu")]
             {
-                nexora_autograd::gpu::GpuContext::is_available()
+                nexora_deeplearning::autograd::gpu::GpuContext::is_available()
             }
             #[cfg(not(feature = "gpu"))]
             {
@@ -166,7 +166,7 @@ impl CausalLM {
         path: &str,
     ) -> crate::TransformerResult<Self> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         let ctx = GpuContext::global()
             .map_err(|e| crate::TransformerError::Implementation(format!("GPU unavailable: {e}")))?;
@@ -175,8 +175,8 @@ impl CausalLM {
         if let Some(meta) = meta {
             if let Some(qstr) = meta.get("quantization") {
                 match qstr.as_str() {
-                    "F16" => config.quantization = nexora_quantization::QFormat::F16,
-                    "BF16" => config.quantization = nexora_quantization::QFormat::BF16,
+                    "F16" => config.quantization = nexora_deeplearning::quantization::QFormat::F16,
+                    "BF16" => config.quantization = nexora_deeplearning::quantization::QFormat::BF16,
                     other => {
                         tracing::warn!(
                             "from_checkpoint_gpu: unknown quantization '{}' in file metadata, using config default",
@@ -415,9 +415,9 @@ impl CausalLM {
     /// of weight matrices. The int8 kernels dequantize on-the-fly in the WGSL
     /// shader, reducing GPU memory bandwidth ~4×.
     #[cfg(feature = "gpu")]
-    pub fn preupload_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+    pub fn preupload_weights_gpu(&self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         if self.gpu_weights.get().is_some() {
             return Ok(());
@@ -706,7 +706,7 @@ impl CausalLM {
                 block_weights,
             })
             .map_err(|_| {
-                nexora_autograd::gpu::GpuError::Unsupported("weights already set".into())
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported("weights already set".into())
             })?;
 
         Ok(())

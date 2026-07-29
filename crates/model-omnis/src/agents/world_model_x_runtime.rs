@@ -1,4 +1,4 @@
-use nexora_model_core::foundation::{call_model, FoundationModel};
+use nexora_foundation::model_core::foundation::{call_model, FoundationModel};
 use nexora_shared::base_model::NxrModelError;
 use nexora_shared::base_model::NxrModelResult;
 use std::collections::HashMap;

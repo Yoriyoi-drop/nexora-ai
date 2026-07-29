@@ -1,6 +1,6 @@
 //! GPU operations bridge for HLDA-VT
 //!
-//! Converts between CPU `nexora_atqs::Tensor` and GPU `nexora_autograd::GpuTensor`,
+//! Converts between CPU `nexora_atqs::Tensor` and GPU `nexora_deeplearning::autograd::GpuTensor`,
 //! runs compute on GPU via `GpuContext`, and reads results back.
 //! When GPU is unavailable (`gpu` feature off), all functions return Err.
 
@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 // ── Feature-gated GPU types ────────────────────────────────────────
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
 /// Cached GPU copy of a weight tensor
 pub struct GpuWeight {
@@ -127,7 +127,7 @@ fn gpu_err() -> HLDVAResult<Tensor> {
 
 // Elementwise
 #[cfg(feature = "gpu")]
-fn gpu_binary_op(a: &Tensor, b: &Tensor, op: fn(&GpuContext, &GpuTensor, &GpuTensor) -> Result<GpuTensor, nexora_autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
+fn gpu_binary_op(a: &Tensor, b: &Tensor, op: fn(&GpuContext, &GpuTensor, &GpuTensor) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
     let c = ctx()?;
     let a_g = tensor_to_gpu(a)?;
     let b_g = tensor_to_gpu(b)?;
@@ -136,7 +136,7 @@ fn gpu_binary_op(a: &Tensor, b: &Tensor, op: fn(&GpuContext, &GpuTensor, &GpuTen
 }
 
 #[cfg(feature = "gpu")]
-fn gpu_unary_op(t: &Tensor, op: fn(&GpuContext, &GpuTensor) -> Result<GpuTensor, nexora_autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
+fn gpu_unary_op(t: &Tensor, op: fn(&GpuContext, &GpuTensor) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
     let c = ctx()?;
     let t_g = tensor_to_gpu(t)?;
     let r = op(c, &t_g).map_err(|e| HLDVAError::Tensor(format!("gpu op: {}", e)))?;

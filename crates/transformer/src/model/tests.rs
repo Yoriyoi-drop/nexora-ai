@@ -1,7 +1,7 @@
     use super::*;
     use ndarray::Array1;
     use crate::TransformerConfig;
-    use nexora_quantization::QFormat;
+    use nexora_deeplearning::quantization::QFormat;
 
     fn small_config() -> TransformerConfig {
         TransformerConfig {
@@ -183,7 +183,7 @@
     fn test_keep_on_gpu_default() {
         let model = small_model();
         #[cfg(feature = "gpu")]
-        assert_eq!(model.keep_on_gpu, nexora_autograd::gpu::GpuContext::is_available());
+        assert_eq!(model.keep_on_gpu, nexora_deeplearning::autograd::gpu::GpuContext::is_available());
         #[cfg(not(feature = "gpu"))]
         assert!(!model.keep_on_gpu);
     }
@@ -236,7 +236,7 @@
     #[test]
     fn test_forward_gpu_int8_matches_cpu() {
         use crate::GpuKVCacheEntry;
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let _ctx = GpuContext::init().expect("GPU context init failed");
 
@@ -276,7 +276,7 @@
     #[test]
     fn test_forward_gpu_f16_matches_cpu() {
         use crate::GpuKVCacheEntry;
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let _ctx = GpuContext::init().expect("GPU context init failed");
 
@@ -316,7 +316,7 @@
     #[test]
     fn test_forward_gpu_f16_kv_cache_matches_cpu() {
         use crate::GpuKVCacheEntry;
-        use nexora_autograd::gpu::GpuContext;
+        use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let _ctx = GpuContext::init().expect("GPU context init failed");
 

@@ -16,14 +16,12 @@ static RUNTIME: Lazy<Runtime> =
 // Import modul yang akan di-benchmark
 use nexora_foundation::atqs::prelude::*;
 use nexora_foundation::has_moe_ffn::*;
-use nexora_foundation::multimodal::caffeine::config::{
-    ActionConfig, EncodersConfig, QFormerConfig, TokenizerConfig,
-};
-use nexora_foundation::multimodal::caffeine::types::{
+use nexora_foundation::multimodal::{ActionConfig, EncodersConfig, QFormerConfig, TokenizerConfig};
+use nexora_foundation::multimodal::{
     ActionOutput, ContextInfo, ImageFormat, ImageInput, ModalityType, MultiModalOutputs,
     PerformanceMetrics, TaskType, TextInput, UnifiedToken,
 };
-use nexora_foundation::multimodal::caffeine::{Caffeine, CaffeineConfig, MultiModalInputs};
+use nexora_foundation::multimodal::{Caffeine, CaffeineConfig, MultiModalInputs};
 
 /// Initialize logger untuk benchmark
 fn init_logger() -> Result<(), tracing_subscriber::util::TryInitError> {

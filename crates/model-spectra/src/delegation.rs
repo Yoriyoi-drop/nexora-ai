@@ -1,5 +1,5 @@
-use nexora_model_core::delegation_base;
-use nexora_model_core::foundation::FoundationModel;
+use nexora_foundation::model_core::delegation_base;
+use nexora_foundation::model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
 use nexora_cognition::multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};

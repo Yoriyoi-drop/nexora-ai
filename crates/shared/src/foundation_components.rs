@@ -23,7 +23,7 @@ pub struct FoundationComponents {
 impl FoundationComponents {
     pub fn new() -> Self {
         Self {
-            tokenizer: Arc::new(PRwLock::new(nexora_tokenizer::BpeTokenizer::default())),
+            tokenizer: Arc::new(PRwLock::new(nexora_foundation::tokenizer::BpeTokenizer::default())),
             erp: PRwLock::new(ERPEngine::new(ERPConfig::default())),
             vogp: PRwLock::new(VOGPPlus::new()),
             atqs: AtqsCompression::new(),

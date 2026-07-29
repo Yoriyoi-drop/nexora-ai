@@ -693,12 +693,12 @@ impl EmotionWeaverAgent {
     }
 
     fn token_ids(text: &str) -> Vec<u32> {
-        use nexora_model_core::foundation::FoundationModel;
+        use nexora_foundation::model_core::foundation::FoundationModel;
         static F: std::sync::OnceLock<FoundationModel> = std::sync::OnceLock::new();
         let f = F.get_or_init(FoundationModel::aether);
         let tokenizer = f.tokenizer.as_ref();
         tokenizer.map_or_else(
-            || nexora_model_core::foundation::byte_encode(text),
+            || nexora_foundation::model_core::foundation::byte_encode(text),
             |tk| tk.read().encode(text),
         )
     }

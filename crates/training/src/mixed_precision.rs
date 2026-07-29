@@ -1,6 +1,6 @@
 use ndarray::ArrayD;
-use nexora_autograd::ops::cross_entropy_loss;
-use nexora_autograd::{Tensor, TensorOps};
+use nexora_deeplearning::autograd::ops::cross_entropy_loss;
+use nexora_deeplearning::autograd::{Tensor, TensorOps};
 
 use crate::Trainer;
 
@@ -193,8 +193,8 @@ impl MixedPrecisionTrainer {
     /// Uses GpuAdam + scale_inplace for loss scaling entirely on GPU.
     #[cfg(feature = "gpu")]
     fn train_step_gpu_amp(&mut self, tokens: &[u32], targets: &[u32]) -> Option<f32> {
-        use nexora_autograd::device::Storage;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::device::Storage;
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         use tracing::warn;
 
         let trainable = self.base.trainable.as_ref()?;
@@ -225,12 +225,12 @@ impl MixedPrecisionTrainer {
 
         let input_t = Tensor::from_gpu(
             gpu_in.view_as(vec![seq]),
-            nexora_autograd::tensor::next_tensor_id(),
+            nexora_deeplearning::autograd::tensor::next_tensor_id(),
             false,
         );
         let target_t = Tensor::from_gpu(
             gpu_tgt.view_as(vec![seq]),
-            nexora_autograd::tensor::next_tensor_id(),
+            nexora_deeplearning::autograd::tensor::next_tensor_id(),
             false,
         );
 
@@ -328,8 +328,8 @@ impl MixedPrecisionTrainer {
 #[cfg(feature = "gpu")]
 fn collect_gpu_params(
     trainable: &nexora_transformer::TrainableCausalLM,
-) -> Vec<nexora_autograd::gpu::GpuTensor> {
-    use nexora_autograd::device::Storage;
+) -> Vec<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    use nexora_deeplearning::autograd::device::Storage;
     trainable
         .parameters()
         .iter()

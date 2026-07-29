@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use ndarray::{Array1, Array2};
-use nexora_quantization::QFormat;
+use nexora_deeplearning::quantization::QFormat;
 use crate::block::TransformerBlock;
 use crate::embedding_registry;
 use crate::lora::LayerLoRA;
@@ -10,56 +10,56 @@ use crate::{LayerInjector, TransformerConfig, TransformerError, TransformerResul
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
 pub(crate) struct GpuWeights {
-    pub token_embedding: nexora_autograd::gpu::GpuTensor,
-    pub lm_head_t: nexora_autograd::gpu::GpuTensor,
-    pub lm_head_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub lm_head_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub lm_head_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub lm_head_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub norm_weight: nexora_autograd::gpu::GpuTensor,
+    pub token_embedding: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub lm_head_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub lm_head_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub lm_head_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub lm_head_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub lm_head_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub norm_weight: nexora_deeplearning::autograd::gpu::GpuTensor,
     pub block_weights: Vec<BlockGpuWeights>,
 }
 
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
 pub(crate) struct BlockGpuWeights {
-    pub attention_norm_weight: nexora_autograd::gpu::GpuTensor,
-    pub ffn_norm_weight: nexora_autograd::gpu::GpuTensor,
-    pub wq_t: nexora_autograd::gpu::GpuTensor,
-    pub wk_t: nexora_autograd::gpu::GpuTensor,
-    pub wv_t: nexora_autograd::gpu::GpuTensor,
-    pub wo_t: nexora_autograd::gpu::GpuTensor,
-    pub w1_t: nexora_autograd::gpu::GpuTensor,
-    pub w2_t: nexora_autograd::gpu::GpuTensor,
-    pub w3_t: nexora_autograd::gpu::GpuTensor,
-    pub wq_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wk_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wv_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wo_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w1_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w2_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w3_i8: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wq_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wk_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wv_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wo_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w1_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w2_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w3_scales: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wq_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wk_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wv_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wo_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w1_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w2_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w3_zero_points: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wq_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wk_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wv_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub wo_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub attention_norm_weight: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub ffn_norm_weight: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub wq_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub wk_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub wv_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub wo_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w1_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w2_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w3_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub wq_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wk_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wv_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wo_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w1_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w2_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w3_i8: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wq_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wk_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wv_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wo_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w1_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w2_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w3_scales: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wq_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wk_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wv_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wo_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w1_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w2_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w3_zero_points: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wq_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wk_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wv_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub wo_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w1_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w2_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w3_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
 }
 
 #[derive(Debug)]
@@ -128,9 +128,9 @@ pub struct CausalLM {
     #[cfg(feature = "gpu")]
     pub(crate) gpu_cache: RwLock<Option<Vec<crate::gqa::GpuKVCacheEntry>>>, // never held across await points
     #[cfg(feature = "gpu")]
-    pub(crate) rope_cos_gpu: OnceLock<nexora_autograd::gpu::GpuTensor>,
+    pub(crate) rope_cos_gpu: OnceLock<nexora_deeplearning::autograd::gpu::GpuTensor>,
     #[cfg(feature = "gpu")]
-    pub(crate) rope_sin_gpu: OnceLock<nexora_autograd::gpu::GpuTensor>,
+    pub(crate) rope_sin_gpu: OnceLock<nexora_deeplearning::autograd::gpu::GpuTensor>,
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -300,7 +300,7 @@ impl CausalLM {
             keep_on_gpu: {
                 #[cfg(feature = "gpu")]
                 {
-                    nexora_autograd::gpu::GpuContext::is_available()
+                    nexora_deeplearning::autograd::gpu::GpuContext::is_available()
                 }
                 #[cfg(not(feature = "gpu"))]
                 {

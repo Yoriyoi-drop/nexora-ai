@@ -30,8 +30,8 @@ nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
 
 # Caffeine (multimodal) dependencies
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-deeplearning = { path = "../deeplearning", optional = true }
 
 [features]
 default = []
-gpu = ["nexora-autograd/gpu", "nexora-oracle/gpu"]
+gpu = ["nexora-deeplearning/gpu", "nexora-oracle/gpu"]

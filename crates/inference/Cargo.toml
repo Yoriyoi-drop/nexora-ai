@@ -28,7 +28,7 @@ nexora-foundation = { path = "../foundation" }
 nexora-transformer = { path = "../transformer" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-blaa = { path = "../blaa" }
-nexora-tokenizer = { path = "../tokenizer" }
+
 nexora-runtime = { path = "../runtime" }
 
 # For streaming
@@ -51,23 +51,21 @@ libc = "0.2"
 zstd = { workspace = true }
 
 # GPU sampling
-nexora-autograd = { path = "../autograd" }
+nexora-deeplearning = { path = "../deeplearning" }
 nexora-memory = { path = "../memory" }
 
 # Cross-layer dependencies (Phase 5 wiring)
-nexora-quantization = { path = "../quantization" }
 nexora-monitoring = { path = "../monitoring" }
-nexora-isolation = { path = "../isolation" }
+nexora-alignment = { path = "../alignment" }
 nexora-validation = { path = "../validation" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-cognition = { path = "../cognition" }
 nexora-database = { path = "../database" }
 nexora-erp = { path = "../erp" }
-nexora-star-x = { path = "../star-x", default-features = false, features = ["std"] }
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]
+gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

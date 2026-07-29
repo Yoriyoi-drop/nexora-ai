@@ -16,11 +16,11 @@ uuid.workspace = true
 async-trait.workspace = true
 rand.workspace = true
 nexora-common = { path = "../infrastructure/common" }
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"], optional = true }
+nexora-deeplearning = { path = "../deeplearning", default-features = false, features = ["std"], optional = true }
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]
 
 [dev-dependencies]
 mockall.workspace = true

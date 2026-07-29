@@ -10,8 +10,7 @@ nexora-vogp = { path = "../vogp" }
 nexora-atqs = { path = "../atqs" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-deeplearning = { path = "../deeplearning" }
-nexora-gnac = { path = "../gnac" }
-nexora-tokenizer = { path = "../tokenizer" }
+
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
@@ -31,12 +30,10 @@ gpu = [
     "nexora-erp/gpu",
     "nexora-vogp/gpu",
     "nexora-atqs/gpu",
-    "nexora-gnac/gpu",
     "nexora-tokenizer/gpu",
     "nexora-deeplearning/gpu",
 ]
 cuda = [
     "nexora-has-moe-ffn/cuda",
     "nexora-erp/cuda",
-    "nexora-gnac/cuda",
 ]

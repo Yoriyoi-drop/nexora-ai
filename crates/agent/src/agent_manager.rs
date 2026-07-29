@@ -21,8 +21,8 @@ use crate::state::AgentState;
 use crate::{
     Agent, AgentConfig, AgentError, AgentMessage, AgentResponse, AgentStats, AgentStatus, Result,
 };
-use nexora_isolation::quarantine::QuarantineManager;
-use nexora_isolation::IsolationOrchestrator;
+use nexora_alignment::isolation::quarantine::QuarantineManager;
+use nexora_alignment::isolation::IsolationOrchestrator;
 
 /// Konfigurasi untuk AgentManager
 #[derive(Debug, Clone)]
@@ -907,10 +907,10 @@ impl AgentManager {
     /// Trigger isolation kill switch for a target agent/mode/cluster
     pub async fn trigger_kill_switch(
         &self,
-        target: nexora_isolation::killswitch::KillTarget,
+        target: nexora_alignment::isolation::killswitch::KillTarget,
         reason: &str,
-        trigger: nexora_isolation::killswitch::KillTrigger,
-    ) -> Result<nexora_isolation::killswitch::KillEvent> {
+        trigger: nexora_alignment::isolation::killswitch::KillTrigger,
+    ) -> Result<nexora_alignment::isolation::killswitch::KillEvent> {
         match &self.isolation {
             Some(isolation) => isolation.trigger_kill_switch(target, reason, trigger)
                 .map_err(|e| AgentError::ProcessingError {

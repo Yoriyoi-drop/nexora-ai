@@ -279,7 +279,7 @@ impl PagedKVCacheProvider {
         if !self.gpu_entries.is_empty() {
             return;
         }
-        let ctx = match nexora_autograd::gpu::GpuContext::global() {
+        let ctx = match nexora_deeplearning::autograd::gpu::GpuContext::global() {
             Ok(c) => c,
             _ => return,
         };
@@ -315,7 +315,7 @@ impl PagedKVCacheProvider {
         if self.gpu_entries.is_empty() || self.total_tokens == 0 {
             return;
         }
-        let ctx = match nexora_autograd::gpu::GpuContext::global() {
+        let ctx = match nexora_deeplearning::autograd::gpu::GpuContext::global() {
             Ok(c) => c,
             _ => return,
         };
@@ -346,8 +346,8 @@ impl PagedKVCacheProvider {
                     ),
                 ) {
                     if let (Ok(k_gpu), Ok(v_gpu)) = (
-                        nexora_autograd::gpu::GpuTensor::from_cpu(&k_arr),
-                        nexora_autograd::gpu::GpuTensor::from_cpu(&v_arr),
+                        nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&k_arr),
+                        nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&v_arr),
                     ) {
                         let _ = self.gpu_entries[layer].append(&ctx, &k_gpu, &v_gpu);
                     }
@@ -477,10 +477,10 @@ impl KVCacheProvider for PagedKVCacheProvider {
         if self.gpu_primary && !self.gpu_entries.is_empty() && layer_idx < self.gpu_entries.len() {
             let shape = vec![1, self.gpu_num_kv_heads, self.gpu_head_dim];
             if let (Ok(k_gpu), Ok(v_gpu)) = (
-                nexora_autograd::gpu::GpuTensor::from_slice(shape.clone(), k),
-                nexora_autograd::gpu::GpuTensor::from_slice(shape, v),
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(shape.clone(), k),
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(shape, v),
             ) {
-                if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
+                if let Ok(ref ctx) = nexora_deeplearning::autograd::gpu::GpuContext::global() {
                     let _ = self.gpu_entries[layer_idx].append(ctx, &k_gpu, &v_gpu);
                 }
             }
@@ -517,7 +517,7 @@ impl KVCacheProvider for PagedKVCacheProvider {
 
     fn clear(&mut self) {
         #[cfg(feature = "gpu")]
-        if let Ok(ref ctx) = nexora_autograd::gpu::GpuContext::global() {
+        if let Ok(ref ctx) = nexora_deeplearning::autograd::gpu::GpuContext::global() {
             for entry in &mut self.gpu_entries {
                 let _ = entry.clear(ctx);
             }

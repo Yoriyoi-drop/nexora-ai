@@ -81,7 +81,7 @@ impl CausalLM {
     pub fn compress_sedc_default(&self) -> TransformerResult<Option<serde_json::Value>> {
         #[cfg(feature = "gpu")]
         {
-            let config = nexora_autograd::gpu_sedc::SedcConfig::default();
+            let config = nexora_deeplearning::autograd::gpu_sedc::SedcConfig::default();
             self.compress_sedc_json(&config)
         }
         #[cfg(not(feature = "gpu"))]
@@ -96,13 +96,13 @@ impl CausalLM {
     #[cfg(feature = "gpu")]
     pub fn compress_sedc_json(
         &self,
-        config: &nexora_autograd::gpu_sedc::SedcConfig,
+        config: &nexora_deeplearning::autograd::gpu_sedc::SedcConfig,
     ) -> TransformerResult<Option<serde_json::Value>> {
-        use nexora_autograd::gpu_sedc::SedcCompressor;
+        use nexora_deeplearning::autograd::gpu_sedc::SedcCompressor;
 
         let (weights, names, fuse_pairs) = self.collect_weights_for_sedc();
 
-        if nexora_autograd::gpu::GpuContext::global().is_err() {
+        if nexora_deeplearning::autograd::gpu::GpuContext::global().is_err() {
             info!("No GPU context available — SEDC compression skipped");
             return Ok(None);
         }

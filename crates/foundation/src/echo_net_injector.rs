@@ -1,5 +1,5 @@
 use ndarray::{Array1, Array2, ArrayD};
-use nexora_echo_net::{AdaptivePhaseSeparationStabilizer, HolographicWave};
+use nexora_deeplearning::echo_net::{AdaptivePhaseSeparationStabilizer, HolographicWave};
 use nexora_transformer::{LayerInjector, TransformerError, TransformerResult};
 
 /// Ring buffer entry: hidden state + phase vector for one token position.

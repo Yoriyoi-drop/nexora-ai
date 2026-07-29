@@ -8,10 +8,7 @@
 
 // Import from foundation modules
 use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
-use nexora_foundation::multimodal::caffeine::{
-    types::{MultiModalInputs, TextInput},
-    Caffeine, CaffeineConfig,
-};
+use nexora_cognition::multimodal::{Caffeine, CaffeineConfig, MultiModalInputs, TextInput};
 use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACASolution};
 
 use parking_lot::Mutex as ParkingMutex;
@@ -470,7 +467,7 @@ impl UnifiedModel {
     pub async fn process_multimodal(
         &self,
         inputs: &MultiModalInputs,
-    ) -> ApiResult<nexora_foundation::multimodal::caffeine::types::MultiModalOutputs> {
+    ) -> ApiResult<nexora_foundation::multimodal::MultiModalOutputs> {
         if let Some(caffeine) = &self.caffeine_model {
             let mut guard = caffeine.lock().await;
             guard

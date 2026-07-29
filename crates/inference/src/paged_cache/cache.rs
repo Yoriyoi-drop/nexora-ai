@@ -10,9 +10,9 @@ use crate::paged_cache::{
     BlockTable, EvictionPolicy, MemoryTier, PagedCacheConfig, PhysicalBlock, SeqAccess,
 };
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::GpuContext;
+use nexora_deeplearning::autograd::gpu::GpuContext;
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu_kv_cache::GpuPageTable;
+use nexora_deeplearning::autograd::gpu_kv_cache::GpuPageTable;
 
 pub struct PagedKVCache {
     pub(crate) config: PagedCacheConfig,
@@ -112,7 +112,7 @@ impl PagedKVCache {
     /// Creates a [`GpuPageTable`] with dimensions matching this cache's config
     /// and stores it for GPU-side paged attention operations.
     #[cfg(feature = "gpu")]
-    pub fn init_gpu_page_table(&mut self) -> Result<(), nexora_autograd::gpu::GpuError> {
+    pub fn init_gpu_page_table(&mut self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         let ctx = GpuContext::global()?;
         let page_table = GpuPageTable::new(
             ctx,

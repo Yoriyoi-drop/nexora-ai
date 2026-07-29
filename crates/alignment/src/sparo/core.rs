@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use ndarray::Array2;
-use nexora_autograd::Tensor;
+use nexora_deeplearning::autograd::Tensor;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

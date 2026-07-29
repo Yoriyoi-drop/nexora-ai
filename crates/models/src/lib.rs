@@ -4,7 +4,7 @@
 //! (omnis, vortex, aether, …) and provides the `wire_model` function
 //! for injecting a CausalLM into all delegation singletons.
 
-pub use nexora_model_core::*;
+pub use nexora_foundation::model_core::*;
 pub use nexora_model_omnis as omnis;
 pub use nexora_model_vortex as vortex;
 pub use nexora_model_aether as aether;

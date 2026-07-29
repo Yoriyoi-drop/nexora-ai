@@ -6,7 +6,7 @@ description = "Intelligence orchestration and model access layer for Nexora AI"
 
 [dependencies]
 nexora-core = { path = "../core" }
-nexora-tokenizer = { path = "../tokenizer" }
+
 nexora-common = { path = "../infrastructure/common" }
 nexora-foundation = { path = "../foundation" }
 tokio = { workspace = true, features = ["sync", "macros", "rt", "rt-multi-thread", "net", "signal"] }
@@ -51,24 +51,21 @@ fastrand = "2.0"
 serde_yaml = { package = "yaml_serde", version = "0.10" }
 
 # GPU acceleration
-nexora-autograd = { path = "../autograd", optional = true }
-
-# Cross-layer dependencies (Phase 5 wiring)
+nexora-deeplearning = { path = "../deeplearning" }
 nexora-cognition = { path = "../cognition" }
 nexora-memory = { path = "../memory" }
 nexora-database = { path = "../database" }
 nexora-monitoring = { path = "../monitoring" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-validation = { path = "../validation" }
-nexora-isolation = { path = "../isolation" }
-nexora-quantization = { path = "../quantization" }
+nexora-alignment = { path = "../alignment" }
 
 # SPARO specific dependencies
 # Note: These are older packages - implement custom logic instead
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]
 
 [lib]
 name = "nexora_model"

@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util::GenericClassifier;
+use nexora_foundation::model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
 use std::sync::OnceLock;
 

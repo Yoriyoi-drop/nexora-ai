@@ -5,30 +5,30 @@ use std::sync::OnceLock;
 use crate::{TransformerError, TransformerResult};
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::GpuTensor;
+use nexora_deeplearning::autograd::gpu::GpuTensor;
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuTemps {
-    pub w1_t: nexora_autograd::gpu::GpuTensor,
-    pub w2_t: nexora_autograd::gpu::GpuTensor,
-    pub w3_t: nexora_autograd::gpu::GpuTensor,
-    pub w13_t: nexora_autograd::gpu::GpuTensor,
+    pub w1_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w2_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w3_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w13_t: nexora_deeplearning::autograd::gpu::GpuTensor,
 }
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub(crate) struct SwigluGpuWeights {
-    pub w1_t: nexora_autograd::gpu::GpuTensor,
-    pub w2_t: nexora_autograd::gpu::GpuTensor,
-    pub w3_t: nexora_autograd::gpu::GpuTensor,
-    pub w1_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w2_f16: Option<nexora_autograd::gpu::GpuTensor>,
-    pub w3_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w1_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w2_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w3_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w1_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w2_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
+    pub w3_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
     /// Combined [hidden_size, 2 * ffn_size] weight = concat(w1, w3) column-wise.
     /// Enables single matmul for both gate and hidden projections.
-    pub w13_t: nexora_autograd::gpu::GpuTensor,
-    pub w13_f16: Option<nexora_autograd::gpu::GpuTensor>,
+    pub w13_t: nexora_deeplearning::autograd::gpu::GpuTensor,
+    pub w13_f16: Option<nexora_deeplearning::autograd::gpu::GpuTensor>,
 }
 
 #[derive(Debug)]
@@ -183,9 +183,9 @@ impl SwiGLU {
         w1_shape: &[usize],
         w2_shape: &[usize],
         w3_shape: &[usize],
-    ) -> Result<(), nexora_autograd::gpu::GpuError> {
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
@@ -240,12 +240,12 @@ impl SwiGLU {
     /// Readback weights from GPU → transpose back to original orientation.
     /// GPU stores w1_t = w1^T for matmul; this returns original w1, w2, w3.
     #[cfg(feature = "gpu")]
-    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuError;
+    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::GpuError;
         let cached = self.gpu_weights.get().ok_or_else(|| {
             GpuError::Unsupported("SwiGLU weights not on GPU".into())
         })?;
-        let read = |t: &GpuTensor| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+        let read = |t: &GpuTensor| -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
             let cpu = t.to_cpu()?;
             let shape = cpu.shape();
             Array2::from_shape_vec(
@@ -366,8 +366,8 @@ pub fn concat_w1_w3_fused(w1: &Array2<f32>, w3: &Array2<f32>) -> TransformerResu
 
 #[cfg(feature = "gpu")]
 impl SwiGLU {
-    fn ensure_weights_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+    fn ensure_weights_gpu(&self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
         if self.gpu_weights.get().is_some() {
             return Ok(());
         }
@@ -430,15 +430,15 @@ impl SwiGLU {
     }
 
     /// Pre-upload weights to GPU from CPU Option fields.
-    pub fn preupload_gpu(&self) -> Result<(), nexora_autograd::gpu::GpuError> {
+    pub fn preupload_gpu(&self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         self.ensure_weights_gpu()
     }
 
     fn swiglu_upconvert_f16(
         cached: &SwigluGpuWeights,
-        ctx: &nexora_autograd::gpu::GpuContext,
-    ) -> Result<SwigluGpuTemps, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuError;
+        ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
+    ) -> Result<SwigluGpuTemps, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::GpuError;
         Ok(SwigluGpuTemps {
             w1_t: ctx.f16_packed_to_f32(cached.w1_f16.as_ref().ok_or_else(|| {
                 GpuError::Unsupported("SwiGLU f16 missing w1".into())
@@ -468,13 +468,13 @@ impl SwiGLU {
     /// Uses 3 well-optimized cuBLAS matmuls (fusion deferred to future work).
     pub fn forward_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor, nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::GpuContext;
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::GpuContext;
         let ctx = GpuContext::global()?;
         self.ensure_weights_gpu()?;
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("SwiGLU weights not initialized".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("SwiGLU weights not initialized".into())
         })?;
 
         let _f16_temps = if self.use_half_precision {

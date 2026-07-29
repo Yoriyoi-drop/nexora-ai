@@ -11,23 +11,44 @@ documentation = "https://docs.nexora.ai/deeplearning"
 readme = "README.md"
 
 [dependencies]
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
-nexora-star-x = { path = "../star-x" }
-nexora-gnac = { path = "../gnac" }
-nexora-echo-net = { path = "../echo-net" }
-
 ndarray = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true }
+half.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+num_cpus = "1.16"
+parking_lot.workspace = true
+rand.workspace = true
+tracing.workspace = true
+once_cell.workspace = true
+uuid.workspace = true
+itertools.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "process"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2" }
+
+# Optional GPU dependencies
+wgpu = { version = "29", optional = true }
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", optional = true }
+num-traits = "0.2"
+libloading = "0.8"
+
+[target.'cfg(all(target_arch = "x86_64", target_os = "linux"))'.dependencies]
+cudarc = { version = "0.19", features = ["dynamic-loading", "cuda-version-from-build-system", "nccl"], optional = true }
 
 [features]
 default = ["std", "gpu"]
 std = []
-gpu = ["nexora-autograd/gpu"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "device-gpu"]
+cuda = ["gpu", "dep:cudarc", "device-cuda"]
+device-gpu = []
+device-cuda = []
 full = ["std", "gpu"]
-
-[lib]
-name = "nexora_deeplearning"
-path = "src/lib.rs"
 
 [package.metadata.docs.rs]
 all-features = true

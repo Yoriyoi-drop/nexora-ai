@@ -6,8 +6,8 @@
 
 use anyhow::Result;
 use ndarray::Array2;
-use nexora_autograd::Adam;
-use nexora_autograd::TensorOps;
+use nexora_deeplearning::autograd::Adam;
+use nexora_deeplearning::autograd::TensorOps;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -143,7 +143,7 @@ pub struct OracleTrainer {
     linter: crate::linters::CodeLinterManager,
     training_state: OracleTrainingState,
     /// Differentiable parameter wrappers for autograd training
-    trainable_params: Vec<nexora_autograd::Tensor>,
+    trainable_params: Vec<nexora_deeplearning::autograd::Tensor>,
     /// Adam optimizer for gradient-based weight updates
     optimizer: Adam,
 }

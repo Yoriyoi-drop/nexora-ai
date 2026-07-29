@@ -1,6 +1,6 @@
 use ndarray::{Array1, Array2};
-use nexora_autograd::ops::{causal_softmax, embedding, rms_norm_2d};
-use nexora_autograd::{self, Tensor, TensorOps};
+use nexora_deeplearning::autograd::ops::{causal_softmax, embedding, rms_norm_2d};
+use nexora_deeplearning::autograd::{self, Tensor, TensorOps};
 
 use super::config::TransformerConfig;
 use super::model::CausalLM;
@@ -818,7 +818,7 @@ impl TrainableCausalLM {
 mod tests {
     use super::*;
     use crate::TransformerConfig;
-    use nexora_quantization::QFormat;
+    use nexora_deeplearning::quantization::QFormat;
 
     fn small_model() -> CausalLM {
         CausalLM::new(TransformerConfig {

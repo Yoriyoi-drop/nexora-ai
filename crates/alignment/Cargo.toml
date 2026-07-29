@@ -5,10 +5,12 @@ edition = "2021"
 description = "Alignment frameworks for Nexora - SPARO (RLAIF, SPIN, DPO, IPO, KTO, RLVF)"
 
 [dependencies]
+nexora-core = { path = "../core" }
 nexora-shared = { path = "../shared" }
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
-nexora-model-core = { path = "../model-core" }
+nexora-deeplearning = { path = "../deeplearning", default-features = false, features = ["std"] }
 nexora-oracle = { path = "../oracle", optional = true }
+
+nexora-datastream = { path = "../datastream" }
 serde.workspace = true
 anyhow.workspace = true
 ndarray.workspace = true
@@ -19,6 +21,15 @@ chrono.workspace = true
 bincode = "1.3"
 async-trait.workspace = true
 
+# Isolation dependencies
+tokio = { workspace = true, features = ["sync", "process", "rt", "rt-multi-thread"] }
+serde_json.workspace = true
+thiserror.workspace = true
+parking_lot.workspace = true
+futures.workspace = true
+regex.workspace = true
+
+# Hallucination dependencies
 [features]
 oracle = ["nexora-oracle"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]

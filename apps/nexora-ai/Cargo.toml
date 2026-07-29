@@ -7,26 +7,22 @@ description = "Nexora AI - Multi-model cognitive architecture"
 [dependencies]
 nexora-core = { path = "../../crates/core" }
 nexora-foundation = { path = "../../crates/foundation" }
-nexora-tokenizer = { path = "../../crates/tokenizer" }
+
 nexora-intelligence = { path = "../../crates/intelligence" }
 nexora-memory = { path = "../../crates/memory" }
 nexora-inference = { path = "../../crates/inference" }
 nexora-blaa = { path = "../../crates/blaa" }
 nexora-infrastructure = { path = "../../crates/infrastructure" }
 nexora-datastream = { path = "../../crates/datastream", features = ["dataset", "toxicity", "prompt-injection"] }
-nexora-deeplearning = { path = "../../crates/deeplearning" }
 nexora-transformer = { path = "../../crates/transformer" }
 nexora-monitoring = { path = "../../crates/monitoring" }
 nexora-agent = { path = "../../crates/agent" }
-nexora-alignment = { path = "../../crates/alignment" }
 nexora-runtime = { path = "../../crates/runtime" }
 nexora-models = { path = "../../crates/models" }
-nexora-quantization = { path = "../../crates/quantization" }
-nexora-isolation = { path = "../../crates/isolation" }
-nexora-hallucination = { path = "../../crates/hallucination" }
+nexora-alignment = { path = "../../crates/alignment" }
 nexora-benchmark = { path = "../../crates/benchmark" }
-nexora-autograd = { path = "../../crates/autograd", default-features = false, features = ["std"] }
 nexora-eventbus = { path = "../../crates/eventbus" }
+nexora-deeplearning = { path = "../../crates/deeplearning" }
 nexora-cost-optimizer = { path = "../../crates/cost-optimizer" }
 
 tokio.workspace = true
@@ -86,7 +82,7 @@ gpu = [
     "nexora-transformer/gpu",
     "nexora-inference/gpu",
 ]
-cuda = ["gpu", "nexora-autograd/cuda"]
+cuda = ["gpu", "nexora-deeplearning/cuda"]
 nccl = ["cuda", "nexora-transformer/nccl"]
 
 [[bin]]

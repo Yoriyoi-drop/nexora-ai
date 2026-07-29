@@ -1,4 +1,4 @@
-use nexora_model_core::classifier_util;
+use nexora_foundation::model_core::classifier_util;
 use nexora_has_moe_ffn::Router;
 use ndarray::Array2;
 use std::sync::OnceLock;

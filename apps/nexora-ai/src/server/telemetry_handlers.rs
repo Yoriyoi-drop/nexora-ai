@@ -80,7 +80,7 @@ pub async fn telemetry_pipeline(
 }
 
 pub async fn telemetry_hallucination() -> Json<Value> {
-    let guard = &*nexora_hallucination::monitoring::GLOBAL_HALLUCINATION_MONITOR;
+    let guard = &*nexora_alignment::hallucination::monitoring::GLOBAL_HALLUCINATION_MONITOR;
     Json(json!({
         "total_checked": guard.total_checked(),
         "total_blocked": guard.total_blocked(),

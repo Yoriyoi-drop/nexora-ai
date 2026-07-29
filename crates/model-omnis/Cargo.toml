@@ -11,7 +11,7 @@ nexora-transformer = { path = "../transformer" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-erp = { path = "../erp" }
 nexora-vogp = { path = "../vogp" }
-nexora-hallucination = { path = "../hallucination" }
+nexora-alignment = { path = "../alignment" }
 nexora-oracle = { path = "../oracle" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -4,7 +4,7 @@
 //! dan semua NXR models. Memungkinkan visual graph-based architecture design,
 //! real-time architecture search, dan adaptive inference routing.
 
-use nexora_gnac::{
+use nexora_deeplearning::gnac::{
     canvas::NeuralGraph,
     distillation::ExportManager,
     elastic::{ElasticRouter, ElasticStrategy},
@@ -335,7 +335,7 @@ impl GnacEngine {
 
         // Pilih precision berdasarkan target hardware
         let precision = self.config.target_hardware.as_ref().map(|hw| {
-            nexora_gnac::elastic::PrecisionScaler::select_precision(match hw {
+            nexora_deeplearning::gnac::elastic::PrecisionScaler::select_precision(match hw {
                 HardwareTarget::EdgeTPU => "edge_tpu",
                 HardwareTarget::Mobile => "mobile",
                 HardwareTarget::CloudGPU => "gpu",

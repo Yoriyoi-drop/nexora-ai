@@ -41,7 +41,7 @@ nexora-infrastructure = { path = "../infrastructure" }
 nexora-common = { path = "../infrastructure/common" }
 nexora-validation = { path = "../validation" }
 nexora-database = { path = "../database" }
-nexora-isolation = { path = "../isolation" }
+nexora-alignment = { path = "../alignment" }
 nexora-monitoring = { path = "../monitoring" }
 rustls-pemfile = { workspace = true, optional = true }
 

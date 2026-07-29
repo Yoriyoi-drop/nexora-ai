@@ -21,7 +21,7 @@ use tracing::{info, warn};
 use ndarray::Array1;
 use rand::seq::SliceRandom;
 use nexora_transformer::{resolve_single_backbone, CausalLM, TransformerConfig, TransformerResult};
-use nexora_quantization::QFormat;
+use nexora_deeplearning::quantization::QFormat;
 
 /// Student model configuration presets for distillation targets.
 #[derive(Debug, Clone)]

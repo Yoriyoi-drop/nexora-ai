@@ -4,7 +4,7 @@
 //! dan menjaga kemampuan generalisasi.
 
 use anyhow::Result;
-use nexora_autograd::{Adam, Tensor};
+use nexora_deeplearning::autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;

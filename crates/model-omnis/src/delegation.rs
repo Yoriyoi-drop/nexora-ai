@@ -1,5 +1,5 @@
-use nexora_model_core::delegation_base;
-use nexora_model_core::foundation::FoundationModel;
+use nexora_foundation::model_core::delegation_base;
+use nexora_foundation::model_core::foundation::FoundationModel;
 use crate::router;
 use ndarray::{Array2, s};
 use std::sync::Arc;

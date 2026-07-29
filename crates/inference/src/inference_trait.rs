@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::gpu_observability as gpu_obs;
+use nexora_deeplearning::autograd::gpu::gpu_observability as gpu_obs;
 
 use crate::{InferenceRequest, InferenceResponse, Result as InferenceResult};
 use nexora_transformer::{CpuKVCache, KVCacheProvider};
@@ -229,7 +229,7 @@ pub struct ObservabilitySnapshot {
 
 /// Collect a snapshot of all observability counters.
 pub fn observability_snapshot() -> ObservabilitySnapshot {
-    let gpu_ok = cfg!(feature = "gpu") && nexora_autograd::gpu::GpuContext::is_available();
+    let gpu_ok = cfg!(feature = "gpu") && nexora_deeplearning::autograd::gpu::GpuContext::is_available();
     let gpu_tokens = GPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let cpu_tokens = CPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let total = gpu_tokens + cpu_tokens;
@@ -545,7 +545,7 @@ impl ModelForward for nexora_transformer::CausalLM {
 
     fn forward_batched(&self, input_ids: &[u32], kv_caches: &mut [CpuKVCache]) -> Vec<Array1<f32>> {
         #[cfg(feature = "gpu")]
-        if nexora_autograd::gpu::GpuContext::is_available() {
+        if nexora_deeplearning::autograd::gpu::GpuContext::is_available() {
             let mut vec_caches: Vec<Vec<nexora_transformer::KVCacheEntry>> = kv_caches
                 .iter_mut()
                 .map(|c| std::mem::take(&mut c.entries))
@@ -555,7 +555,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                     for (i, entries) in vec_caches.into_iter().enumerate() {
                         kv_caches[i].entries = entries;
                     }
-                    nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
+                    nexora_deeplearning::autograd::gpu::gpu_watchdog::watchdog_ping();
                     return result;
                 }
                 Err(e) => {
@@ -616,7 +616,7 @@ impl ModelForward for nexora_transformer::CausalLM {
 
                 match result {
                     Ok(logits) => {
-                        nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
+                        nexora_deeplearning::autograd::gpu::gpu_watchdog::watchdog_ping();
                         return logits;
                     }
                     Err(e) => {
@@ -655,7 +655,7 @@ impl ModelForward for nexora_transformer::CausalLM {
             let raw = token_gpu.to_cpu_raw_bytes().ok()?;
             GPU_RESIDENT_SUCCESSES.fetch_add(1, Ordering::Relaxed);
             GPU_TOKENS_GENERATED.fetch_add(1, Ordering::Relaxed);
-            nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
+            nexora_deeplearning::autograd::gpu::gpu_watchdog::watchdog_ping();
             Some(u32::from_ne_bytes([raw[0], raw[1], raw[2], raw[3]]))
         }
         #[cfg(not(feature = "gpu"))]
@@ -715,7 +715,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                         GPU_RESIDENT_SUCCESSES.fetch_add(n as u64, Ordering::Relaxed);
                         GPU_TOKENS_GENERATED.fetch_add(n as u64, Ordering::Relaxed);
                         #[cfg(feature = "gpu")]
-                        nexora_autograd::gpu::gpu_watchdog::watchdog_ping();
+                        nexora_deeplearning::autograd::gpu::gpu_watchdog::watchdog_ping();
                         return tokens.into_iter().map(Some).collect();
                     }
                     Err(e) => {

@@ -10,7 +10,7 @@ nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
 nexora-oracle = { path = "../oracle" }
 nexora-erp = { path = "../erp" }
-nexora-hallucination = { path = "../hallucination" }
+nexora-alignment = { path = "../alignment" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 ndarray.workspace = true

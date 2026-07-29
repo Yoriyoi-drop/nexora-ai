@@ -199,8 +199,8 @@ impl GQA {
         &self,
         wq_data: &[f32], wk_data: &[f32], wv_data: &[f32], wo_data: &[f32],
         wq_shape: &[usize], wk_shape: &[usize], wv_shape: &[usize], wo_shape: &[usize],
-    ) -> Result<(), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuError, GpuTensor};
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
         let ctx = GpuContext::global()?;
         let mk = |data: &[f32], shape: &[usize]| -> Result<GpuTensor, GpuError> {
             let arr = ndarray::ArrayD::from_shape_vec(shape.to_vec(), data.to_vec())
@@ -250,29 +250,29 @@ impl GQA {
     }
 
     #[cfg(feature = "gpu")]
-    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>), nexora_autograd::gpu::GpuError> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>), nexora_deeplearning::autograd::gpu::GpuError> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         let gw = self.gpu_weights.get().ok_or_else(|| {
-            nexora_autograd::gpu::GpuError::Unsupported("no gpu weights".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("no gpu weights".into())
         })?;
-        let read_f16 = |f16_t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+        let read_f16 = |f16_t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
             let f32_t = ctx.f16_packed_to_f32(f16_t)?;
             let arr_d = f32_t.to_cpu()?;
             let shape = vec![orig_shape[0], orig_shape[1]];
             let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
             arr_dyn.into_dimensionality::<ndarray::Ix2>()
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))
         };
-        let read_f32 = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_autograd::gpu::GpuError> {
+        let read_f32 = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
             let t_t = ctx.transpose(t)?;
             let arr_d = t_t.to_cpu()?;
             let shape = vec![orig_shape[0], orig_shape[1]];
             let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
             arr_dyn.into_dimensionality::<ndarray::Ix2>()
-                .map_err(|e| nexora_autograd::gpu::GpuError::Unsupported(e.to_string()))
+                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))
         };
         // Use stored shapes from GqaGpuWeights (not self.wq which may be None after drop_cpu_weights)
         let wq_shape = &gw.wq_shape;
@@ -286,7 +286,7 @@ impl GQA {
         } else if let Some(ref f32_t) = gw.wq_t {
             read_f32(f32_t, wq_shape)?
         } else {
-            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GQA weights not available on GPU".into()
             ));
         };
@@ -295,7 +295,7 @@ impl GQA {
         } else if let Some(ref f32_t) = gw.wk_t {
             read_f32(f32_t, wk_shape)?
         } else {
-            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GQA weights not available on GPU".into()
             ));
         };
@@ -304,7 +304,7 @@ impl GQA {
         } else if let Some(ref f32_t) = gw.wv_t {
             read_f32(f32_t, wv_shape)?
         } else {
-            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GQA weights not available on GPU".into()
             ));
         };
@@ -313,7 +313,7 @@ impl GQA {
         } else if let Some(ref f32_t) = gw.wo_t {
             read_f32(f32_t, wo_shape)?
         } else {
-            return Err(nexora_autograd::gpu::GpuError::Unsupported(
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
                 "GQA weights not available on GPU".into()
             ));
         };

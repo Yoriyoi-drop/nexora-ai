@@ -24,9 +24,9 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 unicode-segmentation = { workspace = true }
 reqwest = { workspace = true }
-nexora-tokenizer = { path = "../tokenizer" }
+
 nexora-common = { path = "../infrastructure/common" }
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-deeplearning = { path = "../deeplearning", optional = true }
 nexora-validation = { path = "../validation" }
 nexora-utils = { path = "../infrastructure/utils" }
 arrow = { version = "53", default-features = false, features = ["ipc", "ipc_compression"], optional = true }
@@ -53,7 +53,7 @@ parquet = ["dep:parquet"]
 compression-zstd = ["dep:zstd"]
 compression-lz4 = ["dep:lz4_flex"]
 mmap = ["dep:memmap2"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]
 toxicity = []
 prompt-injection = []
 

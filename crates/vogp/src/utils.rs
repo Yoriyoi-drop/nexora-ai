@@ -68,7 +68,7 @@ impl AugmentationUtils {
         rng: &mut ThreadRng,
     ) -> Option<Array2<f32>> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let shape = vec![data.shape()[0], data.shape()[1]];
         let noise_arr = generate_noise_array(shape.clone(), std, rng).ok()?;
@@ -111,7 +111,7 @@ impl AugmentationUtils {
         rng: &mut ThreadRng,
     ) -> Option<Array2<f32>> {
         use ndarray::ArrayD;
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let shape = vec![data.shape()[0], data.shape()[1]];
         let len: usize = shape.iter().product();

@@ -4,7 +4,7 @@
 //! terinspirasi oleh Prospect Theory dari Kahneman & Tversky.
 
 use anyhow::Result;
-use nexora_autograd::{Adam, Tensor};
+use nexora_deeplearning::autograd::{Adam, Tensor};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

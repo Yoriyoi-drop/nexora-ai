@@ -6,14 +6,14 @@
 
 use anyhow::Result;
 use ndarray::{s, Array1, Array2, Array3, ArrayBase, Data};
-use nexora_autograd::{ops, Tensor, TensorOps};
+use nexora_deeplearning::autograd::{ops, Tensor, TensorOps};
 use nexora_has_moe_ffn::{HasMoeFFN, HasMoeFFNConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::rope::ExtendedRope;
 #[cfg(feature = "gpu")]
-use nexora_autograd::gpu::{GpuContext, GpuTensor};
+use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
 /// Konfigurasi ORACLE Backbone
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,8 +130,8 @@ impl MultiHeadLatentAttention {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor> {
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
 
         let latent = self.latent_projection.forward_gpu(x)?;
@@ -342,8 +342,8 @@ impl LatentAttentionHead {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor> {
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
         let shape = x.shape();
         let n = shape[0];
@@ -442,9 +442,9 @@ pub struct LinearLayer {
     pub weight: Array2<f32>,
     pub bias: Array1<f32>,
     #[cfg(feature = "gpu")]
-    weight_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    weight_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    bias_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
 }
 
 impl LinearLayer {
@@ -483,8 +483,8 @@ impl LinearLayer {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor> {
         let ctx = GpuContext::global().map_err(|e| anyhow::anyhow!("GPU: {}", e))?;
 
         let w_gpu = self
@@ -702,7 +702,7 @@ impl EmbeddingLayer {
     pub fn forward_gpu(
         &self,
         input_ids: &Array2<i32>,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor> {
         let (batch_size, seq_len) = input_ids.dim();
         let d_model = self.embeddings.dim().1;
         let n = batch_size * seq_len;
@@ -734,9 +734,9 @@ pub struct LayerNorm {
     pub bias: Array1<f32>,
     pub eps: f32,
     #[cfg(feature = "gpu")]
-    weight_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    weight_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    bias_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
 }
 
 impl LayerNorm {
@@ -781,15 +781,15 @@ impl LayerNorm {
     #[cfg(feature = "gpu")]
     pub fn forward_gpu(
         &self,
-        x: &nexora_autograd::gpu::GpuTensor,
-        ctx: &nexora_autograd::gpu::GpuContext,
+        x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+        ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
         d_model: usize,
-    ) -> Result<nexora_autograd::gpu::GpuTensor> {
+    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor> {
         let w_gpu = self
             .weight_gpu
             .get_or_init(|| {
                 let w_flat: Vec<f32> = self.weight.iter().copied().collect();
-                nexora_autograd::gpu::GpuTensor::from_slice(vec![d_model], &w_flat).ok()
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &w_flat).ok()
             })
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm weight"))?;
@@ -798,7 +798,7 @@ impl LayerNorm {
             .bias_gpu
             .get_or_init(|| {
                 let b_flat: Vec<f32> = self.bias.iter().copied().collect();
-                nexora_autograd::gpu::GpuTensor::from_slice(vec![d_model], &b_flat).ok()
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &b_flat).ok()
             })
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm bias"))?;

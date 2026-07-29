@@ -12,7 +12,7 @@ pub fn try_gpu_mlp_forward(
     hidden_dim: usize,
     output_dim: usize,
 ) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let x_t = GpuTensor::from_slice(vec![batch, input_dim], x).ok()?;
@@ -35,13 +35,13 @@ pub fn try_gpu_mlp_forward(
 /// Caller bisa chain ke GPU ops berikutnya.
 #[cfg(feature = "gpu")]
 pub fn try_gpu_mlp_forward_keep_gpu(
-    x: &nexora_autograd::gpu::GpuTensor,
-    w1: &nexora_autograd::gpu::GpuTensor,
-    b1: &nexora_autograd::gpu::GpuTensor,
-    w2: &nexora_autograd::gpu::GpuTensor,
-    b2: &nexora_autograd::gpu::GpuTensor,
-) -> Option<nexora_autograd::gpu::GpuTensor> {
-    use nexora_autograd::gpu::{GpuContext};
+    x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    w1: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    b1: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    w2: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    b2: &nexora_deeplearning::autograd::gpu::GpuTensor,
+) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext};
     let ctx = GpuContext::global().ok()?;
 
     let h = ctx.matmul(x, w1).ok()?;
@@ -65,8 +65,8 @@ pub fn try_gpu_mlp_forward_async(
     input_dim: usize,
     hidden_dim: usize,
     output_dim: usize,
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let x_t = GpuTensor::from_slice(vec![batch, input_dim], x).ok()?;
@@ -97,7 +97,7 @@ pub fn try_gpu_attention(
     head_dim: usize,
     causal: bool,
 ) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let q_t = GpuTensor::from_slice(vec![batch, num_heads, seq, head_dim], q).ok()?;
@@ -114,12 +114,12 @@ pub fn try_gpu_attention(
 /// GPU attention yang return GpuTensor — tanpa readback.
 #[cfg(feature = "gpu")]
 pub fn try_gpu_attention_keep_gpu(
-    q: &nexora_autograd::gpu::GpuTensor,
-    k: &nexora_autograd::gpu::GpuTensor,
-    v: &nexora_autograd::gpu::GpuTensor,
+    q: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    k: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    v: &nexora_deeplearning::autograd::gpu::GpuTensor,
     causal: bool,
-) -> Option<nexora_autograd::gpu::GpuTensor> {
-    use nexora_autograd::gpu::GpuContext;
+) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    use nexora_deeplearning::autograd::gpu::GpuContext;
     let ctx = GpuContext::global().ok()?;
     let head_dim = q.shape().last().copied().unwrap_or(64);
     let scale = (head_dim as f32).sqrt().recip();
@@ -137,8 +137,8 @@ pub fn try_gpu_attention_async(
     num_heads: usize,
     head_dim: usize,
     causal: bool,
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let q_t = GpuTensor::from_slice(vec![batch, num_heads, seq, head_dim], q).ok()?;
@@ -161,7 +161,7 @@ pub fn try_gpu_matmul(
     in_dim: usize,
     out_dim: usize,
 ) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let x_t = GpuTensor::from_slice(vec![batch * seq, in_dim], x).ok()?;
@@ -175,10 +175,10 @@ pub fn try_gpu_matmul(
 /// GPU matmul yang return GpuTensor — tanpa readback.
 #[cfg(feature = "gpu")]
 pub fn try_gpu_matmul_keep_gpu(
-    x: &nexora_autograd::gpu::GpuTensor,
-    w: &nexora_autograd::gpu::GpuTensor,
-) -> Option<nexora_autograd::gpu::GpuTensor> {
-    use nexora_autograd::gpu::GpuContext;
+    x: &nexora_deeplearning::autograd::gpu::GpuTensor,
+    w: &nexora_deeplearning::autograd::gpu::GpuTensor,
+) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    use nexora_deeplearning::autograd::gpu::GpuContext;
     let ctx = GpuContext::global().ok()?;
     ctx.matmul(x, w).ok()
 }
@@ -192,8 +192,8 @@ pub fn try_gpu_matmul_async(
     seq: usize,
     in_dim: usize,
     out_dim: usize,
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let x_t = GpuTensor::from_slice(vec![batch * seq, in_dim], x).ok()?;
@@ -206,7 +206,7 @@ pub fn try_gpu_matmul_async(
 /// GPU-accelerated softmax along last axis
 #[cfg(feature = "gpu")]
 pub fn try_gpu_softmax(scores: &[f32], rows: usize, cols: usize) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let s_t = GpuTensor::from_slice(vec![rows, cols], scores).ok()?;
@@ -221,8 +221,8 @@ pub fn try_gpu_softmax_async(
     scores: &[f32],
     rows: usize,
     cols: usize,
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let s_t = GpuTensor::from_slice(vec![rows, cols], scores).ok()?;
@@ -233,7 +233,7 @@ pub fn try_gpu_softmax_async(
 /// GPU-accelerated GELU activation
 #[cfg(feature = "gpu")]
 pub fn try_gpu_gelu(x: &[f32]) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let n = x.len();
@@ -247,8 +247,8 @@ pub fn try_gpu_gelu(x: &[f32]) -> Option<Vec<f32>> {
 #[cfg(feature = "gpu")]
 pub fn try_gpu_gelu_async(
     x: &[f32],
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let n = x.len();
@@ -260,7 +260,7 @@ pub fn try_gpu_gelu_async(
 /// GPU-accelerated elementwise add (broadcast)
 #[cfg(feature = "gpu")]
 pub fn try_gpu_add(a: &[f32], b: &[f32], shape_a: &[usize], shape_b: &[usize]) -> Option<Vec<f32>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let a_t = GpuTensor::from_slice(shape_a.to_vec(), a).ok()?;
@@ -277,8 +277,8 @@ pub fn try_gpu_add_async(
     b: &[f32],
     shape_a: &[usize],
     shape_b: &[usize],
-) -> Option<nexora_autograd::gpu_async::AsyncReadback<Vec<f32>>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+) -> Option<nexora_deeplearning::autograd::gpu_async::AsyncReadback<Vec<f32>>> {
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
     let ctx = GpuContext::global().ok()?;
 
     let a_t = GpuTensor::from_slice(shape_a.to_vec(), a).ok()?;

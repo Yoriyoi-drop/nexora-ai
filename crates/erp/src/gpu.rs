@@ -12,7 +12,7 @@ pub fn try_batch_cosine_similarity(
 fn try_gpu_batch_cosine_similarity(
     vectors: &[Array1<f32>],
 ) -> Option<Result<Vec<Vec<f32>>, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = match GpuContext::global() {
         Ok(c) => c,
@@ -68,8 +68,8 @@ fn try_gpu_batch_cosine_similarity(
 }
 
 #[cfg(feature = "gpu")]
-fn compute_row_norms_gpu(ctx: &nexora_autograd::gpu::GpuContext, matrix: &nexora_autograd::gpu::GpuTensor) -> Option<nexora_autograd::gpu::GpuTensor> {
-    use nexora_autograd::gpu::GpuTensor;
+fn compute_row_norms_gpu(ctx: &nexora_deeplearning::autograd::gpu::GpuContext, matrix: &nexora_deeplearning::autograd::gpu::GpuTensor) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    use nexora_deeplearning::autograd::gpu::GpuTensor;
     let sq = ctx.mul(matrix, matrix).ok()?;
     let rows = matrix.shape()[0];
     let dim = matrix.shape()[1];
@@ -108,7 +108,7 @@ pub fn try_softmax(values: &[f32]) -> Option<Result<Vec<f32>, String>> {
 
 #[cfg(feature = "gpu")]
 fn try_gpu_softmax(values: &[f32]) -> Option<Result<Vec<f32>, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
     let n = values.len();
@@ -143,7 +143,7 @@ fn try_gpu_matvec(
     weights: &Array2<f32>,
     input: &Array1<f32>,
 ) -> Option<Result<Array1<f32>, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
     let (rows, cols) = weights.dim();
@@ -175,7 +175,7 @@ pub fn try_sum_squares(values: &Array1<f32>) -> Option<Result<f32, String>> {
 
 #[cfg(feature = "gpu")]
 fn try_gpu_sum_squares(values: &Array1<f32>) -> Option<Result<f32, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
     let n = values.len();
@@ -204,7 +204,7 @@ fn try_gpu_matmul(
     a: &Array2<f32>,
     b: &Array2<f32>,
 ) -> Option<Result<Array2<f32>, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
     let (a_rows, a_cols) = a.dim();
@@ -238,7 +238,7 @@ pub fn try_dot(a: &Array1<f32>, b: &Array1<f32>) -> Option<Result<f32, String>> 
 
 #[cfg(feature = "gpu")]
 fn try_gpu_dot(a: &Array1<f32>, b: &Array1<f32>) -> Option<Result<f32, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     if a.len() != b.len() {
         return Some(Err("Dot product dimension mismatch".into()));
@@ -267,7 +267,7 @@ pub fn try_l2_norm(v: &Array1<f32>) -> Option<Result<f32, String>> {
 
 #[cfg(feature = "gpu")]
 fn try_gpu_l2_norm(v: &Array1<f32>) -> Option<Result<f32, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
     let n = v.len();
@@ -313,7 +313,7 @@ fn try_gpu_elem_binary(
     b: &Array1<f32>,
     op: ElemOp,
 ) -> Option<Result<Array1<f32>, String>> {
-    use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     if a.len() != b.len() {
         return Some(Err("Elementwise dimension mismatch".into()));

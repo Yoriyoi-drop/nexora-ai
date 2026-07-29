@@ -55,7 +55,7 @@ pub struct NexoraConfig {
 
     /// Isolation configuration
     #[serde(default)]
-    pub isolation: nexora_isolation::config::IsolationConfig,
+    pub isolation: nexora_alignment::isolation::config::IsolationConfig,
 
     /// Billing configuration
     #[serde(default)]
@@ -77,7 +77,7 @@ impl Default for NexoraConfig {
             server: ServerConfig::default(),
             api: ApiConfig::default(),
             logging: LoggingConfig::default(),
-            isolation: nexora_isolation::config::IsolationConfig::default(),
+            isolation: nexora_alignment::isolation::config::IsolationConfig::default(),
             billing: BillingConfig::default(),
             system: SystemConfig::default(),
         }

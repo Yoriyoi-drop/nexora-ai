@@ -46,39 +46,39 @@ pub struct Expert {
     /// Model tier this expert belongs to ("shared", "ultra", "apex", etc.).
     pub tier: Option<String>,
     #[cfg(feature = "gpu")]
-    fc1_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc1_bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_bias_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_bias_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_bias_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     /// Q4 packed GPU tensors: (fc1_q4_gpu, fc1_scales_gpu, fc2_q4_gpu, fc2_scales_gpu)
     #[cfg(feature = "gpu")]
-    fc1_q4_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_q4_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc1_q4_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_q4_scales_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_q4_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_q4_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_q4_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_q4_scales_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     /// Q2 packed GPU tensors: (fc1_q2_gpu, fc1_scales_gpu, fc2_q2_gpu, fc2_scales_gpu)
     #[cfg(feature = "gpu")]
-    fc1_q2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_q2_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc1_q2_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc1_q2_scales_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_q2_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_q2_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "gpu")]
-    fc2_q2_scales_gpu: std::sync::OnceLock<Option<nexora_autograd::gpu::GpuTensor>>,
+    fc2_q2_scales_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "cuda")]
-    fc1_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    fc1_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
-    fc1_bias_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    fc1_bias_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
-    fc2_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    fc2_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
-    fc2_bias_cuda: std::sync::OnceLock<Option<nexora_autograd::gpu::cuda::CudaTensor>>,
+    fc2_bias_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Expert {
@@ -261,7 +261,7 @@ impl Expert {
                     flat_t.push(w1[j][k]);
                 }
             }
-            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q4(&flat_t, i, h, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(&flat_t, i, h, group_size);
             self.fc1_q4 = Some((packed, scales));
         }
         if let Some(ref w2) = self.fc2_weights {
@@ -273,7 +273,7 @@ impl Expert {
                     flat_t.push(w2[j][k]);
                 }
             }
-            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q4(&flat_t, h, i, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(&flat_t, h, i, group_size);
             self.fc2_q4 = Some((packed, scales));
         }
         self.fc1_weights = None;
@@ -294,7 +294,7 @@ impl Expert {
                     flat_t.push(w1[j][k]);
                 }
             }
-            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q2(&flat_t, i, h, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(&flat_t, i, h, group_size);
             self.fc1_q2 = Some((packed, scales));
         }
         if let Some(ref w2) = self.fc2_weights {
@@ -304,7 +304,7 @@ impl Expert {
                     flat_t.push(w2[j][k]);
                 }
             }
-            let (packed, scales) = nexora_quantization::gemm::quantize_fp32_to_q2(&flat_t, h, i, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(&flat_t, h, i, group_size);
             self.fc2_q2 = Some((packed, scales));
         }
         self.fc1_weights = None;
@@ -383,7 +383,7 @@ impl Expert {
     /// GPU-accelerated forward pass
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: &[f32]) -> Option<Vec<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
         use tracing::warn;
         let ctx = match GpuContext::global() {
@@ -427,8 +427,8 @@ impl Expert {
     /// Lazily upload and transpose expert weights to GPU — cached via OnceLock.
     /// Returns (fc1_w_t, fc1_bias, fc2_w_t, fc2_bias) as GpuTensors or None.
     #[cfg(feature = "gpu")]
-    fn ensure_weights_gpu(&self) -> Option<(&nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor, &nexora_autograd::gpu::GpuTensor)> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    fn ensure_weights_gpu(&self) -> Option<(&nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor)> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let fc1_w = self.fc1_weights.as_ref()?;
         let fc1_b = self.fc1_bias.as_ref()?;
@@ -467,21 +467,21 @@ impl Expert {
     /// Batched GPU forward that keeps result on GPU (no readback).
     /// Returns the raw GPU tensor for deferred readback / fused scatter-add.
     #[cfg(feature = "gpu")]
-    pub fn forward_batched_gpu_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+    pub fn forward_batched_gpu_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         self.forward_batched_gpu_inner(inputs)
     }
 
     /// Internal batched wgpu forward — all GPU ops, no readback.
     /// Prefers Q2 (most compact) over Q4 over FP32 on GPU.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_inner(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
+    fn forward_batched_gpu_inner(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         if self.fc1_q2.is_some() {
             return self.forward_batched_gpu_q2(inputs);
         }
         if self.fc1_q4.is_some() {
             return self.forward_batched_gpu_q4(inputs);
         }
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let (w1, b1, w2, b2) = self.ensure_weights_gpu()?;
         let ctx = GpuContext::global().ok()?;
         let (batch, dim) = inputs.dim();
@@ -497,8 +497,8 @@ impl Expert {
     /// Batched wgpu forward via INT4 quantized weights.
     /// Uses `matmul_int4_weight` kernel for compute directly from Q4 packed data.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_q4(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    fn forward_batched_gpu_q4(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let (ref packed1, ref scales1) = self.fc1_q4.as_ref()?;
         let (ref packed2, ref scales2) = self.fc2_q4.as_ref()?;
@@ -547,8 +547,8 @@ impl Expert {
     /// Batched wgpu forward via INT2 quantized weights.
     /// Uses `matmul_int2_weight` kernel for compute directly from Q2 packed data.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_q2(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::GpuTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuTensor};
+    fn forward_batched_gpu_q2(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let (ref packed1, ref scales1) = self.fc1_q2.as_ref()?;
         let (ref packed2, ref scales2) = self.fc2_q2.as_ref()?;
@@ -595,8 +595,8 @@ impl Expert {
     /// Lazily upload expert weights to CUDA — cached via OnceLock.
     /// Returns (fc1, fc1_bias, fc2, fc2_bias) as CudaTensors or None.
     #[cfg(feature = "cuda")]
-    pub(crate) fn ensure_weights_cuda(&self, cuda: &nexora_autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor, &nexora_autograd::gpu::cuda::CudaTensor)> {
-        use nexora_autograd::gpu::cuda::CudaTensor;
+    pub(crate) fn ensure_weights_cuda(&self, cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor)> {
+        use nexora_deeplearning::autograd::gpu::cuda::CudaTensor;
         let fc1_w = self.fc1_weights.as_ref()?;
         let fc1_b = self.fc1_bias.as_ref()?;
         let fc2_w = self.fc2_weights.as_ref()?;
@@ -636,7 +636,7 @@ impl Expert {
     /// matmul with all expert weights packed into a 3D tensor [num_experts, inter, hidden].
     #[cfg(feature = "cuda")]
     pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -650,8 +650,8 @@ impl Expert {
     /// Batched CUDA forward yang return CudaTensor tanpa readback.
     /// Untuk chaining ke GPU ops berikutnya.
     #[cfg(feature = "cuda")]
-    pub fn forward_batched_cuda_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_autograd::gpu::cuda::CudaTensor> {
-        use nexora_autograd::gpu::{GpuContext, GpuBackend};
+    pub fn forward_batched_cuda_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
+        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
         use cudarc::cublaslt::safe::{Matmul, MatmulConfig, Activation};
 
         let ctx = GpuContext::global().ok()?;
@@ -670,14 +670,14 @@ impl Expert {
             || inputs.iter().copied().collect(),
             |s| s.to_vec(),
         );
-        let input_gpu = nexora_autograd::gpu::cuda::CudaTensor::from_cpu(
+        let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
             &cuda.stream, vec![n, dim], &input_data, cuda.device_id,
         ).ok()?;
 
         // ── CublasLt fused path ────────────────────────────────
-        let try_fused = |a: &nexora_autograd::gpu::cuda::CudaTensor,
-                         w: &nexora_autograd::gpu::cuda::CudaTensor,
-                         bias: &nexora_autograd::gpu::cuda::CudaTensor,
+        let try_fused = |a: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+                         w: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+                         bias: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
                          act: Option<Activation>,
                          out_shape: Vec<usize>| -> Option<_> {
             let m_dim = w.shape[1] as u64;
@@ -704,7 +704,7 @@ impl Expert {
                     Some(bias.buffer()), act.as_ref(),
                 ).ok()?;
             }
-            Some(nexora_autograd::gpu::cuda::CudaTensor {
+            Some(nexora_deeplearning::autograd::gpu::cuda::CudaTensor {
                 shape: out_shape,
                 buffer: result,
                 device_id: cuda.device_id,
@@ -728,7 +728,7 @@ impl Expert {
     }
 
     /// CPU batched forward via Q4 quantized weights.
-    /// Uses `matmul_int4` from `nexora_quantization::gemm` for compute directly from Q4.
+    /// Uses `matmul_int4` from `nexora_deeplearning::quantization::gemm` for compute directly from Q4.
     fn forward_batched_q4_cpu(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
         let (ref packed1, ref scales1) = self.fc1_q4.as_ref().ok_or_else(|| "fc1_q4 not available".to_string())?;
         let (ref packed2, ref scales2) = self.fc2_q4.as_ref().ok_or_else(|| "fc2_q4 not available".to_string())?;
@@ -742,7 +742,7 @@ impl Expert {
         // fc1: [N × H] → [N × I]
         // A = inputs [N, H]; Q4 B has K=H, N=I
         let mut hidden = vec![0.0; n * i];
-        nexora_quantization::gemm::matmul_int4(
+        nexora_deeplearning::quantization::gemm::matmul_int4(
             input_flat, packed1, scales1,
             &mut hidden,
             n, i, h, gs,
@@ -761,7 +761,7 @@ impl Expert {
 
         // fc2: [N × I] → [N × H]
         let mut output = vec![0.0; n * h];
-        nexora_quantization::gemm::matmul_int4(
+        nexora_deeplearning::quantization::gemm::matmul_int4(
             &activated, packed2, scales2,
             &mut output,
             n, h, i, gs,
@@ -780,7 +780,7 @@ impl Expert {
     }
 
     /// CPU batched forward via Q2 quantized weights.
-    /// Uses `matmul_int2` from `nexora_quantization::gemm` for compute directly from Q2.
+    /// Uses `matmul_int2` from `nexora_deeplearning::quantization::gemm` for compute directly from Q2.
     fn forward_batched_q2_cpu(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
         let (ref packed1, ref scales1) = self.fc1_q2.as_ref().ok_or_else(|| "fc1_q2 not available".to_string())?;
         let (ref packed2, ref scales2) = self.fc2_q2.as_ref().ok_or_else(|| "fc2_q2 not available".to_string())?;
@@ -793,7 +793,7 @@ impl Expert {
 
         // fc1: [N × H] → [N × I]
         let mut hidden = vec![0.0; n * i];
-        nexora_quantization::gemm::matmul_int2(
+        nexora_deeplearning::quantization::gemm::matmul_int2(
             input_flat, packed1, scales1,
             &mut hidden,
             n, i, h, gs,
@@ -810,7 +810,7 @@ impl Expert {
 
         // fc2: [N × I] → [N × H]
         let mut output = vec![0.0; n * h];
-        nexora_quantization::gemm::matmul_int2(
+        nexora_deeplearning::quantization::gemm::matmul_int2(
             &activated, packed2, scales2,
             &mut output,
             n, h, i, gs,

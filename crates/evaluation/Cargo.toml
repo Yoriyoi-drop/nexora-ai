@@ -11,7 +11,7 @@ tracing.workspace = true
 ndarray.workspace = true
 
 nexora-transformer = { path = "../transformer" }
-nexora-autograd = { path = "../autograd", default-features = false, features = ["std"] }
+nexora-deeplearning = { path = "../deeplearning", default-features = false, features = ["std"] }
 
 [features]
-gpu = ["nexora-autograd/gpu", "nexora-transformer/gpu"]
+gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]

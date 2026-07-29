@@ -3,7 +3,7 @@
 //! Core empathy synthesis agent for NXR-ÆTHER
 
 use async_trait::async_trait;
-use nexora_model_core::foundation::{call_model, FoundationModel as CoreFoundation};
+use nexora_foundation::model_core::foundation::{call_model, FoundationModel as CoreFoundation};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentMetrics, AgentResult, AgentStatus},
     base_agent::{BaseAgent, BaseAgentConfig},
@@ -592,12 +592,12 @@ impl EmpathyPrimeAgent {
     }
 
     fn token_ids(text: &str) -> Vec<u32> {
-        use nexora_model_core::foundation::FoundationModel;
+        use nexora_foundation::model_core::foundation::FoundationModel;
         static F: std::sync::OnceLock<FoundationModel> = std::sync::OnceLock::new();
         let f = F.get_or_init(FoundationModel::aether);
         let tokenizer = f.tokenizer.as_ref();
         tokenizer.map_or_else(
-            || nexora_model_core::foundation::byte_encode(text),
+            || nexora_foundation::model_core::foundation::byte_encode(text),
             |tk| tk.read().encode(text),
         )
     }

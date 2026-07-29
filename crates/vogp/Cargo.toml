@@ -6,7 +6,7 @@ description = "Variational Outlier-Guided Pruning (VOGP) - improved VOGP+"
 
 [dependencies]
 nexora-hldva-t = { path = "../hldva-t" }
-nexora-autograd = { path = "../autograd", optional = true }
+nexora-deeplearning = { path = "../deeplearning", optional = true }
 ndarray.workspace = true
 ndarray-rand = "0.15"
 rand.workspace = true
@@ -16,4 +16,4 @@ tracing.workspace = true
 
 [features]
 default = ["gpu"]
-gpu = ["nexora-autograd/gpu"]
+gpu = ["nexora-deeplearning/gpu"]

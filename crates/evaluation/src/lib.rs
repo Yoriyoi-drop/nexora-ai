@@ -3,10 +3,10 @@
 //! Provides `EvalMetrics` and evaluation helpers that work with
 //! any `CausalLM` via `TrainableCausalLM`.
 
-use nexora_autograd::ops::cross_entropy_loss;
-use nexora_autograd::{clear_tape, Tensor, TensorOps};
+use nexora_deeplearning::autograd::ops::cross_entropy_loss;
+use nexora_deeplearning::autograd::{clear_tape, Tensor, TensorOps};
 #[cfg(feature = "gpu")]
-use nexora_autograd::set_gpu_auto_create;
+use nexora_deeplearning::autograd::set_gpu_auto_create;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 use tracing::info;
 
@@ -14,7 +14,7 @@ use tracing::info;
 /// Returns `true` if GPU is active and auto-create was enabled.
 #[cfg(feature = "gpu")]
 pub fn try_init_gpu() -> bool {
-    match nexora_autograd::gpu::GpuContext::init() {
+    match nexora_deeplearning::autograd::gpu::GpuContext::init() {
         Ok(_ctx) => {
             set_gpu_auto_create(true);
             info!("Evaluation GPU acceleration enabled");

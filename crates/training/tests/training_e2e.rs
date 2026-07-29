@@ -1,4 +1,4 @@
-use nexora_quantization::QFormat;
+use nexora_deeplearning::quantization::QFormat;
 use nexora_training::{Trainer, TrainerConfig};
 use nexora_transformer::{CausalLM, TransformerConfig};
 use std::path::PathBuf;

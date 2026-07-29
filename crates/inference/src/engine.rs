@@ -28,7 +28,7 @@ use crate::{
 use nexora_common::retry::RetryConfig;
 use nexora_runtime::cluster::{ClusterConfig, NodeRegistry};
 use nexora_memory::MemoryManager;
-use nexora_tokenizer::BpeTokenizer;
+use nexora_foundation::tokenizer::BpeTokenizer;
 #[cfg(feature = "gpu")]
 use nexora_transformer::GpuKVCache;
 use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, PagedCacheReader, TransformerConfig};
@@ -222,7 +222,7 @@ impl InferenceEngine {
             text_utils: crate::inference_text_utils(),
             reasoning: crate::inference_reasoning(),
             db: crate::inference_db(),
-            quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
+            quant: crate::check_quantized(nexora_deeplearning::quantization::QuantizedDtype::Int8),
             speculative,
             dynamic_quant: if use_dynamic_quant {
                 Some(Arc::new(DynamicQuantManager::new()))
@@ -285,7 +285,7 @@ impl InferenceEngine {
             text_utils: crate::inference_text_utils(),
             reasoning: crate::inference_reasoning(),
             db: crate::inference_db(),
-            quant: crate::check_quantized(nexora_quantization::QuantizedDtype::Int8),
+            quant: crate::check_quantized(nexora_deeplearning::quantization::QuantizedDtype::Int8),
             speculative,
             dynamic_quant: if use_dynamic_quant {
                 Some(Arc::new(DynamicQuantManager::new()))
@@ -443,7 +443,7 @@ impl InferenceEngine {
         self.text_utils = crate::inference_text_utils();
         self.reasoning = crate::inference_reasoning();
         self.db = crate::inference_db();
-        self.quant = crate::check_quantized(nexora_quantization::QuantizedDtype::Int8);
+        self.quant = crate::check_quantized(nexora_deeplearning::quantization::QuantizedDtype::Int8);
         if self.erp.is_none() {
             self.erp = Some(crate::inference_erp());
         }

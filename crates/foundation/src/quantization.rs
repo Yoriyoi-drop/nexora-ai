@@ -2,4 +2,4 @@
 //!
 //! Re-exported from `nexora-quantization` crate.
 
-pub use nexora_quantization::*;
+pub use nexora_deeplearning::quantization::*;

@@ -1,6 +1,6 @@
 [build]
-# Sccache: cache kompilasi lintas sesi (butuh `cargo install sccache`)
-# rustc-wrapper = "sccache"
+# Sccache: cache kompilasi lintas sesi
+rustc-wrapper = "sccache"
 # Target dir di ramdisk/tmp untuk SSD lifespan
 # target-dir = "/tmp/nexora-target"
 incremental = true
