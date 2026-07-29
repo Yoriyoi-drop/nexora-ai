@@ -21,7 +21,7 @@ log = "0.4"
 parking_lot.workspace = true
 rand.workspace = true
 async-trait = { workspace = true }
-rand_distr = "0.4"
+rand_distr = "0.6"
 ndarray-rand = "0.15"
 uuid.workspace = true
 regex = { workspace = true }
