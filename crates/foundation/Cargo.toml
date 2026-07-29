@@ -31,8 +31,7 @@ nexora-validation = { path = "../validation" }
 nexora-alignment = { path = "../alignment" }
 nexora-oracle = { path = "../oracle" }
 nexora-training = { path = "../training" }
-nexora-multimodal = { path = "../multimodal" }
-nexora-reasoning = { path = "../reasoning" }
+nexora-cognition = { path = "../cognition" }
 nexora-models = { path = "../models" }
 nexora-quantization = { path = "../quantization" }
 nexora-core = { path = "../core" }

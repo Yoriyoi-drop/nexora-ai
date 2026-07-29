@@ -14,7 +14,7 @@ use nexora_memory::hybrid_cache::HybridCacheManager;
 use nexora_monitoring::observability::{
     ObservabilityCollector, ObservabilityMetrics, MetricsReporter,
 };
-use nexora_scheduler_v2::DagScheduler;
+use nexora_runtime::scheduler_v2::DagScheduler;
 use nexora_agent::scaling::AgentAutoscaler;
 use nexora_runtime::gpu_runtime::scheduler::GpuScheduler;
 

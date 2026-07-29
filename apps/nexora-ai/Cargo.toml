@@ -28,7 +28,6 @@ nexora-benchmark = { path = "../../crates/benchmark" }
 nexora-autograd = { path = "../../crates/autograd", default-features = false, features = ["std"] }
 nexora-eventbus = { path = "../../crates/eventbus" }
 nexora-cost-optimizer = { path = "../../crates/cost-optimizer" }
-nexora-scheduler-v2 = { path = "../../crates/scheduler-v2" }
 
 tokio.workspace = true
 serde.workspace = true

@@ -943,7 +943,7 @@ fn test() {
 
         let code = r#"
 fn test() {
-    // This is a very long line that exceeds the 100 character limit and should trigger a warning
+    // This is a very long line that exceeds the 100 character limit and should trigger a warning message here
     println!("Hello");
     // UNFINISHED: implement this function
     // FIX_ME: critical issue

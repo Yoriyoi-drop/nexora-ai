@@ -9,7 +9,6 @@ nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
 nexora-oracle = { path = "../oracle" }
-nexora-reasoning = { path = "../reasoning" }
 nexora-alignment = { path = "../alignment" }
 nexora-cognition = { path = "../cognition" }
 nexora-hallucination = { path = "../hallucination" }
@@ -26,6 +25,6 @@ futures.workspace = true
 
 [features]
 default = []
-gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-reasoning/gpu", "nexora-oracle/gpu"]
+gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-cognition/gpu", "nexora-oracle/gpu"]
 cuda = ["nexora-model-core/cuda", "nexora-shared/cuda"]
 

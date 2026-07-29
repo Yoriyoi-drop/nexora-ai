@@ -1,7 +1,7 @@
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
-use nexora_reasoning::SacaEngine;
+use nexora_cognition::saca::SacaEngine;
 use nexora_cognition::reflection::{DefaultReflector, ReflectionEngine, Action, ReflectionType};
 use std::sync::Arc;
 use std::sync::OnceLock;

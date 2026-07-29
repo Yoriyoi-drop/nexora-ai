@@ -1,9 +1,8 @@
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
-use nexora_multimodal::caffeine::{CaffeineConfig, CaffeineProcessor};
-use nexora_multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
-use nexora_multimodal::MultimodalResult;
+use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
+use nexora_cognition::multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::OnceLock;

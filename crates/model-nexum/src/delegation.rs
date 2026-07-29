@@ -2,7 +2,7 @@ use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
-use nexora_reasoning::SacaEngine;
+use nexora_cognition::saca::SacaEngine;
 use nexora_cognition::planning::{HierarchicalPlanner, PlanningStrategy};
 use nexora_alignment::SparoNexumIntegration;
 use std::sync::Arc;

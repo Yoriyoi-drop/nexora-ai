@@ -27,8 +27,7 @@ members = [
     "crates/hldva-t",
     "crates/shared",
     "crates/validation",
-    "crates/multimodal",
-    "crates/reasoning",
+
     "crates/oracle",
     "crates/training",
     "crates/alignment",
@@ -55,7 +54,6 @@ members = [
     "crates/model-swift",
     "crates/eventbus",
     "crates/cost-optimizer",
-    "crates/scheduler-v2",
     "apps/nexora-ai",
     "apps/dashboard",
     "crates/benchmark",

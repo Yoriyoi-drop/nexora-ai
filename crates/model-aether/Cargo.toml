@@ -8,7 +8,7 @@ description = "NXR-AETHER Model"
 nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
-nexora-multimodal = { path = "../multimodal" }
+nexora-cognition = { path = "../cognition" }
 nexora-erp = { path = "../erp" }
 nexora-hallucination = { path = "../hallucination" }
 serde = { workspace = true, features = ["derive"] }
@@ -24,6 +24,6 @@ futures.workspace = true
 
 [features]
 default = []
-gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-multimodal/gpu"]
+gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-cognition/gpu"]
 cuda = ["nexora-model-core/cuda", "nexora-shared/cuda"]
 

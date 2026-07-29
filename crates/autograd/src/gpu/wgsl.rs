@@ -72,7 +72,7 @@ pub(crate) const MATMUL_TILED_VEC4_WGSL: &str = r#"
 const TILE_SIZE: u32 = {{TILE_SIZE}};
 const VEC4: u32 = 4u;
 
-struct Vec4Array { data: array<vec4<f32>>; }
+struct Vec4Array { data: array<vec4<f32>>, }
 
 @group(0) @binding(0) var<storage, read> a_vec4: Vec4Array;
 @group(0) @binding(1) var<storage, read> b_vec4: Vec4Array;

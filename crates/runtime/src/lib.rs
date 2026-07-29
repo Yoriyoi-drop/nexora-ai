@@ -85,6 +85,9 @@ pub mod scheduler_trait;
 pub mod streaming;
 pub mod gpu_runtime;
 
+// Scheduler-v2 module (merged from nexora-scheduler-v2 crate)
+pub mod scheduler_v2;
+
 // Distributed scheduler modules — Phase 5c+
 pub mod cluster;
 pub mod gossip;

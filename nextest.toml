@@ -35,11 +35,6 @@ test-threads = 2
 slow-timeout = { period = "1800s", terminate-after = 1 }
 
 [[profile.default.overrides]]
-filter = 'package:nexora-api'
-test-threads = 2
-slow-timeout = { period = "30s", terminate-after = 1 }
-
-[[profile.default.overrides]]
 filter = 'package:nexora-common'
 test-threads = 3
 slow-timeout = { period = "30s", terminate-after = 1 }

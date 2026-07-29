@@ -12,6 +12,12 @@ pub mod planning;
 pub mod reasoning;
 pub mod reflection;
 
+// SACA reasoning framework (merged from nexora-reasoning crate)
+pub mod saca;
+
+// Caffeine multimodal framework (merged from nexora-multimodal crate)
+pub mod multimodal;
+
 use std::fmt;
 
 #[derive(Debug, Clone)]

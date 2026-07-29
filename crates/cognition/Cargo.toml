@@ -5,7 +5,7 @@ edition = "2021"
 description = "Cognition layer - planning, reflection, context, reasoning for Nexora AI"
 
 [dependencies]
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "time", "process", "rt", "rt-multi-thread", "macros", "net", "signal", "io-util", "fs"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -14,3 +14,24 @@ async-trait.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
+futures.workspace = true
+rand.workspace = true
+rayon.workspace = true
+ndarray.workspace = true
+regex.workspace = true
+sha2 = { workspace = true }
+
+# SACA (reasoning) dependencies
+nexora-shared = { path = "../shared" }
+nexora-atqs = { path = "../atqs" }
+nexora-has-moe-ffn = { path = "../has-moe-ffn" }
+nexora-oracle = { path = "../oracle" }
+nexora-core = { path = "../core" }
+nexora-common = { path = "../infrastructure/common" }
+
+# Caffeine (multimodal) dependencies
+nexora-autograd = { path = "../autograd", optional = true }
+
+[features]
+default = []
+gpu = ["nexora-autograd/gpu", "nexora-oracle/gpu"]

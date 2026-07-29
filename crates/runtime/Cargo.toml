@@ -26,6 +26,11 @@ parking_lot.workspace = true
 crossbeam.workspace = true
 fastrand = "2.0"
 
+# Scheduler-v2 dependencies (merged)
+nexora-eventbus = { path = "../eventbus" }
+futures = { workspace = true }
+priority-queue = "2"
+
 # Cross-layer dependencies (Phase 5 wiring)
 nexora-monitoring = { path = "../monitoring" }
 nexora-utils = { path = "../infrastructure/utils" }

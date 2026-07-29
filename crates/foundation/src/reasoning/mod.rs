@@ -3,15 +3,14 @@
 //! Re-exports from `nexora-reasoning` crate, plus SacaAetherIntegration
 //! that depends on NXR-ÆTHER (model series still in foundation).
 
-pub use nexora_reasoning::saca::*;
-pub use nexora_reasoning::*;
+pub use nexora_cognition::saca::*;
 
 use nexora_models::foundation::FoundationModel;
 use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced SACA with NXR-ÆTHER integration
 pub struct SacaAetherIntegration {
-    pub saca_engine: nexora_reasoning::saca::SacaEngine,
+    pub saca_engine: nexora_cognition::saca::SacaEngine,
     pub aether_model: FoundationModel,
     pub integration_config: SacaAetherConfig,
 }
@@ -36,7 +35,7 @@ impl Default for SacaAetherConfig {
 impl SacaAetherIntegration {
     pub fn new() -> Self {
         Self {
-            saca_engine: nexora_reasoning::saca::SacaEngine::new(),
+            saca_engine: nexora_cognition::saca::SacaEngine::new(),
             aether_model: FoundationModel::aether(),
             integration_config: SacaAetherConfig::default(),
         }

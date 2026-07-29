@@ -3,16 +3,16 @@
 // Re-exports from `nexora-multimodal` crate, plus CaffeineSpectraIntegration
 // that depends on NXR-SPECTRA (model series still in foundation).
 
-pub use nexora_multimodal::*;
+pub use nexora_cognition::multimodal::*;
 
 use nexora_models::foundation::FoundationModel;
-use nexora_multimodal::caffeine::MultiModalInputs as CaffeineInputs;
-use nexora_multimodal::caffeine::TextInput;
+use nexora_cognition::multimodal::MultiModalInputs as CaffeineInputs;
+use nexora_cognition::multimodal::TextInput;
 use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration
 pub struct CaffeineSpectraIntegration {
-    pub caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor,
+    pub caffeine_processor: nexora_cognition::multimodal::CaffeineProcessor,
     pub spectra_model: FoundationModel,
     pub integration_config: CaffeineSpectraConfig,
 }
@@ -43,7 +43,7 @@ pub struct MultimodalInputs {
 
 #[derive(Debug, Clone)]
 pub struct EnhancedMultimodalResult {
-    pub caffeine_processing: Option<nexora_multimodal::caffeine::MultimodalResult>,
+    pub caffeine_processing: Option<nexora_cognition::multimodal::MultimodalResult>,
     pub spectra_synthesis: Option<NxrOutput>,
     pub combined_insights: Vec<String>,
     pub creative_outputs: Vec<String>,
@@ -85,7 +85,7 @@ impl EnhancedMultimodalResult {
 impl CaffeineSpectraIntegration {
     pub fn new() -> Self {
         Self {
-            caffeine_processor: nexora_multimodal::caffeine::CaffeineProcessor::new(),
+            caffeine_processor: nexora_cognition::multimodal::CaffeineProcessor::new(),
             spectra_model: FoundationModel::spectra(),
             integration_config: CaffeineSpectraConfig::default(),
         }
