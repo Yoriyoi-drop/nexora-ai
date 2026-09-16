@@ -8,6 +8,6 @@ pub mod registry;
 mod tests;
 
 pub use builder::CausalLM;
-pub use config::{softmax, LayerInjector};
 pub use config::{sample_token, sample_token_gpu_keep_gpu};
+pub use config::{softmax, LayerInjector};
 pub use registry::GPU_FALLBACK_COUNT;

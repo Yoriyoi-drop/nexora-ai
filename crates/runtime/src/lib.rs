@@ -76,35 +76,35 @@ pub struct GeneratedToken {
 
 pub mod batching;
 pub mod executor;
+pub mod gpu_runtime;
 pub mod kv_cache;
 pub mod monitoring;
 pub mod resource;
 pub mod scheduler;
-pub mod vram_budget;
 pub mod scheduler_trait;
 pub mod streaming;
-pub mod gpu_runtime;
+pub mod vram_budget;
 
 // Scheduler-v2 module (merged from nexora-scheduler-v2 crate)
 pub mod scheduler_v2;
 
 // Distributed scheduler modules — Phase 5c+
 pub mod cluster;
-pub mod gossip;
 pub mod distributed;
+pub mod gossip;
 
 // Re-export main components
 pub use batching::*;
+pub use cluster::*;
+pub use distributed::*;
 pub use executor::*;
 pub use kv_cache::*;
 pub use monitoring::*;
 pub use resource::*;
 pub use scheduler::*;
-pub use vram_budget::*;
 pub use scheduler_trait::Scheduler;
 pub use streaming::*;
-pub use cluster::*;
-pub use distributed::*;
+pub use vram_budget::*;
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: core interaction untuk scheduler

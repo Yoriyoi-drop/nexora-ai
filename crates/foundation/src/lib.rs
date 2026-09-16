@@ -105,7 +105,9 @@ pub fn init_memory() -> nexora_memory::MemoryManager {
 }
 
 // Nyata: wire isolation orchestrator for pre-inference security checks
-pub fn init_isolation(cfg: nexora_alignment::isolation::config::IsolationConfig) -> nexora_alignment::isolation::IsolationOrchestrator {
+pub fn init_isolation(
+    cfg: nexora_alignment::isolation::config::IsolationConfig,
+) -> nexora_alignment::isolation::IsolationOrchestrator {
     nexora_alignment::isolation::IsolationOrchestrator::new(cfg)
 }
 
@@ -113,7 +115,10 @@ pub fn init_isolation(cfg: nexora_alignment::isolation::config::IsolationConfig)
 pub fn init_utils() -> nexora_utils::UtilsManager {
     let utils = nexora_utils::UtilsManager::default();
     // Verify SIMD ops available (exercises dot_product/cosine_similarity)
-    let _dot = utils.dot_product(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let _dot = utils.dot_product(
+        &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+    );
     let _cos = utils.cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]);
     let _sim = utils.string_similarity("hello", "hel lo");
     let _monitor = utils.performance_monitor();
@@ -145,7 +150,13 @@ pub fn init_subsystems() -> InitContext {
     let _utils = init_utils();
     let _erp = init_erp();
     let _vogp = init_vogp();
-    InitContext { _monitoring, _memory, _utils, _erp, _vogp }
+    InitContext {
+        _monitoring,
+        _memory,
+        _utils,
+        _erp,
+        _vogp,
+    }
 }
 
 /// Context holding initialized subsystems for reuse.

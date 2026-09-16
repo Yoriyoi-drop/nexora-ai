@@ -5,9 +5,9 @@ pub mod custom;
 pub mod dedup;
 pub mod domain;
 pub mod entropy;
-pub mod ml_classifier;
 pub mod language;
 pub mod length;
+pub mod ml_classifier;
 pub mod perplexity;
 #[cfg(feature = "prompt-injection")]
 pub mod prompt_injection;
@@ -25,9 +25,9 @@ pub use custom::CustomFilter;
 pub use dedup::DedupFilter;
 pub use domain::DomainClassifier;
 pub use entropy::EntropyFilter;
-pub use ml_classifier::MLClassifier;
 pub use language::LanguageFilter;
 pub use length::LengthFilter;
+pub use ml_classifier::MLClassifier;
 pub use perplexity::PerplexityFilter;
 #[cfg(feature = "prompt-injection")]
 pub use prompt_injection::PromptInjectionFilter;

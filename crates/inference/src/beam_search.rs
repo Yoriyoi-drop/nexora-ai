@@ -350,11 +350,7 @@ impl BeamSearchEngine {
     }
 
     /// Expand beam hypotheses
-    pub fn expand_beam(
-        &self,
-        state: &mut BeamSearchState,
-        logits_batch: &[&[f32]],
-    ) -> Result<()> {
+    pub fn expand_beam(&self, state: &mut BeamSearchState, logits_batch: &[&[f32]]) -> Result<()> {
         debug!(
             "Expanding beam at step {}, {} hypotheses",
             state.step,
@@ -581,8 +577,7 @@ impl BeamSearchEngine {
             let mut group = vec![i];
             for j in (i + 1)..hyp_len {
                 if !used[j] {
-                    let similarity =
-                        Self::token_sets_similarity(&token_sets[i], &token_sets[j]);
+                    let similarity = Self::token_sets_similarity(&token_sets[i], &token_sets[j]);
                     if similarity > (1.0 - self.config.convergence_threshold) {
                         group.push(j);
                         used[j] = true;

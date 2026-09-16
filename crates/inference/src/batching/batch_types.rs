@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
-use uuid::Uuid;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::{InferenceRequest, InferenceResponse};
 

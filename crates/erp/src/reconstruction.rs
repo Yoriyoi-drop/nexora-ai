@@ -412,17 +412,12 @@ impl GateNetwork {
                 let col: Vec<f32> = (0..self.gate_weights.nrows())
                     .map(|i| self.gate_weights[[i, 0]])
                     .collect();
-                let col_arr = match ndarray::Array2::from_shape_vec(
-                    (self.gate_weights.nrows(), 1),
-                    col,
-                ) {
-                    Ok(w) => w,
-                    Err(_) => self.gate_weights.clone(),
-                };
-                let ctx_dot = crate::gpu_try!(gpu::try_matvec(
-                    &col_arr,
-                    context_embedding,
-                ));
+                let col_arr =
+                    match ndarray::Array2::from_shape_vec((self.gate_weights.nrows(), 1), col) {
+                        Ok(w) => w,
+                        Err(_) => self.gate_weights.clone(),
+                    };
+                let ctx_dot = crate::gpu_try!(gpu::try_matvec(&col_arr, context_embedding,));
                 if let Some(val) = ctx_dot {
                     val[0]
                 } else {

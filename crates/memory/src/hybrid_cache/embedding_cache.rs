@@ -55,7 +55,11 @@ impl EmbeddingCache {
             hits,
             misses,
             evictions: self.evictions.load(Ordering::Relaxed),
-            hit_rate: if total > 0 { hits as f64 / total as f64 } else { 0.0 },
+            hit_rate: if total > 0 {
+                hits as f64 / total as f64
+            } else {
+                0.0
+            },
         }
     }
 }

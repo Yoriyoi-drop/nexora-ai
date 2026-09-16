@@ -90,7 +90,10 @@ impl PerformanceLinter {
                     pattern: match Regex::new(r#"\w+\s*\+=\s*["']"#) {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Inefficient String Concatenation': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Inefficient String Concatenation': {}",
+                                e
+                            );
                             None
                         }
                     },
@@ -105,7 +108,10 @@ impl PerformanceLinter {
                     pattern: match Regex::new(r"\bmalloc\s*\(") {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Potential Memory Leak': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Potential Memory Leak': {}",
+                                e
+                            );
                             None
                         }
                     },
@@ -120,7 +126,10 @@ impl PerformanceLinter {
                     pattern: match Regex::new(r"(?s)(for|while).*(read|recv|input)\s*\(") {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Blocking I/O In Loop': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Blocking I/O In Loop': {}",
+                                e
+                            );
                             None
                         }
                     },
@@ -135,7 +144,10 @@ impl PerformanceLinter {
                     pattern: match Regex::new(r"\b(bubble_sort|selection_sort)\b") {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Inefficient Sorting': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Inefficient Sorting': {}",
+                                e
+                            );
                             None
                         }
                     },

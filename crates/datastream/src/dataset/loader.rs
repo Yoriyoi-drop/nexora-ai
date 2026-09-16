@@ -161,7 +161,10 @@ impl StreamingLoader {
 
         // --- 7. Validate schema on first shard if configured ---
         if let Some(ref schema) = config.schema {
-            if let Some(first_compatible) = shard_paths.iter().find(|s| is_supported_shard_file(&s.path)) {
+            if let Some(first_compatible) = shard_paths
+                .iter()
+                .find(|s| is_supported_shard_file(&s.path))
+            {
                 debug!(
                     "Validating schema against: {}",
                     first_compatible.path.display()
@@ -262,10 +265,17 @@ impl StreamingLoader {
 
                 // Try streaming first (OOM-safe for large arrow shards), fall back to integrated
                 if shard.path.extension().map_or(false, |e| e == "arrow") {
-                    if load_shard_streaming(&shard, bs, cache_path.as_deref(), &tx).await.is_ok() {
+                    if load_shard_streaming(&shard, bs, cache_path.as_deref(), &tx)
+                        .await
+                        .is_ok()
+                    {
                         info!("Worker {}: streamed shard {}", idx, shard.path.display());
                     } else {
-                        error!("Worker {}: shard {} streaming failed", idx, shard.path.display());
+                        error!(
+                            "Worker {}: shard {} streaming failed",
+                            idx,
+                            shard.path.display()
+                        );
                     }
                 } else {
                     match load_shard_integrated(&shard, bs, cache_path.as_deref()).await {
@@ -513,7 +523,9 @@ async fn load_shard_streaming(
     tx: &mpsc::Sender<Vec<DataSample>>,
 ) -> Result<(), LoaderError> {
     let source = SourceInfo {
-        name: shard.path.file_stem()
+        name: shard
+            .path
+            .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".into()),
         url: None,
@@ -532,7 +544,9 @@ async fn load_shard_streaming(
     .await
     .map_err(|e| LoaderError::Join(e.to_string()))??;
 
-    let decompressed = shard.compression.decompress(&raw)
+    let decompressed = shard
+        .compression
+        .decompress(&raw)
         .map_err(|e| LoaderError::Compression(e.to_string()))?;
 
     // Stream arrow batches one at a time — never accumulate full shard

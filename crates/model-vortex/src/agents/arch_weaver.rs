@@ -22,7 +22,7 @@ pub struct ArchWeaverAgent {
     pub config: ArchWeaverConfig,
     pub architecture_analysis_capabilities: ArchitectureAnalysisCapabilities,
     pub design_evaluation: DesignEvaluation,
-        pub pattern_recognition: ArchitecturePatternRecognition,
+    pub pattern_recognition: ArchitecturePatternRecognition,
     pub status: AgentStatus,
     pub metrics: AgentMetrics,
 }

@@ -428,9 +428,7 @@ mod tests {
     #[test]
     fn test_naive_bayes_predict_unknown_feature() {
         let mut classifier = NaiveBayesClassifier::new();
-        let training_data = vec![
-            ("coding rust".to_string(), IntentType::Coding),
-        ];
+        let training_data = vec![("coding rust".to_string(), IntentType::Coding)];
         classifier.train(&training_data).unwrap();
 
         let features = HashMap::from([("unknown_word".to_string(), 1.0)]);
@@ -472,10 +470,8 @@ mod tests {
     #[tokio::test]
     async fn test_advanced_detector_not_trained_error() {
         let detector = AdvancedIntentDetector::new();
-        let input_data = crate::types::InputData::new(
-            "test".to_string(),
-            crate::types::InputType::Text,
-        );
+        let input_data =
+            crate::types::InputData::new("test".to_string(), crate::types::InputType::Text);
         let result = detector.detect_intent(&input_data).await;
         assert!(result.is_err());
     }

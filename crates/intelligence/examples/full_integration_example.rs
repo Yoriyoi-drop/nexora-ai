@@ -6,9 +6,7 @@
 //! - CAFFEINE (Contrastive-Aware Fusion Framework)
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN)
 
-use nexora_model::unified_api::{
-    CodingTask, TaskContext, UnifiedModelFactory,
-};
+use nexora_model::unified_api::{CodingTask, TaskContext, UnifiedModelFactory};
 use std::collections::HashMap;
 
 #[tokio::main]

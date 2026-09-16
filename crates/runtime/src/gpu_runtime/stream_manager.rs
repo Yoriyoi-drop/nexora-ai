@@ -42,12 +42,10 @@ impl GpuStreamManager {
     }
 
     pub fn assign_to_stream(&self, stream_id: &Uuid) -> Option<GpuStream> {
-        self.streams
-            .get_mut(stream_id)
-            .map(|mut s| {
-                s.kernels_queued += 1;
-                s.clone()
-            })
+        self.streams.get_mut(stream_id).map(|mut s| {
+            s.kernels_queued += 1;
+            s.clone()
+        })
     }
 
     pub fn complete_kernel(&self, stream_id: &Uuid) {

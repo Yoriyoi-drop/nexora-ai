@@ -15,10 +15,10 @@
 
 use crate::error::{NexoraError, NexoraResult};
 use crate::NexoraAI;
+use futures::FutureExt;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
-use futures::FutureExt;
 
 // ─── Report Types ─────────────────────────────────────────────────────────────
 
@@ -169,7 +169,10 @@ impl BenchmarkRunner {
     /// Run full benchmark suite — semua 9 metrik
     pub async fn run_full(&self) -> NexoraResult<BenchmarkReport> {
         info!("=== BENCHMARK & PROFILING NYATA (P0) ===");
-        info!("Warmup: {} rounds, Sample: {} rounds", self.warmup_rounds, self.sample_rounds);
+        info!(
+            "Warmup: {} rounds, Sample: {} rounds",
+            self.warmup_rounds, self.sample_rounds
+        );
 
         let sys_info = self.nexora.get_system_info().await?;
         let gpu_available = self.check_gpu().await;
@@ -240,7 +243,10 @@ impl BenchmarkRunner {
     // ── 1. Token/s CPU ──────────────────────────────────────────────────────
 
     async fn bench_tokens_per_sec(&self, use_gpu: bool) -> MetricSample {
-        info!(">>> Benchmark Token/s ({})", if use_gpu { "GPU" } else { "CPU" });
+        info!(
+            ">>> Benchmark Token/s ({})",
+            if use_gpu { "GPU" } else { "CPU" }
+        );
         let prompts = vec![
             "The future of artificial intelligence lies in",
             "In the beginning, there was",
@@ -267,13 +273,22 @@ impl BenchmarkRunner {
                     tok_rates.push(tokens as f64 / elapsed.as_secs_f64());
                 }
             }
-            info!("  Round {}/{}: {} samples", round + 1, self.sample_rounds, tok_rates.len());
+            info!(
+                "  Round {}/{}: {} samples",
+                round + 1,
+                self.sample_rounds,
+                tok_rates.len()
+            );
         }
 
         let stats = compute_stats(&tok_rates);
-        info!("  Token/s ({}): mean={:.1}, p50={:.1}, p95={:.1}",
+        info!(
+            "  Token/s ({}): mean={:.1}, p50={:.1}, p95={:.1}",
             if use_gpu { "GPU" } else { "CPU" },
-            stats.mean, stats.p50, stats.p95);
+            stats.mean,
+            stats.p50,
+            stats.p95
+        );
         stats
     }
 
@@ -300,7 +315,10 @@ impl BenchmarkRunner {
         }
 
         let stats = compute_stats(&latencies);
-        info!("  Prefill latency (ms): mean={:.1}, p50={:.1}, p95={:.1}", stats.mean, stats.p50, stats.p95);
+        info!(
+            "  Prefill latency (ms): mean={:.1}, p50={:.1}, p95={:.1}",
+            stats.mean, stats.p50, stats.p95
+        );
         stats
     }
 
@@ -318,7 +336,11 @@ impl BenchmarkRunner {
 
         for _ in 0..self.sample_rounds {
             let start = Instant::now();
-            let result = self.nexora.generate_text(prompt, 50, 0.7).await.unwrap_or_default();
+            let result = self
+                .nexora
+                .generate_text(prompt, 50, 0.7)
+                .await
+                .unwrap_or_default();
             let total_ms = start.elapsed().as_secs_f64() * 1000.0;
             let tokens = estimate_tokens(&result);
             if tokens > 0 {
@@ -327,7 +349,10 @@ impl BenchmarkRunner {
         }
 
         let stats = compute_stats(&per_token_latencies);
-        info!("  Decode latency (ms/token): mean={:.1}, p50={:.1}, p95={:.1}", stats.mean, stats.p50, stats.p95);
+        info!(
+            "  Decode latency (ms/token): mean={:.1}, p50={:.1}, p95={:.1}",
+            stats.mean, stats.p50, stats.p95
+        );
         stats
     }
 
@@ -354,11 +379,24 @@ impl BenchmarkRunner {
 
         if vram_samples.is_empty() {
             info!("  VRAM: tidak bisa diukur (GPU tidak tersedia atau tidak support nvml)");
-            return MetricSample { mean: 0.0, median: 0.0, p50: 0.0, p95: 0.0, p99: 0.0, min: 0.0, max: 0.0, stddev: 0.0, samples: 0 };
+            return MetricSample {
+                mean: 0.0,
+                median: 0.0,
+                p50: 0.0,
+                p95: 0.0,
+                p99: 0.0,
+                min: 0.0,
+                max: 0.0,
+                stddev: 0.0,
+                samples: 0,
+            };
         }
 
         let stats = compute_stats(&vram_samples);
-        info!("  VRAM usage (MB): mean={:.0}, max={:.0}", stats.mean, stats.max);
+        info!(
+            "  VRAM usage (MB): mean={:.0}, max={:.0}",
+            stats.mean, stats.max
+        );
         stats
     }
 
@@ -400,7 +438,10 @@ impl BenchmarkRunner {
         }
 
         let stats = compute_stats(&ram_samples);
-        info!("  RAM usage (MB): mean={:.0}, max={:.0}", stats.mean, stats.max);
+        info!(
+            "  RAM usage (MB): mean={:.0}, max={:.0}",
+            stats.mean, stats.max
+        );
         stats
     }
 
@@ -427,9 +468,18 @@ impl BenchmarkRunner {
         let base = "The fundamental principles of quantum mechanics suggest that";
         let prompts = vec![
             format!("{} reality is fundamentally probabilistic in nature.", base),
-            format!("{} particles can exist in multiple states simultaneously.", base),
-            format!("{} observation itself affects the system being measured.", base),
-            format!("{} entanglement allows instantaneous correlation across distance.", base),
+            format!(
+                "{} particles can exist in multiple states simultaneously.",
+                base
+            ),
+            format!(
+                "{} observation itself affects the system being measured.",
+                base
+            ),
+            format!(
+                "{} entanglement allows instantaneous correlation across distance.",
+                base
+            ),
             format!("{} the wave function collapses upon measurement.", base),
         ];
 
@@ -449,9 +499,18 @@ impl BenchmarkRunner {
         let hits = nexora_inference::inference_trait::prefix_cache_hits();
         let misses = nexora_inference::inference_trait::prefix_cache_misses();
         let total = hits + misses;
-        let ratio = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
+        let ratio = if total > 0 {
+            hits as f64 / total as f64
+        } else {
+            0.0
+        };
 
-        info!("  Prefix cache: hits={}, misses={}, ratio={:.2}%", hits, misses, ratio * 100.0);
+        info!(
+            "  Prefix cache: hits={}, misses={}, ratio={:.2}%",
+            hits,
+            misses,
+            ratio * 100.0
+        );
         ratio
     }
 
@@ -505,10 +564,19 @@ impl BenchmarkRunner {
             .load(std::sync::atomic::Ordering::Relaxed);
         let waste_sum = nexora_inference::inference_trait::BATCHING_PADDING_WASTE_SUM
             .load(std::sync::atomic::Ordering::Relaxed);
-        let waste_pct = if count > 0 { waste_sum as f64 / count as f64 } else { 0.0 };
+        let waste_pct = if count > 0 {
+            waste_sum as f64 / count as f64
+        } else {
+            0.0
+        };
 
-        info!("  CB throughput: {} seq, {} tok/s, waste={:.1}%, time={:.1}s",
-            n, tok_s as u64, waste_pct * 100.0, total_time.as_secs_f64());
+        info!(
+            "  CB throughput: {} seq, {} tok/s, waste={:.1}%, time={:.1}s",
+            n,
+            tok_s as u64,
+            waste_pct * 100.0,
+            total_time.as_secs_f64()
+        );
 
         BatchingMetric {
             batch_size,
@@ -582,8 +650,10 @@ impl BenchmarkRunner {
             let p95 = percentile(&sorted_lat, 95.0);
             let throughput = (concurrent * 3) as f64 / latencies.iter().sum::<f64>() * 1000.0;
 
-            info!("  Concurrency {}: avg_lat={:.1}ms, p95={:.1}ms, throughput={:.0} req/s, errors={}",
-                concurrent, avg_lat, p95, throughput, errors);
+            info!(
+                "  Concurrency {}: avg_lat={:.1}ms, p95={:.1}ms, throughput={:.0} req/s, errors={}",
+                concurrent, avg_lat, p95, throughput, errors
+            );
 
             if throughput > best_throughput {
                 best_throughput = throughput;
@@ -599,8 +669,10 @@ impl BenchmarkRunner {
             0.0
         };
 
-        info!("  Concurrency best: {} concurrent, {} tok/s, p95={:.1}ms",
-            best_concurrency, best_throughput as u64, best_p95);
+        info!(
+            "  Concurrency best: {} concurrent, {} tok/s, p95={:.1}ms",
+            best_concurrency, best_throughput as u64, best_p95
+        );
 
         ConcurrencyMetric {
             concurrent_users: best_concurrency,
@@ -613,8 +685,16 @@ impl BenchmarkRunner {
 
     // ── Helper ──────────────────────────────────────────────────────────────
 
-    async fn generate_with_config(&self, prompt: &str, max_tokens: usize, _use_gpu: bool) -> String {
-        self.nexora.generate_text(prompt, max_tokens, 0.7).await.unwrap_or_default()
+    async fn generate_with_config(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        _use_gpu: bool,
+    ) -> String {
+        self.nexora
+            .generate_text(prompt, max_tokens, 0.7)
+            .await
+            .unwrap_or_default()
     }
 
     // ── Bottleneck Analysis ─────────────────────────────────────────────────
@@ -749,34 +829,93 @@ impl BenchmarkReport {
         use std::fmt::Write;
         let mut s = String::new();
 
-        writeln!(s, "╔══════════════════════════════════════════════════════════╗").ok();
-        writeln!(s, "║     NEXORA AI — BENCHMARK & PROFILING NYATA (P0)      ║").ok();
-        writeln!(s, "╚══════════════════════════════════════════════════════════╝").ok();
+        writeln!(
+            s,
+            "╔══════════════════════════════════════════════════════════╗"
+        )
+        .ok();
+        writeln!(
+            s,
+            "║     NEXORA AI — BENCHMARK & PROFILING NYATA (P0)      ║"
+        )
+        .ok();
+        writeln!(
+            s,
+            "╚══════════════════════════════════════════════════════════╝"
+        )
+        .ok();
         writeln!(s).ok();
         writeln!(s, "  Model:       {}", self.model).ok();
         writeln!(s, "  Waktu:       {}", self.timestamp).ok();
-        writeln!(s, "  GPU:         {}", if self.gpu_available { "✓ Tersedia" } else { "✗ Tidak ada" }).ok();
+        writeln!(
+            s,
+            "  GPU:         {}",
+            if self.gpu_available {
+                "✓ Tersedia"
+            } else {
+                "✗ Tidak ada"
+            }
+        )
+        .ok();
         writeln!(s, "  CPU Cores:   {}", self.cpu_cores).ok();
         writeln!(s, "  RAM Total:   {} MB", self.total_ram_mb).ok();
         writeln!(s).ok();
 
-        writeln!(s, "┌─────────────────────────────────────────────────────────┐").ok();
-        writeln!(s, "│                    METRIC RESULTS                       │").ok();
-        writeln!(s, "├─────────────────────────────────────────────────────────┤").ok();
+        writeln!(
+            s,
+            "┌─────────────────────────────────────────────────────────┐"
+        )
+        .ok();
+        writeln!(
+            s,
+            "│                    METRIC RESULTS                       │"
+        )
+        .ok();
+        writeln!(
+            s,
+            "├─────────────────────────────────────────────────────────┤"
+        )
+        .ok();
 
         // Helper untuk print metric
-        let print_metric = |s: &mut String, name: &str, sample: &Option<MetricSample>, unit: &str| {
-            if let Some(ref m) = sample {
-                writeln!(s, "  {:<25} {:>10.1} {}  (p95: {:>10.1})", name, m.mean, unit, m.p95).ok();
-            } else {
-                writeln!(s, "  {:<25} {:>10}", name, "N/A").ok();
-            }
-        };
+        let print_metric =
+            |s: &mut String, name: &str, sample: &Option<MetricSample>, unit: &str| {
+                if let Some(ref m) = sample {
+                    writeln!(
+                        s,
+                        "  {:<25} {:>10.1} {}  (p95: {:>10.1})",
+                        name, m.mean, unit, m.p95
+                    )
+                    .ok();
+                } else {
+                    writeln!(s, "  {:<25} {:>10}", name, "N/A").ok();
+                }
+            };
 
-        print_metric(&mut s, "Token/s CPU", &self.metrics.tokens_per_sec_cpu, "tok/s");
-        print_metric(&mut s, "Token/s GPU", &self.metrics.tokens_per_sec_gpu, "tok/s");
-        print_metric(&mut s, "Prefill latency", &self.metrics.prefill_latency_ms, "ms");
-        print_metric(&mut s, "Decode latency", &self.metrics.decode_latency_ms, "ms/tok");
+        print_metric(
+            &mut s,
+            "Token/s CPU",
+            &self.metrics.tokens_per_sec_cpu,
+            "tok/s",
+        );
+        print_metric(
+            &mut s,
+            "Token/s GPU",
+            &self.metrics.tokens_per_sec_gpu,
+            "tok/s",
+        );
+        print_metric(
+            &mut s,
+            "Prefill latency",
+            &self.metrics.prefill_latency_ms,
+            "ms",
+        );
+        print_metric(
+            &mut s,
+            "Decode latency",
+            &self.metrics.decode_latency_ms,
+            "ms/tok",
+        );
         print_metric(&mut s, "VRAM usage", &self.metrics.vram_usage_mb, "MB");
         print_metric(&mut s, "RAM usage", &self.metrics.ram_usage_mb, "MB");
 
@@ -785,21 +924,50 @@ impl BenchmarkReport {
         }
 
         if let Some(ref cb) = self.metrics.cb_throughput {
-            writeln!(s, "  {:<25} {:>10.1} tok/s  ({} seq, {:.1}% waste)", "CB throughput", cb.tokens_per_sec, cb.sequences, cb.padding_waste_pct).ok();
+            writeln!(
+                s,
+                "  {:<25} {:>10.1} tok/s  ({} seq, {:.1}% waste)",
+                "CB throughput", cb.tokens_per_sec, cb.sequences, cb.padding_waste_pct
+            )
+            .ok();
         }
 
         if let Some(ref conc) = self.metrics.concurrency {
-            writeln!(s, "  {:<25} {:>10} users  ({} tok/s, p95: {:.0}ms)", "Concurrency best", conc.concurrent_users, conc.total_throughput_tok_s as u64, conc.p95_latency_ms).ok();
+            writeln!(
+                s,
+                "  {:<25} {:>10} users  ({} tok/s, p95: {:.0}ms)",
+                "Concurrency best",
+                conc.concurrent_users,
+                conc.total_throughput_tok_s as u64,
+                conc.p95_latency_ms
+            )
+            .ok();
         }
 
-        writeln!(s, "└─────────────────────────────────────────────────────────┘").ok();
+        writeln!(
+            s,
+            "└─────────────────────────────────────────────────────────┘"
+        )
+        .ok();
 
         // Bottlenecks
         if !self.bottlenecks.is_empty() {
             writeln!(s).ok();
-            writeln!(s, "┌─────────────────────────────────────────────────────────┐").ok();
-            writeln!(s, "│                  BOTTLENECK ANALYSIS                   │").ok();
-            writeln!(s, "├─────────────────────────────────────────────────────────┤").ok();
+            writeln!(
+                s,
+                "┌─────────────────────────────────────────────────────────┐"
+            )
+            .ok();
+            writeln!(
+                s,
+                "│                  BOTTLENECK ANALYSIS                   │"
+            )
+            .ok();
+            writeln!(
+                s,
+                "├─────────────────────────────────────────────────────────┤"
+            )
+            .ok();
             for (i, b) in self.bottlenecks.iter().enumerate() {
                 let icon = match b.severity.as_str() {
                     "critical" => "🔴 CRITICAL",
@@ -812,16 +980,37 @@ impl BenchmarkReport {
                 writeln!(s, "     {}", b.detail).ok();
                 writeln!(s).ok();
             }
-            writeln!(s, "└─────────────────────────────────────────────────────────┘").ok();
+            writeln!(
+                s,
+                "└─────────────────────────────────────────────────────────┘"
+            )
+            .ok();
         }
 
         // Summary
         writeln!(s).ok();
-        let critical = self.bottlenecks.iter().filter(|b| b.severity == "critical").count();
-        let high = self.bottlenecks.iter().filter(|b| b.severity == "high").count();
-        let medium = self.bottlenecks.iter().filter(|b| b.severity == "medium").count();
+        let critical = self
+            .bottlenecks
+            .iter()
+            .filter(|b| b.severity == "critical")
+            .count();
+        let high = self
+            .bottlenecks
+            .iter()
+            .filter(|b| b.severity == "high")
+            .count();
+        let medium = self
+            .bottlenecks
+            .iter()
+            .filter(|b| b.severity == "medium")
+            .count();
 
-        writeln!(s, "  Summary: {} critical, {} high, {} medium bottlenecks ditemukan.", critical, high, medium).ok();
+        writeln!(
+            s,
+            "  Summary: {} critical, {} high, {} medium bottlenecks ditemukan.",
+            critical, high, medium
+        )
+        .ok();
         if critical > 0 {
             writeln!(s, "  ⚠ Rekomendasi: Prioritaskan fix critical bottlenecks.").ok();
         }
@@ -832,8 +1021,7 @@ impl BenchmarkReport {
 
     /// Format sebagai JSON
     pub fn to_json_string(&self) -> NexoraResult<String> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| NexoraError::serialization(e))
+        serde_json::to_string_pretty(self).map_err(|e| NexoraError::serialization(e))
     }
 }
 
@@ -946,10 +1134,18 @@ impl BaselineRunner {
             cpu_cores: sys_info.thread_count as usize,
             total_ram_mb: sys_info.memory_stats.total_memory / (1024 * 1024),
             ram_usage_mb: self.read_process_ram(),
-            vram_usage_mb: if gpu_available { self.read_gpu_memory().await } else { None },
+            vram_usage_mb: if gpu_available {
+                self.read_gpu_memory().await
+            } else {
+                None
+            },
             os_info: std::env::consts::OS.to_string(),
-            rust_version: format!("{}.{}.{}", 
-                rustc_version_major(), rustc_version_minor(), rustc_version_patch()),
+            rust_version: format!(
+                "{}.{}.{}",
+                rustc_version_major(),
+                rustc_version_minor(),
+                rustc_version_patch()
+            ),
         };
 
         // ── Inference baseline (reuse BenchmarkRunner) ──
@@ -992,14 +1188,19 @@ impl BaselineRunner {
 
     /// Safe generate_text — catches panics from model delegation, with timeout
     /// Timeout is low (2s) because CPU inference is too slow (0.4 tok/s, 520s prefill).
-    async fn safe_generate(&self, prompt: &str, max_tokens: usize, temperature: f32) -> Option<String> {
+    async fn safe_generate(
+        &self,
+        prompt: &str,
+        max_tokens: usize,
+        temperature: f32,
+    ) -> Option<String> {
         let nexora = self.nexora.clone();
         let p = prompt.to_string();
         match tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            tokio::task::spawn(async move {
-                nexora.generate_text(&p, max_tokens, temperature).await
-            }),
+            tokio::task::spawn(
+                async move { nexora.generate_text(&p, max_tokens, temperature).await },
+            ),
         )
         .await
         {
@@ -1012,9 +1213,7 @@ impl BaselineRunner {
                 warn!("  generate_text panic: {}", e);
                 None
             }
-            Err(_) => {
-                None
-            }
+            Err(_) => None,
         }
     }
 
@@ -1036,7 +1235,10 @@ impl BaselineRunner {
         for _ in 0..self.sample_rounds {
             for prompt in &prompts {
                 let start = Instant::now();
-                let result = self.safe_generate(prompt, 64, 0.7).await.unwrap_or_default();
+                let result = self
+                    .safe_generate(prompt, 64, 0.7)
+                    .await
+                    .unwrap_or_default();
                 let elapsed = start.elapsed();
                 let tokens = estimate_tokens(&result);
                 if elapsed.as_secs_f64() > 0.0 {
@@ -1059,7 +1261,10 @@ impl BaselineRunner {
                 for _ in 0..self.sample_rounds {
                     for prompt in &prompts {
                         let start = Instant::now();
-                        let result = self.safe_generate(prompt, 64, 0.7).await.unwrap_or_default();
+                        let result = self
+                            .safe_generate(prompt, 64, 0.7)
+                            .await
+                            .unwrap_or_default();
                         let elapsed = start.elapsed();
                         let tokens = estimate_tokens(&result);
                         if elapsed.as_secs_f64() > 0.0 {
@@ -1086,7 +1291,11 @@ impl BaselineRunner {
             let _ = self.safe_generate(long_prompt, 1, 0.7).await;
             prefill_lats.push(start.elapsed().as_secs_f64() * 1000.0);
         }
-        let prefill_latency_ms = if prefill_lats.is_empty() { None } else { Some(compute_stats(&prefill_lats)) };
+        let prefill_latency_ms = if prefill_lats.is_empty() {
+            None
+        } else {
+            Some(compute_stats(&prefill_lats))
+        };
 
         // Decode latency
         let short_prompt = "Once upon a time";
@@ -1096,14 +1305,21 @@ impl BaselineRunner {
         }
         for _ in 0..self.sample_rounds {
             let start = Instant::now();
-            let result = self.safe_generate(short_prompt, 50, 0.7).await.unwrap_or_default();
+            let result = self
+                .safe_generate(short_prompt, 50, 0.7)
+                .await
+                .unwrap_or_default();
             let total_ms = start.elapsed().as_secs_f64() * 1000.0;
             let tokens = estimate_tokens(&result);
             if tokens > 0 {
                 decode_lats.push(total_ms / tokens as f64);
             }
         }
-        let decode_latency_ms = if decode_lats.is_empty() { None } else { Some(compute_stats(&decode_lats)) };
+        let decode_latency_ms = if decode_lats.is_empty() {
+            None
+        } else {
+            Some(compute_stats(&decode_lats))
+        };
 
         // Prefix cache hit rate
         nexora_inference::inference_trait::reset_all_observability();
@@ -1123,12 +1339,18 @@ impl BaselineRunner {
         let hits = nexora_inference::inference_trait::prefix_cache_hits();
         let misses = nexora_inference::inference_trait::prefix_cache_misses();
         let total = hits + misses;
-        let prefix_cache_hit_rate = if total > 0 { Some(hits as f64 / total as f64) } else { Some(0.0) };
+        let prefix_cache_hit_rate = if total > 0 {
+            Some(hits as f64 / total as f64)
+        } else {
+            Some(0.0)
+        };
 
-        info!("  Inference baseline: CPU {:.1} tok/s, Prefill {:.1}ms, Decode {:.1}ms/tok",
+        info!(
+            "  Inference baseline: CPU {:.1} tok/s, Prefill {:.1}ms, Decode {:.1}ms/tok",
             cpu_rates.iter().sum::<f64>() / cpu_rates.len() as f64,
             prefill_lats.iter().sum::<f64>() / prefill_lats.len() as f64,
-            decode_lats.iter().sum::<f64>() / decode_lats.len() as f64);
+            decode_lats.iter().sum::<f64>() / decode_lats.len() as f64
+        );
 
         InferenceBaseline {
             tokens_per_sec_cpu,
@@ -1149,27 +1371,31 @@ impl BaselineRunner {
         let raw = match registry.get_model_raw(&model_id).await {
             Ok(m) => m,
             Err(e) => {
-                warn!("  Model {:?} not in registry: {}. Skipping training baseline.", model_id, e);
+                warn!(
+                    "  Model {:?} not in registry: {}. Skipping training baseline.",
+                    model_id, e
+                );
                 return None;
             }
         };
 
-        let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> = match raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>() {
-            Ok(m) => m,
-            Err(_) => {
-                warn!("  Failed to downcast model. Skipping training baseline.");
-                return None;
-            }
-        };
+        let model: Arc<nexora_foundation::causal_lm_model::CausalLmModel> =
+            match raw.downcast::<nexora_foundation::causal_lm_model::CausalLmModel>() {
+                Ok(m) => m,
+                Err(_) => {
+                    warn!("  Failed to downcast model. Skipping training baseline.");
+                    return None;
+                }
+            };
 
         // Generate small synthetic training data
         let train_lines: Vec<String> = (0..100).map(|i| {
             format!("This is synthetic training sample number {} for the nexora AI baseline benchmark. The purpose of this data is to measure training throughput and loss convergence characteristics. Each sample contains enough tokens to provide meaningful gradient updates.", i)
         }).collect();
 
-        let val_lines: Vec<String> = (0..10).map(|i| {
-            format!("Validation sample {} for baseline measurement.", i)
-        }).collect();
+        let val_lines: Vec<String> = (0..10)
+            .map(|i| format!("Validation sample {} for baseline measurement.", i))
+            .collect();
 
         let cfg = nexora_foundation::training::TrainerConfig {
             learning_rate: 0.001,
@@ -1191,10 +1417,16 @@ impl BaselineRunner {
 
         let start = Instant::now();
 
-        let result = match model.train_on_data(&train_lines, cfg, Some(&val_lines)).await {
+        let result = match model
+            .train_on_data(&train_lines, cfg, Some(&val_lines))
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
-                warn!("  Training benchmark failed: {}. Skipping training baseline.", e);
+                warn!(
+                    "  Training benchmark failed: {}. Skipping training baseline.",
+                    e
+                );
                 return None;
             }
         };
@@ -1202,8 +1434,16 @@ impl BaselineRunner {
         let duration = start.elapsed().as_secs_f64();
 
         let total_tokens = result.total_tokens;
-        let tokens_per_sec = if duration > 0.0 { total_tokens as f64 / duration } else { 0.0 };
-        let samples_per_sec = if duration > 0.0 { train_lines.len() as f64 / duration } else { 0.0 };
+        let tokens_per_sec = if duration > 0.0 {
+            total_tokens as f64 / duration
+        } else {
+            0.0
+        };
+        let samples_per_sec = if duration > 0.0 {
+            train_lines.len() as f64 / duration
+        } else {
+            0.0
+        };
         let final_perplexity = result.val_perplexity.unwrap_or(0.0);
         let best_loss = result.val_loss.unwrap_or(result.final_loss);
 
@@ -1214,8 +1454,10 @@ impl BaselineRunner {
             "val_perplexity": result.val_perplexity,
         });
 
-        info!("  Training baseline: {:.1} tok/s, loss={:.6}, perplexity={:.2}, {:.1}s",
-            tokens_per_sec, result.final_loss, final_perplexity, duration);
+        info!(
+            "  Training baseline: {:.1} tok/s, loss={:.6}, perplexity={:.2}, {:.1}s",
+            tokens_per_sec, result.final_loss, final_perplexity, duration
+        );
 
         Some(TrainingBaseline {
             tokens_per_sec,
@@ -1242,7 +1484,9 @@ impl BaselineRunner {
             };
         }
 
-        let tr = training.as_ref().expect("training is Some after None check above");
+        let tr = training
+            .as_ref()
+            .expect("training is Some after None check above");
         LossCurveBaseline {
             steps: (0..self.train_steps).step_by(5).collect(),
             losses: vec![tr.final_loss; self.train_steps / 5],
@@ -1250,10 +1494,7 @@ impl BaselineRunner {
             learning_rates: vec![],
             loss_description: format!(
                 "Training baseline: {} steps, final loss={:.6}, best loss={:.6}, perplexity={:.2}",
-                self.train_steps,
-                tr.final_loss,
-                tr.best_loss,
-                tr.final_perplexity,
+                self.train_steps, tr.final_loss, tr.best_loss, tr.final_perplexity,
             ),
         }
     }
@@ -1330,55 +1571,124 @@ fn rustc_version_patch() -> u32 {
 
 impl BaselineReport {
     pub fn to_json_string(&self) -> NexoraResult<String> {
-        serde_json::to_string_pretty(self)
-            .map_err(|e| NexoraError::serialization(e))
+        serde_json::to_string_pretty(self).map_err(|e| NexoraError::serialization(e))
     }
 
     pub fn to_formatted_string(&self) -> String {
         use std::fmt::Write;
         let mut s = String::new();
 
-        writeln!(s, "╔══════════════════════════════════════════════════════════╗").ok();
-        writeln!(s, "║     NEXORA AI — FASE 0 BASELINE STABIL                ║").ok();
-        writeln!(s, "╚══════════════════════════════════════════════════════════╝").ok();
+        writeln!(
+            s,
+            "╔══════════════════════════════════════════════════════════╗"
+        )
+        .ok();
+        writeln!(
+            s,
+            "║     NEXORA AI — FASE 0 BASELINE STABIL                ║"
+        )
+        .ok();
+        writeln!(
+            s,
+            "╚══════════════════════════════════════════════════════════╝"
+        )
+        .ok();
         writeln!(s).ok();
         writeln!(s, "  Model:       {}", self.model).ok();
         writeln!(s, "  Waktu:       {}", self.timestamp).ok();
-        writeln!(s, "  GPU:         {}", if self.gpu_available { "✓" } else { "✗" }).ok();
+        writeln!(
+            s,
+            "  GPU:         {}",
+            if self.gpu_available { "✓" } else { "✗" }
+        )
+        .ok();
         writeln!(s, "  CPU Cores:   {}", self.system.cpu_cores).ok();
-        writeln!(s, "  RAM:         {} MB total, {:.0} MB used", self.system.total_ram_mb, self.system.ram_usage_mb).ok();
+        writeln!(
+            s,
+            "  RAM:         {} MB total, {:.0} MB used",
+            self.system.total_ram_mb, self.system.ram_usage_mb
+        )
+        .ok();
         if let Some(vram) = self.system.vram_usage_mb {
             writeln!(s, "  VRAM:        {:.0} MB", vram).ok();
         }
         writeln!(s).ok();
 
-        writeln!(s, "┌─────────────────────────────────────────────────────────┐").ok();
-        writeln!(s, "│                  INFERENCE BASELINE                    │").ok();
-        writeln!(s, "├─────────────────────────────────────────────────────────┤").ok();
+        writeln!(
+            s,
+            "┌─────────────────────────────────────────────────────────┐"
+        )
+        .ok();
+        writeln!(
+            s,
+            "│                  INFERENCE BASELINE                    │"
+        )
+        .ok();
+        writeln!(
+            s,
+            "├─────────────────────────────────────────────────────────┤"
+        )
+        .ok();
 
         if let Some(ref cpu) = self.inference.tokens_per_sec_cpu {
-            writeln!(s, "  Token/s CPU:     {:>10.1} tok/s (p95: {:.1})", cpu.mean, cpu.p95).ok();
+            writeln!(
+                s,
+                "  Token/s CPU:     {:>10.1} tok/s (p95: {:.1})",
+                cpu.mean, cpu.p95
+            )
+            .ok();
         }
         if let Some(ref gpu) = self.inference.tokens_per_sec_gpu {
-            writeln!(s, "  Token/s GPU:     {:>10.1} tok/s (p95: {:.1})", gpu.mean, gpu.p95).ok();
+            writeln!(
+                s,
+                "  Token/s GPU:     {:>10.1} tok/s (p95: {:.1})",
+                gpu.mean, gpu.p95
+            )
+            .ok();
         }
         if let Some(ref pl) = self.inference.prefill_latency_ms {
-            writeln!(s, "  Prefill latency: {:>10.1} ms (p95: {:.1})", pl.mean, pl.p95).ok();
+            writeln!(
+                s,
+                "  Prefill latency: {:>10.1} ms (p95: {:.1})",
+                pl.mean, pl.p95
+            )
+            .ok();
         }
         if let Some(ref dl) = self.inference.decode_latency_ms {
-            writeln!(s, "  Decode latency:  {:>10.1} ms/tok (p95: {:.1})", dl.mean, dl.p95).ok();
+            writeln!(
+                s,
+                "  Decode latency:  {:>10.1} ms/tok (p95: {:.1})",
+                dl.mean, dl.p95
+            )
+            .ok();
         }
         if let Some(ph) = self.inference.prefix_cache_hit_rate {
             writeln!(s, "  Prefix cache:    {:>10.1}%", ph * 100.0).ok();
         }
 
-        writeln!(s, "└─────────────────────────────────────────────────────────┘").ok();
+        writeln!(
+            s,
+            "└─────────────────────────────────────────────────────────┘"
+        )
+        .ok();
 
         if let Some(ref tr) = self.training {
             writeln!(s).ok();
-            writeln!(s, "┌─────────────────────────────────────────────────────────┐").ok();
-            writeln!(s, "│                  TRAINING BASELINE                     │").ok();
-            writeln!(s, "├─────────────────────────────────────────────────────────┤").ok();
+            writeln!(
+                s,
+                "┌─────────────────────────────────────────────────────────┐"
+            )
+            .ok();
+            writeln!(
+                s,
+                "│                  TRAINING BASELINE                     │"
+            )
+            .ok();
+            writeln!(
+                s,
+                "├─────────────────────────────────────────────────────────┤"
+            )
+            .ok();
             writeln!(s, "  Tokens/sec:      {:>10.1}", tr.tokens_per_sec).ok();
             writeln!(s, "  Samples/sec:     {:>10.1}", tr.samples_per_sec).ok();
             writeln!(s, "  Final loss:      {:>10.6}", tr.final_loss).ok();
@@ -1387,13 +1697,29 @@ impl BaselineReport {
             writeln!(s, "  Steps:           {:>10}", tr.steps_completed).ok();
             writeln!(s, "  Total tokens:    {:>10}", tr.total_tokens_processed).ok();
             writeln!(s, "  Duration:        {:>10.1}s", tr.duration_secs).ok();
-            writeln!(s, "└─────────────────────────────────────────────────────────┘").ok();
+            writeln!(
+                s,
+                "└─────────────────────────────────────────────────────────┘"
+            )
+            .ok();
         }
 
         writeln!(s).ok();
-        writeln!(s, "┌─────────────────────────────────────────────────────────┐").ok();
-        writeln!(s, "│                  ACCURACY BASELINE                     │").ok();
-        writeln!(s, "├─────────────────────────────────────────────────────────┤").ok();
+        writeln!(
+            s,
+            "┌─────────────────────────────────────────────────────────┐"
+        )
+        .ok();
+        writeln!(
+            s,
+            "│                  ACCURACY BASELINE                     │"
+        )
+        .ok();
+        writeln!(
+            s,
+            "├─────────────────────────────────────────────────────────┤"
+        )
+        .ok();
         writeln!(s, "  {}", self.accuracy.description).ok();
         if let Some(l) = self.accuracy.eval_loss {
             writeln!(s, "  Eval loss:       {:.6}", l).ok();
@@ -1401,10 +1727,18 @@ impl BaselineReport {
         if let Some(p) = self.accuracy.eval_perplexity {
             writeln!(s, "  Eval perplexity: {:.2}", p).ok();
         }
-        writeln!(s, "└─────────────────────────────────────────────────────────┘").ok();
+        writeln!(
+            s,
+            "└─────────────────────────────────────────────────────────┘"
+        )
+        .ok();
 
         writeln!(s).ok();
-        writeln!(s, "  Fase 0 baseline saved to nexora_benchmark_baseline.json").ok();
+        writeln!(
+            s,
+            "  Fase 0 baseline saved to nexora_benchmark_baseline.json"
+        )
+        .ok();
         writeln!(s).ok();
 
         s

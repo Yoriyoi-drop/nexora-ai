@@ -45,7 +45,10 @@ pub struct ShardConfig {
 
 impl Default for ShardConfig {
     fn default() -> Self {
-        Self { num_shards: 1, shard_rank: 0 }
+        Self {
+            num_shards: 1,
+            shard_rank: 0,
+        }
     }
 }
 

@@ -11,11 +11,11 @@
 //! Inference menjadi sangat murah dengan O(k) complexity
 //! bukan O(T) atau O(T²).
 
+use crate::autograd::Tensor;
 use crate::echo_net::utils::ResonanceCalculator;
 use crate::echo_net::HolographicWave;
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, ArrayD};
-use crate::autograd::Tensor;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::hash::Hasher;

@@ -58,9 +58,8 @@ impl MemoryCheckpointer {
                         | crate::gnac::NodeType::RMSNorm
                         | crate::gnac::NodeType::BatchNorm => 256 * 1024,
                         crate::gnac::NodeType::Embedding => 8 * 1024 * 1024,
-                        crate::gnac::NodeType::MambaBlock | crate::gnac::NodeType::StateSpaceModel => {
-                            4 * 1024 * 1024
-                        }
+                        crate::gnac::NodeType::MambaBlock
+                        | crate::gnac::NodeType::StateSpaceModel => 4 * 1024 * 1024,
                         _ => 1024 * 1024,
                     };
                     self.activation_sizes.insert(*node_id, suggested);
@@ -162,14 +161,16 @@ impl MemoryCheckpointer {
 /// Return estimated compute cost for a node type (in FLOPs)
 pub fn node_type_compute_cost(node_type: &crate::gnac::NodeType) -> usize {
     match node_type {
-        crate::gnac::NodeType::Conv2D | crate::gnac::NodeType::Conv1D | crate::gnac::NodeType::Conv3D => 500_000,
+        crate::gnac::NodeType::Conv2D
+        | crate::gnac::NodeType::Conv1D
+        | crate::gnac::NodeType::Conv3D => 500_000,
         crate::gnac::NodeType::SelfAttention
         | crate::gnac::NodeType::MultiHeadAttention
         | crate::gnac::NodeType::FlashAttention => 300_000,
         crate::gnac::NodeType::Linear | crate::gnac::NodeType::MatMul => 200_000,
-        crate::gnac::NodeType::LayerNorm | crate::gnac::NodeType::RMSNorm | crate::gnac::NodeType::BatchNorm => {
-            50_000
-        }
+        crate::gnac::NodeType::LayerNorm
+        | crate::gnac::NodeType::RMSNorm
+        | crate::gnac::NodeType::BatchNorm => 50_000,
         crate::gnac::NodeType::ReLU
         | crate::gnac::NodeType::GELU
         | crate::gnac::NodeType::Sigmoid

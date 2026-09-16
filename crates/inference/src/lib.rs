@@ -12,8 +12,6 @@ pub mod decoding;
 pub mod degradation;
 pub mod distributed;
 pub mod dynamic_quant;
-pub mod self_healing;
-pub mod speculative;
 pub mod engine;
 pub mod inference_trait;
 pub mod kv_cache;
@@ -25,21 +23,22 @@ pub mod prefix_cache;
 pub mod runtime;
 pub mod sampler;
 pub mod scheduler;
+pub mod self_healing;
 pub mod sequence_state;
 pub mod session;
+pub mod speculative;
 pub mod stop_conditions;
 pub mod streaming;
 
 // Re-export main types
-pub use beam_search::{BeamHypothesis, BeamSearchConfig, BeamSearchEngine};
-pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
 pub use batching::{
     ContinuousBatchingConfig, ContinuousBatchingEngine, SequentialBatchingEngine, StepResult,
 };
+pub use beam_search::{BeamHypothesis, BeamSearchConfig, BeamSearchEngine};
+pub use blaa_integration::{BlaaEmbeddingsEngine, BlaaInferenceEngine};
 pub use decoding::{DecodingConfig, DecodingStrategy};
 pub use degradation::{DegradationConfig, DegradationLevel, DegradationManager, DegradationStats};
 pub use engine::{InferenceConfig, InferenceEngine as InferenceEngineStruct};
-pub use self_healing::{SelfHealingConfig, SelfHealingWorker, WorkerHealth};
 pub use inference_trait::InferenceEngine;
 pub use latency::{LatencyStats, LatencyTracker};
 pub use metrics::{InferenceMetrics, MetricsCollector};
@@ -51,11 +50,12 @@ pub use paged_cache::{
 pub use prefix_cache::{PrefixCache, PrefixCacheConfig, PrefixMatch};
 pub use runtime::{read_gpu_memory, InferenceRuntime, RuntimeState};
 pub use sampler::{Sampler, SamplingConfig, SamplingMethod};
+pub use self_healing::{SelfHealingConfig, SelfHealingWorker, WorkerHealth};
 pub use sequence_state::{SeqState, Sequence};
 pub use session::{InferenceSession, SessionConfig, SessionEntry, SessionState};
 pub use speculative::{
-    DraftModel, NGramDraftModel, SpeculativeDecodingConfig, SpeculativeEngine, SpeculativeStats,
-    SpeculationResult,
+    DraftModel, NGramDraftModel, SpeculationResult, SpeculativeDecodingConfig, SpeculativeEngine,
+    SpeculativeStats,
 };
 pub use stop_conditions::{StopCondition, StopConditions};
 
@@ -325,7 +325,9 @@ pub fn init_inference_monitoring() -> nexora_monitoring::MonitoringSystem {
 }
 
 // Nyata: validasi tensor shape untuk input inference
-pub fn validate_inference_input(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+pub fn validate_inference_input(
+    shape: &[usize],
+) -> std::result::Result<(), nexora_validation::ValidationError> {
     nexora_validation::validate_tensor_shape(shape)
 }
 

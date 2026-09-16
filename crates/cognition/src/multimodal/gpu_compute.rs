@@ -41,7 +41,7 @@ pub fn try_gpu_mlp_forward_keep_gpu(
     w2: &nexora_deeplearning::autograd::gpu::GpuTensor,
     b2: &nexora_deeplearning::autograd::gpu::GpuTensor,
 ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
-    use nexora_deeplearning::autograd::gpu::{GpuContext};
+    use nexora_deeplearning::autograd::gpu::GpuContext;
     let ctx = GpuContext::global().ok()?;
 
     let h = ctx.matmul(x, w1).ok()?;
@@ -291,29 +291,61 @@ pub fn try_gpu_add_async(
 
 #[cfg(not(feature = "gpu"))]
 pub fn try_gpu_mlp_forward(
-    _x: &[f32], _w1: &[f32], _b1: &[f32], _w2: &[f32], _b2: &[f32],
-    _batch: usize, _input_dim: usize, _hidden_dim: usize, _output_dim: usize,
-) -> Option<Vec<f32>> { None }
+    _x: &[f32],
+    _w1: &[f32],
+    _b1: &[f32],
+    _w2: &[f32],
+    _b2: &[f32],
+    _batch: usize,
+    _input_dim: usize,
+    _hidden_dim: usize,
+    _output_dim: usize,
+) -> Option<Vec<f32>> {
+    None
+}
 
 #[cfg(not(feature = "gpu"))]
 pub fn try_gpu_attention(
-    _q: &[f32], _k: &[f32], _v: &[f32],
-    _batch: usize, _seq: usize, _num_heads: usize, _head_dim: usize, _causal: bool,
-) -> Option<Vec<f32>> { None }
+    _q: &[f32],
+    _k: &[f32],
+    _v: &[f32],
+    _batch: usize,
+    _seq: usize,
+    _num_heads: usize,
+    _head_dim: usize,
+    _causal: bool,
+) -> Option<Vec<f32>> {
+    None
+}
 
 #[cfg(not(feature = "gpu"))]
 pub fn try_gpu_matmul(
-    _x: &[f32], _w: &[f32],
-    _batch: usize, _seq: usize, _in_dim: usize, _out_dim: usize,
-) -> Option<Vec<f32>> { None }
+    _x: &[f32],
+    _w: &[f32],
+    _batch: usize,
+    _seq: usize,
+    _in_dim: usize,
+    _out_dim: usize,
+) -> Option<Vec<f32>> {
+    None
+}
 
 #[cfg(not(feature = "gpu"))]
-pub fn try_gpu_softmax(_scores: &[f32], _rows: usize, _cols: usize) -> Option<Vec<f32>> { None }
+pub fn try_gpu_softmax(_scores: &[f32], _rows: usize, _cols: usize) -> Option<Vec<f32>> {
+    None
+}
 
 #[cfg(not(feature = "gpu"))]
-pub fn try_gpu_gelu(_x: &[f32]) -> Option<Vec<f32>> { None }
+pub fn try_gpu_gelu(_x: &[f32]) -> Option<Vec<f32>> {
+    None
+}
 
 #[cfg(not(feature = "gpu"))]
 pub fn try_gpu_add(
-    _a: &[f32], _b: &[f32], _shape_a: &[usize], _shape_b: &[usize],
-) -> Option<Vec<f32>> { None }
+    _a: &[f32],
+    _b: &[f32],
+    _shape_a: &[usize],
+    _shape_b: &[usize],
+) -> Option<Vec<f32>> {
+    None
+}

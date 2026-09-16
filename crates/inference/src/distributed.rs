@@ -27,8 +27,7 @@ impl DistributedRouter {
         tls_enabled: bool,
     ) -> Self {
         Self::register_load_fn(&registry);
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30));
+        let mut client_builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
         if let Some(ref secret) = shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
             if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
@@ -95,7 +94,11 @@ impl DistributedRouter {
     }
 
     fn rpc_scheme(&self) -> &'static str {
-        if self.tls_enabled { "https" } else { "http" }
+        if self.tls_enabled {
+            "https"
+        } else {
+            "http"
+        }
     }
 
     pub async fn route_remote(
@@ -111,9 +114,7 @@ impl DistributedRouter {
             .timeout(Duration::from_secs(60))
             .send()
             .await
-            .map_err(|e| {
-                InferenceError::InternalError(format!("Remote request failed: {}", e))
-            })?;
+            .map_err(|e| InferenceError::InternalError(format!("Remote request failed: {}", e)))?;
 
         if !resp.status().is_success() {
             return Err(InferenceError::InternalError(format!(
@@ -122,14 +123,9 @@ impl DistributedRouter {
             )));
         }
 
-        resp.json::<InferenceResponse>()
-            .await
-            .map_err(|e| {
-                InferenceError::InternalError(format!(
-                    "Failed to decode remote response: {}",
-                    e
-                ))
-            })
+        resp.json::<InferenceResponse>().await.map_err(|e| {
+            InferenceError::InternalError(format!("Failed to decode remote response: {}", e))
+        })
     }
 
     pub async fn route_remote_streaming(
@@ -190,7 +186,9 @@ impl DistributedRouter {
                                     token: String,
                                     position: usize,
                                 }
-                                if let Ok(payload) = serde_json::from_str::<StreamTokenPayload>(data) {
+                                if let Ok(payload) =
+                                    serde_json::from_str::<StreamTokenPayload>(data)
+                                {
                                     let token = Arc::new(GeneratedToken {
                                         token_id: 0,
                                         token_text: payload.token.into(),
@@ -244,14 +242,9 @@ impl DistributedRouter {
             )));
         }
 
-        resp.json::<ModelWeightShard>()
-            .await
-            .map_err(|e| {
-                InferenceError::InternalError(format!(
-                    "Failed to decode model weights: {}",
-                    e
-                ))
-            })
+        resp.json::<ModelWeightShard>().await.map_err(|e| {
+            InferenceError::InternalError(format!("Failed to decode model weights: {}", e))
+        })
     }
 
     /// Share local model weights with a specific remote node.
@@ -353,9 +346,19 @@ impl ModelWeightShard {
         let bytes = self.token_embedding.len()
             + self.lm_head.len()
             + self.scales.len() * 4
-            + self.layer_weights.iter().map(|l| {
-                l.wq.len() + l.wk.len() + l.wv.len() + l.wo.len() + l.w1.len() + l.w2.len() + l.w3.len()
-            }).sum::<usize>();
+            + self
+                .layer_weights
+                .iter()
+                .map(|l| {
+                    l.wq.len()
+                        + l.wk.len()
+                        + l.wv.len()
+                        + l.wo.len()
+                        + l.w1.len()
+                        + l.w2.len()
+                        + l.w3.len()
+                })
+                .sum::<usize>();
         bytes as f64 / (1024.0 * 1024.0)
     }
 

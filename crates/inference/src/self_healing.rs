@@ -1,7 +1,7 @@
-use crate::engine::{EngineState, InferenceEngine};
 use crate::degradation::{DegradationConfig, DegradationLevel, DegradationManager};
-use std::sync::Arc;
+use crate::engine::{EngineState, InferenceEngine};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -49,10 +49,7 @@ pub struct SelfHealingWorker {
 }
 
 impl SelfHealingWorker {
-    pub fn new(
-        engine_handle: Arc<RwLock<InferenceEngine>>,
-        config: SelfHealingConfig,
-    ) -> Self {
+    pub fn new(engine_handle: Arc<RwLock<InferenceEngine>>, config: SelfHealingConfig) -> Self {
         let degradation = Arc::new(DegradationManager::new(config.degradation_config.clone()));
         Self {
             engine_handle,
@@ -63,7 +60,14 @@ impl SelfHealingWorker {
             consecutive_failures: Arc::new(AtomicU64::new(0)),
             last_heartbeat_ms: Arc::new(AtomicU64::new(0)),
             restart_count: Arc::new(AtomicU64::new(0)),
-            worker_id: format!("healer-{}", Uuid::new_v4().to_string().split('-').next().unwrap_or("0000")),
+            worker_id: format!(
+                "healer-{}",
+                Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .next()
+                    .unwrap_or("0000")
+            ),
         }
     }
 
@@ -97,7 +101,10 @@ impl SelfHealingWorker {
                     break;
                 }
 
-                tokio::time::sleep(Duration::from_millis(worker.config.health_check_interval_ms)).await;
+                tokio::time::sleep(Duration::from_millis(
+                    worker.config.health_check_interval_ms,
+                ))
+                .await;
 
                 if let Err(e) = worker.run_health_check().await {
                     warn!("Health check failed: {}", e);
@@ -163,9 +170,10 @@ impl SelfHealingWorker {
             );
         }
 
-        let deg_level = self.degradation.evaluate(
-            stats.scheduler_stats.avg_processing_time_ms,
-        ).await;
+        let deg_level = self
+            .degradation
+            .evaluate(stats.scheduler_stats.avg_processing_time_ms)
+            .await;
 
         if deg_level > DegradationLevel::Reduced {
             new_health = WorkerHealth::Degraded;
@@ -196,7 +204,10 @@ impl SelfHealingWorker {
     async fn perform_recovery(&self) {
         self.consecutive_failures.store(0, Ordering::Relaxed);
         self.restart_count.fetch_add(1, Ordering::Relaxed);
-        info!("Performing recovery for SelfHealingWorker '{}'", self.worker_id);
+        info!(
+            "Performing recovery for SelfHealingWorker '{}'",
+            self.worker_id
+        );
         tokio::time::sleep(Duration::from_millis(self.config.restart_delay_ms)).await;
     }
 
@@ -227,7 +238,9 @@ mod tests {
     #[tokio::test]
     async fn test_initial_health_is_healthy() {
         let config = SelfHealingConfig::default();
-        let engine = Arc::new(RwLock::new(InferenceEngine::new(InferenceConfig::default())));
+        let engine = Arc::new(RwLock::new(
+            InferenceEngine::new(InferenceConfig::default()),
+        ));
         let worker = SelfHealingWorker::new(engine, config);
         assert_eq!(worker.current_health().await, WorkerHealth::Healthy);
     }
@@ -235,7 +248,9 @@ mod tests {
     #[tokio::test]
     async fn test_heartbeat_recording() {
         let config = SelfHealingConfig::default();
-        let engine = Arc::new(RwLock::new(InferenceEngine::new(InferenceConfig::default())));
+        let engine = Arc::new(RwLock::new(
+            InferenceEngine::new(InferenceConfig::default()),
+        ));
         let worker = SelfHealingWorker::new(engine, config);
         assert_eq!(worker.last_heartbeat_ms.load(Ordering::Relaxed), 0);
         worker.record_heartbeat();
@@ -245,7 +260,9 @@ mod tests {
     #[tokio::test]
     async fn test_restart_count_starts_zero() {
         let config = SelfHealingConfig::default();
-        let engine = Arc::new(RwLock::new(InferenceEngine::new(InferenceConfig::default())));
+        let engine = Arc::new(RwLock::new(
+            InferenceEngine::new(InferenceConfig::default()),
+        ));
         let worker = SelfHealingWorker::new(engine, config);
         assert_eq!(worker.restart_count(), 0);
     }
@@ -253,7 +270,9 @@ mod tests {
     #[tokio::test]
     async fn test_degradation_manager_access() {
         let config = SelfHealingConfig::default();
-        let engine = Arc::new(RwLock::new(InferenceEngine::new(InferenceConfig::default())));
+        let engine = Arc::new(RwLock::new(
+            InferenceEngine::new(InferenceConfig::default()),
+        ));
         let worker = SelfHealingWorker::new(engine, config);
         let dm = worker.degradation_manager();
         assert_eq!(dm.current_level().await, DegradationLevel::None);
@@ -262,7 +281,9 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_flag() {
         let config = SelfHealingConfig::default();
-        let engine = Arc::new(RwLock::new(InferenceEngine::new(InferenceConfig::default())));
+        let engine = Arc::new(RwLock::new(
+            InferenceEngine::new(InferenceConfig::default()),
+        ));
         let worker = SelfHealingWorker::new(engine, config);
         assert!(!worker.shutdown_flag.load(Ordering::Relaxed));
         worker.shutdown();

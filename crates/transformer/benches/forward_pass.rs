@@ -76,5 +76,10 @@ fn bench_generate_long(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_generate_short, bench_forward_single, bench_generate_long);
+criterion_group!(
+    benches,
+    bench_generate_short,
+    bench_forward_single,
+    bench_generate_long
+);
 criterion_main!(benches);

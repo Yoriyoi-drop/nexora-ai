@@ -39,7 +39,9 @@ impl CrossModalAttention {
 
         let init_proj = |rows: usize, cols: usize| -> Vec<f32> {
             let size = rows * cols;
-            (0..size).map(|_| rand::random::<f32>() * scale - scale / 2.0).collect()
+            (0..size)
+                .map(|_| rand::random::<f32>() * scale - scale / 2.0)
+                .collect()
         };
 
         let q_proj = init_proj(hidden_dim, hidden_dim);
@@ -78,12 +80,21 @@ impl CrossModalAttention {
 
     fn xavier_weights(size: usize, hidden_dim: usize) -> Vec<f32> {
         let scale = (2.0 / hidden_dim as f32).sqrt();
-        (0..size).map(|_| rand::random::<f32>() * scale - scale / 2.0).collect()
+        (0..size)
+            .map(|_| rand::random::<f32>() * scale - scale / 2.0)
+            .collect()
     }
 
     /// Project input through weight matrix: output[b,i,o] = sum_d input[b,i,d] * W[d,o]
     /// Tries GPU first, falls back to CPU
-    fn project(&self, input: &[f32], weight: &[f32], n: usize, d_in: usize, d_out: usize) -> Vec<f32> {
+    fn project(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        n: usize,
+        d_in: usize,
+        d_out: usize,
+    ) -> Vec<f32> {
         #[cfg(feature = "gpu")]
         if let Some(result) = self.project_gpu(input, weight, n, d_in, d_out) {
             return result;
@@ -104,7 +115,14 @@ impl CrossModalAttention {
 
     /// GPU-accelerated projection
     #[cfg(feature = "gpu")]
-    fn project_gpu(&self, input: &[f32], weight: &[f32], n: usize, _d_in: usize, d_out: usize) -> Option<Vec<f32>> {
+    fn project_gpu(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        n: usize,
+        _d_in: usize,
+        d_out: usize,
+    ) -> Option<Vec<f32>> {
         use crate::multimodal::gpu_compute;
         gpu_compute::try_gpu_matmul(input, weight, 1, n, _d_in, d_out)
     }
@@ -161,7 +179,9 @@ impl CrossModalAttention {
             for i in 0..n {
                 let row_start = i * n;
                 let mut max_val = attn[row_start];
-                for j in 1..n { max_val = max_val.max(attn[row_start + j]); }
+                for j in 1..n {
+                    max_val = max_val.max(attn[row_start + j]);
+                }
                 let mut sum_exp = 0.0f32;
                 for j in 0..n {
                     let e = (attn[row_start + j] - max_val).exp();
@@ -170,7 +190,9 @@ impl CrossModalAttention {
                 }
                 if sum_exp > 0.0 {
                     let inv = 1.0 / sum_exp;
-                    for j in 0..n { attn[row_start + j] *= inv; }
+                    for j in 0..n {
+                        attn[row_start + j] *= inv;
+                    }
                 }
             }
 
@@ -354,8 +376,12 @@ impl CrossModalAttention {
         use crate::multimodal::gpu_compute;
         let input_slice = features.as_slice()?;
         gpu_compute::try_gpu_matmul(
-            input_slice, weights,
-            batch_size, seq_len, input_dim, output_dim,
+            input_slice,
+            weights,
+            batch_size,
+            seq_len,
+            input_dim,
+            output_dim,
         )
     }
 

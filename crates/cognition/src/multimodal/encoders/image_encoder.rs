@@ -36,9 +36,8 @@ impl PatchMLP {
 
     fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
         let hidden = x.dot(&self.w1) + &self.b1;
-        let gelu = hidden.mapv(|v| {
-            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
-        });
+        let gelu =
+            hidden.mapv(|v| v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh()));
         gelu.dot(&self.w2) + &self.b2
     }
 
@@ -46,7 +45,9 @@ impl PatchMLP {
     fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
         use crate::multimodal::gpu_compute;
         let batch = inputs.len();
-        if batch == 0 { return None; }
+        if batch == 0 {
+            return None;
+        }
         let input_dim = inputs[0].len();
         let hidden_dim = self.w1.shape()[1];
         let output_dim = self.w2.shape()[1];
@@ -56,10 +57,22 @@ impl PatchMLP {
         let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
         let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
         let result = gpu_compute::try_gpu_mlp_forward(
-            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
-            batch, input_dim, hidden_dim, output_dim,
+            &flat_input,
+            &w1_slice,
+            &b1_slice,
+            &w2_slice,
+            &b2_slice,
+            batch,
+            input_dim,
+            hidden_dim,
+            output_dim,
         )?;
-        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+        Some(
+            result
+                .chunks(output_dim)
+                .map(|c| Array1::from_vec(c.to_vec()))
+                .collect(),
+        )
     }
 }
 
@@ -101,8 +114,7 @@ impl ImageEncoder {
 
         let batch_size = 1;
         let patch_size = self.config.patch_size;
-        let seq_len =
-            (input.width / patch_size) * (input.height / patch_size);
+        let seq_len = (input.width / patch_size) * (input.height / patch_size);
         let embed_dim = self.config.output_dim;
         let num_patches_x = input.width / patch_size;
         let channels = input.channels.max(3);
@@ -114,13 +126,15 @@ impl ImageEncoder {
         let pixels: Vec<f32> = raw
             .chunks(channels)
             .flat_map(|pixel| {
-                pixel.iter().enumerate().map(|(c, &v)| {
-                    if c < 3 {
-                        (v - mean[c]) / std[c]
-                    } else {
-                        v
-                    }
-                })
+                pixel.iter().enumerate().map(
+                    |(c, &v)| {
+                        if c < 3 {
+                            (v - mean[c]) / std[c]
+                        } else {
+                            v
+                        }
+                    },
+                )
             })
             .collect();
 
@@ -225,10 +239,22 @@ impl ImageEncoder {
     /// Collect all trainable weights for checkpoint
     pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
         vec![
-            ("image_encoder.patch_proj.w1".to_string(), self.patch_projection.w1.clone().into_dyn()),
-            ("image_encoder.patch_proj.b1".to_string(), self.patch_projection.b1.clone().into_dyn()),
-            ("image_encoder.patch_proj.w2".to_string(), self.patch_projection.w2.clone().into_dyn()),
-            ("image_encoder.patch_proj.b2".to_string(), self.patch_projection.b2.clone().into_dyn()),
+            (
+                "image_encoder.patch_proj.w1".to_string(),
+                self.patch_projection.w1.clone().into_dyn(),
+            ),
+            (
+                "image_encoder.patch_proj.b1".to_string(),
+                self.patch_projection.b1.clone().into_dyn(),
+            ),
+            (
+                "image_encoder.patch_proj.w2".to_string(),
+                self.patch_projection.w2.clone().into_dyn(),
+            ),
+            (
+                "image_encoder.patch_proj.b2".to_string(),
+                self.patch_projection.b2.clone().into_dyn(),
+            ),
         ]
     }
 }

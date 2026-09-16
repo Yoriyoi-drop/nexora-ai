@@ -437,8 +437,11 @@ impl CreativeMuseAgent {
 
     fn calculate_innovation_score(&self, _input: &CreativeTaskInput, content: &str) -> f32 {
         let length_factor = (content.len() as f32 * 0.0003).min(0.3);
-        let structural =
-            if content.contains(&['.', '!', '?'][..]) { 0.3 } else { 0.1 };
+        let structural = if content.contains(&['.', '!', '?'][..]) {
+            0.3
+        } else {
+            0.1
+        };
         (length_factor + structural).min(0.95)
     }
 

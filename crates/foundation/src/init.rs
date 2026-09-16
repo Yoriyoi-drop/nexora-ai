@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tracing::{info, warn};
 
-use nexora_erp::{ERPConfig, CompressionMode};
+use nexora_erp::{CompressionMode, ERPConfig};
 use nexora_models::foundation::transformer_config_for;
 use nexora_transformer::TransformerConfig;
 
@@ -77,10 +77,15 @@ async fn register_causal_lm(
     let sedc_enabled = gpu_available && model_id != NxrModelId::Swift;
     if sedc_enabled {
         model = model.with_sedc();
-        info!("SEDC weight compression enabled for {} (GPU available)", model_id);
+        info!(
+            "SEDC weight compression enabled for {} (GPU available)",
+            model_id
+        );
     } else {
-        info!("SEDC weight compression skipped for {} (GPU={}, model={})",
-            model_id, gpu_available, model_id);
+        info!(
+            "SEDC weight compression skipped for {} (GPU={}, model={})",
+            model_id, gpu_available, model_id
+        );
     }
 
     let mini_tok = MiniTokenizer::new(vocab_size);
@@ -97,13 +102,22 @@ async fn register_causal_lm(
         if std::path::Path::new(path).exists() {
             info!("Loading checkpoint for model {} from {}", model_id, path);
             if let Err(e) = model.load_checkpoint(path).await {
-                warn!("Failed to load checkpoint for {}: {} — using shared backbone", model_id, e);
+                warn!(
+                    "Failed to load checkpoint for {}: {} — using shared backbone",
+                    model_id, e
+                );
             }
         } else {
-            info!("Checkpoint path for {} not found: {} — using shared backbone", model_id, path);
+            info!(
+                "Checkpoint path for {} not found: {} — using shared backbone",
+                model_id, path
+            );
         }
     } else {
-        info!("Model {} — lazy/standby (shared backbone via SingleBackboneRegistry)", model_id);
+        info!(
+            "Model {} — lazy/standby (shared backbone via SingleBackboneRegistry)",
+            model_id
+        );
     }
 
     let model_arc = Arc::new(model);

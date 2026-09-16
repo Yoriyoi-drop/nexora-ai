@@ -30,7 +30,7 @@ pub use communication::{InterAgentMessage, MessageBus};
 pub use lifecycle::{AgentLifecycleEvent, LifecycleManager};
 pub use registry::{AgentRegistry, IntentMapping};
 pub use state::AgentState;
-pub use worker_agent::{WorkerAgent, WorkerAgentConfig, WorkItem, WorkStatus, StepExecutionResult};
+pub use worker_agent::{StepExecutionResult, WorkItem, WorkStatus, WorkerAgent, WorkerAgentConfig};
 
 /// Versi agent layer
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

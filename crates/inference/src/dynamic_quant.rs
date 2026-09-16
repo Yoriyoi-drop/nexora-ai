@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use nexora_deeplearning::star_x::quantization::{
-    QuantizationEngine, QuantMethod, QuantPrecision, MixedPrecisionEngine,
+    MixedPrecisionEngine, QuantMethod, QuantPrecision, QuantizationEngine,
 };
 
 /// Dynamic quantization manager for inference runtime.

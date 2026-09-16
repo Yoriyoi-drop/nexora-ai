@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-
 use super::gpu_tensor::readback_with_timeout;
 use super::gpu_types::*;
 
@@ -206,5 +205,4 @@ impl GpuContext {
         }
         start.elapsed()
     }
-
 }

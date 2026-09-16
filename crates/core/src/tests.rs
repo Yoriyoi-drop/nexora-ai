@@ -1,5 +1,7 @@
 use crate::controller::CoreController;
-use crate::types::{ControllerConfig, DefaultSpecialistModel, InputType, IntentType, ModelId, SpecialistModel};
+use crate::types::{
+    ControllerConfig, DefaultSpecialistModel, InputType, IntentType, ModelId, SpecialistModel,
+};
 use std::sync::Arc;
 
 fn controller_low_threshold() -> CoreController {
@@ -12,7 +14,9 @@ fn controller_low_threshold() -> CoreController {
 #[tokio::test]
 async fn test_core_controller_creation() {
     let controller = controller_low_threshold();
-    let result = controller.process_request("buat program", InputType::Text).await;
+    let result = controller
+        .process_request("buat program", InputType::Text)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -33,7 +37,9 @@ async fn test_controller_routes_coding_intent() {
         vec![IntentType::Coding],
     ));
     controller.register_specialist_model(ModelId::Coding.name(), model);
-    let result = controller.process_request("buat fungsi rust", InputType::Text).await;
+    let result = controller
+        .process_request("buat fungsi rust", InputType::Text)
+        .await;
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(output.contains("CODE ANALYSIS") || output.contains("Model Processing Result"));
@@ -49,7 +55,9 @@ async fn test_controller_routes_memory_intent() {
         vec![IntentType::Memory],
     ));
     controller.register_specialist_model(ModelId::Memory.name(), model);
-    let result = controller.process_request("ingat kejadian sebelumnya", InputType::Text).await;
+    let result = controller
+        .process_request("ingat kejadian sebelumnya", InputType::Text)
+        .await;
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(output.contains("MEMORY") || output.contains("Model Processing Result"));
@@ -66,14 +74,18 @@ async fn test_controller_empty_input() {
 async fn test_controller_very_long_input() {
     let controller = controller_low_threshold();
     let long_input = "a".repeat(100_000);
-    let result = controller.process_request(&long_input, InputType::Text).await;
+    let result = controller
+        .process_request(&long_input, InputType::Text)
+        .await;
     assert!(result.is_err() || result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_model_not_available_fallback() {
     let controller = controller_low_threshold();
-    let result = controller.process_request("memory request test", InputType::Text).await;
+    let result = controller
+        .process_request("memory request test", InputType::Text)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -88,7 +100,9 @@ async fn test_controller_processing_state() {
 #[tokio::test]
 async fn test_controller_stats_tracking() {
     let controller = controller_low_threshold();
-    let _ = controller.process_request("request one", InputType::Text).await;
+    let _ = controller
+        .process_request("request one", InputType::Text)
+        .await;
     let stats = controller.get_stats();
     assert!(stats.total_requests_processed >= 1);
 }
@@ -96,14 +110,18 @@ async fn test_controller_stats_tracking() {
 #[tokio::test]
 async fn test_controller_command_input() {
     let controller = controller_low_threshold();
-    let result = controller.process_request("/help", InputType::Command).await;
+    let result = controller
+        .process_request("/help", InputType::Command)
+        .await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_query_input() {
     let controller = controller_low_threshold();
-    let result = controller.process_request("what is rust?", InputType::Query).await;
+    let result = controller
+        .process_request("what is rust?", InputType::Query)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -124,7 +142,9 @@ async fn test_controller_processes_debugging_intent() {
         vec![IntentType::Debugging, IntentType::Reasoning],
     ));
     controller.register_specialist_model(ModelId::Logic.name(), model);
-    let result = controller.process_request("fix bug memory leak", InputType::Text).await;
+    let result = controller
+        .process_request("fix bug memory leak", InputType::Text)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -136,14 +156,18 @@ async fn test_controller_processes_planning_intent() {
         vec![IntentType::Planning],
     ));
     controller.register_specialist_model(ModelId::Planner.name(), model);
-    let result = controller.process_request("buat rencana proyek", InputType::Text).await;
+    let result = controller
+        .process_request("buat rencana proyek", InputType::Text)
+        .await;
     assert!(result.is_ok());
 }
 
 #[tokio::test]
 async fn test_controller_handles_multi_intent() {
     let controller = controller_low_threshold();
-    let result = controller.process_request("buat fungsi dan cek error", InputType::Text).await;
+    let result = controller
+        .process_request("buat fungsi dan cek error", InputType::Text)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -160,12 +184,18 @@ async fn test_controller_with_multiple_specialists() {
     let models = [
         (ModelId::Coding, vec![IntentType::Coding]),
         (ModelId::Memory, vec![IntentType::Memory]),
-        (ModelId::Logic, vec![IntentType::Debugging, IntentType::Reasoning]),
+        (
+            ModelId::Logic,
+            vec![IntentType::Debugging, IntentType::Reasoning],
+        ),
         (ModelId::Planner, vec![IntentType::Planning]),
         (ModelId::Validator, vec![IntentType::Validation]),
     ];
     for (id, intents) in &models {
-        controller.register_specialist_model(id.name(), Box::new(DefaultSpecialistModel::new(*id, intents.clone())));
+        controller.register_specialist_model(
+            id.name(),
+            Box::new(DefaultSpecialistModel::new(*id, intents.clone())),
+        );
     }
     let inputs = vec![
         "buat program rust",

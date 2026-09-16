@@ -158,7 +158,10 @@ impl MultiHeadLatentAttention {
             return Err(anyhow::anyhow!(
                 "MLA concatenate_heads: head_dim({}) * n_heads({}) = {} != latent_dim({}). \
                  Each head output must align with latent projection dimension.",
-                head_dim, heads.len(), concatenated_dim, expected_dim,
+                head_dim,
+                heads.len(),
+                concatenated_dim,
+                expected_dim,
             ));
         }
 
@@ -623,7 +626,8 @@ impl OracleBackbone {
             let gpu_normed = self.norm_layers[i].forward_gpu(&hidden, &ctx, d_model)?;
 
             // MoE layer — HasMoeFFN handles GPU internally if available
-            let moe_out = self.moe_layers[i].forward_gpu(&gpu_normed)
+            let moe_out = self.moe_layers[i]
+                .forward_gpu(&gpu_normed)
                 .map_err(|e| anyhow::anyhow!("HasMoeFFN GPU forward: {e}"))?;
             hidden = ctx.add(&gpu_normed, &moe_out)?;
 
@@ -714,7 +718,9 @@ impl EmbeddingLayer {
                 if token_id < self.embeddings.dim().0 {
                     let src = token_id * d_model;
                     let dst = (b * seq_len + i) * d_model;
-                    let emb_row = self.embeddings.as_slice()
+                    let emb_row = self
+                        .embeddings
+                        .as_slice()
                         .ok_or_else(|| anyhow::anyhow!("Embeddings not contiguous"))?;
                     for d in 0..d_model {
                         flat[dst + d] = emb_row[src + d];
@@ -789,7 +795,8 @@ impl LayerNorm {
             .weight_gpu
             .get_or_init(|| {
                 let w_flat: Vec<f32> = self.weight.iter().copied().collect();
-                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &w_flat).ok()
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &w_flat)
+                    .ok()
             })
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm weight"))?;
@@ -798,7 +805,8 @@ impl LayerNorm {
             .bias_gpu
             .get_or_init(|| {
                 let b_flat: Vec<f32> = self.bias.iter().copied().collect();
-                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &b_flat).ok()
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_slice(vec![d_model], &b_flat)
+                    .ok()
             })
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Failed to cache LayerNorm bias"))?;
@@ -991,8 +999,7 @@ impl OracleBackbone {
 
             // --- MoE with soft gating (differentiable) ---
             // Native HasMoeFFN format: router_w [ne, h], need h @ router_w^T
-            let gate_scores =
-                ops::nn::softmax(&h.matmul(&params[lo.router_w].transpose()), 1);
+            let gate_scores = ops::nn::softmax(&h.matmul(&params[lo.router_w].transpose()), 1);
             // gate_scores: [n, n_experts]
 
             // Soft MoE: weighted sum of all experts

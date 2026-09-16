@@ -2,7 +2,9 @@
 ///
 /// Combines matmul + bias + activation into a single compute shader dispatch,
 /// eliminating intermediate VRAM roundtrips and reducing synchronisation overhead.
-use crate::autograd::gpu::{storage_binding, uniform_binding, GpuContext, GpuDtype, GpuError, GpuTensor};
+use crate::autograd::gpu::{
+    storage_binding, uniform_binding, GpuContext, GpuDtype, GpuError, GpuTensor,
+};
 
 // ─── Activation codes ─────────────────────────────────────────────────────────
 pub const ACT_IDENTITY: u32 = 0;

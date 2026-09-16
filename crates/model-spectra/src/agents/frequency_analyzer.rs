@@ -274,9 +274,7 @@ impl FrequencyAnalyzerAgent {
                 // Find magnitude at harmonic frequency
                 let harmonic_magnitude = spectrum
                     .iter()
-                    .filter(|(freq, _)| {
-                        (*freq - harmonic_freq).abs() < tolerance
-                    })
+                    .filter(|(freq, _)| (*freq - harmonic_freq).abs() < tolerance)
                     .map(|(_, mag)| *mag)
                     .max_by(|a, b| a.total_cmp(b))
                     .unwrap_or(0.0);

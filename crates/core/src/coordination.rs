@@ -573,7 +573,8 @@ impl MultiModelCoordinator {
 
         let successful_results: Vec<_> = results.iter().filter(|r| r.success).collect();
         // Pre-compute lowercase to avoid O(n²) allocation
-        let lower_outputs: Vec<String> = successful_results.iter()
+        let lower_outputs: Vec<String> = successful_results
+            .iter()
             .map(|r| r.output.to_lowercase())
             .collect();
 
@@ -596,7 +597,8 @@ impl MultiModelCoordinator {
         let successful_results: Vec<_> = results.iter().filter(|r| r.success).collect();
         let mut conflicts = Vec::with_capacity(successful_results.len().saturating_pow(2));
         // Pre-compute lowercase to avoid O(n²) allocation
-        let lower_outputs: Vec<String> = successful_results.iter()
+        let lower_outputs: Vec<String> = successful_results
+            .iter()
             .map(|r| r.output.to_lowercase())
             .collect();
 

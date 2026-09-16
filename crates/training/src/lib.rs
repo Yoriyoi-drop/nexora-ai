@@ -7,8 +7,6 @@ use std::sync::Arc;
 
 use ndarray::ArrayD;
 use nexora_deeplearning::autograd::compute_grad_norm;
-use nexora_deeplearning::autograd::ops::cross_entropy_loss;
-use nexora_deeplearning::autograd::{clear_tape, Adam, Tensor, TensorOps};
 #[cfg(feature = "gpu")]
 use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 #[cfg(feature = "gpu")]
@@ -17,6 +15,8 @@ use nexora_deeplearning::autograd::gpu_adam::GpuAdam;
 use nexora_deeplearning::autograd::gpu_async::{AsyncReadback, GpuStagingPool};
 #[cfg(feature = "gpu")]
 use nexora_deeplearning::autograd::gpu_grad_clip::GpuGradClipResult;
+use nexora_deeplearning::autograd::ops::cross_entropy_loss;
+use nexora_deeplearning::autograd::{clear_tape, Adam, Tensor, TensorOps};
 #[cfg(feature = "gpu")]
 use nexora_deeplearning::autograd::{Device, Storage};
 use tracing::{info, warn};
@@ -202,7 +202,9 @@ impl Trainer {
                         match GpuTensor::from_cpu(&p.data()) {
                             Ok(gpu_t) => {
                                 let shape = gpu_t.shape();
-                                p.set_storage(nexora_deeplearning::autograd::Storage::Gpu(gpu_t, shape));
+                                p.set_storage(nexora_deeplearning::autograd::Storage::Gpu(
+                                    gpu_t, shape,
+                                ));
                                 p.set_device(Device::Gpu(0));
                             }
                             Err(e) => {
@@ -465,7 +467,8 @@ impl Trainer {
                     let save_path = format!("{}.safetensors", path);
                     let save_tensors = trainable.collect_checkpoint_tensors();
                     std::thread::spawn(move || {
-                        let refs: Vec<(&str, ndarray::ArrayD<f32>)> = save_tensors.iter()
+                        let refs: Vec<(&str, ndarray::ArrayD<f32>)> = save_tensors
+                            .iter()
                             .map(|(name, arr)| (name.as_str(), arr.clone()))
                             .collect();
                         if let Err(e) = safetensors::save_safetensors(&save_path, &refs) {
@@ -1052,7 +1055,8 @@ fn load_optimizer_file(
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: monitoring untuk training metrics
-static TRAIN_MONITOR: std::sync::OnceLock<nexora_monitoring::MonitoringSystem> = std::sync::OnceLock::new();
+static TRAIN_MONITOR: std::sync::OnceLock<nexora_monitoring::MonitoringSystem> =
+    std::sync::OnceLock::new();
 pub fn train_monitoring() -> &'static nexora_monitoring::MonitoringSystem {
     TRAIN_MONITOR.get_or_init(|| {
         nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())

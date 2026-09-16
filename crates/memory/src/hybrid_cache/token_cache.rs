@@ -64,7 +64,11 @@ impl TokenCache {
             hits,
             misses,
             evictions: 0,
-            hit_rate: if total > 0 { hits as f64 / total as f64 } else { 0.0 },
+            hit_rate: if total > 0 {
+                hits as f64 / total as f64
+            } else {
+                0.0
+            },
         }
     }
 }

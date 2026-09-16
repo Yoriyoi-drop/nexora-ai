@@ -4,9 +4,9 @@
 //! Provides unified interface for model-enhanced coding intelligence
 
 use super::{config::*, error::*, prelude::*, types::*};
+use crate::multimodal::Caffeine;
 use nexora_atqs::compression::CompressionEngine;
 use nexora_has_moe_ffn::routing::Router;
-use crate::multimodal::Caffeine;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};

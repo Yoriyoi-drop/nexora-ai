@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
+use nexora_datastream::SourceProvider;
 use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
 use serde_json::Value;
@@ -10,7 +11,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::signal;
 use tracing::{error, info, warn};
-use nexora_datastream::SourceProvider;
 
 use crate::NexoraAI;
 use nexora_datastream::{
@@ -22,10 +22,10 @@ use nexora_datastream::{
     DataSample, ExecutionResult, SourceCategory, SourceInfo,
 };
 use nexora_deeplearning::autograd::TensorOps;
+use nexora_deeplearning::quantization::QFormat;
+use nexora_foundation::tokenizer::BpeTokenizer;
 use nexora_foundation::training::{Trainer, TrainerConfig};
 use nexora_foundation::NxrModelId;
-use nexora_foundation::tokenizer::BpeTokenizer;
-use nexora_deeplearning::quantization::QFormat;
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 
 // ── ANSI terminal color helpers ──
@@ -446,166 +446,271 @@ impl crate::cli::commands::Cli {
             fetch_timestamp: Utc::now().timestamp(),
         };
 
-        let (raw_samples, _raw_text, loaded_count): (Vec<DataSample>, String, usize) =
-            if let Some(hf) = hf_dataset {
-                let max_s = if hf_max_samples > 0 { hf_max_samples } else { usize::MAX };
-                let mut provider = nexora_datastream::source::huggingface::HuggingFaceDatasetProvider::new(hf, max_s)
-                    .with_split(hf_split);
-                provider.resolve_config().await;
-                let samples = provider.fetch_samples().await;
-                let count = samples.len();
-                info!("[HF] Fetched {} raw samples from '{}'", count, hf);
-                let text: String = {
-                    let mut t = String::new();
-                    for s in &samples {
-                        t.push_str(&s.text);
-                        t.push('\n');
-                    }
-                    t
-                };
-                (samples, text, count)
+        let (raw_samples, _raw_text, loaded_count): (Vec<DataSample>, String, usize) = if let Some(
+            hf,
+        ) =
+            hf_dataset
+        {
+            let max_s = if hf_max_samples > 0 {
+                hf_max_samples
             } else {
-                let data = data.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("Either --data or --hf-dataset is required")
-                })?;
-                if !data.exists() {
-                    return Err(anyhow::anyhow!("Training data not found: {:?}", data));
+                usize::MAX
+            };
+            let mut provider =
+                nexora_datastream::source::huggingface::HuggingFaceDatasetProvider::new(hf, max_s)
+                    .with_split(hf_split);
+            provider.resolve_config().await;
+            let samples = provider.fetch_samples().await;
+            let count = samples.len();
+            info!("[HF] Fetched {} raw samples from '{}'", count, hf);
+            let text: String = {
+                let mut t = String::new();
+                for s in &samples {
+                    t.push_str(&s.text);
+                    t.push('\n');
                 }
-                if data.is_dir() && has_manifest(data) {
-                    info!("Dataset streaming pipeline detected (manifest.json)");
-                    return Self::run_train_streaming(
-                        data, output, tokenizer_path, epochs, batch_size, learning_rate,
-                        gpu, seq_length, resume, half_precision,
-                    ).await;
-                }
-                if data.is_dir() {
-                    let mut entries: Vec<_> = std::fs::read_dir(data)?
-                        .filter_map(|e| e.ok())
-                        .filter(|e| {
-                            e.path()
-                                .extension()
-                                .and_then(|ext| ext.to_str())
-                                .map(|ext| ext == "arrow" || ext == "parquet")
-                                .unwrap_or(false)
-                        })
-                        .collect();
-                    entries.sort_by_key(|e| e.file_name());
-                    let mut all_samples: Vec<DataSample> = Vec::with_capacity(entries.len());
-                    let mut corpus = String::new();
-                    let mut total_file_size: u64 = 0;
-                    let mut total_chars: usize = 0;
-                    let load_start = std::time::Instant::now();
-                    info!("{}",
-                        bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"));
-                    info!("{}",
+                t
+            };
+            (samples, text, count)
+        } else {
+            let data = data
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Either --data or --hf-dataset is required"))?;
+            if !data.exists() {
+                return Err(anyhow::anyhow!("Training data not found: {:?}", data));
+            }
+            if data.is_dir() && has_manifest(data) {
+                info!("Dataset streaming pipeline detected (manifest.json)");
+                return Self::run_train_streaming(
+                    data,
+                    output,
+                    tokenizer_path,
+                    epochs,
+                    batch_size,
+                    learning_rate,
+                    gpu,
+                    seq_length,
+                    resume,
+                    half_precision,
+                )
+                .await;
+            }
+            if data.is_dir() {
+                let mut entries: Vec<_> = std::fs::read_dir(data)?
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        e.path()
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext == "arrow" || ext == "parquet")
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                entries.sort_by_key(|e| e.file_name());
+                let mut all_samples: Vec<DataSample> = Vec::with_capacity(entries.len());
+                let mut corpus = String::new();
+                let mut total_file_size: u64 = 0;
+                let mut total_chars: usize = 0;
+                let load_start = std::time::Instant::now();
+                info!(
+                    "{}",
+                    bold!(
+                        "    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"
+                    )
+                );
+                info!("{}",
                         dim!("    │  Reading data: detecting format, file sizes, loading into memory   │"));
-                    info!("{}",
-                        bold!("    └──────────────────────────────────────────────────────────────────┘"));
-                    for entry in &entries {
-                        let path = entry.path();
-                        let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                        total_file_size += file_size;
-                        let file_start = std::time::Instant::now();
-                        let samples = match nexora_datastream::format_loader::load_dataset(&path, source.clone()) {
+                info!(
+                    "{}",
+                    bold!(
+                        "    └──────────────────────────────────────────────────────────────────┘"
+                    )
+                );
+                for entry in &entries {
+                    let path = entry.path();
+                    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    total_file_size += file_size;
+                    let file_start = std::time::Instant::now();
+                    let samples =
+                        match nexora_datastream::format_loader::load_dataset(&path, source.clone())
+                        {
                             Ok(s) => s,
                             Err(e) => {
                                 warn!("  ⚠️  Skipping corrupt file {}: {}", path.display(), e);
                                 continue;
                             }
                         };
-                        let file_elapsed = file_start.elapsed();
-                        let file_mb = file_size as f64 / 1_048_576.0;
-                        info!("  📄 {}: {} records, {:.2} MB, loaded in {:?}",
-                            path.display(), samples.len(), file_mb, file_elapsed);
-                        for s in &samples {
-                            total_chars += s.text.len();
-                            corpus.push_str(&s.text);
-                            corpus.push('\n');
-                        }
-                        all_samples.extend(samples);
+                    let file_elapsed = file_start.elapsed();
+                    let file_mb = file_size as f64 / 1_048_576.0;
+                    info!(
+                        "  📄 {}: {} records, {:.2} MB, loaded in {:?}",
+                        path.display(),
+                        samples.len(),
+                        file_mb,
+                        file_elapsed
+                    );
+                    for s in &samples {
+                        total_chars += s.text.len();
+                        corpus.push_str(&s.text);
+                        corpus.push('\n');
                     }
-                    let count = all_samples.len();
-                    let load_elapsed = load_start.elapsed();
-                    let total_mb = total_file_size as f64 / 1_048_576.0;
-                    info!("  📊 Total: {} shards, {} records, {:.2} MB data, {:.1}M chars, loaded in {:?} ({:.0} MB/s)",
+                    all_samples.extend(samples);
+                }
+                let count = all_samples.len();
+                let load_elapsed = load_start.elapsed();
+                let total_mb = total_file_size as f64 / 1_048_576.0;
+                info!("  📊 Total: {} shards, {} records, {:.2} MB data, {:.1}M chars, loaded in {:?} ({:.0} MB/s)",
                         entries.len(), count, total_mb, total_chars as f64 / 1_000_000.0,
                         load_elapsed,
                         if load_elapsed.as_secs_f64() > 0.0 { total_mb / load_elapsed.as_secs_f64() } else { 0.0 });
-                    info!("  📏 Avg chars/record: {:.0}, est. tokens: ~{}k (seq_len={})",
-                        if count > 0 { total_chars as f64 / count as f64 } else { 0.0 },
-                        (total_chars / 4) / 1000, seq_length);
-                    info!("  🧠 RAM: sebelum load ~{:.1} GB", available_system_memory_gb());
-                    (all_samples, corpus, count)
-                } else if data.extension().and_then(|e| e.to_str()).map_or(false, |e| e == "arrow" || e == "parquet") {
-                    info!("{}",
-                        bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"));
-                    info!("{}",
-                        dim!("    │  Reading single Arrow IPC file                                 │"));
-                    info!("{}",
-                        bold!("    └──────────────────────────────────────────────────────────────────┘"));
-                    let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
-                    let file_mb = file_size as f64 / 1_048_576.0;
-                    let load_start = std::time::Instant::now();
-                    let arrow_samples = nexora_datastream::format_loader::load_dataset(data, source)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?;
-                    let load_elapsed = load_start.elapsed();
-                    let count = arrow_samples.len();
-                    let mut total_chars: usize = 0;
-                    info!("  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)",
-                        data.display(), count, file_mb, load_elapsed,
-                        if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 });
-                    let corpus: String = {
-                        let mut c = String::new();
-                        for s in &arrow_samples {
-                            total_chars += s.text.len();
-                            c.push_str(&s.text);
-                            c.push('\n');
-                        }
-                        c
-                    };
-                    info!("  📊 {:.1}M chars loaded, est. tokens: ~{}k (seq_len={})",
-                        total_chars as f64 / 1_000_000.0, (total_chars / 4) / 1000, seq_length);
-                    info!("  🧠 RAM: sebelum load ~{:.1} GB", available_system_memory_gb());
-                    (arrow_samples, corpus, count)
-                } else {
-                    info!("{}",
-                        bold!("    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"));
-                    info!("{}",
-                        dim!("    │  Loading text file: counting lines, estimating corpus size        │"));
-                    info!("{}",
-                        bold!("    └──────────────────────────────────────────────────────────────────┘"));
-                    let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
-                    let max_size = 2u64 * 1024 * 1024 * 1024; // 2 GB
-                    if file_size > max_size {
-                        return Err(anyhow::anyhow!("Training file too large: {} bytes (max {}). Use stream_dataset() instead.", file_size, max_size));
+                info!(
+                    "  📏 Avg chars/record: {:.0}, est. tokens: ~{}k (seq_len={})",
+                    if count > 0 {
+                        total_chars as f64 / count as f64
+                    } else {
+                        0.0
+                    },
+                    (total_chars / 4) / 1000,
+                    seq_length
+                );
+                info!(
+                    "  🧠 RAM: sebelum load ~{:.1} GB",
+                    available_system_memory_gb()
+                );
+                (all_samples, corpus, count)
+            } else if data
+                .extension()
+                .and_then(|e| e.to_str())
+                .map_or(false, |e| e == "arrow" || e == "parquet")
+            {
+                info!(
+                    "{}",
+                    bold!(
+                        "    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"
+                    )
+                );
+                info!(
+                    "{}",
+                    dim!("    │  Reading single Arrow IPC file                                 │")
+                );
+                info!(
+                    "{}",
+                    bold!(
+                        "    └──────────────────────────────────────────────────────────────────┘"
+                    )
+                );
+                let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
+                let file_mb = file_size as f64 / 1_048_576.0;
+                let load_start = std::time::Instant::now();
+                let arrow_samples = nexora_datastream::format_loader::load_dataset(data, source)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                let load_elapsed = load_start.elapsed();
+                let count = arrow_samples.len();
+                let mut total_chars: usize = 0;
+                info!(
+                    "  📄 {}: {} records, {:.2} MB, loaded in {:?} ({:.0} MB/s)",
+                    data.display(),
+                    count,
+                    file_mb,
+                    load_elapsed,
+                    if load_elapsed.as_secs_f64() > 0.0 {
+                        file_mb / load_elapsed.as_secs_f64()
+                    } else {
+                        0.0
                     }
-                    let file_mb = file_size as f64 / 1_048_576.0;
-                    let load_start = std::time::Instant::now();
-                    let raw_text = std::fs::read_to_string(data)?;
-                    let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
-                    let line_count = lines.len();
-                    let load_elapsed = load_start.elapsed();
-                    let total_chars = raw_text.len();
-                    info!("  📄 File: {:.2} MB, {} baris non-kosong", file_mb, line_count);
-                    info!("  📊 {:.1}M chars, est. tokens: ~{}k (seq_len={})",
-                        total_chars as f64 / 1_000_000.0, (total_chars / 4) / 1000, seq_length);
-                    info!("  ⏱ Load time: {:?} ({:.0} MB/s)", load_elapsed,
-                        if load_elapsed.as_secs_f64() > 0.0 { file_mb / load_elapsed.as_secs_f64() } else { 0.0 });
-                    info!("  🧠 RAM: sebelum load ~{:.1} GB", available_system_memory_gb());
-                    let intake = nexora_datastream::StreamIntakeEngine::default();
-                    let texts_with_source: Vec<(String, SourceInfo)> = lines
-                        .iter()
-                        .map(|l| (l.to_string(), source.clone()))
-                        .collect();
-                    let mut sample_rx = intake.ingest_batch(texts_with_source).await;
-                    let mut raw: Vec<DataSample> = Vec::new();
-                    while let Some(s) = sample_rx.recv().await {
-                        raw.push(s);
+                );
+                let corpus: String = {
+                    let mut c = String::new();
+                    for s in &arrow_samples {
+                        total_chars += s.text.len();
+                        c.push_str(&s.text);
+                        c.push('\n');
                     }
-                    drop(lines);
-                    (raw, raw_text, line_count)
+                    c
+                };
+                info!(
+                    "  📊 {:.1}M chars loaded, est. tokens: ~{}k (seq_len={})",
+                    total_chars as f64 / 1_000_000.0,
+                    (total_chars / 4) / 1000,
+                    seq_length
+                );
+                info!(
+                    "  🧠 RAM: sebelum load ~{:.1} GB",
+                    available_system_memory_gb()
+                );
+                (arrow_samples, corpus, count)
+            } else {
+                info!(
+                    "{}",
+                    bold!(
+                        "    ┌─ [1/6] Load Dataset ────────────────────────────────────────────┐"
+                    )
+                );
+                info!(
+                    "{}",
+                    dim!(
+                        "    │  Loading text file: counting lines, estimating corpus size        │"
+                    )
+                );
+                info!(
+                    "{}",
+                    bold!(
+                        "    └──────────────────────────────────────────────────────────────────┘"
+                    )
+                );
+                let file_size = std::fs::metadata(data).map(|m| m.len()).unwrap_or(0);
+                let max_size = 2u64 * 1024 * 1024 * 1024; // 2 GB
+                if file_size > max_size {
+                    return Err(anyhow::anyhow!(
+                        "Training file too large: {} bytes (max {}). Use stream_dataset() instead.",
+                        file_size,
+                        max_size
+                    ));
                 }
-            };
+                let file_mb = file_size as f64 / 1_048_576.0;
+                let load_start = std::time::Instant::now();
+                let raw_text = std::fs::read_to_string(data)?;
+                let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
+                let line_count = lines.len();
+                let load_elapsed = load_start.elapsed();
+                let total_chars = raw_text.len();
+                info!(
+                    "  📄 File: {:.2} MB, {} baris non-kosong",
+                    file_mb, line_count
+                );
+                info!(
+                    "  📊 {:.1}M chars, est. tokens: ~{}k (seq_len={})",
+                    total_chars as f64 / 1_000_000.0,
+                    (total_chars / 4) / 1000,
+                    seq_length
+                );
+                info!(
+                    "  ⏱ Load time: {:?} ({:.0} MB/s)",
+                    load_elapsed,
+                    if load_elapsed.as_secs_f64() > 0.0 {
+                        file_mb / load_elapsed.as_secs_f64()
+                    } else {
+                        0.0
+                    }
+                );
+                info!(
+                    "  🧠 RAM: sebelum load ~{:.1} GB",
+                    available_system_memory_gb()
+                );
+                let intake = nexora_datastream::StreamIntakeEngine::default();
+                let texts_with_source: Vec<(String, SourceInfo)> = lines
+                    .iter()
+                    .map(|l| (l.to_string(), source.clone()))
+                    .collect();
+                let mut sample_rx = intake.ingest_batch(texts_with_source).await;
+                let mut raw: Vec<DataSample> = Vec::new();
+                while let Some(s) = sample_rx.recv().await {
+                    raw.push(s);
+                }
+                drop(lines);
+                (raw, raw_text, line_count)
+            }
+        };
         info!(
             "{}",
             bold!("    ┌─ [2/6] Filter Data Pipeline ─────────────────────────────────────┐")
@@ -965,8 +1070,17 @@ impl crate::cli::commands::Cli {
                 let hp = half_precision;
                 let result = tokio::task::spawn_blocking(move || {
                     train_nxr_model_pre_tokenized(
-                        model_id, model_name, tf_config, cfg, &*train_seq, &*val_seq, &out, epochs,
-                        seq_length, sf, hp,
+                        model_id,
+                        model_name,
+                        tf_config,
+                        cfg,
+                        &*train_seq,
+                        &*val_seq,
+                        &out,
+                        epochs,
+                        seq_length,
+                        sf,
+                        hp,
                     )
                 })
                 .await;
@@ -1687,7 +1801,10 @@ impl crate::cli::commands::Cli {
         info!("Loading test data...");
         let test_size = std::fs::metadata(test_data).map(|m| m.len()).unwrap_or(0);
         if test_size > 2u64 * 1024 * 1024 * 1024 {
-            return Err(anyhow::anyhow!("Test file too large: {} bytes (max 2GB)", test_size));
+            return Err(anyhow::anyhow!(
+                "Test file too large: {} bytes (max 2GB)",
+                test_size
+            ));
         }
         let raw_text = std::fs::read_to_string(test_data)?;
         let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();

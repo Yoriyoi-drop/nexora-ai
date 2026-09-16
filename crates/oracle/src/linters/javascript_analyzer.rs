@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::linters::ast_analyzer;
 use crate::linters::{CodeIssue, IssueSeverity};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct JsFindings {
@@ -19,7 +19,9 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
 
     for (i, raw_line) in code.lines().enumerate() {
         let line_num = i + 1;
-        if is_comment_or_empty(raw_line) { continue; }
+        if is_comment_or_empty(raw_line) {
+            continue;
+        }
         let trimmed = raw_line.trim();
 
         // ── eval() ─────────────────────────────────────────────────
@@ -85,7 +87,8 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Error,
                 category: "Security".to_string(),
-                message: "document.write() — XSS risk. Use DOM manipulation methods instead.".to_string(),
+                message: "document.write() — XSS risk. Use DOM manipulation methods instead."
+                    .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "JS-DOCUMENT-WRITE".to_string(),
@@ -98,7 +101,8 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
             || trimmed.to_uppercase().contains("DELETE ")
             || trimmed.to_uppercase().contains("UPDATE ");
         if has_sql_kw {
-            let has_concat = trimmed.contains('+') || trimmed.contains("${") || trimmed.contains("concat(");
+            let has_concat =
+                trimmed.contains('+') || trimmed.contains("${") || trimmed.contains("concat(");
             if has_concat {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
@@ -113,8 +117,10 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
 
         // ── Math.random() for security ─────────────────────────────
         if trimmed.contains("Math.random(")
-            && (trimmed.contains("password") || trimmed.contains("token")
-                || trimmed.contains("secret") || trimmed.contains("crypto"))
+            && (trimmed.contains("password")
+                || trimmed.contains("token")
+                || trimmed.contains("secret")
+                || trimmed.contains("crypto"))
         {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Error,
@@ -128,16 +134,23 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
 
         // ── hardcoded secrets ──────────────────────────────────────
         let lower = trimmed.to_lowercase();
-        if (lower.contains("password") || lower.contains("secret") || lower.contains("api_key")
-            || lower.contains("apikey") || lower.contains("auth_token") || lower.contains("token"))
-            && !lower.contains("process.env.") && !lower.contains("env(")
+        if (lower.contains("password")
+            || lower.contains("secret")
+            || lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("auth_token")
+            || lower.contains("token"))
+            && !lower.contains("process.env.")
+            && !lower.contains("env(")
         {
             let has_str = trimmed.contains('"') || trimmed.contains('\'') || trimmed.contains("`");
             if has_str {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Error,
                     category: "Security".to_string(),
-                    message: "Hardcoded secret detected — use environment variables via process.env.".to_string(),
+                    message:
+                        "Hardcoded secret detected — use environment variables via process.env."
+                            .to_string(),
                     line_number: Some(line_num),
                     column_number: None,
                     rule_id: "JS-HARDCODED-SECRET".to_string(),
@@ -146,11 +159,13 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
         }
 
         // ── weak crypto ────────────────────────────────────────────
-        if trimmed.contains("createHash(") && (trimmed.contains("md5") || trimmed.contains("sha1")) {
+        if trimmed.contains("createHash(") && (trimmed.contains("md5") || trimmed.contains("sha1"))
+        {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Warning,
                 category: "Security".to_string(),
-                message: "Weak cryptographic hash (MD5/SHA1) — use SHA-256 or stronger.".to_string(),
+                message: "Weak cryptographic hash (MD5/SHA1) — use SHA-256 or stronger."
+                    .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "JS-WEAK-CRYPTO".to_string(),
@@ -160,8 +175,12 @@ pub fn analyze_javascript(code: &str) -> JsFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("js_issues".to_string(), issues.len() as f32);
-    metrics.insert("js_high_severity".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error)).count() as f32,
+    metrics.insert(
+        "js_high_severity".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error))
+            .count() as f32,
     );
 
     JsFindings { issues, metrics }
@@ -173,9 +192,15 @@ fn extract_call_arg(s: &str, fn_name: &str) -> Option<String> {
     let mut depth = 1;
     let mut arg = String::new();
     for ch in after.chars() {
-        if ch == '(' { depth += 1; }
-        if ch == ')' { depth -= 1; }
-        if depth == 0 { break; }
+        if ch == '(' {
+            depth += 1;
+        }
+        if ch == ')' {
+            depth -= 1;
+        }
+        if depth == 0 {
+            break;
+        }
         arg.push(ch);
     }
     Some(arg.trim().to_string())
@@ -207,30 +232,46 @@ mod tests {
     #[test]
     fn test_js_innerhtml_xss() {
         let findings = analyze_javascript(r#"element.innerHTML = "<div>" + userInput + "</div>";"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JS-XSS-INNERHTML"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JS-XSS-INNERHTML"));
     }
 
     #[test]
     fn test_js_document_write() {
         let findings = analyze_javascript(r#"document.write(userInput)"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JS-DOCUMENT-WRITE"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JS-DOCUMENT-WRITE"));
     }
 
     #[test]
     fn test_js_sql_injection() {
-        let findings = analyze_javascript(r#"const query = "SELECT * FROM users WHERE id = " + userId;"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JS-SQL-INJECTION"));
+        let findings =
+            analyze_javascript(r#"const query = "SELECT * FROM users WHERE id = " + userId;"#);
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JS-SQL-INJECTION"));
     }
 
     #[test]
     fn test_js_hardcoded_secret() {
         let findings = analyze_javascript(r#"const API_KEY = "sk-abc123";"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JS-HARDCODED-SECRET"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JS-HARDCODED-SECRET"));
     }
 
     #[test]
     fn test_js_no_false_positive_env() {
         let findings = analyze_javascript(r#"const API_KEY = process.env.API_KEY;"#);
-        assert!(!findings.issues.iter().any(|i| i.rule_id == "JS-HARDCODED-SECRET"));
+        assert!(!findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JS-HARDCODED-SECRET"));
     }
 }

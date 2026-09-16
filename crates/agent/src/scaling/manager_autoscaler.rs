@@ -1,7 +1,7 @@
+use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -41,7 +41,10 @@ impl ManagerAutoscaler {
         let mut policy = self.policy.write();
         let decision = policy.evaluate(0.0, 0.0, 0, 0);
 
-        let acted = matches!(decision, ScalingDecision::ScaleUp(_) | ScalingDecision::ScaleDown(_));
+        let acted = matches!(
+            decision,
+            ScalingDecision::ScaleUp(_) | ScalingDecision::ScaleDown(_)
+        );
         if acted {
             *self.last_scale_time.write() = Instant::now();
         }
@@ -51,7 +54,10 @@ impl ManagerAutoscaler {
 
     pub async fn start(&self) {
         self.running.store(true, Ordering::SeqCst);
-        info!("ManagerAutoscaler started (min={}, max={})", self.config.min_agents, self.config.max_agents);
+        info!(
+            "ManagerAutoscaler started (min={}, max={})",
+            self.config.min_agents, self.config.max_agents
+        );
 
         let interval = self.config.evaluation_interval_secs;
 

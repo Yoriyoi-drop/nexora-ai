@@ -3,9 +3,9 @@
 
 use ndarray::ArrayD;
 
+use crate::autograd::Tensor;
 use crate::echo_net::DLResult;
 use crate::echo_net::DeepLearningError;
-use crate::autograd::Tensor;
 
 use crate::echo_net::{
     AdaptivePhaseSeparationStabilizer, DualEntropicResonanceRetrieval, EchoNetConfig, EchoNetState,

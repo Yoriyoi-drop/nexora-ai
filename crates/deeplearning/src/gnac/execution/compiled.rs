@@ -58,9 +58,10 @@ impl CompiledExecutor {
         ir: &GraphIR,
         inputs: HashMap<String, Tensor>,
     ) -> DLResult<HashMap<String, Tensor>> {
-        let ctx = GpuContext::global().map_err(|e| crate::gnac::DeepLearningError::Computation {
-            reason: format!("GPU backend requires GPU context: {}", e),
-        })?;
+        let ctx =
+            GpuContext::global().map_err(|e| crate::gnac::DeepLearningError::Computation {
+                reason: format!("GPU backend requires GPU context: {}", e),
+            })?;
 
         let backend_name = if self.backend == ExecutionBackend::CUDA {
             "CUDA"
@@ -78,10 +79,11 @@ impl CompiledExecutor {
         let mut gpu_tensors: HashMap<String, GpuTensor> = HashMap::new();
         for (name, tensor) in &inputs {
             let data = tensor.data();
-            let gpu_tensor =
-                GpuTensor::from_cpu(&data).map_err(|e| crate::gnac::DeepLearningError::Computation {
+            let gpu_tensor = GpuTensor::from_cpu(&data).map_err(|e| {
+                crate::gnac::DeepLearningError::Computation {
                     reason: format!("Failed to upload tensor '{}' to GPU: {}", name, e),
-                })?;
+                }
+            })?;
             gpu_tensors.insert(name.clone(), gpu_tensor);
         }
 
@@ -101,16 +103,16 @@ impl CompiledExecutor {
                 IROpType::MatMul => {
                     let a = get_gpu(&op.inputs[0].name)?;
                     let b = get_gpu(&op.inputs[1].name)?;
-                    let b_t =
-                        ctx.transpose(b)
-                            .map_err(|e| crate::gnac::DeepLearningError::Computation {
-                                reason: format!("GPU transpose failed: {}", e),
-                            })?;
-                    let result =
-                        ctx.matmul(a, &b_t)
-                            .map_err(|e| crate::gnac::DeepLearningError::Computation {
-                                reason: format!("GPU matmul failed: {}", e),
-                            })?;
+                    let b_t = ctx.transpose(b).map_err(|e| {
+                        crate::gnac::DeepLearningError::Computation {
+                            reason: format!("GPU transpose failed: {}", e),
+                        }
+                    })?;
+                    let result = ctx.matmul(a, &b_t).map_err(|e| {
+                        crate::gnac::DeepLearningError::Computation {
+                            reason: format!("GPU matmul failed: {}", e),
+                        }
+                    })?;
                     if let Some(output) = op.outputs.first() {
                         gpu_tensors.insert(output.name.clone(), result);
                     }
@@ -163,22 +165,22 @@ impl CompiledExecutor {
                 }
                 IROpType::Softmax => {
                     let a = get_gpu(&op.inputs[0].name)?;
-                    let result =
-                        ctx.softmax(a)
-                            .map_err(|e| crate::gnac::DeepLearningError::Computation {
-                                reason: format!("GPU softmax failed: {}", e),
-                            })?;
+                    let result = ctx.softmax(a).map_err(|e| {
+                        crate::gnac::DeepLearningError::Computation {
+                            reason: format!("GPU softmax failed: {}", e),
+                        }
+                    })?;
                     if let Some(output) = op.outputs.first() {
                         gpu_tensors.insert(output.name.clone(), result);
                     }
                 }
                 IROpType::Transpose => {
                     let a = get_gpu(&op.inputs[0].name)?;
-                    let result =
-                        ctx.transpose(a)
-                            .map_err(|e| crate::gnac::DeepLearningError::Computation {
-                                reason: format!("GPU transpose failed: {}", e),
-                            })?;
+                    let result = ctx.transpose(a).map_err(|e| {
+                        crate::gnac::DeepLearningError::Computation {
+                            reason: format!("GPU transpose failed: {}", e),
+                        }
+                    })?;
                     if let Some(output) = op.outputs.first() {
                         gpu_tensors.insert(output.name.clone(), result);
                     }

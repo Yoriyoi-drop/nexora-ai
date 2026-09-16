@@ -46,20 +46,17 @@ impl CostTracker {
             ModelTier::Small => {
                 let saved = (large_cost - cost * 1_000_000.0) as u64;
                 self.total_saved_micro.fetch_add(saved, Ordering::Relaxed);
-                self.small_cost
-                    .fetch_add(cost_micro, Ordering::Relaxed);
+                self.small_cost.fetch_add(cost_micro, Ordering::Relaxed);
                 self.small_tokens.fetch_add(100, Ordering::Relaxed);
             }
             ModelTier::Medium => {
                 let saved = (large_cost - cost * 1_000_000.0) as u64;
                 self.total_saved_micro.fetch_add(saved, Ordering::Relaxed);
-                self.medium_cost
-                    .fetch_add(cost_micro, Ordering::Relaxed);
+                self.medium_cost.fetch_add(cost_micro, Ordering::Relaxed);
                 self.medium_tokens.fetch_add(200, Ordering::Relaxed);
             }
             ModelTier::Large => {
-                self.large_cost
-                    .fetch_add(cost_micro, Ordering::Relaxed);
+                self.large_cost.fetch_add(cost_micro, Ordering::Relaxed);
                 self.large_tokens.fetch_add(500, Ordering::Relaxed);
             }
             _ => {}

@@ -26,8 +26,7 @@ pub struct ATQSConfig {
 }
 
 /// Calibration configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CalibrationConfig {
     pub lora: LoRACalibrationConfig,
     pub accuracy_recovery: AccuracyRecoveryConfig,
@@ -63,8 +62,7 @@ pub struct CalibrationOptimizerConfig {
 }
 
 /// Compression configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompressionConfig {
     pub adaptive_rank: AdaptiveRankConfig,
     pub quantum_sparse: QuantumSparseConfig,
@@ -97,8 +95,7 @@ pub struct SparseAugmentationConfig {
 }
 
 /// Profiling configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProfilingConfig {
     pub entanglement: EntanglementProfilerConfig,
     pub layer_analysis: LayerAnalyzerConfig,
@@ -130,8 +127,7 @@ pub struct SensitivityMapperConfig {
 }
 
 /// Core configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CoreConfig {
     pub attention: AttentionConfig,
     pub tensor_ops: TensorOpsConfig,
@@ -250,7 +246,6 @@ impl Default for ATQSConfig {
     }
 }
 
-
 impl Default for LoRACalibrationConfig {
     fn default() -> Self {
         Self {
@@ -285,7 +280,6 @@ impl Default for CalibrationOptimizerConfig {
     }
 }
 
-
 impl Default for AdaptiveRankConfig {
     fn default() -> Self {
         Self {
@@ -317,7 +311,6 @@ impl Default for SparseAugmentationConfig {
     }
 }
 
-
 impl Default for EntanglementProfilerConfig {
     fn default() -> Self {
         Self {
@@ -347,7 +340,6 @@ impl Default for SensitivityMapperConfig {
         }
     }
 }
-
 
 impl Default for AttentionConfig {
     fn default() -> Self {
@@ -391,8 +383,7 @@ impl Default for QuantumNetworksConfig {
 }
 
 /// Compression levels for ATQS
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum CompressionLevel {
     Low,
     #[default]
@@ -400,4 +391,3 @@ pub enum CompressionLevel {
     High,
     Ultra,
 }
-

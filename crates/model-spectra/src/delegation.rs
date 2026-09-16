@@ -1,12 +1,14 @@
+use crate::classifier;
+use nexora_cognition::multimodal::types::{
+    AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput,
+};
+use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use crate::classifier;
-use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
-use nexora_cognition::multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
+use nexora_transformer::CausalLM;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -64,7 +66,10 @@ pub async fn delegate_multimodal(
 ) -> String {
     init_classifier();
     let styles = classify_style(prompt);
-    let primary = styles.first().map(|(s, _)| s.as_str()).unwrap_or("narrative");
+    let primary = styles
+        .first()
+        .map(|(s, _)| s.as_str())
+        .unwrap_or("narrative");
     let (base_temp, _) = classifier::style_params(primary);
     let framing = classifier::style_framing(primary);
 
@@ -80,10 +85,13 @@ pub async fn delegate_multimodal(
         video,
         context: None,
     };
-    let mm_result = mm.process_multimodal(&multimodal).await.unwrap_or_else(|e| {
-        tracing::warn!("spectra multimodal processing failed: {}", e);
-        MultimodalResult::default()
-    });
+    let mm_result = mm
+        .process_multimodal(&multimodal)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("spectra multimodal processing failed: {}", e);
+            MultimodalResult::default()
+        });
     let mm_summary = mm_result.processing_summary;
 
     let temps = [base_temp - 0.1, base_temp, base_temp + 0.2];
@@ -95,11 +103,16 @@ pub async fn delegate_multimodal(
              {framing}\n\n\
              Generate original content for: {sanitized_prompt}"
         );
-        if let Ok(text) = delegation_base::call_model(foundation(), &creative_prompt, 256, t).await {
+        if let Ok(text) = delegation_base::call_model(foundation(), &creative_prompt, 256, t).await
+        {
             let score = unique_word_ratio(&text);
             results.push((text, score));
         }
     }
     results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    results.into_iter().next().map(|(t, _)| t).unwrap_or_default()
+    results
+        .into_iter()
+        .next()
+        .map(|(t, _)| t)
+        .unwrap_or_default()
 }

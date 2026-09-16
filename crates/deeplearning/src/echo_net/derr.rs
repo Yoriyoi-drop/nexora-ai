@@ -15,10 +15,10 @@
 //!
 //! Ini jauh lebih stabil dibanding entropy-only gating.
 
+use crate::autograd::Tensor;
 use crate::echo_net::HolographicWave;
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::ArrayD;
-use crate::autograd::Tensor;
 
 /// Retrieval candidate with dual metrics
 #[derive(Debug, Clone)]

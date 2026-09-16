@@ -1,13 +1,13 @@
-pub mod scheduler;
-pub mod task_queue;
+pub mod async_upload;
 pub mod batching;
 pub mod prefetch;
+pub mod scheduler;
 pub mod stream_manager;
-pub mod async_upload;
+pub mod task_queue;
 
-pub use scheduler::*;
-pub use task_queue::*;
+pub use async_upload::*;
 pub use batching::*;
 pub use prefetch::*;
+pub use scheduler::*;
 pub use stream_manager::*;
-pub use async_upload::*;
+pub use task_queue::*;

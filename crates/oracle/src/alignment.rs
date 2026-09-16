@@ -284,8 +284,6 @@ impl CodeDpoTrainer {
 
     /// Compute log probability using model weights as bigram embeddings
     fn compute_log_probability(&self, prompt: &str, code: &str) -> Result<f32> {
-        
-
         let combined = format!("{} {}", prompt, code);
         let bytes: Vec<usize> = combined.bytes().map(|b| b as usize).collect();
         let n = bytes.len();
@@ -327,7 +325,9 @@ impl CodeDpoTrainer {
                     score += curr_embed[d] * self.model.weights[[v, d]];
                 }
                 score += self.model.bias[v.min(self.model.bias.len() - 1)];
-                if v == next { target_logit = score; }
+                if v == next {
+                    target_logit = score;
+                }
                 max_logit = max_logit.max(score);
                 logits.push(score);
             }
@@ -344,7 +344,11 @@ impl CodeDpoTrainer {
             count += 1;
         }
 
-        Ok(if count > 0 { log_prob_sum / count as f32 } else { 0.0 })
+        Ok(if count > 0 {
+            log_prob_sum / count as f32
+        } else {
+            0.0
+        })
     }
 
     /// Get alignment statistics

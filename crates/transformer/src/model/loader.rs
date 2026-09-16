@@ -1,14 +1,15 @@
-use ndarray::{Array1, Array2};
 use crate::model::builder::{BlockGpuWeights, CausalLM, GpuWeights};
 use crate::{TransformerConfig, TransformerError, TransformerResult};
+use ndarray::{Array1, Array2};
 
 impl CausalLM {
     /// Load all block weights from the lazy weight loader.
     /// Must be called after setting `lazy_loader` if weights are not already loaded.
     pub fn load_lazy_blocks(&mut self) -> TransformerResult<()> {
-        let loader = self.lazy_loader.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("lazy_loader not set".into())
-        })?;
+        let loader = self
+            .lazy_loader
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("lazy_loader not set".into()))?;
         for i in 0..self.blocks.len() {
             loader.apply_block_weights(i, &mut self.blocks[i])?;
         }
@@ -65,7 +66,9 @@ impl CausalLM {
             if let Some(qstr) = meta.get("quantization") {
                 match qstr.as_str() {
                     "F16" => config.quantization = nexora_deeplearning::quantization::QFormat::F16,
-                    "BF16" => config.quantization = nexora_deeplearning::quantization::QFormat::BF16,
+                    "BF16" => {
+                        config.quantization = nexora_deeplearning::quantization::QFormat::BF16
+                    }
                     other => {
                         tracing::warn!(
                             "from_checkpoint: unknown quantization '{}' in file metadata, using config default",
@@ -93,10 +96,11 @@ impl CausalLM {
             })
         }
         model.token_embedding = Some(
-            to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?.to_owned());
+            to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?.to_owned(),
+        );
         if loaded.contains_key("lm_head") {
-            model.lm_head = Some(
-                to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned());
+            model.lm_head =
+                Some(to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?.to_owned());
             model.weight_tied = false;
         } else {
             // Weight tying: lm_head not in checkpoint, use token_embedding
@@ -104,16 +108,16 @@ impl CausalLM {
             model.weight_tied = true;
             tracing::info!("lm_head not found in checkpoint — weight tying enabled");
         }
-        model.norm.weight = Some(
-            to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned());
+        model.norm.weight =
+            Some(to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?.to_owned());
         for (i, block) in model.blocks.iter_mut().enumerate() {
             let prefix = format!("blocks.{}.", i);
             let name = format!("{}attention_norm.weight", prefix);
-            block.attention_norm.weight = Some(
-                to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
+            block.attention_norm.weight =
+                Some(to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
             let name = format!("{}ffn_norm.weight", prefix);
-            block.ffn_norm.weight = Some(
-                to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
+            block.ffn_norm.weight =
+                Some(to_fixed::<ndarray::Ix1>(get_arr(&name)?, &name)?.to_owned());
             let name = format!("{}attention.wq", prefix);
             block.attention.wq = Some(to_fixed::<ndarray::Ix2>(get_arr(&name)?, &name)?.to_owned());
             let name = format!("{}attention.wk", prefix);
@@ -134,11 +138,17 @@ impl CausalLM {
                     let e_prefix = format!("{}experts.{}.", prefix, e_idx);
                     let w1_name = format!("{}w1", e_prefix);
                     if loaded.contains_key(&w1_name) {
-                        expert.w1 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w1_name)?, &w1_name)?.to_owned());
+                        expert.w1 = Some(
+                            to_fixed::<ndarray::Ix2>(get_arr(&w1_name)?, &w1_name)?.to_owned(),
+                        );
                         let w2_name = format!("{}w2", e_prefix);
-                        expert.w2 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w2_name)?, &w2_name)?.to_owned());
+                        expert.w2 = Some(
+                            to_fixed::<ndarray::Ix2>(get_arr(&w2_name)?, &w2_name)?.to_owned(),
+                        );
                         let w3_name = format!("{}w3", e_prefix);
-                        expert.w3 = Some(to_fixed::<ndarray::Ix2>(get_arr(&w3_name)?, &w3_name)?.to_owned());
+                        expert.w3 = Some(
+                            to_fixed::<ndarray::Ix2>(get_arr(&w3_name)?, &w3_name)?.to_owned(),
+                        );
                     }
                 }
             }
@@ -168,15 +178,18 @@ impl CausalLM {
         use ndarray::ArrayD;
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
-        let ctx = GpuContext::global()
-            .map_err(|e| crate::TransformerError::Implementation(format!("GPU unavailable: {e}")))?;
+        let ctx = GpuContext::global().map_err(|e| {
+            crate::TransformerError::Implementation(format!("GPU unavailable: {e}"))
+        })?;
         let (loaded, meta) = crate::safetensors::load_safetensors_with_meta(path)?;
         // Apply quantization from file metadata if present
         if let Some(meta) = meta {
             if let Some(qstr) = meta.get("quantization") {
                 match qstr.as_str() {
                     "F16" => config.quantization = nexora_deeplearning::quantization::QFormat::F16,
-                    "BF16" => config.quantization = nexora_deeplearning::quantization::QFormat::BF16,
+                    "BF16" => {
+                        config.quantization = nexora_deeplearning::quantization::QFormat::BF16
+                    }
                     other => {
                         tracing::warn!(
                             "from_checkpoint_gpu: unknown quantization '{}' in file metadata, using config default",
@@ -202,19 +215,24 @@ impl CausalLM {
         let te_gpu = to_gpu(get_arr("token_embedding")?)?;
         let lm_head_t = if loaded.contains_key("lm_head") {
             let lh_gpu = to_gpu(get_arr("lm_head")?)?;
-            ctx.transpose(&lh_gpu)
-                .map_err(|e| crate::TransformerError::Implementation(format!("lm_head transpose: {e}")))?
+            ctx.transpose(&lh_gpu).map_err(|e| {
+                crate::TransformerError::Implementation(format!("lm_head transpose: {e}"))
+            })?
         } else {
             model.weight_tied = true;
             model.lm_head = None;
             tracing::info!("lm_head not found in GPU checkpoint — weight tying enabled");
-            ctx.transpose(&te_gpu)
-                .map_err(|e| crate::TransformerError::Implementation(format!("lm_head transpose (tied): {e}")))?
+            ctx.transpose(&te_gpu).map_err(|e| {
+                crate::TransformerError::Implementation(format!("lm_head transpose (tied): {e}"))
+            })?
         };
         let nw_gpu = to_gpu(get_arr("norm.weight")?)?;
-        let _ = model.norm.gpu_weights.set(crate::rms_norm::RmsNormGpuWeights {
-            weight: nw_gpu.clone(),
-        });
+        let _ = model
+            .norm
+            .gpu_weights
+            .set(crate::rms_norm::RmsNormGpuWeights {
+                weight: nw_gpu.clone(),
+            });
 
         let mut block_weights = Vec::with_capacity(model.blocks.len());
         for (i, block) in model.blocks.iter().enumerate() {
@@ -222,12 +240,18 @@ impl CausalLM {
 
             let an_gpu = to_gpu(get_arr(&format!("{}attention_norm.weight", p))?)?;
             let fn_gpu = to_gpu(get_arr(&format!("{}ffn_norm.weight", p))?)?;
-            let _ = block.attention_norm.gpu_weights.set(
-                crate::rms_norm::RmsNormGpuWeights { weight: an_gpu.clone() },
-            );
-            let _ = block.ffn_norm.gpu_weights.set(
-                crate::rms_norm::RmsNormGpuWeights { weight: fn_gpu.clone() },
-            );
+            let _ = block
+                .attention_norm
+                .gpu_weights
+                .set(crate::rms_norm::RmsNormGpuWeights {
+                    weight: an_gpu.clone(),
+                });
+            let _ = block
+                .ffn_norm
+                .gpu_weights
+                .set(crate::rms_norm::RmsNormGpuWeights {
+                    weight: fn_gpu.clone(),
+                });
 
             let wq = to_gpu(get_arr(&format!("{}attention.wq", p))?)?;
             let wk = to_gpu(get_arr(&format!("{}attention.wk", p))?)?;
@@ -240,21 +264,59 @@ impl CausalLM {
 
             let use_f16 = model.use_half_precision && !model.quantize_weights;
             let (wq_t, wk_t, wv_t, wo_t, wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
-                let wq_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wq f16: {e}", p)))?;
-                let wk_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wk f16: {e}", p)))?;
-                let wv_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wv f16: {e}", p)))?;
-                let wo_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&wo).map_err(|e| crate::TransformerError::Implementation(format!("{}wo t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}wo f16: {e}", p)))?;
-                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
-                (d.clone(), d.clone(), d.clone(), d.clone(), Some(wq_f16), Some(wk_f16), Some(wv_f16), Some(wo_f16))
+                let wq_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&wq).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wq t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wq f16: {e}", p))
+                    })?;
+                let wk_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&wk).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wk t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wk f16: {e}", p))
+                    })?;
+                let wv_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&wv).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wv t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wv f16: {e}", p))
+                    })?;
+                let wo_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&wo).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wo t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}wo f16: {e}", p))
+                    })?;
+                let d = GpuTensor::zeros(&[1])
+                    .map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                (
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    Some(wq_f16),
+                    Some(wk_f16),
+                    Some(wv_f16),
+                    Some(wo_f16),
+                )
             } else {
-                let wq_t = ctx.transpose(&wq).map_err(|e| crate::TransformerError::Implementation(format!("{}wq t: {e}", p)))?;
-                let wk_t = ctx.transpose(&wk).map_err(|e| crate::TransformerError::Implementation(format!("{}wk t: {e}", p)))?;
-                let wv_t = ctx.transpose(&wv).map_err(|e| crate::TransformerError::Implementation(format!("{}wv t: {e}", p)))?;
-                let wo_t = ctx.transpose(&wo).map_err(|e| crate::TransformerError::Implementation(format!("{}wo t: {e}", p)))?;
+                let wq_t = ctx.transpose(&wq).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}wq t: {e}", p))
+                })?;
+                let wk_t = ctx.transpose(&wk).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}wk t: {e}", p))
+                })?;
+                let wv_t = ctx.transpose(&wv).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}wv t: {e}", p))
+                })?;
+                let wo_t = ctx.transpose(&wo).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}wo t: {e}", p))
+                })?;
                 (wq_t, wk_t, wv_t, wo_t, None, None, None, None)
             };
             let att_wq_f16 = wq_f16.clone();
@@ -262,9 +324,18 @@ impl CausalLM {
             let att_wv_f16 = wv_f16.clone();
             let att_wo_f16 = wo_f16.clone();
             let _ = block.attention.gpu_weights.set(crate::gqa::GqaGpuWeights {
-                wq_t: Some(wq_t.clone()), wk_t: Some(wk_t.clone()), wv_t: Some(wv_t.clone()), wo_t: Some(wo_t.clone()),
-                wq_f16: att_wq_f16, wk_f16: att_wk_f16, wv_f16: att_wv_f16, wo_f16: att_wo_f16,
-                wq_shape, wk_shape, wv_shape, wo_shape,
+                wq_t: Some(wq_t.clone()),
+                wk_t: Some(wk_t.clone()),
+                wv_t: Some(wv_t.clone()),
+                wo_t: Some(wo_t.clone()),
+                wq_f16: att_wq_f16,
+                wk_f16: att_wk_f16,
+                wv_f16: att_wv_f16,
+                wo_f16: att_wo_f16,
+                wq_shape,
+                wk_shape,
+                wv_shape,
+                wo_shape,
                 is_f16: use_f16,
             });
 
@@ -272,59 +343,128 @@ impl CausalLM {
             let w2 = to_gpu(get_arr(&format!("{}ffn.w2", p))?)?;
             let w3 = to_gpu(get_arr(&format!("{}ffn.w3", p))?)?;
             let (w1_t, w2_t, w3_t, w1_f16, w2_f16, w3_f16) = if use_f16 {
-                let w1_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w1).map_err(|e| crate::TransformerError::Implementation(format!("{}w1 t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w1 f16: {e}", p)))?;
-                let w2_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w2).map_err(|e| crate::TransformerError::Implementation(format!("{}w2 t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w2 f16: {e}", p)))?;
-                let w3_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w3).map_err(|e| crate::TransformerError::Implementation(format!("{}w3 t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w3 f16: {e}", p)))?;
-                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
-                (d.clone(), d.clone(), d.clone(), Some(w1_f16), Some(w2_f16), Some(w3_f16))
+                let w1_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&w1).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w1 t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w1 f16: {e}", p))
+                    })?;
+                let w2_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&w2).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w2 t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w2 f16: {e}", p))
+                    })?;
+                let w3_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&w3).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w3 t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w3 f16: {e}", p))
+                    })?;
+                let d = GpuTensor::zeros(&[1])
+                    .map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                (
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    Some(w1_f16),
+                    Some(w2_f16),
+                    Some(w3_f16),
+                )
             } else {
-                let w1_t = ctx.transpose(&w1).map_err(|e| crate::TransformerError::Implementation(format!("{}w1 t: {e}", p)))?;
-                let w2_t = ctx.transpose(&w2).map_err(|e| crate::TransformerError::Implementation(format!("{}w2 t: {e}", p)))?;
-                let w3_t = ctx.transpose(&w3).map_err(|e| crate::TransformerError::Implementation(format!("{}w3 t: {e}", p)))?;
+                let w1_t = ctx.transpose(&w1).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}w1 t: {e}", p))
+                })?;
+                let w2_t = ctx.transpose(&w2).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}w2 t: {e}", p))
+                })?;
+                let w3_t = ctx.transpose(&w3).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}w3 t: {e}", p))
+                })?;
                 (w1_t, w2_t, w3_t, None, None, None)
             };
             let ffn_w1_f16 = w1_f16.clone();
             let ffn_w2_f16 = w2_f16.clone();
             let ffn_w3_f16 = w3_f16.clone();
             // Build combined w13 for fused SwiGLU forward (concat w1+w3 column-wise)
-            let w1_2d = get_arr(&format!("{}ffn.w1", p))?.into_dimensionality::<ndarray::Ix2>()
+            let w1_2d = get_arr(&format!("{}ffn.w1", p))?
+                .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|e| crate::TransformerError::Implementation(format!("w1 2d: {e}")))?;
-            let w3_2d = get_arr(&format!("{}ffn.w3", p))?.into_dimensionality::<ndarray::Ix2>()
+            let w3_2d = get_arr(&format!("{}ffn.w3", p))?
+                .into_dimensionality::<ndarray::Ix2>()
                 .map_err(|e| crate::TransformerError::Implementation(format!("w3 2d: {e}")))?;
             let w13_arr = crate::swiglu::concat_w1_w3_fused(&w1_2d, &w3_2d)?;
             let w13: ArrayD<f32> = w13_arr.into_dyn();
             let w13_gpu = to_gpu(w13)?;
             let (w13_t, w13_f16) = if use_f16 {
-                let w13_f16 = ctx.f32_to_f16_packed(&ctx.transpose(&w13_gpu).map_err(|e| crate::TransformerError::Implementation(format!("{}w13 t: {e}", p)))?)
-                    .map_err(|e| crate::TransformerError::Implementation(format!("{}w13 f16: {e}", p)))?;
-                let d = GpuTensor::zeros(&[1]).map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
+                let w13_f16 = ctx
+                    .f32_to_f16_packed(&ctx.transpose(&w13_gpu).map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w13 t: {e}", p))
+                    })?)
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("{}w13 f16: {e}", p))
+                    })?;
+                let d = GpuTensor::zeros(&[1])
+                    .map_err(|e| crate::TransformerError::Implementation(format!("dummy: {e}")))?;
                 (d, Some(w13_f16))
             } else {
-                let w13_t = ctx.transpose(&w13_gpu).map_err(|e| crate::TransformerError::Implementation(format!("{}w13 t: {e}", p)))?;
+                let w13_t = ctx.transpose(&w13_gpu).map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}w13 t: {e}", p))
+                })?;
                 (w13_t, None)
             };
             let _ = block.ffn.gpu_weights.set(crate::swiglu::SwigluGpuWeights {
-                w1_t: w1_t.clone(), w2_t: w2_t.clone(), w3_t: w3_t.clone(),
-                w1_f16: ffn_w1_f16, w2_f16: ffn_w2_f16, w3_f16: ffn_w3_f16,
-                w13_t, w13_f16,
+                w1_t: w1_t.clone(),
+                w2_t: w2_t.clone(),
+                w3_t: w3_t.clone(),
+                w1_f16: ffn_w1_f16,
+                w2_f16: ffn_w2_f16,
+                w3_f16: ffn_w3_f16,
+                w13_t,
+                w13_f16,
             });
 
             block_weights.push(BlockGpuWeights {
                 attention_norm_weight: an_gpu,
                 ffn_norm_weight: fn_gpu,
-                wq_t, wk_t, wv_t, wo_t,
-                w1_t, w2_t, w3_t,
-                wq_i8: None, wk_i8: None, wv_i8: None, wo_i8: None,
-                w1_i8: None, w2_i8: None, w3_i8: None,
-                wq_scales: None, wk_scales: None, wv_scales: None, wo_scales: None,
-                w1_scales: None, w2_scales: None, w3_scales: None,
-                wq_zero_points: None, wk_zero_points: None, wv_zero_points: None, wo_zero_points: None,
-                w1_zero_points: None, w2_zero_points: None, w3_zero_points: None,
-                wq_f16, wk_f16, wv_f16, wo_f16,
-                w1_f16, w2_f16, w3_f16,
+                wq_t,
+                wk_t,
+                wv_t,
+                wo_t,
+                w1_t,
+                w2_t,
+                w3_t,
+                wq_i8: None,
+                wk_i8: None,
+                wv_i8: None,
+                wo_i8: None,
+                w1_i8: None,
+                w2_i8: None,
+                w3_i8: None,
+                wq_scales: None,
+                wk_scales: None,
+                wv_scales: None,
+                wo_scales: None,
+                w1_scales: None,
+                w2_scales: None,
+                w3_scales: None,
+                wq_zero_points: None,
+                wk_zero_points: None,
+                wv_zero_points: None,
+                wo_zero_points: None,
+                w1_zero_points: None,
+                w2_zero_points: None,
+                w3_zero_points: None,
+                wq_f16,
+                wk_f16,
+                wv_f16,
+                wo_f16,
+                w1_f16,
+                w2_f16,
+                w3_f16,
             });
         }
 
@@ -415,7 +555,9 @@ impl CausalLM {
     /// of weight matrices. The int8 kernels dequantize on-the-fly in the WGSL
     /// shader, reducing GPU memory bandwidth ~4×.
     #[cfg(feature = "gpu")]
-    pub fn preupload_weights_gpu(&self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn preupload_weights_gpu(
+        &self,
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         use ndarray::ArrayD;
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
@@ -446,30 +588,43 @@ impl CausalLM {
             )?)
         };
 
-        let token_embedding = mk_gpu(self.token_embedding.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("token_embedding not available".into())
-        })?)?;
+        let token_embedding = mk_gpu(
+            self.token_embedding
+                .as_ref()
+                .ok_or_else(|| GpuError::Unsupported("token_embedding not available".into()))?,
+        )?;
 
-        let lm_head_gpu = mk_gpu(self.lm_head.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("lm_head not available".into())
-        })?)?;
+        let lm_head_gpu = mk_gpu(
+            self.lm_head
+                .as_ref()
+                .ok_or_else(|| GpuError::Unsupported("lm_head not available".into()))?,
+        )?;
         // F16 mode: f32 transposed weight ga dipake — cukup f16 packed doang.
         // `zeros(&[1])` adalah DUMMY older (4 bytes) buat ngisi struct field,
         // BUKAN matriks ukuran penuh. VRAM hemat: (vocab_size × hidden_size × 4) bytes.
         let lm_head_t = ctx.transpose(&lm_head_gpu)?;
 
         let (lm_head_i8, lm_head_scales, lm_head_zero_points) = if self.quantize_weights {
-            let lh = self.lm_head.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("lm_head not available".into())
-            })?;
+            let lh = self
+                .lm_head
+                .as_ref()
+                .ok_or_else(|| GpuError::Unsupported("lm_head not available".into()))?;
             let shape = vec![lh.shape()[0], lh.shape()[1]];
             let (packed, sc, zp) = Self::quantize_weight(lh);
             let n_out = sc.len();
-            let sc_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], sc)
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
-            let zp_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], zp)
-                .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
-            (Some(GpuTensor::from_cpu_i8_packed(shape, &packed)?), Some(sc_t), Some(zp_t))
+            let sc_t = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![n_out], sc)
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+            )?;
+            let zp_t = GpuTensor::from_cpu(
+                &ArrayD::from_shape_vec(vec![n_out], zp)
+                    .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+            )?;
+            (
+                Some(GpuTensor::from_cpu_i8_packed(shape, &packed)?),
+                Some(sc_t),
+                Some(zp_t),
+            )
         } else {
             (None, None, None)
         };
@@ -490,36 +645,55 @@ impl CausalLM {
                 mk_gpu_1d(w)?
             };
             let ffn_norm_weight = {
-                let w = block.ffn_norm.weight.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("ffn_norm.weight not available".into())
-                })?;
+                let w =
+                    block.ffn_norm.weight.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("ffn_norm.weight not available".into())
+                    })?;
                 mk_gpu_1d(w)?
             };
 
-            let wq = mk_gpu(block.attention.wq.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("attention.wq not available".into())
-            })?)?;
-            let wk = mk_gpu(block.attention.wk.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("attention.wk not available".into())
-            })?)?;
-            let wv = mk_gpu(block.attention.wv.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("attention.wv not available".into())
-            })?)?;
-            let wo = mk_gpu(block.attention.wo.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("attention.wo not available".into())
-            })?)?;
+            let wq =
+                mk_gpu(
+                    block.attention.wq.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wq not available".into())
+                    })?,
+                )?;
+            let wk =
+                mk_gpu(
+                    block.attention.wk.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wk not available".into())
+                    })?,
+                )?;
+            let wv =
+                mk_gpu(
+                    block.attention.wv.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wv not available".into())
+                    })?,
+                )?;
+            let wo =
+                mk_gpu(
+                    block.attention.wo.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wo not available".into())
+                    })?,
+                )?;
             // MoE blocks: upload first expert's weights sebagai pengganti dense FFN weights
-            let ffn_err = |name: &str| GpuError::Unsupported(format!("{name} not available (MoE expert used instead)"));
+            let ffn_err = |name: &str| {
+                GpuError::Unsupported(format!("{name} not available (MoE expert used instead)"))
+            };
             let (ffn_w1, ffn_w2, ffn_w3): (&Array2<f32>, &Array2<f32>, &Array2<f32>) =
                 if let Some(experts) = &block.experts {
                     let e = &experts[0];
-                    (e.w1.as_ref().ok_or_else(|| ffn_err("expert[0].w1"))?,
-                     e.w2.as_ref().ok_or_else(|| ffn_err("expert[0].w2"))?,
-                     e.w3.as_ref().ok_or_else(|| ffn_err("expert[0].w3"))?)
+                    (
+                        e.w1.as_ref().ok_or_else(|| ffn_err("expert[0].w1"))?,
+                        e.w2.as_ref().ok_or_else(|| ffn_err("expert[0].w2"))?,
+                        e.w3.as_ref().ok_or_else(|| ffn_err("expert[0].w3"))?,
+                    )
                 } else {
-                    (block.ffn.w1.as_ref().ok_or_else(|| ffn_err("ffn.w1"))?,
-                     block.ffn.w2.as_ref().ok_or_else(|| ffn_err("ffn.w2"))?,
-                     block.ffn.w3.as_ref().ok_or_else(|| ffn_err("ffn.w3"))?)
+                    (
+                        block.ffn.w1.as_ref().ok_or_else(|| ffn_err("ffn.w1"))?,
+                        block.ffn.w2.as_ref().ok_or_else(|| ffn_err("ffn.w2"))?,
+                        block.ffn.w3.as_ref().ok_or_else(|| ffn_err("ffn.w3"))?,
+                    )
                 };
 
             let w1 = mk_gpu(ffn_w1)?;
@@ -530,42 +704,50 @@ impl CausalLM {
                 let (p, sc, zp) = Self::quantize_weight(arr);
                 let shape = vec![arr.shape()[0], arr.shape()[1]];
                 let n_out = sc.len();
-                let sc_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], sc)
-                    .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
-                let zp_t = GpuTensor::from_cpu(&ArrayD::from_shape_vec(vec![n_out], zp)
-                    .map_err(|e| GpuError::Unsupported(e.to_string()))?)?;
+                let sc_t = GpuTensor::from_cpu(
+                    &ArrayD::from_shape_vec(vec![n_out], sc)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+                )?;
+                let zp_t = GpuTensor::from_cpu(
+                    &ArrayD::from_shape_vec(vec![n_out], zp)
+                        .map_err(|e| GpuError::Unsupported(e.to_string()))?,
+                )?;
                 let i8_t = GpuTensor::from_cpu_i8_packed(shape, &p)?;
                 Ok((i8_t, sc_t, zp_t))
             };
 
             let (wq_i8, wq_scales, wq_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.attention.wq.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("attention.wq not available".into())
-                })?)?;
+                let (t, s, z) =
+                    mk_scale_zp(block.attention.wq.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wq not available".into())
+                    })?)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
             };
             let (wk_i8, wk_scales, wk_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.attention.wk.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("attention.wk not available".into())
-                })?)?;
+                let (t, s, z) =
+                    mk_scale_zp(block.attention.wk.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wk not available".into())
+                    })?)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
             };
             let (wv_i8, wv_scales, wv_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.attention.wv.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("attention.wv not available".into())
-                })?)?;
+                let (t, s, z) =
+                    mk_scale_zp(block.attention.wv.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wv not available".into())
+                    })?)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
             };
             let (wo_i8, wo_scales, wo_zero_points) = if self.quantize_weights {
-                let (t, s, z) = mk_scale_zp(block.attention.wo.as_ref().ok_or_else(|| {
-                    GpuError::Unsupported("attention.wo not available".into())
-                })?)?;
+                let (t, s, z) =
+                    mk_scale_zp(block.attention.wo.as_ref().ok_or_else(|| {
+                        GpuError::Unsupported("attention.wo not available".into())
+                    })?)?;
                 (Some(t), Some(s), Some(z))
             } else {
                 (None, None, None)
@@ -634,7 +816,15 @@ impl CausalLM {
             // BUKAN 7 matriks ukuran penuh. VRAM hemat ~50% per block.
             let (wq_t, wk_t, wv_t, wo_t, w1_t, w2_t, w3_t) = if use_f16 {
                 let d = GpuTensor::zeros(&[1])?;
-                (d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d.clone(), d)
+                (
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    d.clone(),
+                    d,
+                )
             } else {
                 (
                     ctx.transpose(&wq)?,
@@ -706,7 +896,9 @@ impl CausalLM {
                 block_weights,
             })
             .map_err(|_| {
-                nexora_deeplearning::autograd::gpu::GpuError::Unsupported("weights already set".into())
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "weights already set".into(),
+                )
             })?;
 
         Ok(())
@@ -714,10 +906,13 @@ impl CausalLM {
 
     /// Readback ALL weights from CPU (or GPU if CPU weights dropped).
     /// Returns (name, ArrayD) pairs for safetensors save or training init.
-    pub fn readback_weights(&self) -> crate::TransformerResult<Vec<(String, ndarray::ArrayD<f32>)>> {
+    pub fn readback_weights(
+        &self,
+    ) -> crate::TransformerResult<Vec<(String, ndarray::ArrayD<f32>)>> {
         use ndarray::ArrayD;
-        let mut tensors: Vec<(String, ArrayD<f32>)> =
-            Vec::with_capacity(3 + 9 * self.blocks.len() + 3 * self.config.num_experts * self.blocks.len());
+        let mut tensors: Vec<(String, ArrayD<f32>)> = Vec::with_capacity(
+            3 + 9 * self.blocks.len() + 3 * self.config.num_experts * self.blocks.len(),
+        );
 
         // token_embedding
         if let Some(te) = &self.token_embedding {
@@ -725,15 +920,22 @@ impl CausalLM {
         } else {
             #[cfg(feature = "gpu")]
             {
-                let gw = self.gpu_weights.get().ok_or_else(||
-                    crate::TransformerError::Implementation("token_embedding unavailable — no CPU or GPU copy".into()))?;
-                let cpu = gw.token_embedding.to_cpu().map_err(|e|
-                    crate::TransformerError::Implementation(format!("token_embedding GPU readback: {e}")))?;
+                let gw = self.gpu_weights.get().ok_or_else(|| {
+                    crate::TransformerError::Implementation(
+                        "token_embedding unavailable — no CPU or GPU copy".into(),
+                    )
+                })?;
+                let cpu = gw.token_embedding.to_cpu().map_err(|e| {
+                    crate::TransformerError::Implementation(format!(
+                        "token_embedding GPU readback: {e}"
+                    ))
+                })?;
                 tensors.push(("token_embedding".to_owned(), cpu));
             }
             #[cfg(not(feature = "gpu"))]
             return Err(crate::TransformerError::Implementation(
-                "token_embedding unavailable — no CPU copy and GPU feature disabled".into()));
+                "token_embedding unavailable — no CPU copy and GPU feature disabled".into(),
+            ));
         }
 
         // lm_head
@@ -742,27 +944,34 @@ impl CausalLM {
         } else {
             #[cfg(feature = "gpu")]
             {
-                let gw = self.gpu_weights.get().ok_or_else(||
-                    crate::TransformerError::Implementation("lm_head unavailable — no CPU or GPU copy".into()))?;
+                let gw = self.gpu_weights.get().ok_or_else(|| {
+                    crate::TransformerError::Implementation(
+                        "lm_head unavailable — no CPU or GPU copy".into(),
+                    )
+                })?;
                 // lm_head_t is [hidden, vocab] transposed; re-transpose to get [vocab, hidden]
-                let cpu = gw.lm_head_t.to_cpu().map_err(|e|
-                    crate::TransformerError::Implementation(format!("lm_head GPU readback: {e}")))?;
-                let cpu_2d = cpu.into_dimensionality::<ndarray::Ix2>()
-                    .map_err(|e| crate::TransformerError::Implementation(format!("lm_head shape: {e}")))?;
+                let cpu = gw.lm_head_t.to_cpu().map_err(|e| {
+                    crate::TransformerError::Implementation(format!("lm_head GPU readback: {e}"))
+                })?;
+                let cpu_2d = cpu.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
+                    crate::TransformerError::Implementation(format!("lm_head shape: {e}"))
+                })?;
                 let re_t = cpu_2d.reversed_axes();
                 tensors.push(("lm_head".to_owned(), re_t.into_dyn()));
             }
             #[cfg(not(feature = "gpu"))]
             return Err(crate::TransformerError::Implementation(
-                "lm_head unavailable — no CPU copy and GPU feature disabled".into()));
+                "lm_head unavailable — no CPU copy and GPU feature disabled".into(),
+            ));
         }
 
         // norm.weight (1D)
         if let Some(nw) = &self.norm.weight {
             tensors.push(("norm.weight".to_owned(), nw.clone().into_dyn()));
         } else {
-            let cpu = self.norm.readback_weight().map_err(|e|
-                crate::TransformerError::Implementation(format!("norm.weight readback failed: {e}")))?;
+            let cpu = self.norm.readback_weight().map_err(|e| {
+                crate::TransformerError::Implementation(format!("norm.weight readback failed: {e}"))
+            })?;
             tensors.push(("norm.weight".to_owned(), cpu.into_dyn()));
         }
 
@@ -773,8 +982,12 @@ impl CausalLM {
             if let Some(w) = &block.attention_norm.weight {
                 tensors.push((format!("{}attention_norm.weight", p), w.clone().into_dyn()));
             } else {
-                let cpu = block.attention_norm.readback_weight().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}attention_norm.weight readback: {e}", p)))?;
+                let cpu = block.attention_norm.readback_weight().map_err(|e| {
+                    crate::TransformerError::Implementation(format!(
+                        "{}attention_norm.weight readback: {e}",
+                        p
+                    ))
+                })?;
                 tensors.push((format!("{}attention_norm.weight", p), cpu.into_dyn()));
             }
 
@@ -782,8 +995,12 @@ impl CausalLM {
             if let Some(w) = &block.ffn_norm.weight {
                 tensors.push((format!("{}ffn_norm.weight", p), w.clone().into_dyn()));
             } else {
-                let cpu = block.ffn_norm.readback_weight().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}ffn_norm.weight readback: {e}", p)))?;
+                let cpu = block.ffn_norm.readback_weight().map_err(|e| {
+                    crate::TransformerError::Implementation(format!(
+                        "{}ffn_norm.weight readback: {e}",
+                        p
+                    ))
+                })?;
                 tensors.push((format!("{}ffn_norm.weight", p), cpu.into_dyn()));
             }
 
@@ -800,8 +1017,12 @@ impl CausalLM {
                     tensors.push((format!("{}attention.wo", p), wo.clone().into_dyn()));
                 }
             } else {
-                let g = block.attention.readback_weights().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}attention readback: {:?}", p, e)))?;
+                let g = block.attention.readback_weights().map_err(|e| {
+                    crate::TransformerError::Implementation(format!(
+                        "{}attention readback: {:?}",
+                        p, e
+                    ))
+                })?;
                 tensors.push((format!("{}attention.wq", p), g.0.into_dyn()));
                 tensors.push((format!("{}attention.wk", p), g.1.into_dyn()));
                 tensors.push((format!("{}attention.wv", p), g.2.into_dyn()));
@@ -818,8 +1039,9 @@ impl CausalLM {
                     tensors.push((format!("{}ffn.w3", p), w3.clone().into_dyn()));
                 }
             } else {
-                let g = block.ffn.readback_weights().map_err(|e|
-                    crate::TransformerError::Implementation(format!("{}ffn readback: {:?}", p, e)))?;
+                let g = block.ffn.readback_weights().map_err(|e| {
+                    crate::TransformerError::Implementation(format!("{}ffn readback: {:?}", p, e))
+                })?;
                 tensors.push((format!("{}ffn.w1", p), g.0.into_dyn()));
                 tensors.push((format!("{}ffn.w2", p), g.1.into_dyn()));
                 tensors.push((format!("{}ffn.w3", p), g.2.into_dyn()));
@@ -864,5 +1086,4 @@ impl CausalLM {
             Some(meta),
         )
     }
-
 }

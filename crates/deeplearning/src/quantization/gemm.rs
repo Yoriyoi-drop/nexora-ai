@@ -18,8 +18,7 @@
 //! Scales are per-group (default group_size=128 for Q4, 256 for Q2).
 
 /// Compute mode for quantized matmul.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum QuantComputeMode {
     /// Old behavior — dequantize all weights to FP32 first (high VRAM).
     DequantFallback,
@@ -31,7 +30,6 @@ pub enum QuantComputeMode {
     /// Compute directly from INT8 weights (2× VRAM savings vs FP32).
     Int8Direct,
 }
-
 
 /// Pack two Q4 values (0–15 each) into one byte.
 /// `low` = first value (lower nibble), `high` = second value (upper nibble).
@@ -157,7 +155,9 @@ pub fn dequant_tile_q4(
         for j in 0..tile_k / 2 {
             // packed layout: [K_pairs, N] row-major → idx = j * n + i
             let idx = j * n + i;
-            if idx >= packed.len() { break; }
+            if idx >= packed.len() {
+                break;
+            }
             let p = packed[idx];
             let (b0, b1) = unpack_q4(p);
             let g = j / (group_size / 2);
@@ -197,7 +197,9 @@ pub fn quantize_fp32_to_q4(
             let mut max_abs = 0.0f32;
             for kk in g_start..g_end {
                 let v = weights[kk * n + j].abs();
-                if v > max_abs { max_abs = v; }
+                if v > max_abs {
+                    max_abs = v;
+                }
             }
             let scale = if max_abs > 0.0 { max_abs / 7.0 } else { 1.0 };
             scales[g * n + j] = scale;
@@ -226,7 +228,12 @@ pub fn pack_q2(v0: u8, v1: u8, v2: u8, v3: u8) -> u8 {
 
 /// Unpack one byte into four Q2 values (0–3).
 pub fn unpack_q2(packed: u8) -> (u8, u8, u8, u8) {
-    (packed & 0x03, (packed >> 2) & 0x03, (packed >> 4) & 0x03, (packed >> 6) & 0x03)
+    (
+        packed & 0x03,
+        (packed >> 2) & 0x03,
+        (packed >> 4) & 0x03,
+        (packed >> 6) & 0x03,
+    )
 }
 
 /// INT2 matmul: `C[M, N] = A[M, K] @ B_q2[K/4, N]` with per-group scales.
@@ -301,7 +308,9 @@ pub fn dequant_tile_q2(
     for i in 0..tile_m {
         for j in 0..tile_k / 4 {
             let idx = j * n + i;
-            if idx >= packed.len() { break; }
+            if idx >= packed.len() {
+                break;
+            }
             let p = packed[idx];
             let (b0, b1, b2, b3) = unpack_q2(p);
             let g = j / (group_size / 4);
@@ -348,7 +357,9 @@ pub fn quantize_fp32_to_q2(
             let mut max_abs = 0.0f32;
             for kk in g_start..g_end {
                 let v = weights[kk * n + j].abs();
-                if v > max_abs { max_abs = v; }
+                if v > max_abs {
+                    max_abs = v;
+                }
             }
             let scale = if max_abs > 0.0 { max_abs / 1.5 } else { 1.0 };
             scales[g * n + j] = scale;
@@ -357,7 +368,8 @@ pub fn quantize_fp32_to_q2(
                 let v = (weights[kk * n + j] / scale + 1.5).round().clamp(0.0, 3.0) as u8;
                 let byte_idx = (kk / 4) * n + j;
                 let sub_idx = kk % 4;
-                packed[byte_idx] = (packed[byte_idx] & !(0x03 << (sub_idx * 2))) | ((v & 0x03) << (sub_idx * 2));
+                packed[byte_idx] =
+                    (packed[byte_idx] & !(0x03 << (sub_idx * 2))) | ((v & 0x03) << (sub_idx * 2));
             }
         }
     }
@@ -469,8 +481,9 @@ mod tests {
         let n = 3;
         let k = 8;
         let group_size = 8;
-        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
-                     0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0];
+        let a = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0,
+        ];
 
         let b_fp32 = vec![1.0f32; k * n];
         let (packed, scales) = quantize_fp32_to_q2(&b_fp32, n, k, group_size);
@@ -481,7 +494,11 @@ mod tests {
         // All ones in B → sum of A rows
         for j in 0..n {
             assert!((out[j] - 36.0).abs() < 5.0, "out[{j}]={}", out[j]);
-            assert!((out[n + j] - 18.0).abs() < 3.0, "out[{n}+{j}]={}", out[n + j]);
+            assert!(
+                (out[n + j] - 18.0).abs() < 3.0,
+                "out[{n}+{j}]={}",
+                out[n + j]
+            );
         }
     }
 

@@ -52,8 +52,8 @@ impl RawCompressedWeight {
 
 use ndarray::Array2;
 
-use crate::{TransformerError, TransformerResult};
 use crate::block::TransformerBlock;
+use crate::{TransformerError, TransformerResult};
 
 impl From<nexora_atqs::awq::AWQQuantizedTensor> for RawCompressedWeight {
     fn from(t: nexora_atqs::awq::AWQQuantizedTensor) -> Self {
@@ -99,13 +99,11 @@ fn compress_weight(
 }
 
 fn decompress_weight(raw: &RawCompressedWeight) -> Array2<f32> {
-    let engine = nexora_atqs::awq::AWQEngine::new(
-        nexora_atqs::awq::AWQConfig {
-            group_size: raw.group_size,
-            bits: raw.bits,
-            ..Default::default()
-        }
-    );
+    let engine = nexora_atqs::awq::AWQEngine::new(nexora_atqs::awq::AWQConfig {
+        group_size: raw.group_size,
+        bits: raw.bits,
+        ..Default::default()
+    });
     let q: nexora_atqs::awq::AWQQuantizedTensor = raw.clone().into();
     engine.dequantize(&q)
 }
@@ -117,17 +115,27 @@ impl WeightsAtqs {
         use nexora_atqs::awq::{AWQConfig, AWQEngine};
         let engine = AWQEngine::new(AWQConfig::w4a16());
 
-        let token_embedding = causal_lm.token_embedding.as_ref()
+        let token_embedding = causal_lm
+            .token_embedding
+            .as_ref()
             .map(|w| compress_weight(&engine, w));
-        let lm_head = causal_lm.lm_head.as_ref()
+        let lm_head = causal_lm
+            .lm_head
+            .as_ref()
             .map(|w| compress_weight(&engine, w));
 
-        let blocks: TransformerResult<Vec<BlockCompressedWeights>> = causal_lm.blocks.iter().map(|block| {
-            compress_block(&engine, block)
-        }).collect();
+        let blocks: TransformerResult<Vec<BlockCompressedWeights>> = causal_lm
+            .blocks
+            .iter()
+            .map(|block| compress_block(&engine, block))
+            .collect();
         let blocks = blocks?;
 
-        Ok(Self { token_embedding, lm_head, blocks })
+        Ok(Self {
+            token_embedding,
+            lm_head,
+            blocks,
+        })
     }
 
     /// Decompress all weights back into a CausalLM's weight fields.
@@ -171,43 +179,103 @@ fn compress_block(
     engine: &nexora_atqs::awq::AWQEngine,
     block: &TransformerBlock,
 ) -> TransformerResult<BlockCompressedWeights> {
-    let wq = compress_weight(engine, block.attention.wq.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing wq".into())
-    )?);
-    let wk = compress_weight(engine, block.attention.wk.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing wk".into())
-    )?);
-    let wv = compress_weight(engine, block.attention.wv.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing wv".into())
-    )?);
-    let wo = compress_weight(engine, block.attention.wo.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing wo".into())
-    )?);
-    let w1 = compress_weight(engine, block.ffn.w1.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing w1".into())
-    )?);
-    let w2 = compress_weight(engine, block.ffn.w2.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing w2".into())
-    )?);
-    let w3 = compress_weight(engine, block.ffn.w3.as_ref().ok_or_else(||
-        TransformerError::Implementation("missing w3".into())
-    )?);
+    let wq = compress_weight(
+        engine,
+        block
+            .attention
+            .wq
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing wq".into()))?,
+    );
+    let wk = compress_weight(
+        engine,
+        block
+            .attention
+            .wk
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing wk".into()))?,
+    );
+    let wv = compress_weight(
+        engine,
+        block
+            .attention
+            .wv
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing wv".into()))?,
+    );
+    let wo = compress_weight(
+        engine,
+        block
+            .attention
+            .wo
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing wo".into()))?,
+    );
+    let w1 = compress_weight(
+        engine,
+        block
+            .ffn
+            .w1
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing w1".into()))?,
+    );
+    let w2 = compress_weight(
+        engine,
+        block
+            .ffn
+            .w2
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing w2".into()))?,
+    );
+    let w3 = compress_weight(
+        engine,
+        block
+            .ffn
+            .w3
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("missing w3".into()))?,
+    );
 
-    let experts = block.experts.as_ref().map(|experts| {
-        experts.iter().map(|e| {
-            Ok(ExpertCompressedWeights {
-                w1: compress_weight(engine, e.w1.as_ref().ok_or_else(||
-                    TransformerError::Implementation("missing expert w1".into())
-                )?),
-                w2: compress_weight(engine, e.w2.as_ref().ok_or_else(||
-                    TransformerError::Implementation("missing expert w2".into())
-                )?),
-                w3: compress_weight(engine, e.w3.as_ref().ok_or_else(||
-                    TransformerError::Implementation("missing expert w3".into())
-                )?),
-            })
-        }).collect::<TransformerResult<Vec<_>>>()
-    }).transpose()?;
+    let experts = block
+        .experts
+        .as_ref()
+        .map(|experts| {
+            experts
+                .iter()
+                .map(|e| {
+                    Ok(ExpertCompressedWeights {
+                        w1: compress_weight(
+                            engine,
+                            e.w1.as_ref().ok_or_else(|| {
+                                TransformerError::Implementation("missing expert w1".into())
+                            })?,
+                        ),
+                        w2: compress_weight(
+                            engine,
+                            e.w2.as_ref().ok_or_else(|| {
+                                TransformerError::Implementation("missing expert w2".into())
+                            })?,
+                        ),
+                        w3: compress_weight(
+                            engine,
+                            e.w3.as_ref().ok_or_else(|| {
+                                TransformerError::Implementation("missing expert w3".into())
+                            })?,
+                        ),
+                    })
+                })
+                .collect::<TransformerResult<Vec<_>>>()
+        })
+        .transpose()?;
 
-    Ok(BlockCompressedWeights { wq, wk, wv, wo, w1, w2, w3, experts })
+    Ok(BlockCompressedWeights {
+        wq,
+        wk,
+        wv,
+        wo,
+        w1,
+        w2,
+        w3,
+        experts,
+    })
 }

@@ -2,8 +2,8 @@
 //!
 //! Implementasi patch embedding, time embedding, dan position embedding
 
-pub use crate::types::HLDVAResult;
 use crate::gpu_ops;
+pub use crate::types::HLDVAResult;
 use crate::types::*;
 use nexora_atqs::Tensor;
 
@@ -365,8 +365,16 @@ impl ClipConditioningProjection {
         let image_data = image.data();
         let mut combined = Vec::with_capacity(self.hidden_dim);
         for i in 0..self.hidden_dim {
-            let tv = if i < text_data.len() { text_data[i] } else { 0.0 };
-            let iv = if i < image_data.len() { image_data[i] } else { 0.0 };
+            let tv = if i < text_data.len() {
+                text_data[i]
+            } else {
+                0.0
+            };
+            let iv = if i < image_data.len() {
+                image_data[i]
+            } else {
+                0.0
+            };
             combined.push((tv + iv) / 2.0);
         }
         Ok(Tensor::new(combined, vec![self.hidden_dim]))

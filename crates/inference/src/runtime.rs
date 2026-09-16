@@ -56,8 +56,8 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            max_memory_mb: 262144,     // 256GB
-            max_gpu_memory_mb: 16384,  // 16GB (default, diset per GPU)
+            max_memory_mb: 262144,    // 256GB
+            max_gpu_memory_mb: 16384, // 16GB (default, diset per GPU)
             cpu_affinity: None,
             thread_pool_size: num_cpus::get().min(64),
             enable_profiling: false,
@@ -290,8 +290,8 @@ impl InferenceRuntime {
                 usage.gpu_memory_usage_bytes = Some(gpu_bytes);
                 usage.gpu_memory_usage_percent = Some(gpu_percent);
             }
-            usage.kv_cache_memory_bytes =
-                crate::inference_trait::KV_CACHE_MEMORY_BYTES.load(std::sync::atomic::Ordering::Relaxed);
+            usage.kv_cache_memory_bytes = crate::inference_trait::KV_CACHE_MEMORY_BYTES
+                .load(std::sync::atomic::Ordering::Relaxed);
             usage.active_threads = active_threads;
             usage.open_files = open_files;
             usage.network_io_bytes = network_io;

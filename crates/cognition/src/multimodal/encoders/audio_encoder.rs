@@ -35,9 +35,8 @@ impl AudioMLP {
 
     fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
         let hidden = x.dot(&self.w1) + &self.b1;
-        let gelu = hidden.mapv(|v| {
-            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
-        });
+        let gelu =
+            hidden.mapv(|v| v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh()));
         gelu.dot(&self.w2) + &self.b2
     }
 
@@ -45,7 +44,9 @@ impl AudioMLP {
     fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
         use crate::multimodal::gpu_compute;
         let batch = inputs.len();
-        if batch == 0 { return None; }
+        if batch == 0 {
+            return None;
+        }
         let input_dim = inputs[0].len();
         let hidden_dim = self.w1.shape()[1];
         let output_dim = self.w2.shape()[1];
@@ -55,10 +56,22 @@ impl AudioMLP {
         let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
         let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
         let result = gpu_compute::try_gpu_mlp_forward(
-            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
-            batch, input_dim, hidden_dim, output_dim,
+            &flat_input,
+            &w1_slice,
+            &b1_slice,
+            &w2_slice,
+            &b2_slice,
+            batch,
+            input_dim,
+            hidden_dim,
+            output_dim,
         )?;
-        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+        Some(
+            result
+                .chunks(output_dim)
+                .map(|c| Array1::from_vec(c.to_vec()))
+                .collect(),
+        )
     }
 }
 
@@ -69,7 +82,9 @@ struct FFT {
 
 impl FFT {
     fn new(window_size: usize) -> Self {
-        Self { n_fft: window_size / 2 + 1 }
+        Self {
+            n_fft: window_size / 2 + 1,
+        }
     }
 
     fn compute(&self, window: &[f32]) -> Vec<f32> {
@@ -364,10 +379,22 @@ impl AudioEncoder {
     /// Collect all trainable weights for checkpoint
     pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
         vec![
-            ("audio_encoder.mel_proj.w1".to_string(), self.mel_projection.w1.clone().into_dyn()),
-            ("audio_encoder.mel_proj.b1".to_string(), self.mel_projection.b1.clone().into_dyn()),
-            ("audio_encoder.mel_proj.w2".to_string(), self.mel_projection.w2.clone().into_dyn()),
-            ("audio_encoder.mel_proj.b2".to_string(), self.mel_projection.b2.clone().into_dyn()),
+            (
+                "audio_encoder.mel_proj.w1".to_string(),
+                self.mel_projection.w1.clone().into_dyn(),
+            ),
+            (
+                "audio_encoder.mel_proj.b1".to_string(),
+                self.mel_projection.b1.clone().into_dyn(),
+            ),
+            (
+                "audio_encoder.mel_proj.w2".to_string(),
+                self.mel_projection.w2.clone().into_dyn(),
+            ),
+            (
+                "audio_encoder.mel_proj.b2".to_string(),
+                self.mel_projection.b2.clone().into_dyn(),
+            ),
         ]
     }
 }

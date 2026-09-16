@@ -1,8 +1,8 @@
+use lru::LruCache;
+use ndarray::{Array1, Array2, ArrayD};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
-use ndarray::{Array1, Array2, ArrayD};
-use lru::LruCache;
 use tracing::info;
 
 use crate::block::TransformerBlock;
@@ -53,9 +53,7 @@ impl LazyWeightLoader {
         let raw = std::fs::read(&path)?;
 
         if raw.len() < 8 {
-            return Err(TransformerError::Implementation(
-                "File too small".into(),
-            ));
+            return Err(TransformerError::Implementation("File too small".into()));
         }
 
         let header_len = u64::from_le_bytes([
@@ -81,14 +79,13 @@ impl LazyWeightLoader {
             num_tensors, path, cache_blocks
         );
 
-        let cache_size = std::num::NonZeroUsize::new(cache_blocks.max(1))
-            .unwrap_or_else(|| {
-                tracing::warn!("cache_blocks.max(1) is zero; using default cache size 2");
-                std::num::NonZeroUsize::new(2).unwrap_or_else(|| {
-                    tracing::error!("NonZeroUsize::new(2) failed");
-                    std::num::NonZeroUsize::MIN
-                })
-            });
+        let cache_size = std::num::NonZeroUsize::new(cache_blocks.max(1)).unwrap_or_else(|| {
+            tracing::warn!("cache_blocks.max(1) is zero; using default cache size 2");
+            std::num::NonZeroUsize::new(2).unwrap_or_else(|| {
+                tracing::error!("NonZeroUsize::new(2) failed");
+                std::num::NonZeroUsize::MIN
+            })
+        });
 
         Ok(Self {
             path,
@@ -108,14 +105,18 @@ impl LazyWeightLoader {
     /// Load a single tensor by name from the file (no caching for ad-hoc loads).
     pub fn load_tensor(&self, name: &str) -> TransformerResult<ArrayD<f32>> {
         let entry = self.header.tensors.get(name).ok_or_else(|| {
-            TransformerError::Implementation(format!("Tensor '{}' not found in {}", name, self.path))
+            TransformerError::Implementation(format!(
+                "Tensor '{}' not found in {}",
+                name, self.path
+            ))
         })?;
 
         let start = self.data_offset + entry.data_offsets[0];
         let end = self.data_offset + entry.data_offsets[1];
         if end > self.raw.len() {
             return Err(TransformerError::Implementation(format!(
-                "Data offset out of range for tensor '{}'", name
+                "Data offset out of range for tensor '{}'",
+                name
             )));
         }
         let bytes = &self.raw[start..end];
@@ -132,7 +133,8 @@ impl LazyWeightLoader {
             "F16" => crate::safetensors::io::f16_bytes_to_f32_slice(bytes),
             other => {
                 return Err(TransformerError::Implementation(format!(
-                    "Unsupported dtype '{}' for tensor '{}'", other, name
+                    "Unsupported dtype '{}' for tensor '{}'",
+                    other, name
                 )));
             }
         };
@@ -144,15 +146,17 @@ impl LazyWeightLoader {
     /// Load a 2D tensor (weight matrix).
     fn load_2d(&self, name: &str) -> TransformerResult<Array2<f32>> {
         let arr = self.load_tensor(name)?;
-        arr.into_dimensionality::<ndarray::Ix2>()
-            .map_err(|e| TransformerError::Implementation(format!("Expected 2D tensor '{}': {}", name, e)))
+        arr.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
+            TransformerError::Implementation(format!("Expected 2D tensor '{}': {}", name, e))
+        })
     }
 
     /// Load a 1D tensor (norm weight).
     fn load_1d(&self, name: &str) -> TransformerResult<Array1<f32>> {
         let arr = self.load_tensor(name)?;
-        arr.into_dimensionality::<ndarray::Ix1>()
-            .map_err(|e| TransformerError::Implementation(format!("Expected 1D tensor '{}': {}", name, e)))
+        arr.into_dimensionality::<ndarray::Ix1>().map_err(|e| {
+            TransformerError::Implementation(format!("Expected 1D tensor '{}': {}", name, e))
+        })
     }
 
     /// Load or retrieve from singleton cache a non-block tensor.
@@ -208,9 +212,10 @@ impl LazyWeightLoader {
     /// Get a block's weights, loading from disk if not cached.
     /// Loaded blocks stay in the LRU cache.
     pub fn get_block(&self, idx: usize) -> TransformerResult<BlockOnDisk> {
-        let mut cache = self.block_cache.lock().map_err(|e| {
-            TransformerError::Implementation(format!("Block cache lock: {}", e))
-        })?;
+        let mut cache = self
+            .block_cache
+            .lock()
+            .map_err(|e| TransformerError::Implementation(format!("Block cache lock: {}", e)))?;
         if let Some(block) = cache.get(&idx) {
             return Ok(block.clone());
         }
@@ -260,7 +265,6 @@ pub fn load_lazy_into_causal_lm(
     config: TransformerConfig,
     loader: &LazyWeightLoader,
 ) -> TransformerResult<super::model::CausalLM> {
-    
     use crate::rope::RoPE;
 
     let mut model = super::model::CausalLM::new_empty(config.clone());

@@ -188,7 +188,10 @@ impl InputData {
 
     fn validate_text(&self) -> bool {
         // Allow any non-control character (including Unicode, emoji)
-        !self.raw_input.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
+        !self
+            .raw_input
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
     }
 
     fn validate_command(&self) -> bool {
@@ -515,7 +518,10 @@ pub struct DefaultSpecialistModel {
 
 impl DefaultSpecialistModel {
     pub fn new(model_id: ModelId, handled_intents: Vec<IntentType>) -> Self {
-        Self { model_id, handled_intents }
+        Self {
+            model_id,
+            handled_intents,
+        }
     }
 }
 

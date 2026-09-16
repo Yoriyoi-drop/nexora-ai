@@ -70,7 +70,8 @@ impl CoreController {
             config: config.clone(),
             input_receiver: InputReceiver::new(),
             intent_detector: IntentDetector::new().with_threshold(config.intent_threshold),
-            ml_intent_detector: AdvancedIntentDetector::new().with_threshold(config.intent_threshold),
+            ml_intent_detector: AdvancedIntentDetector::new()
+                .with_threshold(config.intent_threshold),
             context_analyzer: ContextAnalyzer::new().with_memory(config.enable_memory_management),
             specialist_models: Arc::new(RwLock::new(HashMap::new())),
             context_cache: Arc::new(RwLock::new(context_cache)),
@@ -126,7 +127,8 @@ impl CoreController {
 
         // 5. Hybrid intent detection: if keyword confidence is too low, fall back to ML
         let primary_conf = intent_result.get_confidence(intent_result.primary_intent);
-        if (primary_conf < self.config.intent_threshold || intent_result.primary_intent == IntentType::Unknown)
+        if (primary_conf < self.config.intent_threshold
+            || intent_result.primary_intent == IntentType::Unknown)
             && self.ml_intent_detector.is_trained()
         {
             if let Ok(ml_result) = self.ml_intent_detector.detect_intent(&input_data).await {
@@ -369,7 +371,8 @@ impl CoreController {
     pub fn update_config(&mut self, config: ControllerConfig) {
         self.config = config.clone();
         self.intent_detector = IntentDetector::new().with_threshold(config.intent_threshold);
-        self.ml_intent_detector = AdvancedIntentDetector::new().with_threshold(config.intent_threshold);
+        self.ml_intent_detector =
+            AdvancedIntentDetector::new().with_threshold(config.intent_threshold);
         self.context_analyzer = ContextAnalyzer::new().with_memory(config.enable_memory_management);
 
         info!("Configuration updated");

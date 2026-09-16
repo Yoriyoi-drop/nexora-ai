@@ -970,14 +970,15 @@ impl NeuralAttentionMemory {
             return vec![0.0; self.config.value_dim];
         }
 
-        let candidates: Vec<&NeuralMemoryEntry> = if self.entries.len() > self.config.max_query_entries {
-            use rand::seq::SliceRandom;
-            self.entries
-                .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
-                .collect()
-        } else {
-            self.entries.iter().collect()
-        };
+        let candidates: Vec<&NeuralMemoryEntry> =
+            if self.entries.len() > self.config.max_query_entries {
+                use rand::seq::SliceRandom;
+                self.entries
+                    .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
+                    .collect()
+            } else {
+                self.entries.iter().collect()
+            };
 
         let n = candidates.len();
         let mut scores = Vec::with_capacity(n);
@@ -1015,14 +1016,15 @@ impl NeuralAttentionMemory {
             return Vec::new();
         }
 
-        let candidates: Vec<&NeuralMemoryEntry> = if self.entries.len() > self.config.max_query_entries {
-            use rand::seq::SliceRandom;
-            self.entries
-                .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
-                .collect()
-        } else {
-            self.entries.iter().collect()
-        };
+        let candidates: Vec<&NeuralMemoryEntry> =
+            if self.entries.len() > self.config.max_query_entries {
+                use rand::seq::SliceRandom;
+                self.entries
+                    .choose_multiple(&mut rand::thread_rng(), self.config.max_query_entries)
+                    .collect()
+            } else {
+                self.entries.iter().collect()
+            };
 
         let k = k.min(candidates.len());
         let mut similarities: Vec<(usize, f32)> = candidates

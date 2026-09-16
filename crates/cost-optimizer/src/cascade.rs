@@ -41,8 +41,7 @@ impl CostCascade {
         if let Some(result) = self.rule_engine.evaluate(input) {
             self.rule_count.fetch_add(1, Ordering::Relaxed);
             let cost = result.tier.cost_per_1k_tokens();
-            self.cost_tracker
-                .record_route(result.tier, 0.0);
+            self.cost_tracker.record_route(result.tier, 0.0);
             debug!(
                 "cost cascade: {} → {} (rule: {})",
                 input.chars().take(50).collect::<String>(),
@@ -55,8 +54,11 @@ impl CostCascade {
         // Tier 2: Heuristic routing berdasarkan panjang dan kompleksitas
         let input_lower = input.to_lowercase();
         let word_count = input.split_whitespace().count();
-        let has_code = input_lower.contains("fn ") || input_lower.contains("def ") || input_lower.contains("```");
-        let is_technical = has_code || input_lower.contains("explain") || input_lower.contains("how does");
+        let has_code = input_lower.contains("fn ")
+            || input_lower.contains("def ")
+            || input_lower.contains("```");
+        let is_technical =
+            has_code || input_lower.contains("explain") || input_lower.contains("how does");
         let is_short = word_count < 10;
         let is_medium = word_count < 50;
 
@@ -73,7 +75,11 @@ impl CostCascade {
 
         let cost = tier.cost_per_1k_tokens();
         self.cost_tracker.record_route(tier, cost);
-        debug!("cost cascade: {} → {}", input.chars().take(50).collect::<String>(), tier.name());
+        debug!(
+            "cost cascade: {} → {}",
+            input.chars().take(50).collect::<String>(),
+            tier.name()
+        );
         (tier, cost)
     }
 
@@ -98,7 +104,10 @@ impl CostCascade {
     pub fn tier_counts(&self) -> Vec<(ModelTier, u64)> {
         vec![
             (ModelTier::Regex, self.regex_count.load(Ordering::Relaxed)),
-            (ModelTier::RuleEngine, self.rule_count.load(Ordering::Relaxed)),
+            (
+                ModelTier::RuleEngine,
+                self.rule_count.load(Ordering::Relaxed),
+            ),
             (ModelTier::Small, self.small_count.load(Ordering::Relaxed)),
             (ModelTier::Medium, self.medium_count.load(Ordering::Relaxed)),
             (ModelTier::Large, self.large_count.load(Ordering::Relaxed)),

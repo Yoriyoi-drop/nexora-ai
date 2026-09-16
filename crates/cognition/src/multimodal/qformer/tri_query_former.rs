@@ -66,13 +66,25 @@ impl QuerySet {
         }
 
         let wq = (0..num_queries)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         let wk = (0..num_queries)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         let wv = (0..num_queries)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
 
         Ok(Self {
@@ -116,7 +128,11 @@ impl QuerySet {
     fn process_input(&self, input: &ArrayD<f32>, query_embeddings: &mut [f32]) -> Result<()> {
         let input_shape = input.shape();
         let input_dim = input_shape.iter().product::<usize>();
-        let num_input_tokens = if self.hidden_dim > 0 { input_dim / self.hidden_dim } else { 0 };
+        let num_input_tokens = if self.hidden_dim > 0 {
+            input_dim / self.hidden_dim
+        } else {
+            0
+        };
 
         if num_input_tokens == 0 {
             return Ok(());
@@ -143,7 +159,15 @@ impl QuerySet {
         }
 
         let mut out = vec![0.0f32; num_queries * head_dim];
-        scaled_dot_product_attention(&q, &k, &v, num_queries, num_input_tokens, head_dim, &mut out);
+        scaled_dot_product_attention(
+            &q,
+            &k,
+            &v,
+            num_queries,
+            num_input_tokens,
+            head_dim,
+            &mut out,
+        );
 
         for i in 0..num_queries {
             for d in 0..head_dim {
@@ -274,16 +298,32 @@ impl QueryProcessor {
         let mut rng = rand::thread_rng();
         let scale = (2.0 / hidden_dim as f32).sqrt();
         let wq = (0..hidden_dim)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         let wk = (0..hidden_dim)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         let wv = (0..hidden_dim)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         let wo = (0..hidden_dim)
-            .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..hidden_dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
 
         Self {
@@ -328,7 +368,15 @@ impl QueryProcessor {
             }
 
             let mut hout = vec![0.0f32; num_queries * head_dim];
-            scaled_dot_product_attention(&hq, &hk, &hv, num_queries, num_queries, head_dim, &mut hout);
+            scaled_dot_product_attention(
+                &hq,
+                &hk,
+                &hv,
+                num_queries,
+                num_queries,
+                head_dim,
+                &mut hout,
+            );
 
             for i in 0..num_queries {
                 for d in 0..head_dim {

@@ -80,7 +80,8 @@ pub struct Router {
     #[cfg(feature = "gpu")]
     router_weights_gpu: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::GpuTensor>>,
     #[cfg(feature = "cuda")]
-    router_weights_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
+    router_weights_cuda:
+        std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Router {
@@ -115,7 +116,8 @@ impl Router {
     fn get_weights(&self) -> Result<&Vec<Vec<f32>>, String> {
         self.router_weights.as_ref().ok_or_else(|| {
             warn!("router_weights not initialized — call init_random() or load from checkpoint");
-            "router_weights not initialized — call init_random() or load from checkpoint".to_string()
+            "router_weights not initialized — call init_random() or load from checkpoint"
+                .to_string()
         })
     }
 
@@ -258,7 +260,8 @@ impl Router {
             let w = self.router_weights.as_ref()?;
             let flat: Vec<f32> = w.iter().flatten().copied().collect();
             let cpu = ndarray::Array2::from_shape_vec((num_experts, hidden_size), flat).ok()?;
-            let gpu = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
+            let gpu =
+                nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&cpu.into_dyn()).ok()?;
             ctx.transpose(&gpu).ok()
         });
         entry.as_ref()
@@ -278,7 +281,10 @@ impl Router {
 
     /// GPU forward yang return GpuTensor tanpa readback — untuk chaining ke expert GPU.
     #[cfg(feature = "gpu")]
-    pub fn forward_keep_gpu(&self, input: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    pub fn forward_keep_gpu(
+        &self,
+        input: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let weights_t = self.ensure_weights_gpu()?;
         let input_gpu = GpuTensor::from_cpu(&input.clone().into_dyn()).ok()?;
@@ -290,14 +296,23 @@ impl Router {
     /// Lazily upload router weights to CUDA — cached via OnceLock.
     /// Weight matrix is stored as [hidden_size, num_experts] (transposed for cuBLAS matmul).
     #[cfg(feature = "cuda")]
-    fn ensure_weights_cuda(&self, cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime) -> Option<&nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
+    fn ensure_weights_cuda(
+        &self,
+        cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime,
+    ) -> Option<&nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
         use nexora_deeplearning::autograd::gpu::cuda::CudaTensor;
         let entry = self.router_weights_cuda.get_or_init(|| {
             let num_experts = self.config.num_experts;
             let hidden_size = self.config.hidden_size;
             let w = self.router_weights.as_ref()?;
             let flat: Vec<f32> = w.iter().flatten().copied().collect();
-            CudaTensor::from_cpu(&cuda.stream, vec![num_experts, hidden_size], &flat, cuda.device_id).ok()
+            CudaTensor::from_cpu(
+                &cuda.stream,
+                vec![num_experts, hidden_size],
+                &flat,
+                cuda.device_id,
+            )
+            .ok()
         });
         entry.as_ref()
     }
@@ -306,7 +321,7 @@ impl Router {
     /// Returns None if CUDA unavailable.
     #[cfg(feature = "cuda")]
     fn forward_cuda(&self, input: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
-        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
+        use nexora_deeplearning::autograd::gpu::{GpuBackend, GpuContext};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -318,8 +333,12 @@ impl Router {
         let dim = input.shape()[1];
         let input_flat: Vec<f32> = input.iter().copied().collect();
         let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
-        ).ok()?;
+            &cuda.stream,
+            vec![n, dim],
+            &input_flat,
+            cuda.device_id,
+        )
+        .ok()?;
 
         let scores = cuda.matmul(&input_gpu, weights).ok()?;
         let probs = cuda.softmax(&scores).ok()?;
@@ -331,8 +350,11 @@ impl Router {
     /// CUDA forward + argtopk: compute probs di GPU, readback hanya top-k indices (8 bytes/token).
     /// Menghindari readback full [batch, num_experts] matrix.
     #[cfg(feature = "cuda")]
-    pub fn forward_cuda_topk(&self, input: &ndarray::Array2<f32>) -> Option<(Vec<Vec<usize>>, Vec<Vec<f32>>)> {
-        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
+    pub fn forward_cuda_topk(
+        &self,
+        input: &ndarray::Array2<f32>,
+    ) -> Option<(Vec<Vec<usize>>, Vec<Vec<f32>>)> {
+        use nexora_deeplearning::autograd::gpu::{GpuBackend, GpuContext};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -344,14 +366,19 @@ impl Router {
         let topk = self.config.top_k;
         let input_flat: Vec<f32> = input.iter().copied().collect();
         let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.stream, vec![n, dim], &input_flat, cuda.device_id,
-        ).ok()?;
+            &cuda.stream,
+            vec![n, dim],
+            &input_flat,
+            cuda.device_id,
+        )
+        .ok()?;
 
         let scores = cuda.matmul(&input_gpu, weights).ok()?;
         let probs = cuda.softmax(&scores).ok()?;
 
         let out_cpu = probs.to_cpu_vec(&cuda.stream).ok()?;
-        let probs_2d = ndarray::Array2::from_shape_vec((n, self.config.num_experts), out_cpu).ok()?;
+        let probs_2d =
+            ndarray::Array2::from_shape_vec((n, self.config.num_experts), out_cpu).ok()?;
 
         let mut indices = Vec::with_capacity(n);
         let mut weights_out = Vec::with_capacity(n);
@@ -454,10 +481,13 @@ impl Router {
             let row_view = input.row(i);
             let row_slice = row_view.as_slice().unwrap_or(&[]);
             let (route, weights) = self.route_single_with_weights(row_slice)?;
-            let top_k: Vec<(usize, f32)> = route.iter().map(|&e| {
-                let w = weights.get(e).copied().unwrap_or(0.0);
-                (e, w)
-            }).collect();
+            let top_k: Vec<(usize, f32)> = route
+                .iter()
+                .map(|&e| {
+                    let w = weights.get(e).copied().unwrap_or(0.0);
+                    (e, w)
+                })
+                .collect();
             let weights_with_indices: Vec<(usize, f32)> = weights.into_iter().enumerate().collect();
             routing_weights.push(weights_with_indices);
             all_routes.push(top_k);
@@ -638,15 +668,20 @@ impl Router {
         if let Some(ref pool) = self.config.pool_config {
             if let Some(ref dr) = self.config.domain_routing {
                 let tier_specific = pool.experts_in_tier(tier);
-                let selected_tier_count = selected.iter().filter(|e| tier_specific.contains(e)).count();
+                let selected_tier_count = selected
+                    .iter()
+                    .filter(|e| tier_specific.contains(e))
+                    .count();
                 if selected_tier_count < dr.tier_quota {
                     // Replace lowest-scoring shared experts with top tier-specific ones not yet selected
                     let shared = pool.shared_experts();
-                    let mut candidates: Vec<(usize, f32)> = tier_specific.iter()
+                    let mut candidates: Vec<(usize, f32)> = tier_specific
+                        .iter()
                         .filter(|e| !selected.contains(e))
                         .map(|&e| (e, softmax_weights[e]))
                         .collect();
-                    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    candidates
+                        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
                     let needed = dr.tier_quota - selected_tier_count;
                     for &(candidate, _) in candidates.iter().take(needed) {

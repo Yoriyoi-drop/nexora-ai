@@ -6,8 +6,8 @@ use crate::special_tokens::SpecialTokens;
 use crate::Tokenizer;
 use anyhow::Result;
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 /// Token pair for vocabulary

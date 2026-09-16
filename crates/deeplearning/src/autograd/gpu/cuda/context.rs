@@ -4,8 +4,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use cudarc::cublas::{sys as cublas_sys, CudaBlas, Gemm, GemmConfig};
-use cudarc::cublaslt::{CudaBlasLT, Matmul, MatmulConfig, Activation};
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaFunction, LaunchConfig, PushKernelArg};
+use cudarc::cublaslt::{Activation, CudaBlasLT, Matmul, MatmulConfig};
+use cudarc::driver::{
+    CudaContext, CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
+};
 use cudarc::nvrtc::compile_ptx;
 use once_cell::sync::OnceCell;
 
@@ -118,8 +120,8 @@ impl CudaRuntime {
         let transfer_stream = context
             .new_stream()
             .map_err(|e| format!("Failed to create transfer stream: {e}"))?;
-        let blas = CudaBlas::new(stream.clone())
-            .map_err(|e| format!("Failed to create CudaBlas: {e}"))?;
+        let blas =
+            CudaBlas::new(stream.clone()).map_err(|e| format!("Failed to create CudaBlas: {e}"))?;
         let blas_lt = CudaBlasLT::new(stream.clone())
             .map_err(|e| format!("Failed to create CudaBlasLT: {e}"))?;
 
@@ -602,10 +604,7 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     pub fn transpose(&self, a: &CudaTensor) -> Result<CudaTensor, String> {
         let shape = &a.shape;
         if shape.len() != 2 {
-            return Err(format!(
-                "CUDA transpose: expected 2D, got {}D",
-                shape.len()
-            ));
+            return Err(format!("CUDA transpose: expected 2D, got {}D", shape.len()));
         }
         let rows = shape[0];
         let cols = shape[1];
@@ -681,7 +680,8 @@ extern "C" __global__ void transpose_2d(float* __restrict__ out,
         let tile_size: u32 = 32;
         let causal_u32: u32 = if causal { 1 } else { 0 };
 
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void flash_attn(float* __restrict__ output,
     const float* __restrict__ q, const float* __restrict__ k, const float* __restrict__ v,
     size_t batch, size_t heads, size_t seq_len, size_t dim, float scale, unsigned int causal) {{
@@ -802,7 +802,8 @@ extern "C" __global__ void flash_attn(float* __restrict__ output,
         output[q_off + tid] = o_buf / d;
     }}
 }}
-"#);
+"#
+        );
 
         let kfunc = self.get_or_compile_kernel(kernel_name, &source)?;
 
@@ -1535,52 +1536,90 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
 
     pub fn fill_zero(&self, t: &CudaTensor) -> Result<(), String> {
         let numel = t.numel();
-        let func = compile_simple!(self, "fill_zero_f32", r#"
+        let func = compile_simple!(
+            self,
+            "fill_zero_f32",
+            r#"
 extern "C" __global__ void fill_zero_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = 0.0f;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&t.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_zero: {e}"))?;
+            b.arg(&t.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("fill_zero: {e}"))?;
         }
         Ok(())
     }
 
     pub fn fill_constant(&self, t: &CudaTensor, value: f32) -> Result<(), String> {
         let numel = t.numel();
-        let func = compile_simple!(self, "fill_constant_f32", r#"
+        let func = compile_simple!(
+            self,
+            "fill_constant_f32",
+            r#"
 extern "C" __global__ void fill_constant_f32(float* buf, float val, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = val;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&t.buffer); b.arg(&value); b.arg(&numel); b.launch(cfg).map_err(|e| format!("fill_constant: {e}"))?;
+            b.arg(&t.buffer);
+            b.arg(&value);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("fill_constant: {e}"))?;
         }
         Ok(())
     }
 
     pub fn scale_inplace(&self, t: &CudaTensor, scale: f32) -> Result<(), String> {
         let numel = t.numel();
-        let func = compile_simple!(self, "scale_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "scale_inplace_f32",
+            r#"
 extern "C" __global__ void scale_inplace_f32(float* buf, float scale, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] *= scale;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&t.buffer); b.arg(&scale); b.arg(&numel); b.launch(cfg).map_err(|e| format!("scale_inplace: {e}"))?;
+            b.arg(&t.buffer);
+            b.arg(&scale);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("scale_inplace: {e}"))?;
         }
         Ok(())
     }
 
     // ── Reduce ops ──────────────────────────────────────────────────
 
-    fn reduce_1d(&self, input: &CudaTensor, op: &str, expr: &str, init: &str) -> Result<CudaTensor, String> {
+    fn reduce_1d(
+        &self,
+        input: &CudaTensor,
+        op: &str,
+        expr: &str,
+        init: &str,
+    ) -> Result<CudaTensor, String> {
         let shape = input.shape();
         let numel = input.numel();
         if shape.len() != 1 && !(shape.len() == 2 && shape[0] == 1) {
@@ -1589,7 +1628,8 @@ extern "C" __global__ void scale_inplace_f32(float* buf, float scale, size_t num
             return self.reduce_1d(&flat, op, expr, init);
         }
         let kernel_name = format!("reduce_{}_1d", op);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, size_t numel) {{
     extern __shared__ float shared[];
@@ -1608,16 +1648,31 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }}
     if (tid == 0) out[0] = shared[0];
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let mut out_buf = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("reduce scratch: {e}"))?;
-        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
+        let mut out_buf = self
+            .stream
+            .alloc_zeros::<f32>(1)
+            .map_err(|e| format!("reduce scratch: {e}"))?;
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 256 * 4,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out_buf); b.arg(input.buffer()); b.arg(&numel);
-            b.launch(cfg).map_err(|e| format!("reduce_{} launch: {e}", op))?;
+            b.arg(&mut out_buf);
+            b.arg(input.buffer());
+            b.arg(&numel);
+            b.launch(cfg)
+                .map_err(|e| format!("reduce_{} launch: {e}", op))?;
         }
-        Ok(CudaTensor { shape: vec![1], buffer: out_buf, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![1],
+            buffer: out_buf,
+            device_id: self.device_id,
+        })
     }
 
     pub fn sum(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
@@ -1659,19 +1714,37 @@ extern "C" __global__ void l2_norm_f32(float* __restrict__ out,
     if (tid == 0) out[0] = sqrtf(shared[0]);
 }"#;
         let func = self.get_or_compile_kernel(kernel_name, source)?;
-        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("l2_norm scratch: {e}"))?;
-        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(1)
+            .map_err(|e| format!("l2_norm scratch: {e}"))?;
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 256 * 4,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(input.buffer()); b.arg(&numel);
+            b.arg(&mut out);
+            b.arg(input.buffer());
+            b.arg(&numel);
             b.launch(cfg).map_err(|e| format!("l2_norm launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![1],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── RMS Norm ────────────────────────────────────────────────────
 
-    pub fn rms_norm(&self, x: &CudaTensor, weight: &CudaTensor, eps: f32) -> Result<CudaTensor, String> {
+    pub fn rms_norm(
+        &self,
+        x: &CudaTensor,
+        weight: &CudaTensor,
+        eps: f32,
+    ) -> Result<CudaTensor, String> {
         let shape = x.shape();
         if shape.len() != 2 {
             return Err(format!("rms_norm: expected 2D, got {}D", shape.len()));
@@ -1679,10 +1752,13 @@ extern "C" __global__ void l2_norm_f32(float* __restrict__ out,
         let rows = shape[0];
         let cols = shape[1];
         let numel = x.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("rms_norm scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("rms_norm scratch: {e}"))?;
 
         let kernel_name = format!("rms_norm_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ x, const float* __restrict__ weight,
     size_t rows, size_t cols, float eps) {{
@@ -1710,30 +1786,58 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + i] = x[row * cols + i] * inv_rms * weight[i];
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block as u32, 1, 1),
+            shared_mem_bytes: (block * 4) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer());
-            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.arg(&mut out);
+            b.arg(x.buffer());
+            b.arg(weight.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&eps);
             b.launch(cfg).map_err(|e| format!("rms_norm launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn rms_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor), String> {
+    pub fn rms_norm_backward(
+        &self,
+        input: &CudaTensor,
+        weight: &CudaTensor,
+        grad: &CudaTensor,
+        eps: f32,
+    ) -> Result<(CudaTensor, CudaTensor), String> {
         let shape = input.shape();
         let rows = shape[0];
         let cols = shape[1];
         let numel = input.numel();
-        let mut dx = self.scratch_f32(numel).map_err(|e| format!("rms_norm_bwd scratch: {e}"))?;
-        let mut dw = self.scratch_f32(cols).map_err(|e| format!("rms_norm_bwd dw scratch: {e}"))?;
-        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: dw.clone(), device_id: self.device_id })?;
+        let mut dx = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("rms_norm_bwd scratch: {e}"))?;
+        let mut dw = self
+            .scratch_f32(cols)
+            .map_err(|e| format!("rms_norm_bwd dw scratch: {e}"))?;
+        self.fill_zero(&CudaTensor {
+            shape: vec![cols],
+            buffer: dw.clone(),
+            device_id: self.device_id,
+        })?;
 
         let kernel_name = format!("rms_norm_bwd_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(
     float* __restrict__ dx, float* __restrict__ dw,
     const float* __restrict__ x, const float* __restrict__ weight,
@@ -1791,24 +1895,51 @@ extern "C" __global__ void {kernel_name}(
         atomicAdd(&dw[i], gi * normed);
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block as u32, 1, 1),
+            shared_mem_bytes: (block * 4) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut dx); b.arg(&mut dw);
-            b.arg(input.buffer()); b.arg(weight.buffer()); b.arg(grad.buffer());
-            b.arg(&rows); b.arg(&cols); b.arg(&eps);
-            b.launch(cfg).map_err(|e| format!("rms_norm_bwd launch: {e}"))?;
+            b.arg(&mut dx);
+            b.arg(&mut dw);
+            b.arg(input.buffer());
+            b.arg(weight.buffer());
+            b.arg(grad.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&eps);
+            b.launch(cfg)
+                .map_err(|e| format!("rms_norm_bwd launch: {e}"))?;
         }
-        Ok((CudaTensor { shape: shape.clone(), buffer: dx, device_id: self.device_id },
-            CudaTensor { shape: vec![cols], buffer: dw, device_id: self.device_id }))
+        Ok((
+            CudaTensor {
+                shape: shape.clone(),
+                buffer: dx,
+                device_id: self.device_id,
+            },
+            CudaTensor {
+                shape: vec![cols],
+                buffer: dw,
+                device_id: self.device_id,
+            },
+        ))
     }
 
     // ── Layer Norm ──────────────────────────────────────────────────
 
-    pub fn layer_norm(&self, x: &CudaTensor, weight: &CudaTensor, bias: &CudaTensor, eps: f32) -> Result<CudaTensor, String> {
+    pub fn layer_norm(
+        &self,
+        x: &CudaTensor,
+        weight: &CudaTensor,
+        bias: &CudaTensor,
+        eps: f32,
+    ) -> Result<CudaTensor, String> {
         let shape = x.shape();
         if shape.len() != 2 {
             return Err(format!("layer_norm: expected 2D, got {}D", shape.len()));
@@ -1816,10 +1947,13 @@ extern "C" __global__ void {kernel_name}(
         let rows = shape[0];
         let cols = shape[1];
         let numel = x.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("layer_norm scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("layer_norm scratch: {e}"))?;
 
         let kernel_name = format!("layer_norm_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ x, const float* __restrict__ weight,
     const float* __restrict__ bias, size_t rows, size_t cols, float eps) {{
@@ -1852,32 +1986,69 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + i] = (x[row * cols + i] - mean) * inv_std * weight[i] + bias[i];
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 8) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block as u32, 1, 1),
+            shared_mem_bytes: (block * 8) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(x.buffer()); b.arg(weight.buffer()); b.arg(bias.buffer());
-            b.arg(&rows); b.arg(&cols); b.arg(&eps);
-            b.launch(cfg).map_err(|e| format!("layer_norm launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(x.buffer());
+            b.arg(weight.buffer());
+            b.arg(bias.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&eps);
+            b.launch(cfg)
+                .map_err(|e| format!("layer_norm launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn layer_norm_backward(&self, input: &CudaTensor, weight: &CudaTensor, _bias: &CudaTensor, grad: &CudaTensor, eps: f32) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
+    pub fn layer_norm_backward(
+        &self,
+        input: &CudaTensor,
+        weight: &CudaTensor,
+        _bias: &CudaTensor,
+        grad: &CudaTensor,
+        eps: f32,
+    ) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
         let shape = input.shape();
         let rows = shape[0];
         let cols = shape[1];
         let numel = input.numel();
-        let mut dx = self.scratch_f32(numel).map_err(|e| format!("ln_bwd dx scratch: {e}"))?;
-        let mut dw = self.scratch_f32(cols).map_err(|e| format!("ln_bwd dw scratch: {e}"))?;
-        let mut db = self.scratch_f32(cols).map_err(|e| format!("ln_bwd db scratch: {e}"))?;
-        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: dw.clone(), device_id: self.device_id })?;
-        self.fill_zero(&CudaTensor { shape: vec![cols], buffer: db.clone(), device_id: self.device_id })?;
+        let mut dx = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("ln_bwd dx scratch: {e}"))?;
+        let mut dw = self
+            .scratch_f32(cols)
+            .map_err(|e| format!("ln_bwd dw scratch: {e}"))?;
+        let mut db = self
+            .scratch_f32(cols)
+            .map_err(|e| format!("ln_bwd db scratch: {e}"))?;
+        self.fill_zero(&CudaTensor {
+            shape: vec![cols],
+            buffer: dw.clone(),
+            device_id: self.device_id,
+        })?;
+        self.fill_zero(&CudaTensor {
+            shape: vec![cols],
+            buffer: db.clone(),
+            device_id: self.device_id,
+        })?;
 
         let kernel_name = format!("ln_bwd_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(
     float* __restrict__ dx, float* __restrict__ dw, float* __restrict__ db,
     const float* __restrict__ x, const float* __restrict__ weight,
@@ -1933,35 +2104,71 @@ extern "C" __global__ void {kernel_name}(
         atomicAdd(&db[i], gi);
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 8) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block as u32, 1, 1),
+            shared_mem_bytes: (block * 8) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut dx); b.arg(&mut dw); b.arg(&mut db);
-            b.arg(input.buffer()); b.arg(weight.buffer()); b.arg(grad.buffer());
-            b.arg(&rows); b.arg(&cols); b.arg(&eps);
+            b.arg(&mut dx);
+            b.arg(&mut dw);
+            b.arg(&mut db);
+            b.arg(input.buffer());
+            b.arg(weight.buffer());
+            b.arg(grad.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&eps);
             b.launch(cfg).map_err(|e| format!("ln_bwd launch: {e}"))?;
         }
-        Ok((CudaTensor { shape: shape.clone(), buffer: dx, device_id: self.device_id },
-            CudaTensor { shape: vec![cols], buffer: dw, device_id: self.device_id },
-            CudaTensor { shape: vec![cols], buffer: db, device_id: self.device_id }))
+        Ok((
+            CudaTensor {
+                shape: shape.clone(),
+                buffer: dx,
+                device_id: self.device_id,
+            },
+            CudaTensor {
+                shape: vec![cols],
+                buffer: dw,
+                device_id: self.device_id,
+            },
+            CudaTensor {
+                shape: vec![cols],
+                buffer: db,
+                device_id: self.device_id,
+            },
+        ))
     }
 
     // ── Cross Entropy ───────────────────────────────────────────────
 
-    pub fn cross_entropy(&self, logits: &CudaTensor, targets: &CudaTensor) -> Result<CudaTensor, String> {
+    pub fn cross_entropy(
+        &self,
+        logits: &CudaTensor,
+        targets: &CudaTensor,
+    ) -> Result<CudaTensor, String> {
         let shape = logits.shape();
         if shape.len() != 2 {
-            return Err(format!("cross_entropy: expected 2D logits, got {}D", shape.len()));
+            return Err(format!(
+                "cross_entropy: expected 2D logits, got {}D",
+                shape.len()
+            ));
         }
         let rows = shape[0];
         let cols = shape[1];
-        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("ce scratch: {e}"))?;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(1)
+            .map_err(|e| format!("ce scratch: {e}"))?;
 
         let kernel_name = format!("cross_entropy_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ loss,
     const float* __restrict__ logits, const float* __restrict__ targets,
     size_t rows, size_t cols) {{
@@ -1987,27 +2194,48 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ loss,
     }}
     if (tid == 0) loss[0] = total_loss / (float)rows;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (32, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(logits.buffer()); b.arg(targets.buffer());
-            b.arg(&rows); b.arg(&cols);
-            b.launch(cfg).map_err(|e| format!("cross_entropy launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(logits.buffer());
+            b.arg(targets.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.launch(cfg)
+                .map_err(|e| format!("cross_entropy launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![1],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn cross_entropy_backward(&self, softmax: &CudaTensor, grad: &CudaTensor, targets: &CudaTensor) -> Result<CudaTensor, String> {
+    pub fn cross_entropy_backward(
+        &self,
+        softmax: &CudaTensor,
+        grad: &CudaTensor,
+        targets: &CudaTensor,
+    ) -> Result<CudaTensor, String> {
         let shape = softmax.shape();
         let rows = shape[0];
         let cols = shape[1];
         let numel = softmax.numel();
-        let mut dlogits = self.scratch_f32(numel).map_err(|e| format!("ce_bwd scratch: {e}"))?;
+        let mut dlogits = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("ce_bwd scratch: {e}"))?;
 
         let kernel_name = format!("ce_bwd_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ dlogits,
     const float* __restrict__ softmax, const float* __restrict__ grad,
     const float* __restrict__ targets, size_t rows, size_t cols) {{
@@ -2022,16 +2250,29 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ dlogits,
     float diag = (col == (unsigned int)target) ? 1.0f : 0.0f;
     dlogits[i] = g * (soft - diag) / (float)rows;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut dlogits); b.arg(softmax.buffer()); b.arg(grad.buffer()); b.arg(targets.buffer());
-            b.arg(&rows); b.arg(&cols);
+            b.arg(&mut dlogits);
+            b.arg(softmax.buffer());
+            b.arg(grad.buffer());
+            b.arg(targets.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
             b.launch(cfg).map_err(|e| format!("ce_bwd launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: dlogits, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: dlogits,
+            device_id: self.device_id,
+        })
     }
 
     // ── Embedding ───────────────────────────────────────────────────
@@ -2040,16 +2281,26 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ dlogits,
         let ids_shape = ids.shape();
         let w_shape = weight.shape();
         if w_shape.len() != 2 {
-            return Err(format!("embedding: weight must be 2D, got {}D", w_shape.len()));
+            return Err(format!(
+                "embedding: weight must be 2D, got {}D",
+                w_shape.len()
+            ));
         }
         let vocab = w_shape[0];
         let dim = w_shape[1];
         let num_ids = ids.numel();
-        let out_shape: Vec<usize> = ids_shape.iter().chain(std::iter::once(&dim)).copied().collect();
-        let mut out = self.scratch_f32(num_ids * dim).map_err(|e| format!("embedding scratch: {e}"))?;
+        let out_shape: Vec<usize> = ids_shape
+            .iter()
+            .chain(std::iter::once(&dim))
+            .copied()
+            .collect();
+        let mut out = self
+            .scratch_f32(num_ids * dim)
+            .map_err(|e| format!("embedding scratch: {e}"))?;
 
         let kernel_name = format!("embedding_f32_{}", dim);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ ids_f, const float* __restrict__ weight,
     size_t num_ids, size_t vocab, size_t dim) {{
@@ -2065,24 +2316,53 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[i] = 0.0f;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let total = num_ids * dim;
-        let cfg = LaunchConfig { grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(ids.buffer()); b.arg(weight.buffer());
-            b.arg(&num_ids); b.arg(&vocab); b.arg(&dim);
-            b.launch(cfg).map_err(|e| format!("embedding launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(ids.buffer());
+            b.arg(weight.buffer());
+            b.arg(&num_ids);
+            b.arg(&vocab);
+            b.arg(&dim);
+            b.launch(cfg)
+                .map_err(|e| format!("embedding launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: out_shape, buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: out_shape,
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn embedding_backward(&self, ids: &CudaTensor, grad: &CudaTensor, vocab_size: usize) -> Result<CudaTensor, String> {
-        let dim = if grad.shape().len() >= 2 { grad.shape()[grad.ndim() - 1] } else { 0 };
+    pub fn embedding_backward(
+        &self,
+        ids: &CudaTensor,
+        grad: &CudaTensor,
+        vocab_size: usize,
+    ) -> Result<CudaTensor, String> {
+        let dim = if grad.shape().len() >= 2 {
+            grad.shape()[grad.ndim() - 1]
+        } else {
+            0
+        };
         let num_ids = ids.numel();
-        let mut dw = self.scratch_f32(vocab_size * dim).map_err(|e| format!("embedding_bwd scratch: {e}"))?;
-        self.fill_zero(&CudaTensor { shape: vec![vocab_size * dim], buffer: dw.clone(), device_id: self.device_id })?;
+        let mut dw = self
+            .scratch_f32(vocab_size * dim)
+            .map_err(|e| format!("embedding_bwd scratch: {e}"))?;
+        self.fill_zero(&CudaTensor {
+            shape: vec![vocab_size * dim],
+            buffer: dw.clone(),
+            device_id: self.device_id,
+        })?;
 
         let grad_shape = grad.shape();
         let grad_flat = if grad_shape.len() > 2 {
@@ -2092,7 +2372,10 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
             grad.clone()
         };
 
-        let func = compile_simple!(self, "embedding_bwd_f32", r#"
+        let func = compile_simple!(
+            self,
+            "embedding_bwd_f32",
+            r#"
 extern "C" __global__ void embedding_bwd_f32(float* __restrict__ dw,
     const float* __restrict__ ids_f, const float* __restrict__ grad,
     size_t num_ids, size_t dim) {
@@ -2103,16 +2386,29 @@ extern "C" __global__ void embedding_bwd_f32(float* __restrict__ dw,
     unsigned int d = i % dim;
     int token_id = (int)ids_f[id_pos];
     atomicAdd(&dw[token_id * dim + d], grad[i]);
-}"#)?;
+}"#
+        )?;
         let total = num_ids * dim;
-        let cfg = LaunchConfig { grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (((total as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut dw); b.arg(ids.buffer()); b.arg(grad_flat.buffer());
-            b.arg(&num_ids); b.arg(&dim);
-            b.launch(cfg).map_err(|e| format!("embedding_bwd launch: {e}"))?;
+            b.arg(&mut dw);
+            b.arg(ids.buffer());
+            b.arg(grad_flat.buffer());
+            b.arg(&num_ids);
+            b.arg(&dim);
+            b.launch(cfg)
+                .map_err(|e| format!("embedding_bwd launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![vocab_size, dim], buffer: dw, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![vocab_size, dim],
+            buffer: dw,
+            device_id: self.device_id,
+        })
     }
 
     // ── Causal Softmax ──────────────────────────────────────────────
@@ -2125,10 +2421,13 @@ extern "C" __global__ void embedding_bwd_f32(float* __restrict__ dw,
         let rows = shape[0];
         let cols = shape[1];
         let numel = input.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("causal_softmax scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("causal_softmax scratch: {e}"))?;
 
         let kernel_name = format!("causal_softmax_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, size_t rows, size_t cols) {{
     unsigned int row = blockIdx.x;
@@ -2174,26 +2473,50 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + j] *= inv_sum;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = cols.next_power_of_two().min(256).max(32);
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (block as u32, 1, 1), shared_mem_bytes: (block * 4) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (block as u32, 1, 1),
+            shared_mem_bytes: (block * 4) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
-            b.launch(cfg).map_err(|e| format!("causal_softmax launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(input.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.launch(cfg)
+                .map_err(|e| format!("causal_softmax launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Rotary Embedding ────────────────────────────────────────────
 
-    pub fn rotary_embedding(&self, x: &CudaTensor, cos: &CudaTensor, sin: &CudaTensor, head_dim: u32) -> Result<CudaTensor, String> {
+    pub fn rotary_embedding(
+        &self,
+        x: &CudaTensor,
+        cos: &CudaTensor,
+        sin: &CudaTensor,
+        head_dim: u32,
+    ) -> Result<CudaTensor, String> {
         let shape = x.shape();
         let numel = x.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("rotary scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("rotary scratch: {e}"))?;
 
-        let func = compile_simple!(self, "rotary_embedding_f32", r#"
+        let func = compile_simple!(
+            self,
+            "rotary_embedding_f32",
+            r#"
 extern "C" __global__ void rotary_embedding_f32(float* __restrict__ out,
     const float* __restrict__ x, const float* __restrict__ cos_t,
     const float* __restrict__ sin_t, size_t numel, unsigned int head_dim) {
@@ -2211,20 +2534,39 @@ extern "C" __global__ void rotary_embedding_f32(float* __restrict__ out,
         float x_pair = x[i - half];
         out[i] = x[i] * cos_val + x_pair * sin_val;
     }
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(x.buffer()); b.arg(cos.buffer()); b.arg(sin.buffer());
-            b.arg(&numel); b.arg(&head_dim);
+            b.arg(&mut out);
+            b.arg(x.buffer());
+            b.arg(cos.buffer());
+            b.arg(sin.buffer());
+            b.arg(&numel);
+            b.arg(&head_dim);
             b.launch(cfg).map_err(|e| format!("rotary launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Repeat Heads (GQA) ──────────────────────────────────────────
 
-    pub fn repeat_heads(&self, src: &CudaTensor, kv_heads: u32, q_heads: u32, dim: u32) -> Result<CudaTensor, String> {
+    pub fn repeat_heads(
+        &self,
+        src: &CudaTensor,
+        kv_heads: u32,
+        q_heads: u32,
+        dim: u32,
+    ) -> Result<CudaTensor, String> {
         let shape = src.shape();
         if shape.len() != 4 {
             return Err(format!("repeat_heads: expected 4D, got {}D", shape.len()));
@@ -2233,9 +2575,14 @@ extern "C" __global__ void rotary_embedding_f32(float* __restrict__ out,
         let seq = shape[2];
         let numel = batch as u32 * q_heads * seq as u32 * dim;
         let out_shape = vec![batch, q_heads as usize, seq, dim as usize];
-        let mut out = self.scratch_f32(numel as usize).map_err(|e| format!("repeat_heads scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel as usize)
+            .map_err(|e| format!("repeat_heads scratch: {e}"))?;
 
-        let func = compile_simple!(self, "repeat_heads_f32", r#"
+        let func = compile_simple!(
+            self,
+            "repeat_heads_f32",
+            r#"
 extern "C" __global__ void repeat_heads_f32(float* __restrict__ out,
     const float* __restrict__ src, size_t batch, unsigned int kv_heads,
     unsigned int q_heads, unsigned int seq, unsigned int dim) {
@@ -2249,20 +2596,39 @@ extern "C" __global__ void repeat_heads_f32(float* __restrict__ out,
     unsigned int src_h = h % kv_heads;
     size_t src_idx = ((b * kv_heads + src_h) * seq + s) * dim + d;
     out[i] = src[src_idx];
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(src.buffer()); b.arg(&batch); b.arg(&kv_heads);
-            b.arg(&q_heads); b.arg(&seq); b.arg(&dim);
-            b.launch(cfg).map_err(|e| format!("repeat_heads launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(src.buffer());
+            b.arg(&batch);
+            b.arg(&kv_heads);
+            b.arg(&q_heads);
+            b.arg(&seq);
+            b.arg(&dim);
+            b.launch(cfg)
+                .map_err(|e| format!("repeat_heads launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: out_shape, buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: out_shape,
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Sampling ops ────────────────────────────────────────────────
 
-    pub fn temperature_scale(&self, logits: &CudaTensor, temperature: f32) -> Result<CudaTensor, String> {
+    pub fn temperature_scale(
+        &self,
+        logits: &CudaTensor,
+        temperature: f32,
+    ) -> Result<CudaTensor, String> {
         if temperature <= 0.0 || temperature.abs() < 1e-8 {
             return Ok(logits.clone());
         }
@@ -2277,10 +2643,13 @@ extern "C" __global__ void repeat_heads_f32(float* __restrict__ out,
         let rows = shape[0];
         let cols = shape[1];
         let numel = logits.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("top_k scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("top_k scratch: {e}"))?;
 
         let kernel_name = format!("top_k_mask_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ logits, size_t rows, size_t cols, unsigned int k) {{
     unsigned int row = blockIdx.x;
@@ -2311,15 +2680,28 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + i] = (logits[row * cols + i] >= kth_val) ? logits[row * cols + i] : -INFINITY;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols * 4) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (cols.min(256).max(32) as u32, 1, 1),
+            shared_mem_bytes: (cols * 4) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&k);
+            b.arg(&mut out);
+            b.arg(logits.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&k);
             b.launch(cfg).map_err(|e| format!("top_k launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     pub fn top_p_mask(&self, logits: &CudaTensor, p: f32) -> Result<CudaTensor, String> {
@@ -2330,10 +2712,13 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let rows = shape[0];
         let cols = shape[1];
         let numel = logits.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("top_p scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("top_p scratch: {e}"))?;
 
         let kernel_name = format!("top_p_mask_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ logits, size_t rows, size_t cols, float p) {{
     unsigned int row = blockIdx.x;
@@ -2376,15 +2761,28 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + i] = (logits[row * cols + i] >= threshold) ? logits[row * cols + i] : -INFINITY;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols * 4) as u32 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (cols.min(256).max(32) as u32, 1, 1),
+            shared_mem_bytes: (cols * 4) as u32,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&p);
+            b.arg(&mut out);
+            b.arg(logits.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&p);
             b.launch(cfg).map_err(|e| format!("top_p launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     pub fn multinomial_sample(&self, logits: &CudaTensor, seed: u64) -> Result<CudaTensor, String> {
@@ -2394,10 +2792,14 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         }
         let rows = shape[0];
         let cols = shape[1];
-        let mut out = self.stream.alloc_zeros::<f32>(rows).map_err(|e| format!("multinomial scratch: {e}"))?;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(rows)
+            .map_err(|e| format!("multinomial scratch: {e}"))?;
 
         let kernel_name = format!("multinomial_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ logits, size_t rows, size_t cols, unsigned long long seed) {{
     unsigned int row = blockIdx.x;
@@ -2447,20 +2849,43 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         }}
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: (cols.min(256).max(32) as u32 * 4) };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (cols.min(256).max(32) as u32, 1, 1),
+            shared_mem_bytes: (cols.min(256).max(32) as u32 * 4),
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(logits.buffer()); b.arg(&rows); b.arg(&cols); b.arg(&seed);
-            b.launch(cfg).map_err(|e| format!("multinomial launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(logits.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.arg(&seed);
+            b.launch(cfg)
+                .map_err(|e| format!("multinomial launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![rows], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![rows],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn dropout_mask(&self, mask: &CudaTensor, rate: f32, scale: f32, seed: u32) -> Result<(), String> {
+    pub fn dropout_mask(
+        &self,
+        mask: &CudaTensor,
+        rate: f32,
+        scale: f32,
+        seed: u32,
+    ) -> Result<(), String> {
         let numel = mask.numel();
-        let func = compile_simple!(self, "dropout_mask_f32", r#"
+        let func = compile_simple!(
+            self,
+            "dropout_mask_f32",
+            r#"
 extern "C" __global__ void dropout_mask_f32(float* __restrict__ mask,
     float rate, float scale, unsigned int seed, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -2469,12 +2894,22 @@ extern "C" __global__ void dropout_mask_f32(float* __restrict__ mask,
     rng = rng * 1103515245u + 12345u;
     float r = (float)(rng & 0x7FFFFFFF) / (float)0x7FFFFFFF;
     mask[i] = (r >= rate) ? scale : 0.0f;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mask.buffer); b.arg(&rate); b.arg(&scale); b.arg(&seed); b.arg(&numel);
-            b.launch(cfg).map_err(|e| format!("dropout_mask launch: {e}"))?;
+            b.arg(&mask.buffer);
+            b.arg(&rate);
+            b.arg(&scale);
+            b.arg(&seed);
+            b.arg(&numel);
+            b.launch(cfg)
+                .map_err(|e| format!("dropout_mask launch: {e}"))?;
         }
         Ok(())
     }
@@ -2484,8 +2919,14 @@ extern "C" __global__ void dropout_mask_f32(float* __restrict__ mask,
     pub fn gradient_clip(&self, grads: &CudaTensor, max_norm: f32) -> Result<(), String> {
         let numel = grads.numel();
         // Compute L2 norm squared
-        let mut norm_sq = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("clip norm scratch: {e}"))?;
-        let func1 = compile_simple!(self, "grad_norm_sq_f32", r#"
+        let mut norm_sq = self
+            .stream
+            .alloc_zeros::<f32>(1)
+            .map_err(|e| format!("clip norm scratch: {e}"))?;
+        let func1 = compile_simple!(
+            self,
+            "grad_norm_sq_f32",
+            r#"
 extern "C" __global__ void grad_norm_sq_f32(float* __restrict__ out,
     const float* __restrict__ g, size_t numel) {
     extern __shared__ float shared[];
@@ -2499,18 +2940,28 @@ extern "C" __global__ void grad_norm_sq_f32(float* __restrict__ out,
         __syncthreads();
     }
     if (tid == 0) out[0] = shared[0];
-}"#)?;
-        let cfg1 = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
+}"#
+        )?;
+        let cfg1 = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 256 * 4,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func1);
-            b.arg(&mut norm_sq); b.arg(grads.buffer()); b.arg(&numel);
+            b.arg(&mut norm_sq);
+            b.arg(grads.buffer());
+            b.arg(&numel);
             b.launch(cfg1).map_err(|e| format!("norm_sq launch: {e}"))?;
         }
 
         // ── GPU-ONLY: baca norm_sq dari device memory, compare, scale — tanpa D2H ──
         // Kernel ini menghilangkan 1 D2H transfer + CPU conditional per training step.
         // Jika norm <= max_norm, kernel no-op (return early).
-        let func2 = compile_simple!(self, "grad_clip_apply_f32", r#"
+        let func2 = compile_simple!(
+            self,
+            "grad_clip_apply_f32",
+            r#"
 extern "C" __global__ void grad_clip_apply_f32(float* __restrict__ grads,
     const float* __restrict__ norm_sq, float max_norm, size_t numel) {
     float n = sqrtf(norm_sq[0]);
@@ -2518,38 +2969,78 @@ extern "C" __global__ void grad_clip_apply_f32(float* __restrict__ grads,
     float scale = max_norm / n;
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) grads[i] *= scale;
-}"#)?;
-        let cfg2 = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg2 = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func2);
-            b.arg(grads.buffer()); b.arg(&norm_sq); b.arg(&max_norm); b.arg(&numel);
-            b.launch(cfg2).map_err(|e| format!("clip_apply launch: {e}"))?;
+            b.arg(grads.buffer());
+            b.arg(&norm_sq);
+            b.arg(&max_norm);
+            b.arg(&numel);
+            b.launch(cfg2)
+                .map_err(|e| format!("clip_apply launch: {e}"))?;
         }
         Ok(())
     }
 
-    pub fn gradient_allreduce(&self, grad_buffers: &CudaTensor, out: &CudaTensor, num_replicas: u32) -> Result<(), String> {
+    pub fn gradient_allreduce(
+        &self,
+        grad_buffers: &CudaTensor,
+        out: &CudaTensor,
+        num_replicas: u32,
+    ) -> Result<(), String> {
         let numel = out.numel();
         let inv = 1.0f32 / num_replicas as f32;
-        let func = compile_simple!(self, "grad_allreduce_f32", r#"
+        let func = compile_simple!(
+            self,
+            "grad_allreduce_f32",
+            r#"
 extern "C" __global__ void grad_allreduce_f32(float* __restrict__ out,
     const float* __restrict__ in, float inv_n, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) out[i] += in[i] * inv_n;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&out.buffer); b.arg(grad_buffers.buffer()); b.arg(&inv); b.arg(&numel);
-            b.launch(cfg).map_err(|e| format!("grad_allreduce launch: {e}"))?;
+            b.arg(&out.buffer);
+            b.arg(grad_buffers.buffer());
+            b.arg(&inv);
+            b.arg(&numel);
+            b.launch(cfg)
+                .map_err(|e| format!("grad_allreduce launch: {e}"))?;
         }
         Ok(())
     }
 
-    pub fn adam_step(&self, param: &CudaTensor, grad: &CudaTensor, m: &CudaTensor, v: &CudaTensor,
-        lr: f32, beta1: f32, beta2: f32, eps: f32, weight_decay: f32, step: u32) -> Result<(), String> {
+    pub fn adam_step(
+        &self,
+        param: &CudaTensor,
+        grad: &CudaTensor,
+        m: &CudaTensor,
+        v: &CudaTensor,
+        lr: f32,
+        beta1: f32,
+        beta2: f32,
+        eps: f32,
+        weight_decay: f32,
+        step: u32,
+    ) -> Result<(), String> {
         let numel = param.numel();
-        let func = compile_simple!(self, "adam_step_f32", r#"
+        let func = compile_simple!(
+            self,
+            "adam_step_f32",
+            r#"
 extern "C" __global__ void adam_step_f32(
     float* __restrict__ param, const float* __restrict__ grad,
     float* __restrict__ m, float* __restrict__ v,
@@ -2566,15 +3057,28 @@ extern "C" __global__ void adam_step_f32(
     float v_hat = v_i / (1.0f - powf(beta2, (float)step));
     float update = lr * m_hat / (sqrtf(v_hat) + eps);
     param[i] = param[i] - update + wd * param[i];
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&param.buffer); b.arg(grad.buffer());
-            b.arg(&m.buffer); b.arg(&v.buffer);
-            b.arg(&lr); b.arg(&beta1); b.arg(&beta2); b.arg(&eps); b.arg(&weight_decay); b.arg(&step);
+            b.arg(&param.buffer);
+            b.arg(grad.buffer());
+            b.arg(&m.buffer);
+            b.arg(&v.buffer);
+            b.arg(&lr);
+            b.arg(&beta1);
+            b.arg(&beta2);
+            b.arg(&eps);
+            b.arg(&weight_decay);
+            b.arg(&step);
             b.arg(&numel);
-            b.launch(cfg).map_err(|e| format!("adam_step launch: {e}"))?;
+            b.launch(cfg)
+                .map_err(|e| format!("adam_step launch: {e}"))?;
         }
         Ok(())
     }
@@ -2649,23 +3153,34 @@ extern "C" __global__ void adam_step_f32(
     /// Legacy naive NVRTC JIT kernel for fused matmul+bias+activation.
     /// Kept as fallback when cuBLASLt is unavailable or fails.
     /// 🔴 AUDIT_GPU.md #2: 10-50x slower than cuBLASLt epilogue above.
-    pub fn fused_matmul_bias_naive(&self, a: &CudaTensor, b: &CudaTensor, bias: &CudaTensor, activation: &str) -> Result<CudaTensor, String> {
+    pub fn fused_matmul_bias_naive(
+        &self,
+        a: &CudaTensor,
+        b: &CudaTensor,
+        bias: &CudaTensor,
+        activation: &str,
+    ) -> Result<CudaTensor, String> {
         let a_shape = a.shape();
         let b_shape = b.shape();
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
-        let mut out = self.scratch_f32(m * n).map_err(|e| format!("fused_mm_bias scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(m * n)
+            .map_err(|e| format!("fused_mm_bias scratch: {e}"))?;
 
         let activation_expr = match activation {
-            "gelu" => "0.5f * val * (1.0f + tanhf(0.79788456f * (val + 0.044715f * val * val * val)))",
+            "gelu" => {
+                "0.5f * val * (1.0f + tanhf(0.79788456f * (val + 0.044715f * val * val * val)))"
+            }
             "relu" => "fmaxf(0.0f, val)",
             "silu" => "val / (1.0f + expf(-val))",
             _ => "val",
         };
 
         let kernel_name = format!("fused_mm_bias_naive_{}", activation);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, const float* __restrict__ b,
     const float* __restrict__ bias, size_t M, size_t N, size_t K) {{
@@ -2679,21 +3194,43 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     float val = sum + bias[col];
     out[row * N + col] = {activation_expr};
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (m as u32, ((n as u32) + 15) / 16, 1), block_dim: (16, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (m as u32, ((n as u32) + 15) / 16, 1),
+            block_dim: (16, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut builder = self.stream.launch_builder(&func);
-            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b.buffer()); builder.arg(bias.buffer());
-            builder.arg(&m); builder.arg(&n); builder.arg(&k);
-            builder.launch(cfg).map_err(|e| format!("fused_mm_bias launch: {e}"))?;
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b.buffer());
+            builder.arg(bias.buffer());
+            builder.arg(&m);
+            builder.arg(&n);
+            builder.arg(&k);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("fused_mm_bias launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     /// Auto-routed fused matmul+bias+activation: tries cuBLASLt first (10-50x faster),
     /// falls back to naive NVRTC JIT kernel.
-    pub fn fused_matmul_bias(&self, a: &CudaTensor, b: &CudaTensor, bias: &CudaTensor, activation: &str) -> Result<CudaTensor, String> {
+    pub fn fused_matmul_bias(
+        &self,
+        a: &CudaTensor,
+        b: &CudaTensor,
+        bias: &CudaTensor,
+        activation: &str,
+    ) -> Result<CudaTensor, String> {
         // Try cuBLASLt path first (Tensor Core accelerated)
         if let Ok(result) = self.fused_matmul_bias_lt(a, b, bias, activation) {
             return Ok(result);
@@ -2711,10 +3248,13 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         let rows = shape[0];
         let cols = shape[1];
         let numel = input.numel();
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("online_softmax scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("online_softmax scratch: {e}"))?;
 
         let kernel_name = format!("online_softmax_f32_{}", cols);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, size_t rows, size_t cols) {{
     unsigned int row = blockIdx.x;
@@ -2733,150 +3273,253 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
         out[row * cols + j] = expf(a[row * cols + j] - m) * inv_d;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let cfg = LaunchConfig { grid_dim: (rows as u32, 1, 1), block_dim: (cols.min(256).max(32) as u32, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (rows as u32, 1, 1),
+            block_dim: (cols.min(256).max(32) as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(input.buffer()); b.arg(&rows); b.arg(&cols);
-            b.launch(cfg).map_err(|e| format!("online_softmax launch: {e}"))?;
+            b.arg(&mut out);
+            b.arg(input.buffer());
+            b.arg(&rows);
+            b.arg(&cols);
+            b.launch(cfg)
+                .map_err(|e| format!("online_softmax launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── In-place elementwise ops ────────────────────────────────────
 
     pub fn neg_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "neg_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "neg_inplace_f32",
+            r#"
 extern "C" __global__ void neg_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = -buf[i];
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("neg_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("neg_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn exp_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "exp_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "exp_inplace_f32",
+            r#"
 extern "C" __global__ void exp_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = expf(buf[i]);
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("exp_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("exp_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn sqrt_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "sqrt_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "sqrt_inplace_f32",
+            r#"
 extern "C" __global__ void sqrt_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = sqrtf(buf[i]);
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("sqrt_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("sqrt_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn relu_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "relu_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "relu_inplace_f32",
+            r#"
 extern "C" __global__ void relu_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = fmaxf(0.0f, buf[i]);
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("relu_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("relu_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn sigmoid_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "sigmoid_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "sigmoid_inplace_f32",
+            r#"
 extern "C" __global__ void sigmoid_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = 1.0f / (1.0f + expf(-buf[i]));
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("sigmoid_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("sigmoid_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn tanh_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "tanh_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "tanh_inplace_f32",
+            r#"
 extern "C" __global__ void tanh_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = tanhf(buf[i]);
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("tanh_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("tanh_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn silu_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "silu_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "silu_inplace_f32",
+            r#"
 extern "C" __global__ void silu_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = buf[i] / (1.0f + expf(-buf[i]));
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("silu_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("silu_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn ln_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "ln_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "ln_inplace_f32",
+            r#"
 extern "C" __global__ void ln_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = logf(fmaxf(buf[i], 1e-38f));
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("ln_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("ln_inplace: {e}"))?;
         }
         Ok(())
     }
 
     pub fn step_inplace(&self, a: &mut CudaTensor) -> Result<(), String> {
         let numel = a.numel();
-        let func = compile_simple!(self, "step_inplace_f32", r#"
+        let func = compile_simple!(
+            self,
+            "step_inplace_f32",
+            r#"
 extern "C" __global__ void step_inplace_f32(float* buf, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) buf[i] = buf[i] > 0.0f ? 1.0f : 0.0f;
-}"#)?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+}"#
+        )?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&a.buffer); b.arg(&numel); b.launch(cfg).map_err(|e| format!("step_inplace: {e}"))?;
+            b.arg(&a.buffer);
+            b.arg(&numel);
+            b.launch(cfg).map_err(|e| format!("step_inplace: {e}"))?;
         }
         Ok(())
     }
@@ -2887,15 +3530,21 @@ extern "C" __global__ void step_inplace_f32(float* buf, size_t numel) {
         let a_shape = a.shape();
         let b_shape = b_packed.shape();
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(format!("matmul_f16: both must be 2D, got {:?} and {:?}", a_shape, b_shape));
+            return Err(format!(
+                "matmul_f16: both must be 2D, got {:?} and {:?}",
+                a_shape, b_shape
+            ));
         }
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
-        let mut out = self.scratch_f32(m * n).map_err(|e| format!("matmul_f16 scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(m * n)
+            .map_err(|e| format!("matmul_f16 scratch: {e}"))?;
 
         let kernel_name = format!("matmul_f16_cuda_{}_{}_{}", m, n, k);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, const unsigned int* __restrict__ b_packed,
     size_t M, size_t N, size_t K) {{
@@ -2924,33 +3573,59 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }}
     out[row * N + col] = sum;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = 16u32;
         let grid_y = ((n as u32) + block - 1) / block;
-        let cfg = LaunchConfig { grid_dim: (m as u32, grid_y, 1), block_dim: (block, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (m as u32, grid_y, 1),
+            block_dim: (block, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut builder = self.stream.launch_builder(&func);
-            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b_packed.buffer());
-            builder.arg(&m); builder.arg(&n); builder.arg(&k);
-            builder.launch(cfg).map_err(|e| format!("matmul_f16 launch: {e}"))?;
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b_packed.buffer());
+            builder.arg(&m);
+            builder.arg(&n);
+            builder.arg(&k);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("matmul_f16 launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn matmul_int8(&self, a: &CudaTensor, b: &CudaTensor, scale: f32) -> Result<CudaTensor, String> {
+    pub fn matmul_int8(
+        &self,
+        a: &CudaTensor,
+        b: &CudaTensor,
+        scale: f32,
+    ) -> Result<CudaTensor, String> {
         let a_shape = a.shape();
         let b_shape = b.shape();
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(format!("matmul_int8: both must be 2D, got {:?} and {:?}", a_shape, b_shape));
+            return Err(format!(
+                "matmul_int8: both must be 2D, got {:?} and {:?}",
+                a_shape, b_shape
+            ));
         }
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
-        let mut out = self.scratch_f32(m * n).map_err(|e| format!("matmul_int8 scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(m * n)
+            .map_err(|e| format!("matmul_int8 scratch: {e}"))?;
 
         let kernel_name = format!("matmul_int8_cuda_{}_{}_{}", m, n, k);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const unsigned int* __restrict__ a_packed, const float* __restrict__ b,
     float scale, size_t M, size_t N, size_t K) {{
@@ -2968,33 +3643,61 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }}
     out[row * N + col] = sum;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = 16u32;
         let grid_y = ((n as u32) + block - 1) / block;
-        let cfg = LaunchConfig { grid_dim: (m as u32, grid_y, 1), block_dim: (block, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (m as u32, grid_y, 1),
+            block_dim: (block, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut builder = self.stream.launch_builder(&func);
-            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b.buffer());
-            builder.arg(&scale); builder.arg(&m); builder.arg(&n); builder.arg(&k);
-            builder.launch(cfg).map_err(|e| format!("matmul_int8 launch: {e}"))?;
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b.buffer());
+            builder.arg(&scale);
+            builder.arg(&m);
+            builder.arg(&n);
+            builder.arg(&k);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("matmul_int8 launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn matmul_int8_weight(&self, a: &CudaTensor, b: &CudaTensor, scales: &CudaTensor, zero_points: &CudaTensor) -> Result<CudaTensor, String> {
+    pub fn matmul_int8_weight(
+        &self,
+        a: &CudaTensor,
+        b: &CudaTensor,
+        scales: &CudaTensor,
+        zero_points: &CudaTensor,
+    ) -> Result<CudaTensor, String> {
         let a_shape = a.shape();
         let b_shape = b.shape();
         if a_shape.len() != 2 || b_shape.len() != 2 {
-            return Err(format!("matmul_int8_weight: both must be 2D, got {:?} and {:?}", a_shape, b_shape));
+            return Err(format!(
+                "matmul_int8_weight: both must be 2D, got {:?} and {:?}",
+                a_shape, b_shape
+            ));
         }
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[0];
-        let mut out = self.scratch_f32(m * n).map_err(|e| format!("matmul_int8_weight scratch: {e}"))?;
+        let mut out = self
+            .scratch_f32(m * n)
+            .map_err(|e| format!("matmul_int8_weight scratch: {e}"))?;
 
         let kernel_name = format!("matmul_int8_weight_cuda_{}_{}_{}", m, n, k);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, const unsigned int* __restrict__ b_packed,
     const float* __restrict__ scales, const float* __restrict__ zero_points,
@@ -3015,26 +3718,54 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }}
     out[row * N + col] = sum;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = 16u32;
         let grid_y = ((n as u32) + block - 1) / block;
-        let cfg = LaunchConfig { grid_dim: (m as u32, grid_y, 1), block_dim: (block, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (m as u32, grid_y, 1),
+            block_dim: (block, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut builder = self.stream.launch_builder(&func);
-            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b.buffer());
-            builder.arg(scales.buffer()); builder.arg(zero_points.buffer());
-            builder.arg(&m); builder.arg(&n); builder.arg(&k);
-            builder.launch(cfg).map_err(|e| format!("matmul_int8_weight launch: {e}"))?;
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b.buffer());
+            builder.arg(scales.buffer());
+            builder.arg(zero_points.buffer());
+            builder.arg(&m);
+            builder.arg(&n);
+            builder.arg(&k);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("matmul_int8_weight launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
-    pub fn matmul_int2_weight(&self, a: &CudaTensor, b_packed: &CudaTensor, scales: &CudaTensor, m: usize, n: usize, k: usize, group_size: usize) -> Result<CudaTensor, String> {
-        let mut out = self.scratch_f32(m * n).map_err(|e| format!("matmul_int2_weight scratch: {e}"))?;
+    pub fn matmul_int2_weight(
+        &self,
+        a: &CudaTensor,
+        b_packed: &CudaTensor,
+        scales: &CudaTensor,
+        m: usize,
+        n: usize,
+        k: usize,
+        group_size: usize,
+    ) -> Result<CudaTensor, String> {
+        let mut out = self
+            .scratch_f32(m * n)
+            .map_err(|e| format!("matmul_int2_weight scratch: {e}"))?;
 
         let kernel_name = format!("matmul_int2_weight_cuda_{}_{}_{}", m, n, k);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, const unsigned int* __restrict__ b_packed,
     const float* __restrict__ scales,
@@ -3056,43 +3787,85 @@ extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     }}
     out[row * N + col] = sum;
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let block = 16u32;
         let grid_y = ((n as u32) + block - 1) / block;
-        let cfg = LaunchConfig { grid_dim: (m as u32, grid_y, 1), block_dim: (block, 1, 1), shared_mem_bytes: 0 };
+        let cfg = LaunchConfig {
+            grid_dim: (m as u32, grid_y, 1),
+            block_dim: (block, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut builder = self.stream.launch_builder(&func);
-            builder.arg(&mut out); builder.arg(a.buffer()); builder.arg(b_packed.buffer());
+            builder.arg(&mut out);
+            builder.arg(a.buffer());
+            builder.arg(b_packed.buffer());
             builder.arg(scales.buffer());
-            builder.arg(&m); builder.arg(&n); builder.arg(&k); builder.arg(&group_size);
-            builder.launch(cfg).map_err(|e| format!("matmul_int2_weight launch: {e}"))?;
+            builder.arg(&m);
+            builder.arg(&n);
+            builder.arg(&k);
+            builder.arg(&group_size);
+            builder
+                .launch(cfg)
+                .map_err(|e| format!("matmul_int2_weight launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![m, n], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![m, n],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Fused Attention Backward ────────────────────────────────────
 
-    pub fn fused_attention_backward(&self, q: &CudaTensor, k: &CudaTensor, v: &CudaTensor, grad: &CudaTensor,
-        scale: f32, causal: bool) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
+    pub fn fused_attention_backward(
+        &self,
+        q: &CudaTensor,
+        k: &CudaTensor,
+        v: &CudaTensor,
+        grad: &CudaTensor,
+        scale: f32,
+        causal: bool,
+    ) -> Result<(CudaTensor, CudaTensor, CudaTensor), String> {
         let q_shape = q.shape();
         let batch = q_shape[0];
         let heads = q_shape[1];
         let seq_len = q_shape[2];
         let dim = q_shape[3];
         let numel = q.numel();
-        let mut dq = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dq scratch: {e}"))?;
-        let mut dk = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dk scratch: {e}"))?;
-        let mut dv = self.scratch_f32(numel).map_err(|e| format!("attn_bwd dv scratch: {e}"))?;
-        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dq.clone(), device_id: self.device_id })?;
-        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dk.clone(), device_id: self.device_id })?;
-        self.fill_zero(&CudaTensor { shape: q_shape.clone(), buffer: dv.clone(), device_id: self.device_id })?;
+        let mut dq = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("attn_bwd dq scratch: {e}"))?;
+        let mut dk = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("attn_bwd dk scratch: {e}"))?;
+        let mut dv = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("attn_bwd dv scratch: {e}"))?;
+        self.fill_zero(&CudaTensor {
+            shape: q_shape.clone(),
+            buffer: dq.clone(),
+            device_id: self.device_id,
+        })?;
+        self.fill_zero(&CudaTensor {
+            shape: q_shape.clone(),
+            buffer: dk.clone(),
+            device_id: self.device_id,
+        })?;
+        self.fill_zero(&CudaTensor {
+            shape: q_shape.clone(),
+            buffer: dv.clone(),
+            device_id: self.device_id,
+        })?;
 
         let causal_u32: u32 = if causal { 1 } else { 0 };
         let block_size: u32 = 256;
 
         let kernel_name = format!("attn_bwd_f32_{}", dim);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(
     float* __restrict__ dq, float* __restrict__ dk, float* __restrict__ dv,
     const float* __restrict__ q, const float* __restrict__ k,
@@ -3191,61 +3964,129 @@ extern "C" __global__ void {kernel_name}(
         dq[q_off + d_i] = sum_gk * scale;
     }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
         let total_wgs = (batch * heads * seq_len) as u32;
         let shared_size = (2 * dim + seq_len) as u32;
-        let cfg = LaunchConfig { grid_dim: (total_wgs, 1, 1), block_dim: (block_size, 1, 1), shared_mem_bytes: shared_size * 4 };
+        let cfg = LaunchConfig {
+            grid_dim: (total_wgs, 1, 1),
+            block_dim: (block_size, 1, 1),
+            shared_mem_bytes: shared_size * 4,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut dq); b.arg(&mut dk); b.arg(&mut dv);
-            b.arg(q.buffer()); b.arg(k.buffer()); b.arg(v.buffer()); b.arg(grad.buffer());
-            b.arg(&batch); b.arg(&heads); b.arg(&seq_len); b.arg(&dim); b.arg(&scale); b.arg(&causal_u32);
+            b.arg(&mut dq);
+            b.arg(&mut dk);
+            b.arg(&mut dv);
+            b.arg(q.buffer());
+            b.arg(k.buffer());
+            b.arg(v.buffer());
+            b.arg(grad.buffer());
+            b.arg(&batch);
+            b.arg(&heads);
+            b.arg(&seq_len);
+            b.arg(&dim);
+            b.arg(&scale);
+            b.arg(&causal_u32);
             b.launch(cfg).map_err(|e| format!("attn_bwd launch: {e}"))?;
         }
-        Ok((CudaTensor { shape: q_shape.clone(), buffer: dq, device_id: self.device_id },
-            CudaTensor { shape: q_shape.clone(), buffer: dk, device_id: self.device_id },
-            CudaTensor { shape: q_shape.clone(), buffer: dv, device_id: self.device_id }))
+        Ok((
+            CudaTensor {
+                shape: q_shape.clone(),
+                buffer: dq,
+                device_id: self.device_id,
+            },
+            CudaTensor {
+                shape: q_shape.clone(),
+                buffer: dk,
+                device_id: self.device_id,
+            },
+            CudaTensor {
+                shape: q_shape.clone(),
+                buffer: dv,
+                device_id: self.device_id,
+            },
+        ))
     }
 
     // ── Helper: scalar unary (a[i] OP scalar) ───────────────────────
 
-    fn elementwise_unary_scalar_impl(&self, a: &CudaTensor, op: &str, expr: &str, scalar: f32) -> Result<CudaTensor, String> {
+    fn elementwise_unary_scalar_impl(
+        &self,
+        a: &CudaTensor,
+        op: &str,
+        expr: &str,
+        scalar: f32,
+    ) -> Result<CudaTensor, String> {
         let numel = a.numel();
         let kernel_name = format!("elem_scalar_{}", op);
-        let source = format!(r#"
+        let source = format!(
+            r#"
 extern "C" __global__ void {kernel_name}(float* __restrict__ out,
     const float* __restrict__ a, float scalar, size_t numel) {{
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numel) {{ out[i] = {expr}; }}
 }}
-"#);
+"#
+        );
         let func = self.get_or_compile_kernel(&kernel_name, &source)?;
-        let mut out = self.scratch_f32(numel).map_err(|e| format!("scalar {} scratch: {e}", op))?;
-        let cfg = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        let mut out = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("scalar {} scratch: {e}", op))?;
+        let cfg = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut out); b.arg(a.buffer()); b.arg(&scalar); b.arg(&numel);
-            b.launch(cfg).map_err(|e| format!("scalar {} launch: {e}", op))?;
+            b.arg(&mut out);
+            b.arg(a.buffer());
+            b.arg(&scalar);
+            b.arg(&numel);
+            b.launch(cfg)
+                .map_err(|e| format!("scalar {} launch: {e}", op))?;
         }
-        Ok(CudaTensor { shape: a.shape.clone(), buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: a.shape.clone(),
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Misc ────────────────────────────────────────────────────────
 
-    pub fn leaky_relu(&self, input: &CudaTensor, negative_slope: f32) -> Result<CudaTensor, String> {
-        self.elementwise_unary_scalar_impl(input, "leaky_relu",
-            "a[i] >= 0.0f ? a[i] : a[i] * scalar", negative_slope)
+    pub fn leaky_relu(
+        &self,
+        input: &CudaTensor,
+        negative_slope: f32,
+    ) -> Result<CudaTensor, String> {
+        self.elementwise_unary_scalar_impl(
+            input,
+            "leaky_relu",
+            "a[i] >= 0.0f ? a[i] : a[i] * scalar",
+            negative_slope,
+        )
     }
 
     pub fn swiglu(&self, input: &CudaTensor) -> Result<CudaTensor, String> {
         self.elementwise_unary(input, "swiglu", "a[i] / (1.0f + expf(-a[i])) * a[i]")
     }
 
-    pub fn binary_cross_entropy(&self, input: &CudaTensor, target: &CudaTensor) -> Result<CudaTensor, String> {
+    pub fn binary_cross_entropy(
+        &self,
+        input: &CudaTensor,
+        target: &CudaTensor,
+    ) -> Result<CudaTensor, String> {
         let numel = input.numel();
-        let mut scratch = self.scratch_f32(numel).map_err(|e| format!("bce scratch: {e}"))?;
-        let func = compile_simple!(self, "binary_ce_f32", r#"
+        let mut scratch = self
+            .scratch_f32(numel)
+            .map_err(|e| format!("bce scratch: {e}"))?;
+        let func = compile_simple!(
+            self,
+            "binary_ce_f32",
+            r#"
 extern "C" __global__ void binary_ce_f32(float* __restrict__ out,
     const float* __restrict__ input, const float* __restrict__ target, size_t numel) {
     unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -3253,17 +4094,32 @@ extern "C" __global__ void binary_ce_f32(float* __restrict__ out,
     float p = fminf(fmaxf(input[i], 1e-7f), 1.0f - 1e-7f);
     float t = target[i];
     out[i] = -(t * logf(p) + (1.0f - t) * logf(1.0f - p));
-}"#)?;
-        let mut out = self.stream.alloc_zeros::<f32>(1).map_err(|e| format!("bce out scratch: {e}"))?;
+}"#
+        )?;
+        let mut out = self
+            .stream
+            .alloc_zeros::<f32>(1)
+            .map_err(|e| format!("bce out scratch: {e}"))?;
         // Compute per-element BCE first
-        let cfg1 = LaunchConfig { grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 0 };
+        let cfg1 = LaunchConfig {
+            grid_dim: (((numel as u32 + 255) / 256).max(1), 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 0,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&func);
-            b.arg(&mut scratch); b.arg(input.buffer()); b.arg(target.buffer()); b.arg(&numel);
-            b.launch(cfg1).map_err(|e| format!("bce elem launch: {e}"))?;
+            b.arg(&mut scratch);
+            b.arg(input.buffer());
+            b.arg(target.buffer());
+            b.arg(&numel);
+            b.launch(cfg1)
+                .map_err(|e| format!("bce elem launch: {e}"))?;
         }
         // Then sum
-        let sum_func = compile_simple!(self, "bce_sum_f32", r#"
+        let sum_func = compile_simple!(
+            self,
+            "bce_sum_f32",
+            r#"
 extern "C" __global__ void bce_sum_f32(float* __restrict__ out,
     const float* __restrict__ a, size_t numel) {
     extern __shared__ float shared[];
@@ -3277,19 +4133,36 @@ extern "C" __global__ void bce_sum_f32(float* __restrict__ out,
         __syncthreads();
     }
     if (tid == 0) out[0] = shared[0];
-}"#)?;
-        let cfg2 = LaunchConfig { grid_dim: (1, 1, 1), block_dim: (256, 1, 1), shared_mem_bytes: 256 * 4 };
+}"#
+        )?;
+        let cfg2 = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (256, 1, 1),
+            shared_mem_bytes: 256 * 4,
+        };
         unsafe {
             let mut b = self.stream.launch_builder(&sum_func);
-            b.arg(&mut out); b.arg(&scratch); b.arg(&numel);
+            b.arg(&mut out);
+            b.arg(&scratch);
+            b.arg(&numel);
             b.launch(cfg2).map_err(|e| format!("bce sum launch: {e}"))?;
         }
-        Ok(CudaTensor { shape: vec![1], buffer: out, device_id: self.device_id })
+        Ok(CudaTensor {
+            shape: vec![1],
+            buffer: out,
+            device_id: self.device_id,
+        })
     }
 
     // ── Causal attention (thin wrapper calling fused_attention) ─────
 
-    pub fn causal_attention(&self, q: &CudaTensor, k: &CudaTensor, v: &CudaTensor, scale: f32) -> Result<CudaTensor, String> {
+    pub fn causal_attention(
+        &self,
+        q: &CudaTensor,
+        k: &CudaTensor,
+        v: &CudaTensor,
+        scale: f32,
+    ) -> Result<CudaTensor, String> {
         self.fused_attention(q, k, v, scale, true)
     }
 }

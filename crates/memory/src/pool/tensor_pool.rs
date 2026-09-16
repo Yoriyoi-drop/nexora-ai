@@ -57,16 +57,20 @@ impl TensorPool {
 
     pub fn acquire(&self, min_capacity: usize) -> TensorBuffer {
         let mut pool = self.pool.lock();
-        if let Some(pos) = pool.iter().position(|b| !b.in_use && b.data.capacity() >= min_capacity)
+        if let Some(pos) = pool
+            .iter()
+            .position(|b| !b.in_use && b.data.capacity() >= min_capacity)
         {
             let mut buf = pool.swap_remove(pos);
             buf.in_use = true;
             self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return buf;
         }
-        self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let buf = TensorBuffer::new(min_capacity);
-        self.created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.created
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         buf
     }
 
@@ -112,11 +116,7 @@ impl GlobalTensorPools {
         }
     }
 
-    pub fn register(
-        &self,
-        name: impl Into<String>,
-        max_size: usize,
-    ) -> Arc<TensorPool> {
+    pub fn register(&self, name: impl Into<String>, max_size: usize) -> Arc<TensorPool> {
         let name: String = name.into();
         let pool = Arc::new(TensorPool::new(name.clone(), max_size));
         self.pools.insert(name, pool.clone());

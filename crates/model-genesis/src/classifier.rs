@@ -1,16 +1,23 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
 pub const QUALITY_DIMENSIONS: [&str; 6] = [
-    "clarity", "depth", "accuracy", "structure", "conciseness", "engagement",
+    "clarity",
+    "depth",
+    "accuracy",
+    "structure",
+    "conciseness",
+    "engagement",
 ];
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<GenericClassifier<{QUALITY_DIMENSIONS.len()}>> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{ QUALITY_DIMENSIONS.len() }>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn refinement_focus(dimension: &str) -> &'static str {

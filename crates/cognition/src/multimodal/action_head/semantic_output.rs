@@ -18,39 +18,127 @@ impl WordVocabulary {
     pub fn new() -> Self {
         let mut common: HashMap<usize, String> = HashMap::new();
         let common_pairs = [
-            (0_usize, "the"), (1, "a"), (2, "an"), (3, "is"), (4, "are"),
-            (5, "was"), (6, "were"), (7, "be"), (8, "been"), (9, "being"),
-            (10, "have"), (11, "has"), (12, "had"), (13, "do"), (14, "does"),
-            (15, "did"), (16, "will"), (17, "would"), (18, "can"), (19, "could"),
-            (20, "shall"), (21, "should"), (22, "may"), (23, "might"), (24, "must"),
-            (25, "i"), (26, "you"), (27, "he"), (28, "she"), (29, "it"),
-            (30, "we"), (31, "they"), (32, "me"), (33, "him"), (34, "her"),
-            (35, "us"), (36, "them"), (37, "my"), (38, "your"), (39, "his"),
-            (40, "its"), (41, "our"), (42, "their"), (43, "this"), (44, "that"),
-            (45, "these"), (46, "those"), (47, "some"), (48, "any"), (49, "no"),
-            (50, "all"), (51, "both"), (52, "each"), (53, "every"), (54, "few"),
-            (55, "more"), (56, "most"), (57, "other"), (58, "such"), (59, "what"),
-            (60, "which"), (61, "who"), (62, "whom"), (63, "when"), (64, "where"),
-            (65, "why"), (66, "how"), (67, "and"), (68, "or"), (69, "but"),
-            (70, "if"), (71, "because"), (72, "as"), (73, "until"), (74, "while"),
-            (75, "of"), (76, "at"), (77, "by"), (78, "for"), (79, "with"),
-            (80, "about"), (81, "between"), (82, "into"), (83, "through"), (84, "during"),
-            (85, "before"), (86, "after"), (87, "above"), (88, "below"), (89, "to"),
-            (90, "from"), (91, "up"), (92, "down"), (93, "in"), (94, "out"),
-            (95, "on"), (96, "off"), (97, "over"), (98, "under"), (99, "again"),
+            (0_usize, "the"),
+            (1, "a"),
+            (2, "an"),
+            (3, "is"),
+            (4, "are"),
+            (5, "was"),
+            (6, "were"),
+            (7, "be"),
+            (8, "been"),
+            (9, "being"),
+            (10, "have"),
+            (11, "has"),
+            (12, "had"),
+            (13, "do"),
+            (14, "does"),
+            (15, "did"),
+            (16, "will"),
+            (17, "would"),
+            (18, "can"),
+            (19, "could"),
+            (20, "shall"),
+            (21, "should"),
+            (22, "may"),
+            (23, "might"),
+            (24, "must"),
+            (25, "i"),
+            (26, "you"),
+            (27, "he"),
+            (28, "she"),
+            (29, "it"),
+            (30, "we"),
+            (31, "they"),
+            (32, "me"),
+            (33, "him"),
+            (34, "her"),
+            (35, "us"),
+            (36, "them"),
+            (37, "my"),
+            (38, "your"),
+            (39, "his"),
+            (40, "its"),
+            (41, "our"),
+            (42, "their"),
+            (43, "this"),
+            (44, "that"),
+            (45, "these"),
+            (46, "those"),
+            (47, "some"),
+            (48, "any"),
+            (49, "no"),
+            (50, "all"),
+            (51, "both"),
+            (52, "each"),
+            (53, "every"),
+            (54, "few"),
+            (55, "more"),
+            (56, "most"),
+            (57, "other"),
+            (58, "such"),
+            (59, "what"),
+            (60, "which"),
+            (61, "who"),
+            (62, "whom"),
+            (63, "when"),
+            (64, "where"),
+            (65, "why"),
+            (66, "how"),
+            (67, "and"),
+            (68, "or"),
+            (69, "but"),
+            (70, "if"),
+            (71, "because"),
+            (72, "as"),
+            (73, "until"),
+            (74, "while"),
+            (75, "of"),
+            (76, "at"),
+            (77, "by"),
+            (78, "for"),
+            (79, "with"),
+            (80, "about"),
+            (81, "between"),
+            (82, "into"),
+            (83, "through"),
+            (84, "during"),
+            (85, "before"),
+            (86, "after"),
+            (87, "above"),
+            (88, "below"),
+            (89, "to"),
+            (90, "from"),
+            (91, "up"),
+            (92, "down"),
+            (93, "in"),
+            (94, "out"),
+            (95, "on"),
+            (96, "off"),
+            (97, "over"),
+            (98, "under"),
+            (99, "again"),
         ];
         for (k, v) in common_pairs {
             common.insert(k, v.to_string());
         }
 
-        Self { words: Vec::new(), common }
+        Self {
+            words: Vec::new(),
+            common,
+        }
     }
 
     /// Load vocabulary from a file (one word per line, line number = token ID)
-    pub fn load_from_file(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+    pub fn load_from_file(
+        path: impl AsRef<Path>,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path.as_ref())?;
         let words: Vec<String> = content.lines().map(|l| l.trim().to_string()).collect();
-        Ok(Self { words, common: HashMap::new() })
+        Ok(Self {
+            words,
+            common: HashMap::new(),
+        })
     }
 
     /// Lookup a token ID — first try file-based vocab, then common words, then hash-based fallback
@@ -75,10 +163,26 @@ impl WordVocabulary {
         let hash: u64 = emb.iter().map(|v| v.to_bits() as u64).sum();
         let word_idx = hash % 500;
         let fallback_words = [
-            "analyze", "generate", "process", "compute", "transform",
-            "extract", "predict", "classify", "optimize", "evaluate",
-            "integrate", "configure", "deploy", "synthesize", "aggregate",
-            "parse", "render", "execute", "simulate", "calibrate",
+            "analyze",
+            "generate",
+            "process",
+            "compute",
+            "transform",
+            "extract",
+            "predict",
+            "classify",
+            "optimize",
+            "evaluate",
+            "integrate",
+            "configure",
+            "deploy",
+            "synthesize",
+            "aggregate",
+            "parse",
+            "render",
+            "execute",
+            "simulate",
+            "calibrate",
         ];
         fallback_words[(word_idx as usize) % fallback_words.len()].to_string()
     }
@@ -94,7 +198,11 @@ impl EmbeddingLookup {
         let mut rng = rand::thread_rng();
         let scale = (2.0 / dim as f32).sqrt();
         let table = (0..VOCAB_SIZE)
-            .map(|_| (0..dim).map(|_| rng.gen::<f32>() * 2.0 * scale - scale).collect())
+            .map(|_| {
+                (0..dim)
+                    .map(|_| rng.gen::<f32>() * 2.0 * scale - scale)
+                    .collect()
+            })
             .collect();
         Self { table, dim }
     }
@@ -119,11 +227,19 @@ impl ImageDecoderMLP {
         let scale2 = (2.0 / hidden_dim as f32).sqrt();
         Self {
             w1: (0..latent_dim)
-                .map(|_| (0..hidden_dim).map(|_| rng.gen::<f32>() * 2.0 * scale1 - scale1).collect())
+                .map(|_| {
+                    (0..hidden_dim)
+                        .map(|_| rng.gen::<f32>() * 2.0 * scale1 - scale1)
+                        .collect()
+                })
                 .collect(),
             b1: (0..hidden_dim).map(|_| 0.0).collect(),
             w2: (0..hidden_dim)
-                .map(|_| (0..output_dim).map(|_| rng.gen::<f32>() * 2.0 * scale2 - scale2).collect())
+                .map(|_| {
+                    (0..output_dim)
+                        .map(|_| rng.gen::<f32>() * 2.0 * scale2 - scale2)
+                        .collect()
+                })
                 .collect(),
             b2: (0..output_dim).map(|_| 0.0).collect(),
         }
@@ -244,7 +360,10 @@ impl TextOutputGenerator {
     }
 
     /// Load vocabulary from file for better token-to-word mapping
-    pub fn load_vocab(&mut self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn load_vocab(
+        &mut self,
+        path: &str,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         self.vocabulary = WordVocabulary::load_from_file(path)?;
         Ok(())
     }
@@ -359,10 +478,16 @@ impl ImageOutputGenerator {
                         for i in 0..patch_size {
                             if py * patch_size + j < height && px * patch_size + i < width {
                                 for c in 0..3 {
-                                    let pixel_idx = ((py * patch_size + j) * width + (px * patch_size + i)) * 3 + c;
-                                    let patch_pixel_idx = patch_idx * (patch_size * patch_size * 3) + j * patch_size * 3 + i * 3 + c;
+                                    let pixel_idx =
+                                        ((py * patch_size + j) * width + (px * patch_size + i)) * 3
+                                            + c;
+                                    let patch_pixel_idx = patch_idx * (patch_size * patch_size * 3)
+                                        + j * patch_size * 3
+                                        + i * 3
+                                        + c;
                                     let val = if patch_pixel_idx < pixels.len() {
-                                        (pixels[patch_pixel_idx] * 127.0 + 128.0).clamp(0.0, 255.0) as u8
+                                        (pixels[patch_pixel_idx] * 127.0 + 128.0).clamp(0.0, 255.0)
+                                            as u8
                                     } else {
                                         ((px * patch_size + i + py * patch_size + j) % 256) as u8
                                     };
@@ -439,9 +564,8 @@ impl AudioOutputGenerator {
                 }
             }
 
-            let fundamental: f32 = embedding_sum.iter().take(4).map(|v| v.abs()).sum::<f32>()
-                * 50.0
-                + 100.0;
+            let fundamental: f32 =
+                embedding_sum.iter().take(4).map(|v| v.abs()).sum::<f32>() * 50.0 + 100.0;
             let harmonics: Vec<f32> = embedding_sum
                 .chunks(8)
                 .enumerate()
@@ -531,7 +655,10 @@ impl VideoOutputGenerator {
                                 if y < height && x < width {
                                     for c in 0..3 {
                                         let pi = (y * width + x) * 3 + c;
-                                        let ppi = patch_idx * (patch_size * patch_size * 3) + j * patch_size * 3 + i * 3 + c;
+                                        let ppi = patch_idx * (patch_size * patch_size * 3)
+                                            + j * patch_size * 3
+                                            + i * 3
+                                            + c;
                                         let val = if ppi < pixels.len() {
                                             (pixels[ppi] * 127.0 + 128.0).clamp(0.0, 255.0) as u8
                                         } else {

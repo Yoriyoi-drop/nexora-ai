@@ -1,7 +1,6 @@
 use std::time::Duration;
 use std::time::Instant;
 
-
 use super::gpu_tensor::{readback_with_timeout, GpuDtype, GpuTensor};
 use super::gpu_types::*;
 use super::wgsl::*;
@@ -252,7 +251,6 @@ impl GpuContext {
         Ok(())
     }
 
-
     // ── Sampler / utility helpers ──────────────────────────────────────────────
 
     pub(crate) fn compile_fill_zero(&mut self) -> Result<(), GpuError> {
@@ -351,9 +349,13 @@ impl GpuContext {
             "GPU dispatch overflow: workgroups ({}, {}, {}) exceeds limit {} per dimension. \
              This is caused by dispatching {} workgroups in X (with workgroup_size={}, \
              numel≈{}). Use dispatch_1d_chunked() for element-wise ops or reduce tensor size.",
-            gx, gy, gz,
+            gx,
+            gy,
+            gz,
             MAX_WORKGROUPS_PER_DIM,
-            gx, DEFAULT_WORKGROUP_SIZE, gx as u64 * DEFAULT_WORKGROUP_SIZE as u64,
+            gx,
+            DEFAULT_WORKGROUP_SIZE,
+            gx as u64 * DEFAULT_WORKGROUP_SIZE as u64,
         );
 
         self.dispatch_impl(pipeline, bind_group, (gx, gy, gz));
@@ -737,12 +739,10 @@ impl GpuContext {
         let n_dim = b_shape[1];
 
         if k != b_shape[0] {
-            return Err(GpuError::ShapeMismatch(
-                format!(
-                    "Matmul dimension mismatch: {}x{} @ {}x{}",
-                    m, k, b_shape[0], n_dim
-                ),
-            ));
+            return Err(GpuError::ShapeMismatch(format!(
+                "Matmul dimension mismatch: {}x{} @ {}x{}",
+                m, k, b_shape[0], n_dim
+            )));
         }
 
         // Use memory pool for output buffer instead of creating new buffer each time
@@ -815,5 +815,3 @@ impl GpuContext {
         ))
     }
 }
-
-

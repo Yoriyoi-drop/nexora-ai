@@ -177,7 +177,9 @@ impl AgentRegistry {
             .await
             .map_err(|_| AgentError::ProcessingError {
                 operation: "get_agent".to_string(),
-                reason: format!("Deadlock detected: timeout acquiring registry write lock for agent {agent_id}"),
+                reason: format!(
+                    "Deadlock detected: timeout acquiring registry write lock for agent {agent_id}"
+                ),
             })?;
         RwLockWriteGuard::try_map(guard, |map| map.get_mut(&agent_id)).map_err(|_| {
             AgentError::AgentNotFound {
@@ -198,7 +200,9 @@ impl AgentRegistry {
             .await
             .map_err(|_| AgentError::ProcessingError {
                 operation: "update_agent_status".to_string(),
-                reason: format!("Deadlock detected: timeout acquiring agent_info write lock for {agent_id}"),
+                reason: format!(
+                    "Deadlock detected: timeout acquiring agent_info write lock for {agent_id}"
+                ),
             })?;
         if let Some(info) = agent_info.get_mut(&agent_id) {
             info.status = status;

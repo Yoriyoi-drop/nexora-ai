@@ -68,12 +68,9 @@ impl MiniTokenizer {
             .par_iter()
             .map(|text| {
                 let mut local: FxHashMap<(String, String), usize> = FxHashMap::default();
-                let graphemes: Vec<String> =
-                    text.graphemes(true).map(|g| g.to_string()).collect();
+                let graphemes: Vec<String> = text.graphemes(true).map(|g| g.to_string()).collect();
                 for pair in graphemes.windows(2) {
-                    *local
-                        .entry((pair[0].clone(), pair[1].clone()))
-                        .or_default() += 1;
+                    *local.entry((pair[0].clone(), pair[1].clone())).or_default() += 1;
                 }
                 local
             })
@@ -114,7 +111,7 @@ impl MiniTokenizer {
         let mut token_texts = graphemes;
         let mut next: Vec<usize> = (1..n).chain(std::iter::once(usize::MAX)).collect();
         let mut head = 0usize;
-        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain(0..n - 1 ).collect();
+        let mut prev: Vec<usize> = std::iter::once(usize::MAX).chain(0..n - 1).collect();
         let mut active = n;
         if !self.merges.is_empty() {
             loop {
@@ -188,10 +185,7 @@ mod tests {
         let text = "Hello, World!";
         let ids = tok.encode(text);
         let decoded = tok.decode(&ids);
-        assert_eq!(
-            text.as_bytes(),
-            decoded.as_bytes(),
-        );
+        assert_eq!(text.as_bytes(), decoded.as_bytes(),);
     }
 
     #[test]

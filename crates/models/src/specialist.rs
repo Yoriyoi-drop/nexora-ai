@@ -26,9 +26,15 @@ macro_rules! define_specialist {
 
         #[async_trait]
         impl NxrSpecialist for $name {
-            fn model_id(&self) -> NxrModelId { NxrModelId::$id }
-            fn display_name(&self) -> &'static str { $display }
-            fn description(&self) -> &'static str { $desc }
+            fn model_id(&self) -> NxrModelId {
+                NxrModelId::$id
+            }
+            fn display_name(&self) -> &'static str {
+                $display
+            }
+            fn description(&self) -> &'static str {
+                $desc
+            }
             async fn delegate(&self, prompt: &str) -> String {
                 crate::$mod::delegation::delegate(prompt).await
             }
@@ -36,16 +42,76 @@ macro_rules! define_specialist {
     };
 }
 
-define_specialist!(OmnisSpecialist, Omnis, "Omnis", "Omniscient Reasoning — expert routing", omnis);
-define_specialist!(VortexSpecialist, Vortex, "Vortex", "Code-Specialized Review — Oracle verifiers", vortex);
-define_specialist!(AetherSpecialist, Aether, "Aether", "Emotional Intelligence — emotion + Caffeine", aether);
-define_specialist!(SpectraSpecialist, Spectra, "Spectra", "Multimodal Creative — 3-temp + Caffeine", spectra);
-define_specialist!(NexumSpecialist, Nexum, "Nexum", "Multi-Agent Orchestrator — SACA decomposition", nexum);
-define_specialist!(AxiomSpecialist, Axiom, "Axiom", "Autonomous Decision Maker — SACA 6-phase", axiom);
-define_specialist!(CipherSpecialist, Cipher, "Cipher", "Cybersecurity — threat + Oracle security", cipher);
-define_specialist!(SwiftSpecialist, Swift, "Swift", "Ultra Lightweight — MoE task routing", swift);
-define_specialist!(KronosSpecialist, Kronos, "Kronos", "Knowledge Management — temporal reasoning", kronos);
-define_specialist!(GenesisSpecialist, Genesis, "Genesis", "Self-Improving Prototype — iterative refinement", genesis);
+define_specialist!(
+    OmnisSpecialist,
+    Omnis,
+    "Omnis",
+    "Omniscient Reasoning — expert routing",
+    omnis
+);
+define_specialist!(
+    VortexSpecialist,
+    Vortex,
+    "Vortex",
+    "Code-Specialized Review — Oracle verifiers",
+    vortex
+);
+define_specialist!(
+    AetherSpecialist,
+    Aether,
+    "Aether",
+    "Emotional Intelligence — emotion + Caffeine",
+    aether
+);
+define_specialist!(
+    SpectraSpecialist,
+    Spectra,
+    "Spectra",
+    "Multimodal Creative — 3-temp + Caffeine",
+    spectra
+);
+define_specialist!(
+    NexumSpecialist,
+    Nexum,
+    "Nexum",
+    "Multi-Agent Orchestrator — SACA decomposition",
+    nexum
+);
+define_specialist!(
+    AxiomSpecialist,
+    Axiom,
+    "Axiom",
+    "Autonomous Decision Maker — SACA 6-phase",
+    axiom
+);
+define_specialist!(
+    CipherSpecialist,
+    Cipher,
+    "Cipher",
+    "Cybersecurity — threat + Oracle security",
+    cipher
+);
+define_specialist!(
+    SwiftSpecialist,
+    Swift,
+    "Swift",
+    "Ultra Lightweight — MoE task routing",
+    swift
+);
+define_specialist!(
+    KronosSpecialist,
+    Kronos,
+    "Kronos",
+    "Knowledge Management — temporal reasoning",
+    kronos
+);
+define_specialist!(
+    GenesisSpecialist,
+    Genesis,
+    "Genesis",
+    "Self-Improving Prototype — iterative refinement",
+    genesis
+);
 
 /// Returns all 10 NXR model specialists, wired to their delegation agents.
 pub fn all_specialists() -> Vec<Box<dyn NxrSpecialist>> {
@@ -68,15 +134,15 @@ pub fn all_specialists() -> Vec<Box<dyn NxrSpecialist>> {
 /// Maps NXR model → core ModelId + IntentType.
 fn nxr_to_core_model(raw: NxrModelId) -> (ModelId, IntentType) {
     match raw {
-        NxrModelId::Omnis   => (ModelId::Reasoning, IntentType::Reasoning),
-        NxrModelId::Vortex  => (ModelId::Coding, IntentType::Coding),
-        NxrModelId::Aether  => (ModelId::Personality, IntentType::Personality),
+        NxrModelId::Omnis => (ModelId::Reasoning, IntentType::Reasoning),
+        NxrModelId::Vortex => (ModelId::Coding, IntentType::Coding),
+        NxrModelId::Aether => (ModelId::Personality, IntentType::Personality),
         NxrModelId::Spectra => (ModelId::Personality, IntentType::Personality),
-        NxrModelId::Nexum   => (ModelId::Planner, IntentType::Planning),
-        NxrModelId::Axiom   => (ModelId::Logic, IntentType::Reasoning),
-        NxrModelId::Cipher  => (ModelId::Validator, IntentType::Validation),
-        NxrModelId::Swift   => (ModelId::Optimizer, IntentType::Optimization),
-        NxrModelId::Kronos  => (ModelId::Retrieval, IntentType::Retrieval),
+        NxrModelId::Nexum => (ModelId::Planner, IntentType::Planning),
+        NxrModelId::Axiom => (ModelId::Logic, IntentType::Reasoning),
+        NxrModelId::Cipher => (ModelId::Validator, IntentType::Validation),
+        NxrModelId::Swift => (ModelId::Optimizer, IntentType::Optimization),
+        NxrModelId::Kronos => (ModelId::Retrieval, IntentType::Retrieval),
         NxrModelId::Genesis => (ModelId::Optimizer, IntentType::Optimization),
     }
 }
@@ -92,7 +158,11 @@ pub struct NxrCoreSpecialistBridge {
 impl NxrCoreSpecialistBridge {
     pub fn new(specialist: Box<dyn NxrSpecialist>) -> Self {
         let (model_id, intent) = nxr_to_core_model(specialist.model_id());
-        Self { inner: specialist, model_id, intent }
+        Self {
+            inner: specialist,
+            model_id,
+            intent,
+        }
     }
 
     /// Register all 10 NXR specialists into any `HasSpecialistRegistry`.

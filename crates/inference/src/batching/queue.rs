@@ -63,11 +63,7 @@ impl PrefixTrie {
                 Some(child) => {
                     node = child;
                     prefix_len += 1;
-                    if let Some(&other) = node
-                        .seq_ids
-                        .iter()
-                        .find(|&&id| id != exclude_seq_id)
-                    {
+                    if let Some(&other) = node.seq_ids.iter().find(|&&id| id != exclude_seq_id) {
                         result = Some((prefix_len, other));
                     }
                 }
@@ -83,5 +79,3 @@ impl PrefixTrie {
         self.node_count = 1;
     }
 }
-
-

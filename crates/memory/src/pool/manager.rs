@@ -33,10 +33,10 @@ impl UnifiedMemoryManager {
         let sizes = [
             ("tiny", 4096, 4096),
             ("small", 65536, 2048),
-            ("medium", 524288, 512),     // 512KB
-            ("large", 4194304, 128),      // 4MB
-            ("huge", 33554432, 32),       // 32MB
-            ("giant", 268435456, 8),       // 256MB
+            ("medium", 524288, 512), // 512KB
+            ("large", 4194304, 128), // 4MB
+            ("huge", 33554432, 32),  // 32MB
+            ("giant", 268435456, 8), // 256MB
         ];
         for (name, block_size, max_blocks) in &sizes {
             let config = MemoryPoolConfig {
@@ -56,7 +56,12 @@ impl UnifiedMemoryManager {
         self.tensor_pools.register("large_tensor", 32);
     }
 
-    pub fn create_embedding_pool(&mut self, name: impl Into<String>, dim: usize, capacity: usize) -> Arc<EmbeddingPool> {
+    pub fn create_embedding_pool(
+        &mut self,
+        name: impl Into<String>,
+        dim: usize,
+        capacity: usize,
+    ) -> Arc<EmbeddingPool> {
         let name: String = name.into();
         let pool = Arc::new(EmbeddingPool::new(dim, capacity));
         self.embedding_pools.insert(name, pool.clone());

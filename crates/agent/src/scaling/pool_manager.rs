@@ -111,7 +111,12 @@ impl AgentPoolManager {
     }
 
     /// Evaluasi scaling berdasarkan metrics
-    pub fn evaluate_scaling(&self, cpu_util: f64, mem_util: f64, queue_depth: usize) -> ScalingDecision {
+    pub fn evaluate_scaling(
+        &self,
+        cpu_util: f64,
+        mem_util: f64,
+        queue_depth: usize,
+    ) -> ScalingDecision {
         let active = self.agents.len();
         let mut policy = self.policy.write();
         let decision = policy.evaluate(cpu_util, mem_util, queue_depth, active);

@@ -151,10 +151,7 @@ impl OracleTtlManager {
     }
 
     pub fn total_memory_bytes(&self) -> usize {
-        self.segments
-            .values()
-            .map(|s| s.data_size_bytes)
-            .sum()
+        self.segments.values().map(|s| s.data_size_bytes).sum()
     }
 
     /// Evict segment yang expired
@@ -201,16 +198,8 @@ impl OracleTtlManager {
     }
 
     pub fn stats(&self) -> TtlStats {
-        let active = self
-            .segments
-            .values()
-            .filter(|s| s.is_loaded)
-            .count();
-        let loaded = self
-            .segments
-            .values()
-            .filter(|s| !s.is_loaded)
-            .count();
+        let active = self.segments.values().filter(|s| s.is_loaded).count();
+        let loaded = self.segments.values().filter(|s| !s.is_loaded).count();
 
         TtlStats {
             total_segments: self.segments.len(),

@@ -643,8 +643,7 @@ impl ErrorRecoveryManager {
                         state.failure_count = attempt;
                         state.last_failure = Instant::now();
                         if attempt < *max_attempts {
-                            let backoff =
-                                base_delay.as_millis() as u64 * (2u64.pow(attempt - 1));
+                            let backoff = base_delay.as_millis() as u64 * (2u64.pow(attempt - 1));
                             tokio::time::sleep(Duration::from_millis(backoff.min(30_000))).await;
                         }
                     }
@@ -911,7 +910,9 @@ pub async fn handle_error(error: &NexoraError, component: &str) -> Result<Recove
         None => {
             init_error_handler();
             ERROR_HANDLER.get().unwrap_or_else(|| {
-                tracing::error!("ERROR_HANDLER failed to initialize after re-init; using fallback handler");
+                tracing::error!(
+                    "ERROR_HANDLER failed to initialize after re-init; using fallback handler"
+                );
                 // Leak a fallback handler — safe because process-wide singleton
                 let fallback = ErrorRecoveryManager::new();
                 Box::leak(Box::new(tokio::sync::Mutex::new(fallback)))

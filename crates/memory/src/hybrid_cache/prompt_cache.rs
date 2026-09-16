@@ -50,7 +50,11 @@ impl PromptCache {
 
         // Evict if needed
         while self.current_size.load(Ordering::Relaxed) + size as u64 > self.max_size as u64 {
-            let oldest_key = self.entries.iter().min_by_key(|e| e.created_at).map(|e| e.key().clone());
+            let oldest_key = self
+                .entries
+                .iter()
+                .min_by_key(|e| e.created_at)
+                .map(|e| e.key().clone());
             if let Some(k) = oldest_key {
                 if let Some((_, entry)) = self.entries.remove(&k) {
                     self.current_size
@@ -84,7 +88,11 @@ impl PromptCache {
             hits,
             misses,
             evictions: self.evictions.load(Ordering::Relaxed),
-            hit_rate: if total > 0 { hits as f64 / total as f64 } else { 0.0 },
+            hit_rate: if total > 0 {
+                hits as f64 / total as f64
+            } else {
+                0.0
+            },
         }
     }
 }

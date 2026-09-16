@@ -324,17 +324,16 @@ impl SpeculativeEngine {
         }
 
         let draft_model = self.draft_model.as_ref().ok_or_else(|| {
-            InferenceError::InvalidConfig(
-                "No draft model set for speculative decoding".to_string(),
-            )
+            InferenceError::InvalidConfig("No draft model set for speculative decoding".to_string())
         })?;
 
         let mut all_accepted: Vec<u32> = Vec::new();
         let mut current_prompt = prompt.to_vec();
 
         for _round in 0..self.config.max_speculation_rounds {
-            let draft_tokens =
-                draft_model.draft(&current_prompt, self.config.draft_length).await?;
+            let draft_tokens = draft_model
+                .draft(&current_prompt, self.config.draft_length)
+                .await?;
 
             if draft_tokens.is_empty() {
                 break;
@@ -419,7 +418,9 @@ mod tests {
             max_speculation_rounds: 10,
         };
         let engine = SpeculativeEngine::new(config);
-        let result = engine.verifier.verify(&[1, 2, 3], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0]);
+        let result = engine
+            .verifier
+            .verify(&[1, 2, 3], &[1.0, 1.0, 1.0], &[1.0, 1.0, 1.0]);
         assert_eq!(result.n_accepted, 3);
         assert!(!result.rejected);
     }
@@ -433,7 +434,9 @@ mod tests {
             max_speculation_rounds: 10,
         };
         let engine = SpeculativeEngine::new(config);
-        let result = engine.verifier.verify(&[1, 2, 3], &[1.0, 0.5, 0.1], &[1.0, 0.1, 0.01]);
+        let result = engine
+            .verifier
+            .verify(&[1, 2, 3], &[1.0, 0.5, 0.1], &[1.0, 0.1, 0.01]);
         assert!(result.n_accepted <= 2);
         assert!(result.rejected || result.n_accepted == 0);
     }
@@ -523,9 +526,7 @@ mod tests {
             ..Default::default()
         };
         let mut engine = SpeculativeEngine::new(config);
-        let result = engine
-            .speculate(&[1, 2, 3], |_| vec![0.5, 0.3, 0.2])
-            .await;
+        let result = engine.speculate(&[1, 2, 3], |_| vec![0.5, 0.3, 0.2]).await;
         assert!(result.is_err());
     }
 
@@ -539,9 +540,7 @@ mod tests {
         let mut model = NGramDraftModel::new(2, 1);
         model.record(&[1, 2], 3);
         engine.set_draft_model(Box::new(model));
-        let result = engine
-            .speculate(&[1, 2, 3], |_| vec![0.5, 0.3, 0.2])
-            .await;
+        let result = engine.speculate(&[1, 2, 3], |_| vec![0.5, 0.3, 0.2]).await;
         assert!(result.is_err());
     }
 

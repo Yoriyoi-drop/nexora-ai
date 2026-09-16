@@ -1,6 +1,6 @@
+use crate::autograd::{Tensor, TensorOps};
 use crate::gnac::canvas::NeuralGraph;
 use crate::gnac::{DLResult, DeepLearningError, NodeType};
-use crate::autograd::{Tensor, TensorOps};
 use std::collections::HashMap;
 
 /// Asynchronous Execution — overlapping compute & memory transfer

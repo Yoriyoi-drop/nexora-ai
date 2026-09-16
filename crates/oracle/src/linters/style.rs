@@ -52,14 +52,17 @@ impl StyleLinter {
                     name: "Long Line".to_string(),
                     pattern: &LONG_LINE_REGEX,
                     severity: IssueSeverity::Style,
-                    description: "Line exceeds 80 characters - consider breaking into multiple lines".to_string(),
+                    description:
+                        "Line exceeds 80 characters - consider breaking into multiple lines"
+                            .to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Trailing Whitespace".to_string(),
                     pattern: &TRAILING_WHITESPACE_REGEX,
                     severity: IssueSeverity::Style,
-                    description: "Trailing whitespace detected - remove to keep diffs clean".to_string(),
+                    description: "Trailing whitespace detected - remove to keep diffs clean"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
@@ -94,14 +97,16 @@ impl StyleLinter {
                     name: "Deep Nesting".to_string(),
                     pattern: &DEEP_NESTING_REGEX,
                     severity: IssueSeverity::Warning,
-                    description: "Deep nesting detected (16+ spaces) - consider refactoring".to_string(),
+                    description: "Deep nesting detected (16+ spaces) - consider refactoring"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 StylePattern {
                     name: "Large Function".to_string(),
                     pattern: &LARGE_FUNCTION_REGEX,
                     severity: IssueSeverity::Warning,
-                    description: "Function body exceeds 500 characters - consider splitting".to_string(),
+                    description: "Function body exceeds 500 characters - consider splitting"
+                        .to_string(),
                     language: "all".to_string(),
                 },
             ],

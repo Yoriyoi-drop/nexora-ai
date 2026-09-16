@@ -1,4 +1,4 @@
-use memmap2::{Mmap, MmapOptions, MmapMut};
+use memmap2::{Mmap, MmapMut, MmapOptions};
 use std::fs::File;
 use std::path::Path;
 

@@ -74,10 +74,11 @@ pub fn all_reduce_in_place(
     partial: &mut [f32],
 ) -> TransformerResult<()> {
     match backend {
-        CollectiveBackend::CpuLocal { num_shards: 1, .. } => {
-            Ok(())
-        }
-        CollectiveBackend::CpuLocal { num_shards, shard_rank } => {
+        CollectiveBackend::CpuLocal { num_shards: 1, .. } => Ok(()),
+        CollectiveBackend::CpuLocal {
+            num_shards,
+            shard_rank,
+        } => {
             // Use CpuLocalCollective pattern: accumulate via a global Vec
             // Since all_reduce_in_place doesn't have access to the shared state,
             // this requires an external accumulator. For simple single-process
@@ -97,12 +98,16 @@ pub fn all_reduce_in_place(
             }
             Ok(())
         }
-        CollectiveBackend::HttpDistributed { num_shards, shard_rank, peer_urls } => {
+        CollectiveBackend::HttpDistributed {
+            num_shards,
+            shard_rank,
+            peer_urls,
+        } => {
             #[cfg(not(feature = "http"))]
             {
                 let _ = (num_shards, shard_rank, peer_urls);
                 return Err(crate::TransformerError::Implementation(
-                    "HTTP distributed all-reduce requires `http` feature".into()
+                    "HTTP distributed all-reduce requires `http` feature".into(),
                 ));
             }
             #[cfg(feature = "http")]
@@ -119,33 +124,42 @@ pub fn all_reduce_in_place(
                 let client = reqwest::blocking::Client::builder()
                     .timeout(std::time::Duration::from_secs(30))
                     .build()
-                    .map_err(|e| crate::TransformerError::Implementation(
-                        format!("HTTP client build: {}", e)
-                    ))?;
+                    .map_err(|e| {
+                        crate::TransformerError::Implementation(format!("HTTP client build: {}", e))
+                    })?;
 
                 for _round in 0..(num_shards - 1) {
                     let send_chunk = partial.to_vec();
-                    client.post(format!("{}/shard/ring_reduce", next_url))
+                    client
+                        .post(format!("{}/shard/ring_reduce", next_url))
                         .json(&serde_json::json!({
                             "shard_rank": shard_rank,
                             "data": send_chunk,
                         }))
                         .send()
-                        .map_err(|e| crate::TransformerError::Implementation(
-                            format!("HTTP ring send: {}", e)
-                        ))?;
-                    let resp = client.post(format!("{}/shard/ring_receive", prev_url))
+                        .map_err(|e| {
+                            crate::TransformerError::Implementation(format!(
+                                "HTTP ring send: {}",
+                                e
+                            ))
+                        })?;
+                    let resp = client
+                        .post(format!("{}/shard/ring_receive", prev_url))
                         .json(&serde_json::json!({
                             "shard_rank": shard_rank,
                         }))
                         .send()
-                        .map_err(|e| crate::TransformerError::Implementation(
-                            format!("HTTP ring recv: {}", e)
-                        ))?;
+                        .map_err(|e| {
+                            crate::TransformerError::Implementation(format!(
+                                "HTTP ring recv: {}",
+                                e
+                            ))
+                        })?;
                     let recv_data: Vec<f32> = resp.json().map_err(|e| {
-                        crate::TransformerError::Implementation(
-                            format!("HTTP ring recv json: {}", e)
-                        )
+                        crate::TransformerError::Implementation(format!(
+                            "HTTP ring recv json: {}",
+                            e
+                        ))
                     })?;
                     for i in 0..n.min(recv_data.len()) {
                         partial[i] += recv_data[i];
@@ -154,22 +168,24 @@ pub fn all_reduce_in_place(
 
                 for _round in 0..(num_shards - 1) {
                     let send_chunk = partial.to_vec();
-                    client.post(format!("{}/shard/ring_broadcast", next_url))
+                    client
+                        .post(format!("{}/shard/ring_broadcast", next_url))
                         .json(&serde_json::json!({
                             "data": send_chunk,
                         }))
                         .send()
-                        .map_err(|e| crate::TransformerError::Implementation(
-                            format!("HTTP ring broadcast: {}", e)
-                        ))?;
+                        .map_err(|e| {
+                            crate::TransformerError::Implementation(format!(
+                                "HTTP ring broadcast: {}",
+                                e
+                            ))
+                        })?;
                 }
 
                 Ok(())
             }
         }
-        CollectiveBackend::Nccl { collective, .. } => {
-            collective.all_reduce(partial)
-        }
+        CollectiveBackend::Nccl { collective, .. } => collective.all_reduce(partial),
     }
 }
 
@@ -230,7 +246,8 @@ pub fn all_gather_1d(
     let mut offset = 0;
     for chunk in shard_results {
         let len = chunk.len();
-        out.slice_mut(ndarray::s![offset..offset + len]).assign(chunk);
+        out.slice_mut(ndarray::s![offset..offset + len])
+            .assign(chunk);
         offset += len;
     }
     Ok(out)
@@ -312,9 +329,7 @@ impl ShardCollective {
             ShardCollective::CpuLocal(c) => c.reduce_ffn(local),
             ShardCollective::HttpDistributed(c) => c.reduce(local),
             ShardCollective::Callback(c) => c.reduce_ffn(local),
-            ShardCollective::Nccl(_nccl) => {
-                Ok(local.clone())
-            }
+            ShardCollective::Nccl(_nccl) => Ok(local.clone()),
         }
     }
 
@@ -413,8 +428,12 @@ pub struct CpuLocalCollective {
 
 impl CpuLocalCollective {
     pub fn new(num_shards: usize, shard_rank: usize, hidden_size: usize) -> Self {
-        let attn = (0..num_shards).map(|_| Array2::zeros((1, hidden_size))).collect();
-        let ffn = (0..num_shards).map(|_| Array2::zeros((1, hidden_size))).collect();
+        let attn = (0..num_shards)
+            .map(|_| Array2::zeros((1, hidden_size)))
+            .collect();
+        let ffn = (0..num_shards)
+            .map(|_| Array2::zeros((1, hidden_size)))
+            .collect();
         Self {
             num_shards,
             shard_rank,
@@ -556,7 +575,10 @@ impl HttpDistributedCollective {
                     }))
                     .send()
                     .map_err(|e| {
-                        crate::TransformerError::Implementation(format!("HTTP ring broadcast: {}", e))
+                        crate::TransformerError::Implementation(format!(
+                            "HTTP ring broadcast: {}",
+                            e
+                        ))
                     })?;
             }
 
@@ -600,7 +622,10 @@ mod tests {
 
     #[test]
     fn test_all_gather_2d_single() {
-        let backend = CollectiveBackend::CpuLocal { num_shards: 1, shard_rank: 0 };
+        let backend = CollectiveBackend::CpuLocal {
+            num_shards: 1,
+            shard_rank: 0,
+        };
         let a = Array2::ones((4, 3));
         let result = all_gather_2d(&backend, &[a.clone()]).unwrap();
         assert_eq!(result, a);
@@ -608,7 +633,10 @@ mod tests {
 
     #[test]
     fn test_all_gather_2d_multi() {
-        let backend = CollectiveBackend::CpuLocal { num_shards: 2, shard_rank: 0 };
+        let backend = CollectiveBackend::CpuLocal {
+            num_shards: 2,
+            shard_rank: 0,
+        };
         let a = Array2::ones((2, 3));
         let b = Array2::from_elem((2, 3), 2.0);
         let result = all_gather_2d(&backend, &[a, b]).unwrap();
@@ -619,7 +647,10 @@ mod tests {
 
     #[test]
     fn test_all_gather_mismatch_error() {
-        let backend = CollectiveBackend::CpuLocal { num_shards: 3, shard_rank: 0 };
+        let backend = CollectiveBackend::CpuLocal {
+            num_shards: 3,
+            shard_rank: 0,
+        };
         let a = Array2::ones((1, 3));
         let result = all_gather_2d(&backend, &[a]);
         assert!(result.is_err());
@@ -632,20 +663,23 @@ mod tests {
         let reduced = col.reduce_attn(&local).unwrap();
         assert!((reduced[(0, 0)] - 5.0).abs() < 1e-6);
         let shared: Arc<std::sync::Mutex<Vec<Array2<f32>>>> = Arc::new(std::sync::Mutex::new(
-            (0..3).map(|i| Array2::from_elem((1, 4), (i + 1) as f32)).collect::<Vec<_>>()
+            (0..3)
+                .map(|i| Array2::from_elem((1, 4), (i + 1) as f32))
+                .collect::<Vec<_>>(),
         ));
-        let col_0 = CpuLocalCollective { num_shards: 3, shard_rank: 0, attn_partials: shared.clone(), ffn_partials: Arc::new(std::sync::Mutex::new(vec![])) };
+        let col_0 = CpuLocalCollective {
+            num_shards: 3,
+            shard_rank: 0,
+            attn_partials: shared.clone(),
+            ffn_partials: Arc::new(std::sync::Mutex::new(vec![])),
+        };
         let r0 = col_0.reduce_attn(&Array2::from_elem((1, 4), 10.0)).unwrap();
         assert!((r0[(0, 0)] - 15.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_callback_collective() {
-        let cb = CallbackCollective::new(
-            2, 0,
-            |local| Ok(local + 1.0),
-            |local| Ok(local * 2.0),
-        );
+        let cb = CallbackCollective::new(2, 0, |local| Ok(local + 1.0), |local| Ok(local * 2.0));
         let data = Array2::ones((1, 4));
         let attn = cb.reduce_attn(&data).unwrap();
         assert!((attn[(0, 0)] - 2.0).abs() < 1e-6);
@@ -655,11 +689,7 @@ mod tests {
 
     #[test]
     fn test_shard_collective_wrapper() {
-        let cb = CallbackCollective::new(
-            1, 0,
-            |local| Ok(local * 3.0),
-            |local| Ok(local * 4.0),
-        );
+        let cb = CallbackCollective::new(1, 0, |local| Ok(local * 3.0), |local| Ok(local * 4.0));
         let sc = ShardCollective::Callback(cb);
         let data = Array2::ones((1, 2));
         assert_eq!(sc.num_shards(), 1);

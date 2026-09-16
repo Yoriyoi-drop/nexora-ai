@@ -81,17 +81,14 @@ impl FusedLinearActivation {
         }
 
         // Pooled tensor may be larger than out_dim — trim to exact output size
-        Ok(Array1::from_vec(
-            pooled_output.get().slice(s![..out_dim]).to_vec(),
-        )
-        .into_dyn())
+        Ok(Array1::from_vec(pooled_output.get().slice(s![..out_dim]).to_vec()).into_dyn())
     }
 
     /// GPU-accelerated forward pass: upload → matmul → activation → download
     #[cfg(feature = "gpu")]
     fn forward_gpu(&self, input: ndarray::ArrayView<f32, ndarray::Ix1>) -> DLResult<ArrayD<f32>> {
-        use ndarray::ArrayD;
         use crate::autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
 
         let ctx = match GpuContext::global() {
             Ok(c) => c,
@@ -537,9 +534,7 @@ impl FusedElementWise {
                     let coeff = 0.044715_f32;
                     0.5 * x * (1.0 + (sqrt_2_over_pi * (x + coeff * x * x * x)).tanh())
                 })?,
-                ElementWiseOp::Sigmoid => {
-                    apply_elementwise(&result, |x| 1.0 / (1.0 + (-x).exp()))?
-                }
+                ElementWiseOp::Sigmoid => apply_elementwise(&result, |x| 1.0 / (1.0 + (-x).exp()))?,
                 ElementWiseOp::Tanh => apply_elementwise(&result, |x| x.tanh())?,
                 ElementWiseOp::Swish => {
                     apply_elementwise(&result, |x| x * (1.0 / (1.0 + (-x).exp())))?

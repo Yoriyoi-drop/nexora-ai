@@ -32,24 +32,22 @@ impl GpuTaskQueue {
     }
 
     pub fn pop(&self) -> Option<GpuKernel> {
-        self.high
-            .lock()
-            .pop_front()
-            .or_else(|| self.normal.lock().pop_front().or_else(|| self.low.lock().pop_front()))
+        self.high.lock().pop_front().or_else(|| {
+            self.normal
+                .lock()
+                .pop_front()
+                .or_else(|| self.low.lock().pop_front())
+        })
     }
 
     pub fn peek(&self) -> Option<Uuid> {
-        self.high
-            .lock()
-            .front()
-            .map(|k| k.id)
-            .or_else(|| {
-                self.normal
-                    .lock()
-                    .front()
-                    .map(|k| k.id)
-                    .or_else(|| self.low.lock().front().map(|k| k.id))
-            })
+        self.high.lock().front().map(|k| k.id).or_else(|| {
+            self.normal
+                .lock()
+                .front()
+                .map(|k| k.id)
+                .or_else(|| self.low.lock().front().map(|k| k.id))
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -57,9 +55,7 @@ impl GpuTaskQueue {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.high.lock().is_empty()
-            && self.normal.lock().is_empty()
-            && self.low.lock().is_empty()
+        self.high.lock().is_empty() && self.normal.lock().is_empty() && self.low.lock().is_empty()
     }
 
     pub fn clear(&self) {

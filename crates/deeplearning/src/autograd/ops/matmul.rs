@@ -3,14 +3,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::super::tensor::Tensor;
 #[cfg(feature = "device-gpu")]
 use crate::autograd::gpu::gpu_recovery::RECOVERY_MANAGER;
+#[cfg(feature = "device-cuda")]
+#[cfg(feature = "device-cuda")]
+use crate::autograd::gpu::CudaRuntime;
 #[cfg(feature = "device-gpu")]
 use crate::autograd::gpu::GpuError;
 #[cfg(feature = "device-gpu")]
 use crate::autograd::Storage;
-#[cfg(feature = "device-cuda")]
-
-#[cfg(feature = "device-cuda")]
-use crate::autograd::gpu::CudaRuntime;
 use ndarray::ArrayD;
 use tracing::warn;
 
@@ -66,7 +65,8 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
     {
         let a_storage = a.storage();
         let b_storage = b.storage();
-        let on_gpu = matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
+        let on_gpu =
+            matches!(&a_storage, Storage::Gpu(..)) && matches!(&b_storage, Storage::Gpu(..));
         if on_gpu && !RECOVERY_MANAGER.is_circuit_open() {
             match (&a_storage, &b_storage) {
                 (Storage::Gpu(ga, _), Storage::Gpu(gb, _)) => {
@@ -137,13 +137,16 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
                                     saved_gpu,
                                     cpu_backward,
                                     Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
-                                        let (da, db) = crate::autograd::gpu_backward::matmul_backward(
-                                            ctx,
-                                            &saved_gpu[0],
-                                            &saved_gpu[1],
-                                            grad_gpu,
-                                        )
-                                        .map_err(|e| format!("GPU matmul backward failed: {e}"))?;
+                                        let (da, db) =
+                                            crate::autograd::gpu_backward::matmul_backward(
+                                                ctx,
+                                                &saved_gpu[0],
+                                                &saved_gpu[1],
+                                                grad_gpu,
+                                            )
+                                            .map_err(
+                                                |e| format!("GPU matmul backward failed: {e}"),
+                                            )?;
                                         Ok(vec![da, db])
                                     })),
                                 );

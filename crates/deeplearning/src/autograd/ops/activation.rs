@@ -11,7 +11,8 @@ use crate::autograd::gpu::GpuTensor;
 
 // ── relu ─────────────────────────────────────────────────────────────────────────
 
-gen_activation_op!(relu,
+gen_activation_op!(
+    relu,
     |x| if x > 0.0 { x } else { 0.0 },
     |data: &ArrayD<f32>, _result: &ArrayD<f32>| vec![data.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
@@ -61,7 +62,8 @@ fn gelu_grad(x: f32) -> f32 {
     0.5 * (1.0 + t) + 0.5 * x * sech2 * sqrt_2_over_pi * (1.0 + 0.134145 * x * x)
 }
 
-gen_activation_op!(gelu,
+gen_activation_op!(
+    gelu,
     gelu_f32,
     |data: &ArrayD<f32>, _result: &ArrayD<f32>| vec![data.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
@@ -80,7 +82,8 @@ gen_activation_op!(gelu,
 
 // ── tanh ─────────────────────────────────────────────────────────────────────────
 
-gen_activation_op!(tanh,
+gen_activation_op!(
+    tanh,
     |x| x.tanh(),
     |_data: &ArrayD<f32>, result: &ArrayD<f32>| vec![result.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
@@ -117,7 +120,8 @@ fn sigmoid_f32(x: f32) -> f32 {
     }
 }
 
-gen_activation_op!(sigmoid,
+gen_activation_op!(
+    sigmoid,
     sigmoid_f32,
     |_data: &ArrayD<f32>, result: &ArrayD<f32>| vec![result.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
@@ -164,7 +168,8 @@ fn silu_grad(x: f32) -> f32 {
     sig + x * sig * (1.0 - sig)
 }
 
-gen_activation_op!(silu,
+gen_activation_op!(
+    silu,
     silu_f32,
     |data: &ArrayD<f32>, _result: &ArrayD<f32>| vec![data.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
@@ -223,8 +228,7 @@ pub fn leaky_relu(input: &Tensor, negative_slope: f32) -> Tensor {
                             vec![gpu_input.clone()],
                             Box::new(move |grad, saved| {
                                 let x = &saved[0];
-                                let grad_x =
-                                    x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
+                                let grad_x = x.mapv(|v| if v > 0.0 { 1.0 } else { negative_slope });
                                 vec![grad * grad_x]
                             }),
                             Some(Box::new(move |saved_gpu, grad_gpu, ctx| {
@@ -268,8 +272,10 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
     {
         let g_storage = gate.storage();
         let x_storage = x.storage();
-        if let (crate::autograd::device::Storage::Gpu(gpu_gate, _), crate::autograd::device::Storage::Gpu(gpu_x, _)) =
-            (&g_storage, &x_storage)
+        if let (
+            crate::autograd::device::Storage::Gpu(gpu_gate, _),
+            crate::autograd::device::Storage::Gpu(gpu_x, _),
+        ) = (&g_storage, &x_storage)
         {
             if let Ok(ctx) = GpuContext::global() {
                 match ctx.silu(gpu_gate) {
@@ -310,9 +316,7 @@ pub fn swiglu(gate: &Tensor, x: &Tensor) -> Tensor {
                                             &saved_gpu[1],
                                             grad_gpu,
                                         )
-                                        .map_err(|e| {
-                                            format!("swiglu gpu backward failed: {e}")
-                                        })?;
+                                        .map_err(|e| format!("swiglu gpu backward failed: {e}"))?;
                                     Ok(vec![d_gate, d_x])
                                 })),
                             );

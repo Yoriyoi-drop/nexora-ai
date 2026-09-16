@@ -70,7 +70,9 @@ impl ModelVerifier {
         let has_norm = graph.nodes.values().any(|n| {
             matches!(
                 n.node_type,
-                crate::gnac::NodeType::LayerNorm | crate::gnac::NodeType::BatchNorm | crate::gnac::NodeType::RMSNorm
+                crate::gnac::NodeType::LayerNorm
+                    | crate::gnac::NodeType::BatchNorm
+                    | crate::gnac::NodeType::RMSNorm
             )
         });
         VerificationCheck {

@@ -5,9 +5,9 @@
 // untuk advanced AI alignment, safety, dan performance optimization.
 // Now integrated with NXR-NEXUM for enhanced multi-agent alignment coordination.
 
-pub mod sparo;
-pub mod isolation;
 pub mod hallucination;
+pub mod isolation;
+pub mod sparo;
 
 // Re-export main components
 pub use sparo::*;

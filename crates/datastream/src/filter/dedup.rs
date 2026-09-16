@@ -126,7 +126,9 @@ impl DedupFilter {
             shard_queries[Self::shard_index(h)].push(i);
         }
         for (sid, indices) in shard_queries.iter().enumerate() {
-            if indices.is_empty() { continue; }
+            if indices.is_empty() {
+                continue;
+            }
             if let Ok(guard) = self.seen_hashes[sid].try_lock() {
                 for &idx in indices {
                     results[idx] = guard.contains(&fingerprints[idx]);
@@ -142,7 +144,9 @@ impl DedupFilter {
             shard_inserts[Self::shard_index(h)].push(h);
         }
         for (sid, hs) in shard_inserts.iter().enumerate() {
-            if hs.is_empty() { continue; }
+            if hs.is_empty() {
+                continue;
+            }
             if let Ok(mut guard) = self.seen_hashes[sid].try_lock() {
                 for &h in hs {
                     guard.insert(h);

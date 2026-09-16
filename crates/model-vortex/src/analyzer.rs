@@ -1,16 +1,23 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
 pub const REVIEW_CATEGORIES: [&str; 6] = [
-    "bugs", "security", "performance", "style", "architecture", "general",
+    "bugs",
+    "security",
+    "performance",
+    "style",
+    "architecture",
+    "general",
 ];
 const HIDDEN: usize = 64;
 
-static ANALYZER: OnceLock<GenericClassifier<{REVIEW_CATEGORIES.len()}>> = OnceLock::new();
+static ANALYZER: OnceLock<GenericClassifier<{ REVIEW_CATEGORIES.len() }>> = OnceLock::new();
 
 pub fn init_analyzer(embed_table: Array2<f32>) {
-    ANALYZER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    ANALYZER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn detect_language(code: &str) -> &'static str {
@@ -84,7 +91,10 @@ mod tests {
 
     #[test]
     fn test_detect_language_javascript() {
-        assert_eq!(detect_language("function foo() { return 1; }"), "javascript");
+        assert_eq!(
+            detect_language("function foo() { return 1; }"),
+            "javascript"
+        );
     }
 
     #[test]

@@ -61,7 +61,9 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().json();
             if config.enable_file_sink {
                 let appender = create_file_appender(config)?;
-                let file_layer = tracing_subscriber::fmt::layer().json().with_writer(appender);
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(appender);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -71,7 +73,9 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().pretty();
             if config.enable_file_sink {
                 let appender = create_file_appender(config)?;
-                let file_layer = tracing_subscriber::fmt::layer().pretty().with_writer(appender);
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .pretty()
+                    .with_writer(appender);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -81,7 +85,9 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
             let fmt_layer = tracing_subscriber::fmt::layer().compact();
             if config.enable_file_sink {
                 let appender = create_file_appender(config)?;
-                let file_layer = tracing_subscriber::fmt::layer().compact().with_writer(appender);
+                let file_layer = tracing_subscriber::fmt::layer()
+                    .compact()
+                    .with_writer(appender);
                 subscriber.with(fmt_layer).with(file_layer).init();
             } else {
                 subscriber.with(fmt_layer).init();
@@ -93,8 +99,13 @@ pub fn init_tracing(config: &TracingConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn create_file_appender(config: &TracingConfig) -> Result<tracing_appender::rolling::RollingFileAppender, String> {
-    let path = config.file_path.as_deref().unwrap_or("logs/nexora-trace.log");
+fn create_file_appender(
+    config: &TracingConfig,
+) -> Result<tracing_appender::rolling::RollingFileAppender, String> {
+    let path = config
+        .file_path
+        .as_deref()
+        .unwrap_or("logs/nexora-trace.log");
     let parent = std::path::Path::new(path)
         .parent()
         .and_then(|p| p.to_str())

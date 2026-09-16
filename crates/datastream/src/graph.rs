@@ -584,7 +584,9 @@ mod tests {
         let (_, rx) = tokio::sync::watch::channel(false);
         let result = g.execute(sample(), rx).await;
         assert!(!result.is_accepted());
-        assert!(matches!(&result, ExecutionResult::Rejected { filter_name, .. } if filter_name == "fail"));
+        assert!(
+            matches!(&result, ExecutionResult::Rejected { filter_name, .. } if filter_name == "fail")
+        );
     }
 
     #[test]

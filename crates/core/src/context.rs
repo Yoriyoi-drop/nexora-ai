@@ -60,9 +60,23 @@ impl ContextAnalyzer {
     fn has_memory_relevance(&self, input: &str) -> bool {
         let input_lower = input.to_lowercase();
         let memory_triggers = [
-            "sebelumnya", "tadi", "ingat", "remember", "recall", "dulu", "lalu",
-            "episodic", "kenangan", "pengalaman", "memori", "memory",
-            "sejarah", "history", "previous", "sebelum", "lampau",
+            "sebelumnya",
+            "tadi",
+            "ingat",
+            "remember",
+            "recall",
+            "dulu",
+            "lalu",
+            "episodic",
+            "kenangan",
+            "pengalaman",
+            "memori",
+            "memory",
+            "sejarah",
+            "history",
+            "previous",
+            "sebelum",
+            "lampau",
         ];
         memory_triggers.iter().any(|k| input_lower.contains(k))
     }
@@ -80,7 +94,9 @@ impl ContextAnalyzer {
         }
 
         // TF-IDF-like: count overlapping non-stop-word terms
-        let stop_words = ["yang", "dan", "di", "ke", "dari", "the", "and", "in", "to", "of"];
+        let stop_words = [
+            "yang", "dan", "di", "ke", "dari", "the", "and", "in", "to", "of",
+        ];
         let significant_terms: Vec<&&str> = query_words
             .iter()
             .filter(|w| w.len() > 3 && !stop_words.contains(w))
@@ -151,10 +167,8 @@ mod tests {
     #[tokio::test]
     async fn test_context_memory_disabled() {
         let analyzer = ContextAnalyzer::new().with_memory(false);
-        let input_data = InputData::new(
-            "ingat yang tadi".to_string(),
-            crate::types::InputType::Text,
-        );
+        let input_data =
+            InputData::new("ingat yang tadi".to_string(), crate::types::InputType::Text);
         let context = analyzer
             .analyze_context(&input_data, ModelId::Controller)
             .await
@@ -165,15 +179,14 @@ mod tests {
     #[tokio::test]
     async fn test_context_update() {
         let analyzer = ContextAnalyzer::new();
-        let input_data = InputData::new(
-            "test".to_string(),
-            crate::types::InputType::Text,
-        );
+        let input_data = InputData::new("test".to_string(), crate::types::InputType::Text);
         let mut context = analyzer
             .analyze_context(&input_data, ModelId::Controller)
             .await
             .unwrap();
-        analyzer.update_context(&mut context, "updated context".to_string()).await;
+        analyzer
+            .update_context(&mut context, "updated context".to_string())
+            .await;
         assert_eq!(context.current_context, "updated context");
     }
 

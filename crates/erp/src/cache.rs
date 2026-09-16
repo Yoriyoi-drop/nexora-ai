@@ -32,8 +32,7 @@ impl InferenceCache {
         Self {
             cache_size,
             cache: LruCache::new(
-                std::num::NonZeroUsize::new(cache_size)
-                    .unwrap_or(std::num::NonZeroUsize::MIN),
+                std::num::NonZeroUsize::new(cache_size).unwrap_or(std::num::NonZeroUsize::MIN),
             ),
             cache_stats: CacheStats::default(),
             hash_function: ContextHasher::new(),
@@ -273,8 +272,7 @@ impl HybridCache {
     pub fn new(max_size: usize, lru_weight: f32, lfu_weight: f32) -> Self {
         Self {
             lru_cache: LruCache::new(
-                std::num::NonZeroUsize::new(max_size)
-                    .unwrap_or(std::num::NonZeroUsize::MIN),
+                std::num::NonZeroUsize::new(max_size).unwrap_or(std::num::NonZeroUsize::MIN),
             ),
             lfu_tracker: HashMap::new(),
             max_size,

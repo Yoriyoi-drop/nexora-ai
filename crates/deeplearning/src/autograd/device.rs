@@ -154,7 +154,9 @@ impl Storage {
             }
             #[cfg(feature = "device-cuda")]
             Storage::Cuda(_, _) => {
-                tracing::warn!("Storage::into_cpu() called on Cuda variant - returning empty array");
+                tracing::warn!(
+                    "Storage::into_cpu() called on Cuda variant - returning empty array"
+                );
                 ArrayD::zeros(vec![0])
             }
         }
@@ -180,9 +182,13 @@ impl Storage {
         match self {
             Storage::Cpu(arr) => Ok(Arc::clone(arr)),
             #[cfg(feature = "device-gpu")]
-            Storage::Gpu(_, _) => Err("Storage::try_data_arc() called on Gpu variant - not supported".into()),
+            Storage::Gpu(_, _) => {
+                Err("Storage::try_data_arc() called on Gpu variant - not supported".into())
+            }
             #[cfg(feature = "device-cuda")]
-            Storage::Cuda(_, _) => Err("Storage::try_data_arc() called on Cuda variant - not supported".into()),
+            Storage::Cuda(_, _) => {
+                Err("Storage::try_data_arc() called on Cuda variant - not supported".into())
+            }
         }
     }
 }

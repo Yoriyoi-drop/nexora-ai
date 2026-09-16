@@ -5,8 +5,8 @@
 //! IntegrationMode — no duplicates.
 
 pub use crate::serving::unified_api::{
-    ExpertRouter, HasMoeFfn, HasMoeFfnConfig, RouterConfig, RoutingDecision,
-    UnifiedConfig, UnifiedModel, UnifiedModelFactory, UnifiedSolution, UnifiedStats,
+    ExpertRouter, HasMoeFfn, HasMoeFfnConfig, RouterConfig, RoutingDecision, UnifiedConfig,
+    UnifiedModel, UnifiedModelFactory, UnifiedSolution, UnifiedStats,
 };
 
 use async_trait::async_trait;
@@ -17,10 +17,7 @@ pub use nexora_foundation::reasoning::{CodingTask, TaskContext};
 /// Trait-based unified model interface (wraps UnifiedModel for polymorphism).
 #[async_trait]
 pub trait UnifiedModelTrait: Send + Sync {
-    async fn generate_code(
-        &self,
-        task: &CodingTask,
-    ) -> Result<CodeSolution, ModelError>;
+    async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError>;
     fn get_statistics(&self) -> ModelStatistics;
 }
 
@@ -72,10 +69,7 @@ struct TraitWrapper {
 
 #[async_trait]
 impl UnifiedModelTrait for TraitWrapper {
-    async fn generate_code(
-        &self,
-        task: &CodingTask,
-    ) -> Result<CodeSolution, ModelError> {
+    async fn generate_code(&self, task: &CodingTask) -> Result<CodeSolution, ModelError> {
         let inner_solution = self
             .inner
             .generate_code(task)

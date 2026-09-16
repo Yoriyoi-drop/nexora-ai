@@ -111,7 +111,12 @@ impl ContextCompressor {
     }
 
     /// Ekstraktif summarization: ambil kalimat penting dari awal, tengah, akhir
-    fn extractive_summarize(&self, text: &str, _original_tokens: usize, target_tokens: usize) -> String {
+    fn extractive_summarize(
+        &self,
+        text: &str,
+        _original_tokens: usize,
+        target_tokens: usize,
+    ) -> String {
         let sentences: Vec<&str> = text
             .split(|c: char| c == '.' || c == '!' || c == '?')
             .map(|s| s.trim())
@@ -122,7 +127,8 @@ impl ContextCompressor {
             return text.chars().take(target_tokens * 5).collect();
         }
 
-        let sentence_words: Vec<usize> = sentences.iter().map(|s| Self::estimate_tokens(s)).collect();
+        let sentence_words: Vec<usize> =
+            sentences.iter().map(|s| Self::estimate_tokens(s)).collect();
         let total_sentence_tokens: usize = sentence_words.iter().sum();
         if total_sentence_tokens == 0 {
             return String::new();
@@ -142,12 +148,19 @@ impl ContextCompressor {
             let mid = sentences.len() / 2;
             for offset in 0..sentences.len().min(5) {
                 let idx = mid + offset;
-                if idx < sentences.len() && !selected.contains(&idx) && sentence_words[idx] <= budget {
+                if idx < sentences.len()
+                    && !selected.contains(&idx)
+                    && sentence_words[idx] <= budget
+                {
                     selected.push(idx);
                     budget = budget.saturating_sub(sentence_words[idx]);
                 }
                 let idx2 = mid.saturating_sub(offset);
-                if idx2 != mid && idx2 < sentences.len() && !selected.contains(&idx2) && sentence_words[idx2] <= budget {
+                if idx2 != mid
+                    && idx2 < sentences.len()
+                    && !selected.contains(&idx2)
+                    && sentence_words[idx2] <= budget
+                {
                     selected.push(idx2);
                     budget = budget.saturating_sub(sentence_words[idx2]);
                 }
@@ -242,7 +255,10 @@ mod tests {
         let text = make_long_text(50);
         let result = compressor.compress(&text);
         assert!(matches!(result.method, CompressionMethod::Extractive));
-        assert!(result.compressed_tokens < result.original_tokens, "compressed >= original");
+        assert!(
+            result.compressed_tokens < result.original_tokens,
+            "compressed >= original"
+        );
     }
 
     #[test]
@@ -255,7 +271,11 @@ mod tests {
             method: CompressionMethod::Extractive,
         };
         let savings = result.savings_percent();
-        assert!((savings - 95.0).abs() < 0.1, "expected 95% savings, got {}", savings);
+        assert!(
+            (savings - 95.0).abs() < 0.1,
+            "expected 95% savings, got {}",
+            savings
+        );
     }
 
     #[test]

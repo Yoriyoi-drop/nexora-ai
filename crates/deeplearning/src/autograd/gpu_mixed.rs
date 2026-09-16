@@ -9,8 +9,7 @@
 
 use crate::autograd::gpu::{GpuContext, GpuDtype, GpuError, GpuTensor};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum GpuDType {
     #[default]
     F32,
@@ -34,7 +33,6 @@ impl GpuDType {
         matches!(self, GpuDType::F16 | GpuDType::BF16)
     }
 }
-
 
 // ─── GpuLossScaler ─────────────────────────────────────────────────────────────
 

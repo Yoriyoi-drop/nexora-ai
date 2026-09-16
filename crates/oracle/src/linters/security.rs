@@ -27,60 +27,87 @@ pub fn detect_language(code: &str) -> &'static str {
     let first_lines: String = code.lines().take(20).collect::<Vec<_>>().join("\n");
 
     // Rust: fn main, let mut, impl, use std, ->
-    if first_lines.contains("fn main") || first_lines.contains("use std::")
-        || first_lines.contains("let mut ") || first_lines.contains("impl ")
-        || first_lines.contains("pub fn") || first_lines.contains("unsafe {")
+    if first_lines.contains("fn main")
+        || first_lines.contains("use std::")
+        || first_lines.contains("let mut ")
+        || first_lines.contains("impl ")
+        || first_lines.contains("pub fn")
+        || first_lines.contains("unsafe {")
         || code.contains("-> ") && code.contains("struct ") && code.contains("impl ")
     {
         return "rust";
     }
 
     // Python: def, import, from x import, # comment, no braces
-    if first_lines.contains("def ") || first_lines.contains("import ")
-        || first_lines.contains("from ") || first_lines.contains("class ")
-        || first_lines.contains("if __name__") || first_lines.contains("__name__")
-        || (first_lines.contains("print(") && !first_lines.contains('{')
+    if first_lines.contains("def ")
+        || first_lines.contains("import ")
+        || first_lines.contains("from ")
+        || first_lines.contains("class ")
+        || first_lines.contains("if __name__")
+        || first_lines.contains("__name__")
+        || (first_lines.contains("print(")
+            && !first_lines.contains('{')
             && !first_lines.contains("System.out"))
     {
         return "python";
     }
 
     // TypeScript: : type annotations, interface, type keyword
-    if first_lines.contains(": string") || first_lines.contains(": number")
-        || first_lines.contains(": boolean") || first_lines.contains("interface ")
-        || first_lines.contains("as string") || first_lines.contains("as number")
-        || first_lines.contains("export interface") || first_lines.contains("export type")
+    if first_lines.contains(": string")
+        || first_lines.contains(": number")
+        || first_lines.contains(": boolean")
+        || first_lines.contains("interface ")
+        || first_lines.contains("as string")
+        || first_lines.contains("as number")
+        || first_lines.contains("export interface")
+        || first_lines.contains("export type")
     {
         return "typescript";
     }
 
     // JavaScript: function, const/let/var, =>, require, console.log
-    if first_lines.contains("function ") || first_lines.contains("const ")
-        || first_lines.contains("=>") || first_lines.contains("require(")
-        || first_lines.contains("console.log") || first_lines.contains("document.")
-        || first_lines.contains("module.exports") || first_lines.contains("import React")
-        || first_lines.contains("export default") || first_lines.contains("useState")
+    if first_lines.contains("function ")
+        || first_lines.contains("const ")
+        || first_lines.contains("=>")
+        || first_lines.contains("require(")
+        || first_lines.contains("console.log")
+        || first_lines.contains("document.")
+        || first_lines.contains("module.exports")
+        || first_lines.contains("import React")
+        || first_lines.contains("export default")
+        || first_lines.contains("useState")
     {
         return "javascript";
     }
 
     // Java: public class, public static void main, extends, implements, @Override
-    if first_lines.contains("public class") || first_lines.contains("public static void main")
-        || first_lines.contains("private static final") || first_lines.contains("extends ")
-        || first_lines.contains("implements ") || first_lines.contains("@Override")
-        || first_lines.contains("import java.") || first_lines.contains("import javax.")
-        || first_lines.contains("System.out.println") || first_lines.contains("void main")
-        || first_lines.contains("public final class") || first_lines.contains("abstract class")
+    if first_lines.contains("public class")
+        || first_lines.contains("public static void main")
+        || first_lines.contains("private static final")
+        || first_lines.contains("extends ")
+        || first_lines.contains("implements ")
+        || first_lines.contains("@Override")
+        || first_lines.contains("import java.")
+        || first_lines.contains("import javax.")
+        || first_lines.contains("System.out.println")
+        || first_lines.contains("void main")
+        || first_lines.contains("public final class")
+        || first_lines.contains("abstract class")
     {
         return "java";
     }
 
     // Go: package main, func main, import (, defer, :=
-    if first_lines.contains("package main") || first_lines.contains("func main")
-        || first_lines.contains("import (") || first_lines.contains("fmt.")
-        || first_lines.contains("defer ") || first_lines.contains(":= ")
-        || first_lines.contains("http.HandleFunc") || first_lines.contains("http.ListenAndServe")
-        || first_lines.contains("goroutine") || first_lines.contains("go func")
+    if first_lines.contains("package main")
+        || first_lines.contains("func main")
+        || first_lines.contains("import (")
+        || first_lines.contains("fmt.")
+        || first_lines.contains("defer ")
+        || first_lines.contains(":= ")
+        || first_lines.contains("http.HandleFunc")
+        || first_lines.contains("http.ListenAndServe")
+        || first_lines.contains("goroutine")
+        || first_lines.contains("go func")
     {
         return "go";
     }
@@ -133,28 +160,32 @@ impl SecurityLinter {
                     name: "SQL Injection".to_string(),
                     pattern: &SQL_INJECTION_REGEX,
                     severity: IssueSeverity::Critical,
-                    description: "Dynamic SQL execution detected - use parameterized queries".to_string(),
+                    description: "Dynamic SQL execution detected - use parameterized queries"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Command Injection".to_string(),
                     pattern: &COMMAND_INJECTION_REGEX,
                     severity: IssueSeverity::Critical,
-                    description: "Shell execution detected - validate and sanitize input".to_string(),
+                    description: "Shell execution detected - validate and sanitize input"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Hardcoded Password".to_string(),
                     pattern: &HARDCODED_PASSWORD_REGEX,
                     severity: IssueSeverity::Error,
-                    description: "Hardcoded credential detected - use environment variables".to_string(),
+                    description: "Hardcoded credential detected - use environment variables"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Buffer Overflow".to_string(),
                     pattern: &BUFFER_OVERFLOW_REGEX,
                     severity: IssueSeverity::Error,
-                    description: "Unsafe string copy function detected - use safe alternatives".to_string(),
+                    description: "Unsafe string copy function detected - use safe alternatives"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
@@ -168,21 +199,25 @@ impl SecurityLinter {
                     name: "Path Traversal".to_string(),
                     pattern: &PATH_TRAVERSAL_REGEX,
                     severity: IssueSeverity::Error,
-                    description: "Path traversal pattern detected - sanitize file paths".to_string(),
+                    description: "Path traversal pattern detected - sanitize file paths"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Insecure Random".to_string(),
                     pattern: &INSECURE_RANDOM_REGEX,
                     severity: IssueSeverity::Warning,
-                    description: "Weak random number generator - use cryptographically secure RNG".to_string(),
+                    description: "Weak random number generator - use cryptographically secure RNG"
+                        .to_string(),
                     language: "all".to_string(),
                 },
                 VulnerabilityPattern {
                     name: "Weak Crypto".to_string(),
                     pattern: &WEAK_CRYPTO_REGEX,
                     severity: IssueSeverity::Warning,
-                    description: "Weak cryptographic algorithm detected - use stronger alternatives".to_string(),
+                    description:
+                        "Weak cryptographic algorithm detected - use stronger alternatives"
+                            .to_string(),
                     language: "all".to_string(),
                 },
             ],
@@ -332,13 +367,19 @@ impl CodeLinter for SecurityLinter {
                 while j < lines.len() && j < i + 5 {
                     combined.push_str(lines[j]);
                     combined.push(' ');
-                    if lines[j].contains(';') || lines[j].contains('"') && !lines[j].contains('\\') {
+                    if lines[j].contains(';') || lines[j].contains('"') && !lines[j].contains('\\')
+                    {
                         if combined.contains("SELECT") || combined.contains("INSERT") {
                             if combined.contains('+') || combined.contains("format!(") {
-                                let clean_combined = ast_analyzer::strip_comments_and_strings(&combined);
-                                if clean_combined.contains('+') || clean_combined.contains("format!(") {
-                                    let is_new = !issues.iter().any(|x| x.rule_id == "ML-SQL-INJECTION"
-                                        && x.line_number == Some(i + 1));
+                                let clean_combined =
+                                    ast_analyzer::strip_comments_and_strings(&combined);
+                                if clean_combined.contains('+')
+                                    || clean_combined.contains("format!(")
+                                {
+                                    let is_new = !issues.iter().any(|x| {
+                                        x.rule_id == "ML-SQL-INJECTION"
+                                            && x.line_number == Some(i + 1)
+                                    });
                                     if is_new {
                                         issues.push(CodeIssue {
                                             severity: IssueSeverity::Critical,
@@ -376,10 +417,17 @@ impl CodeLinter for SecurityLinter {
         );
         metrics.insert("ast_analysis_active".to_string(), 1.0);
         let lang_detected = detect_language(code);
-        metrics.insert("detected_language".to_string(), match lang_detected {
-            "rust" => 1.0, "python" => 2.0, "javascript" | "typescript" => 3.0,
-            "java" => 4.0, "go" => 5.0, _ => 0.0,
-        });
+        metrics.insert(
+            "detected_language".to_string(),
+            match lang_detected {
+                "rust" => 1.0,
+                "python" => 2.0,
+                "javascript" | "typescript" => 3.0,
+                "java" => 4.0,
+                "go" => 5.0,
+                _ => 0.0,
+            },
+        );
 
         Ok(LintResult {
             linter_name: "SecurityLinter".to_string(),
@@ -532,7 +580,10 @@ impl CodeLinter for SecurityLinter {
                 .push("Use stronger cryptographic algorithms like SHA-256 or AES".to_string());
         }
 
-        if issues.iter().any(|i| i.rule_id.contains("AST-CMD-INJECTION")) {
+        if issues
+            .iter()
+            .any(|i| i.rule_id.contains("AST-CMD-INJECTION"))
+        {
             suggestions.push("Avoid std::process::Command with user input. Use a whitelist or parse input strictly".to_string());
         }
 

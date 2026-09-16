@@ -276,5 +276,3 @@ pub struct BusStats {
     pub publishers: usize,
     pub total_queue_depth: usize,
 }
-
-

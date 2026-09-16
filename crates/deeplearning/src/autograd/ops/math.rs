@@ -4,8 +4,8 @@ use tracing::debug;
 use crate::autograd::broadcast;
 use crate::autograd::tensor::Tensor;
 
-use crate::gen_unary_op;
 use crate::gen_binary_op;
+use crate::gen_unary_op;
 
 #[cfg(feature = "device-gpu")]
 use crate::autograd::gpu::GpuTensor;
@@ -13,20 +13,26 @@ use crate::autograd::gpu::GpuTensor;
 // ── Helpers for shape encoding ──────────────────────────────────────────────────
 
 fn encode_shape(s: &[usize]) -> ArrayD<f32> {
-    ArrayD::from_shape_vec(vec![s.len()], s.iter().map(|&x| x as f32).collect())
-        .unwrap_or_else(|e| {
+    ArrayD::from_shape_vec(vec![s.len()], s.iter().map(|&x| x as f32).collect()).unwrap_or_else(
+        |e| {
             debug!("shape encoding failed (infallible): {e}");
             ArrayD::zeros(vec![0])
-        })
+        },
+    )
 }
 
 // ── Unary ops (gen_unary_op!) ────────────────────────────────────────────────────
 
-gen_unary_op!(exp,
+gen_unary_op!(
+    exp,
     |x| x.exp(),
     |_data: &ArrayD<f32>, result: &ArrayD<f32>| vec![result.clone()],
-    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| { let r = &saved[0]; vec![grad * r] },
-    Exp, exp,
+    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
+        let r = &saved[0];
+        vec![grad * r]
+    },
+    Exp,
+    exp,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let da = crate::autograd::gpu_backward::exp_backward(ctx, &sg[0], gg)
             .map_err(|e| format!("exp_backward: {e}"))?;
@@ -34,11 +40,16 @@ gen_unary_op!(exp,
     },
 );
 
-gen_unary_op!(ln,
+gen_unary_op!(
+    ln,
     |x| x.ln(),
     |data: &ArrayD<f32>, _result: &ArrayD<f32>| vec![data.clone()],
-    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| { let x = &saved[0]; vec![grad / x] },
-    Ln, ln,
+    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
+        let x = &saved[0];
+        vec![grad / x]
+    },
+    Ln,
+    ln,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let da = crate::autograd::gpu_backward::ln_backward(ctx, &sg[0], gg)
             .map_err(|e| format!("ln_backward: {e}"))?;
@@ -46,11 +57,16 @@ gen_unary_op!(ln,
     },
 );
 
-gen_unary_op!(sqrt,
+gen_unary_op!(
+    sqrt,
     |x| x.sqrt(),
     |_data: &ArrayD<f32>, result: &ArrayD<f32>| vec![result.clone()],
-    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| { let r = &saved[0]; vec![grad / (2.0 * r)] },
-    Sqrt, sqrt,
+    |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
+        let r = &saved[0];
+        vec![grad / (2.0 * r)]
+    },
+    Sqrt,
+    sqrt,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let da = crate::autograd::gpu_backward::sqrt_backward(ctx, &sg[0], gg)
             .map_err(|e| format!("sqrt_backward: {e}"))?;
@@ -58,11 +74,13 @@ gen_unary_op!(sqrt,
     },
 );
 
-gen_unary_op!(neg,
+gen_unary_op!(
+    neg,
     |x| -x,
     |_data: &ArrayD<f32>, _result: &ArrayD<f32>| vec![],
     |grad: &ArrayD<f32>, _saved: &[ArrayD<f32>]| vec![-grad],
-    Neg, neg,
+    Neg,
+    neg,
     move |_sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let da = crate::autograd::gpu_backward::neg_backward(ctx, gg)
             .map_err(|e| format!("neg_backward: {e}"))?;
@@ -72,10 +90,14 @@ gen_unary_op!(neg,
 
 // ── Binary ops (gen_binary_op!) ─────────────────────────────────────────────────
 
-gen_binary_op!(add,
+gen_binary_op!(
+    add,
     |a: &ArrayD<f32>, b: &ArrayD<f32>| a + b,
-    |a: &ArrayD<f32>, b: &ArrayD<f32>, _a_bc: &ArrayD<f32>, _b_bc: &ArrayD<f32>, _result: &ArrayD<f32>|
-        vec![encode_shape(a.shape()), encode_shape(b.shape())],
+    |a: &ArrayD<f32>,
+     b: &ArrayD<f32>,
+     _a_bc: &ArrayD<f32>,
+     _b_bc: &ArrayD<f32>,
+     _result: &ArrayD<f32>| vec![encode_shape(a.shape()), encode_shape(b.shape())],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
         let sa: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
         let sb: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
@@ -83,7 +105,8 @@ gen_binary_op!(add,
         let db = broadcast::reduce_grad_for_shape(grad, &sb);
         vec![da, db]
     },
-    add, add,
+    add,
+    add,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let a_shape = sg[0].shape();
         let b_shape = sg[1].shape();
@@ -94,10 +117,14 @@ gen_binary_op!(add,
     |_: &GpuTensor, _: &GpuTensor, _: &GpuTensor| vec![],
 );
 
-gen_binary_op!(sub,
+gen_binary_op!(
+    sub,
     |a: &ArrayD<f32>, b: &ArrayD<f32>| a - b,
-    |a: &ArrayD<f32>, b: &ArrayD<f32>, _a_bc: &ArrayD<f32>, _b_bc: &ArrayD<f32>, _result: &ArrayD<f32>|
-        vec![encode_shape(a.shape()), encode_shape(b.shape())],
+    |a: &ArrayD<f32>,
+     b: &ArrayD<f32>,
+     _a_bc: &ArrayD<f32>,
+     _b_bc: &ArrayD<f32>,
+     _result: &ArrayD<f32>| vec![encode_shape(a.shape()), encode_shape(b.shape())],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
         let sa: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
         let sb: Vec<usize> = saved[1].iter().map(|&x| x as usize).collect();
@@ -105,7 +132,8 @@ gen_binary_op!(sub,
         let db = broadcast::reduce_grad_for_shape(grad, &sb);
         vec![da, -db]
     },
-    sub, sub,
+    sub,
+    sub,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let a_shape = sg[0].shape();
         let b_shape = sg[1].shape();
@@ -116,10 +144,14 @@ gen_binary_op!(sub,
     |_: &GpuTensor, _: &GpuTensor, _: &GpuTensor| vec![],
 );
 
-gen_binary_op!(mul,
+gen_binary_op!(
+    mul,
     |a: &ArrayD<f32>, b: &ArrayD<f32>| a * b,
-    |_a: &ArrayD<f32>, _b: &ArrayD<f32>, a_bc: &ArrayD<f32>, b_bc: &ArrayD<f32>, _result: &ArrayD<f32>|
-        vec![a_bc.clone(), b_bc.clone()],
+    |_a: &ArrayD<f32>,
+     _b: &ArrayD<f32>,
+     a_bc: &ArrayD<f32>,
+     b_bc: &ArrayD<f32>,
+     _result: &ArrayD<f32>| vec![a_bc.clone(), b_bc.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
         let a_bc = &saved[0];
         let b_bc = &saved[1];
@@ -127,7 +159,8 @@ gen_binary_op!(mul,
         let db = grad * a_bc;
         vec![da, db]
     },
-    mul, mul,
+    mul,
+    mul,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let (da, db) = crate::autograd::gpu_backward::mul_backward(ctx, &sg[0], &sg[1], gg)
             .map_err(|e| format!("mul_backward: {e}"))?;
@@ -136,10 +169,14 @@ gen_binary_op!(mul,
     |_: &GpuTensor, _: &GpuTensor, _: &GpuTensor| vec![],
 );
 
-gen_binary_op!(div,
+gen_binary_op!(
+    div,
     |a: &ArrayD<f32>, b: &ArrayD<f32>| a / b,
-    |_a: &ArrayD<f32>, _b: &ArrayD<f32>, a_bc: &ArrayD<f32>, b_bc: &ArrayD<f32>, result: &ArrayD<f32>|
-        vec![a_bc.clone(), b_bc.clone(), result.clone()],
+    |_a: &ArrayD<f32>,
+     _b: &ArrayD<f32>,
+     a_bc: &ArrayD<f32>,
+     b_bc: &ArrayD<f32>,
+     result: &ArrayD<f32>| vec![a_bc.clone(), b_bc.clone(), result.clone()],
     |grad: &ArrayD<f32>, saved: &[ArrayD<f32>]| {
         let _a_bc = &saved[0];
         let b_bc = &saved[1];
@@ -148,7 +185,8 @@ gen_binary_op!(div,
         let db = -grad * result_val / b_bc;
         vec![da, db]
     },
-    div, div,
+    div,
+    div,
     move |sg: &[GpuTensor], gg: &GpuTensor, ctx: &GpuContext| {
         let (da, db) = crate::autograd::gpu_backward::div_backward(ctx, &sg[1], &sg[2], gg)
             .map_err(|e| format!("div_backward: {e}"))?;
@@ -245,9 +283,8 @@ pub fn powf(input: &Tensor, exponent: f32) -> Tensor {
                         Err(e) => {
                             crate::autograd::ops::GPU_MATH_FALLBACKS
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            RECOVERY_MANAGER.record_failure(&GpuError::Device(format!(
-                                "GPU powf failed: {e}"
-                            )));
+                            RECOVERY_MANAGER
+                                .record_failure(&GpuError::Device(format!("GPU powf failed: {e}")));
                             tracing::warn!(
                                 error = %e,
                                 "GPU powf failed, falling back to CPU (fallback #{})",

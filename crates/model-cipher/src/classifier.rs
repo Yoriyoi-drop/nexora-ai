@@ -1,25 +1,44 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
-pub const THREAT_CATEGORIES: [&str; 6] = [
-    "injection", "xss", "auth", "crypto", "config", "network",
-];
+pub const THREAT_CATEGORIES: [&str; 6] =
+    ["injection", "xss", "auth", "crypto", "config", "network"];
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<GenericClassifier<{THREAT_CATEGORIES.len()}>> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{ THREAT_CATEGORIES.len() }>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 const THREAT_PROMPTS: &[(&str, &str)] = &[
-    ("injection", "Focus on SQL/command injection, input sanitization, and parameterized queries."),
-    ("xss", "Focus on cross-site scripting, content security policy, and output encoding."),
-    ("auth", "Focus on authentication bypass, session management, and access control."),
-    ("crypto", "Focus on cryptographic weaknesses, key management, and secure protocols."),
-    ("config", "Focus on security misconfiguration, default credentials, and exposed secrets."),
-    ("network", "Focus on network security, TLS, API security, and data-in-transit."),
+    (
+        "injection",
+        "Focus on SQL/command injection, input sanitization, and parameterized queries.",
+    ),
+    (
+        "xss",
+        "Focus on cross-site scripting, content security policy, and output encoding.",
+    ),
+    (
+        "auth",
+        "Focus on authentication bypass, session management, and access control.",
+    ),
+    (
+        "crypto",
+        "Focus on cryptographic weaknesses, key management, and secure protocols.",
+    ),
+    (
+        "config",
+        "Focus on security misconfiguration, default credentials, and exposed secrets.",
+    ),
+    (
+        "network",
+        "Focus on network security, TLS, API security, and data-in-transit.",
+    ),
 ];
 
 /// Keyword-based threat detection — deterministic fallback for untrained ML weights.
@@ -29,52 +48,122 @@ fn keyword_threat_score(text: &str, category: &str) -> f32 {
     let hits = match category {
         "injection" => {
             let kws = [
-                "sql", "injection", "insert into", "drop table", "select * from",
-                "union select", "';", "1=1", "exec(", "xp_cmdshell", "command injection",
-                "eval(", "system(", "subprocess", "os.system", "rm -rf",
-                "parameterized query", "sanitize input", "sqlmap",
+                "sql",
+                "injection",
+                "insert into",
+                "drop table",
+                "select * from",
+                "union select",
+                "';",
+                "1=1",
+                "exec(",
+                "xp_cmdshell",
+                "command injection",
+                "eval(",
+                "system(",
+                "subprocess",
+                "os.system",
+                "rm -rf",
+                "parameterized query",
+                "sanitize input",
+                "sqlmap",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
         "xss" => {
             let kws = [
-                "xss", "cross-site", "cross site", "script>", "onerror",
-                "onload", "alert(", "document.cookie", "innerhtml", "steal cookie",
-                "content security policy", "csp", "output encoding",
+                "xss",
+                "cross-site",
+                "cross site",
+                "script>",
+                "onerror",
+                "onload",
+                "alert(",
+                "document.cookie",
+                "innerhtml",
+                "steal cookie",
+                "content security policy",
+                "csp",
+                "output encoding",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
         "auth" => {
             let kws = [
-                "auth", "bypass", "privilege escalation", "session hijack",
-                "jwt", "oauth", "csrf", "token", "password", "login bypass",
-                "authentication bypass", "access control", "rbac", "session fixation",
-                "brute force", "credential stuffing",
+                "auth",
+                "bypass",
+                "privilege escalation",
+                "session hijack",
+                "jwt",
+                "oauth",
+                "csrf",
+                "token",
+                "password",
+                "login bypass",
+                "authentication bypass",
+                "access control",
+                "rbac",
+                "session fixation",
+                "brute force",
+                "credential stuffing",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
         "crypto" => {
             let kws = [
-                "crypto", "encryption", "md5", "sha1", "weak cipher", "tls",
-                "ssl", "man-in-the-middle", "mitm", "key exchange", "padding oracle",
-                "cbc", "ecb", "ciphertext", "decrypt",
+                "crypto",
+                "encryption",
+                "md5",
+                "sha1",
+                "weak cipher",
+                "tls",
+                "ssl",
+                "man-in-the-middle",
+                "mitm",
+                "key exchange",
+                "padding oracle",
+                "cbc",
+                "ecb",
+                "ciphertext",
+                "decrypt",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
         "config" => {
             let kws = [
-                "config", "misconfig", "default credential", "hardcoded",
-                "environment variable", ".env", "secret key", "access key",
-                "s3 bucket", "public bucket", "security group", "firewall rule",
-                "open port", "exposed",
+                "config",
+                "misconfig",
+                "default credential",
+                "hardcoded",
+                "environment variable",
+                ".env",
+                "secret key",
+                "access key",
+                "s3 bucket",
+                "public bucket",
+                "security group",
+                "firewall rule",
+                "open port",
+                "exposed",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
         "network" => {
             let kws = [
-                "network", "port scan", "ddos", "mitm", "sniff", "dns spoof",
-                "arp poison", "tls", "wireguard", "vpn", "proxy bypass",
-                "data exfil", "c2 server", "reverse shell",
+                "network",
+                "port scan",
+                "ddos",
+                "mitm",
+                "sniff",
+                "dns spoof",
+                "arp poison",
+                "tls",
+                "wireguard",
+                "vpn",
+                "proxy bypass",
+                "data exfil",
+                "c2 server",
+                "reverse shell",
             ];
             kws.iter().filter(|kw| lower.contains(*kw)).count()
         }
@@ -105,7 +194,10 @@ pub fn detect_threat_type(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
         // Normalize to sum = 1.0 for softmax-like output
         let total: f32 = keyword_scores.iter().map(|(_, s)| s).sum();
         let total = total.max(0.1);
-        return keyword_scores.into_iter().map(|(c, s)| (c, s / total)).collect();
+        return keyword_scores
+            .into_iter()
+            .map(|(c, s)| (c, s / total))
+            .collect();
     }
 
     // Phase 2: ML classifier fallback (Xavier random until trained)
@@ -132,7 +224,7 @@ pub fn detect_threat_type(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-fn init_cls(hidden: usize) -> GenericClassifier<6> {
+    fn init_cls(hidden: usize) -> GenericClassifier<6> {
         GenericClassifier::new(Array2::zeros((10, hidden)), HIDDEN)
     }
 

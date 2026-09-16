@@ -135,7 +135,7 @@ impl CoreLayout {
         // thread and does not cause undefined behavior if it fails.
         let ret = unsafe {
             libc::sched_setaffinity(
-                0,                                 // calling thread
+                0, // calling thread
                 std::mem::size_of::<libc::cpu_set_t>(),
                 &set,
             )
@@ -292,7 +292,11 @@ impl fmt::Display for GpuDebugConfig {
             f,
             "GpuDebugConfig(sync={} verbose={} deterministic={} validate={})",
             if self.sync_execution { "on" } else { "off" },
-            if self.verbose_tensor_check { "on" } else { "off" },
+            if self.verbose_tensor_check {
+                "on"
+            } else {
+                "off"
+            },
             if self.deterministic { "on" } else { "off" },
             if self.kernel_validation { "on" } else { "off" },
         )
@@ -309,7 +313,11 @@ mod tests {
         assert!(layout.total_cores >= 1, "at least 1 core");
         assert!(!layout.data_cores.is_empty(), "data_cores non-empty");
         if layout.total_cores >= 4 {
-            assert_eq!(layout.data_cores.len(), 2, "reserve 2 cores for data when ≥4 total");
+            assert_eq!(
+                layout.data_cores.len(),
+                2,
+                "reserve 2 cores for data when ≥4 total"
+            );
         }
         println!("{}", layout.display());
     }

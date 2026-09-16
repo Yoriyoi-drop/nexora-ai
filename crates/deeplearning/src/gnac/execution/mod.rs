@@ -82,6 +82,9 @@ mod tests {
     fn test_execution_backend_auto_detect() {
         let backend = ExecutionBackend::auto_detect();
         // Should not panic; will return CPU if no GPU available
-        assert!(matches!(backend, ExecutionBackend::CPU | ExecutionBackend::WGPU | ExecutionBackend::CUDA));
+        assert!(matches!(
+            backend,
+            ExecutionBackend::CPU | ExecutionBackend::WGPU | ExecutionBackend::CUDA
+        ));
     }
 }

@@ -138,10 +138,7 @@ impl MetricsCollector {
             "nexora_kv_external_frag_ratio",
             "KV cache external fragmentation ratio (0-1)",
         )?;
-        let training_loss = Gauge::new(
-            "nexora_training_loss",
-            "Current training loss",
-        )?;
+        let training_loss = Gauge::new("nexora_training_loss", "Current training loss")?;
         let training_learning_rate = Gauge::new(
             "nexora_training_learning_rate",
             "Current training learning rate",
@@ -383,8 +380,9 @@ impl Default for MetricsCollector {
                     Gauge::new(name, help).unwrap_or_else(|_| Gauge::new("_fb_g", "fb").unwrap())
                 };
                 let mh = |name: &str, help: &str| -> Histogram {
-                    Histogram::with_opts(HistogramOpts::new(name, help))
-                        .unwrap_or_else(|_| Histogram::with_opts(HistogramOpts::new("_fb_h", "fb")).unwrap())
+                    Histogram::with_opts(HistogramOpts::new(name, help)).unwrap_or_else(|_| {
+                        Histogram::with_opts(HistogramOpts::new("_fb_h", "fb")).unwrap()
+                    })
                 };
                 MetricsCollector {
                     registry,

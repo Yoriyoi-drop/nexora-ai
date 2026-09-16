@@ -83,15 +83,21 @@ impl ObservabilityCollector {
     }
 
     pub fn record_token_generated(&self) {
-        self.counters.tokens_generated.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .tokens_generated
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_tokens(&self, count: u64) {
-        self.counters.tokens_generated.fetch_add(count, Ordering::Relaxed);
+        self.counters
+            .tokens_generated
+            .fetch_add(count, Ordering::Relaxed);
     }
 
     pub fn record_latency(&self, latency_ms: u64) {
-        self.counters.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
+        self.counters
+            .total_latency_ms
+            .fetch_add(latency_ms, Ordering::Relaxed);
         self.counters.request_count.fetch_add(1, Ordering::Relaxed);
         let mut latencies = self.latencies.write();
         if latencies.len() >= self.max_latency_samples {
@@ -109,24 +115,38 @@ impl ObservabilityCollector {
     }
 
     pub fn record_cache_eviction(&self) {
-        self.counters.cache_evictions.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .cache_evictions
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_tool_call(&self, success: bool, duration_ms: u64) {
-        self.counters.tool_calls_total.fetch_add(1, Ordering::Relaxed);
-        self.counters.tool_call_duration_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.counters
+            .tool_calls_total
+            .fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .tool_call_duration_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
         if !success {
-            self.counters.tool_calls_failed.fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .tool_calls_failed
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     pub fn record_cost(&self, cost_usd: f64, saved_usd: f64) {
-        self.counters.total_cost_micro.fetch_add((cost_usd * 1_000_000.0) as u64, Ordering::Relaxed);
-        self.counters.total_saved_micro.fetch_add((saved_usd * 1_000_000.0) as u64, Ordering::Relaxed);
+        self.counters
+            .total_cost_micro
+            .fetch_add((cost_usd * 1_000_000.0) as u64, Ordering::Relaxed);
+        self.counters
+            .total_saved_micro
+            .fetch_add((saved_usd * 1_000_000.0) as u64, Ordering::Relaxed);
     }
 
     pub fn record_hallucination(&self) {
-        self.counters.hallucination_count.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .hallucination_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_failure(&self) {
@@ -179,21 +199,29 @@ impl ObservabilityCollector {
             queue_depth: 0,
             queue_wait_ms: 0.0,
             requests_in_flight: 0,
-            cache_hit_rate: if total_cache > 0 { hits as f64 / total_cache as f64 } else { 0.0 },
+            cache_hit_rate: if total_cache > 0 {
+                hits as f64 / total_cache as f64
+            } else {
+                0.0
+            },
             cache_hits: hits,
             cache_misses: misses,
             cache_evictions: counters.cache_evictions.load(Ordering::Relaxed),
             tool_calls_total,
             tool_calls_failed: counters.tool_calls_failed.load(Ordering::Relaxed),
             tool_call_avg_ms: if tool_calls_total > 0 {
-                counters.tool_call_duration_ms.load(Ordering::Relaxed) as f64 / tool_calls_total as f64
+                counters.tool_call_duration_ms.load(Ordering::Relaxed) as f64
+                    / tool_calls_total as f64
             } else {
                 0.0
             },
             total_cost_usd: counters.total_cost_micro.load(Ordering::Relaxed) as f64 / 1_000_000.0,
-            estimated_savings_usd: counters.total_saved_micro.load(Ordering::Relaxed) as f64 / 1_000_000.0,
+            estimated_savings_usd: counters.total_saved_micro.load(Ordering::Relaxed) as f64
+                / 1_000_000.0,
             cost_per_request: if request_count > 0 {
-                counters.total_cost_micro.load(Ordering::Relaxed) as f64 / request_count as f64 / 1_000_000.0
+                counters.total_cost_micro.load(Ordering::Relaxed) as f64
+                    / request_count as f64
+                    / 1_000_000.0
             } else {
                 0.0
             },
@@ -267,33 +295,45 @@ impl ObservabilityCollector {
                     ram_used_mb: 0.0,
                     ram_total_mb: 0.0,
                     tokens_generated: collector.tokens_generated.load(Ordering::Relaxed),
-                    tokens_per_sec: collector.tokens_generated.load(Ordering::Relaxed) as f64 / elapsed_secs,
+                    tokens_per_sec: collector.tokens_generated.load(Ordering::Relaxed) as f64
+                        / elapsed_secs,
                     avg_latency_ms: 0.0,
                     p95_latency_ms: 0.0,
                     p99_latency_ms: 0.0,
                     queue_depth: 0,
                     queue_wait_ms: 0.0,
                     requests_in_flight: 0,
-                    cache_hit_rate: if total_cache > 0 { hits as f64 / total_cache as f64 } else { 0.0 },
+                    cache_hit_rate: if total_cache > 0 {
+                        hits as f64 / total_cache as f64
+                    } else {
+                        0.0
+                    },
                     cache_hits: hits,
                     cache_misses: misses,
                     cache_evictions: collector.cache_evictions.load(Ordering::Relaxed),
                     tool_calls_total,
                     tool_calls_failed: collector.tool_calls_failed.load(Ordering::Relaxed),
                     tool_call_avg_ms: if tool_calls_total > 0 {
-                        collector.tool_call_duration_ms.load(Ordering::Relaxed) as f64 / tool_calls_total as f64
+                        collector.tool_call_duration_ms.load(Ordering::Relaxed) as f64
+                            / tool_calls_total as f64
                     } else {
                         0.0
                     },
-                    total_cost_usd: collector.total_cost_micro.load(Ordering::Relaxed) as f64 / 1_000_000.0,
-                    estimated_savings_usd: collector.total_saved_micro.load(Ordering::Relaxed) as f64 / 1_000_000.0,
+                    total_cost_usd: collector.total_cost_micro.load(Ordering::Relaxed) as f64
+                        / 1_000_000.0,
+                    estimated_savings_usd: collector.total_saved_micro.load(Ordering::Relaxed)
+                        as f64
+                        / 1_000_000.0,
                     cost_per_request: if req_count > 0 {
-                        collector.total_cost_micro.load(Ordering::Relaxed) as f64 / req_count as f64 / 1_000_000.0
+                        collector.total_cost_micro.load(Ordering::Relaxed) as f64
+                            / req_count as f64
+                            / 1_000_000.0
                     } else {
                         0.0
                     },
                     hallucination_rate: if req_count > 0 {
-                        collector.hallucination_count.load(Ordering::Relaxed) as f64 / req_count as f64
+                        collector.hallucination_count.load(Ordering::Relaxed) as f64
+                            / req_count as f64
                     } else {
                         0.0
                     },

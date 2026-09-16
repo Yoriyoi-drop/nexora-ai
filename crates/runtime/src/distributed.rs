@@ -60,13 +60,16 @@ struct RemoteClient {
 
 impl RemoteClient {
     fn new(address: &str, node_id: Uuid, shared_secret: Option<&str>) -> Self {
-        let scheme = if shared_secret.is_some() { "https" } else { "http" };
+        let scheme = if shared_secret.is_some() {
+            "https"
+        } else {
+            "http"
+        };
         if scheme == "http" && !cfg!(debug_assertions) {
             tracing::warn!("Distributed scheduler using HTTP without shared_secret. This is INSECURE. Set shared_secret for automatic HTTPS.");
         }
         let auth_header = shared_secret.map(|s| ("x-nexora-auth".to_string(), s.to_string()));
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30));
+        let mut client_builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
         if let Some((name, val)) = &auth_header {
             if let Ok(hv) = reqwest::header::HeaderValue::from_str(val) {
                 let mut headers = reqwest::header::HeaderMap::new();
@@ -118,8 +121,7 @@ impl RemoteClient {
                     }
                 }
             }
-            match req.send().await
-            {
+            match req.send().await {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.json::<InferenceResponse>().await {
                         Ok(response) => {
@@ -186,10 +188,14 @@ impl DistributedScheduler {
     }
 
     pub async fn initialize(&self) -> Result<()> {
-        info!("Initializing distributed scheduler (node_id={})", self.config.cluster.node_id);
+        info!(
+            "Initializing distributed scheduler (node_id={})",
+            self.config.cluster.node_id
+        );
         self.local.initialize().await?;
         self.sync_remote_clients().await;
-        self.enabled.store(self.config.enable_remote, Ordering::Relaxed);
+        self.enabled
+            .store(self.config.enable_remote, Ordering::Relaxed);
         Ok(())
     }
 
@@ -211,10 +217,7 @@ impl DistributedScheduler {
         response_tx: mpsc::Sender<InferenceResponse>,
     ) -> Result<()> {
         if !self.is_enabled() {
-            return self
-                .local
-                .submit_request(request, response_tx)
-                .await;
+            return self.local.submit_request(request, response_tx).await;
         }
 
         let model_id = &request.model_id;
@@ -223,8 +226,8 @@ impl DistributedScheduler {
         let remote_candidates = self.select_remote_nodes(model_id).await;
 
         let local_score = local_load.active_requests as f64 + local_load.queue_depth as f64 * 0.5;
-        let should_route_remote = !remote_candidates.is_empty()
-            && remote_candidates[0].load_score() < local_score;
+        let should_route_remote =
+            !remote_candidates.is_empty() && remote_candidates[0].load_score() < local_score;
 
         if should_route_remote {
             let peer = &remote_candidates[0];
@@ -289,7 +292,11 @@ impl DistributedScheduler {
         request: InferenceRequest,
         response_tx: mpsc::Sender<InferenceResponse>,
     ) -> Result<()> {
-        let client = RemoteClient::new(&peer.address, peer.node_id, self.config.cluster.shared_secret.as_deref());
+        let client = RemoteClient::new(
+            &peer.address,
+            peer.node_id,
+            self.config.cluster.shared_secret.as_deref(),
+        );
         let timeout = self.config.cluster.request_timeout_ms;
 
         match client.submit(request, timeout).await {
@@ -320,7 +327,11 @@ impl DistributedScheduler {
         clients.clear();
         for node in &alive {
             if node.node_id != self.config.cluster.node_id {
-                clients.push(RemoteClient::new(&node.address, node.node_id, self.config.cluster.shared_secret.as_deref()));
+                clients.push(RemoteClient::new(
+                    &node.address,
+                    node.node_id,
+                    self.config.cluster.shared_secret.as_deref(),
+                ));
             }
         }
     }
@@ -338,7 +349,11 @@ impl DistributedScheduler {
                 if node.node_id == self.config.cluster.node_id {
                     continue;
                 }
-                let client = RemoteClient::new(&node.address, node.node_id, self.config.cluster.shared_secret.as_deref());
+                let client = RemoteClient::new(
+                    &node.address,
+                    node.node_id,
+                    self.config.cluster.shared_secret.as_deref(),
+                );
                 match client.health().await {
                     Ok(load) => {
                         self.registry.update_node_load(node.node_id, load).await;
@@ -380,10 +395,7 @@ impl Scheduler for DistributedScheduler {
         self.local.cancel_request(request_id).await
     }
 
-    async fn status(
-        &self,
-        request_id: Uuid,
-    ) -> Result<Option<crate::RequestStatus>> {
+    async fn status(&self, request_id: Uuid) -> Result<Option<crate::RequestStatus>> {
         self.local.get_request_status(request_id).await
     }
 

@@ -37,8 +37,7 @@ impl ScalingMetrics {
     }
 
     pub fn set_active_agents(&self, count: usize) {
-        self.active_agents
-            .store(count as u64, Ordering::Relaxed);
+        self.active_agents.store(count as u64, Ordering::Relaxed);
     }
 
     pub fn set_queue_depth(&self, depth: usize) {
@@ -60,8 +59,7 @@ impl ScalingMetrics {
         } else {
             0.0
         };
-        self.requests_per_sec
-            .store(rps as u64, Ordering::Relaxed);
+        self.requests_per_sec.store(rps as u64, Ordering::Relaxed);
         rps
     }
 }

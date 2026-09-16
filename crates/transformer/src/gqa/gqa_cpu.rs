@@ -1,15 +1,15 @@
-use std::borrow::Cow;
-use std::sync::OnceLock;
+#[cfg(feature = "gpu")]
+use super::gpu::GpuKVCacheEntry;
+#[cfg(feature = "gpu")]
+use super::gpu::GqaGpuWeights;
+use super::kv_cache::{KVCacheEntry, KVCacheProvider, PagedCacheReader};
+use crate::rope::RoPE;
+use crate::{TransformerError, TransformerResult};
 use ndarray::{Array1, Array2};
 use rand::Rng;
 use rayon::prelude::*;
-use crate::rope::RoPE;
-use super::kv_cache::{KVCacheProvider, KVCacheEntry, PagedCacheReader};
-use crate::{TransformerError, TransformerResult};
-#[cfg(feature = "gpu")]
-use super::gpu::GqaGpuWeights;
-#[cfg(feature = "gpu")]
-use super::gpu::GpuKVCacheEntry;
+use std::borrow::Cow;
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 pub struct GQA {
@@ -94,7 +94,12 @@ impl Clone for GQA {
 }
 
 impl GQA {
-    pub fn new(_hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) -> Self {
+    pub fn new(
+        _hidden_size: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) -> Self {
         Self {
             num_heads,
             num_kv_heads,
@@ -117,51 +122,61 @@ impl GQA {
         }
     }
 
-    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize) {
+    pub fn init_random(
+        &mut self,
+        hidden_size: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+    ) {
         let mut rng = rand::thread_rng();
         let scale = (head_dim as f32).sqrt().recip();
-        self.wq = Some(Array2::from_shape_fn((num_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        }));
-        self.wk = Some(Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        }));
-        self.wv = Some(Array2::from_shape_fn((num_kv_heads * head_dim, hidden_size), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        }));
-        self.wo = Some(Array2::from_shape_fn((hidden_size, num_heads * head_dim), |_| {
-            rng.gen::<f32>() * 2.0 * scale - scale
-        }));
+        self.wq = Some(Array2::from_shape_fn(
+            (num_heads * head_dim, hidden_size),
+            |_| rng.gen::<f32>() * 2.0 * scale - scale,
+        ));
+        self.wk = Some(Array2::from_shape_fn(
+            (num_kv_heads * head_dim, hidden_size),
+            |_| rng.gen::<f32>() * 2.0 * scale - scale,
+        ));
+        self.wv = Some(Array2::from_shape_fn(
+            (num_kv_heads * head_dim, hidden_size),
+            |_| rng.gen::<f32>() * 2.0 * scale - scale,
+        ));
+        self.wo = Some(Array2::from_shape_fn(
+            (hidden_size, num_heads * head_dim),
+            |_| rng.gen::<f32>() * 2.0 * scale - scale,
+        ));
     }
 
     fn get_wq(&self) -> TransformerResult<&Array2<f32>> {
         self.wq.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("GQA wq not available — use readback_weights() or forward_gpu()".into())
+            TransformerError::Implementation(
+                "GQA wq not available — use readback_weights() or forward_gpu()".into(),
+            )
         })
     }
 
     fn get_wk(&self) -> TransformerResult<&Array2<f32>> {
-        self.wk.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("GQA wk not available".into())
-        })
+        self.wk
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("GQA wk not available".into()))
     }
 
     fn get_wv(&self) -> TransformerResult<&Array2<f32>> {
-        self.wv.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("GQA wv not available".into())
-        })
+        self.wv
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("GQA wv not available".into()))
     }
 
     fn get_wo(&self) -> TransformerResult<&Array2<f32>> {
-        self.wo.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("GQA wo not available".into())
-        })
+        self.wo
+            .as_ref()
+            .ok_or_else(|| TransformerError::Implementation("GQA wo not available".into()))
     }
 
     pub fn pack_f16_weights(&mut self) {
-        if let (Some(wq), Some(wk), Some(wv), Some(wo)) =
-            (&self.wq, &self.wk, &self.wv, &self.wo)
-        {
+        if let (Some(wq), Some(wk), Some(wv), Some(wo)) = (&self.wq, &self.wk, &self.wv, &self.wo) {
             let wq_contig = wq.iter().copied().collect::<Vec<f32>>();
             let wk_contig = wk.iter().copied().collect::<Vec<f32>>();
             let wv_contig = wv.iter().copied().collect::<Vec<f32>>();
@@ -173,7 +188,12 @@ impl GQA {
         }
     }
 
-    fn maybe_f16_matmul(&self, x: &Array2<f32>, w: &Array2<f32>, w_f16: &Option<Vec<u16>>) -> Array2<f32> {
+    fn maybe_f16_matmul(
+        &self,
+        x: &Array2<f32>,
+        w: &Array2<f32>,
+        w_f16: &Option<Vec<u16>>,
+    ) -> Array2<f32> {
         if let Some(f16) = w_f16 {
             let rows = w.shape()[0];
             let cols = w.shape()[1];
@@ -197,8 +217,14 @@ impl GQA {
     #[cfg(feature = "gpu")]
     pub fn preupload_from_slices(
         &self,
-        wq_data: &[f32], wk_data: &[f32], wv_data: &[f32], wo_data: &[f32],
-        wq_shape: &[usize], wk_shape: &[usize], wv_shape: &[usize], wo_shape: &[usize],
+        wq_data: &[f32],
+        wk_data: &[f32],
+        wv_data: &[f32],
+        wo_data: &[f32],
+        wq_shape: &[usize],
+        wk_shape: &[usize],
+        wv_shape: &[usize],
+        wo_shape: &[usize],
     ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
         let ctx = GpuContext::global()?;
@@ -237,8 +263,14 @@ impl GQA {
         };
         self.gpu_weights
             .set(GqaGpuWeights {
-                wq_t, wk_t, wv_t, wo_t,
-                wq_f16, wk_f16, wv_f16, wo_f16,
+                wq_t,
+                wk_t,
+                wv_t,
+                wo_t,
+                wq_f16,
+                wk_f16,
+                wv_f16,
+                wo_f16,
                 wq_shape: wq_shape.to_vec(),
                 wk_shape: wk_shape.to_vec(),
                 wv_shape: wv_shape.to_vec(),
@@ -250,30 +282,47 @@ impl GQA {
     }
 
     #[cfg(feature = "gpu")]
-    pub fn readback_weights(&self) -> Result<(Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>), nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn readback_weights(
+        &self,
+    ) -> Result<
+        (Array2<f32>, Array2<f32>, Array2<f32>, Array2<f32>),
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         let gw = self.gpu_weights.get().ok_or_else(|| {
             nexora_deeplearning::autograd::gpu::GpuError::Unsupported("no gpu weights".into())
         })?;
-        let read_f16 = |f16_t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
-            let f32_t = ctx.f16_packed_to_f32(f16_t)?;
-            let arr_d = f32_t.to_cpu()?;
-            let shape = vec![orig_shape[0], orig_shape[1]];
-            let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-            arr_dyn.into_dimensionality::<ndarray::Ix2>()
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))
-        };
-        let read_f32 = |t: &GpuTensor, orig_shape: &[usize]| -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
-            let t_t = ctx.transpose(t)?;
-            let arr_d = t_t.to_cpu()?;
-            let shape = vec![orig_shape[0], orig_shape[1]];
-            let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
-            arr_dyn.into_dimensionality::<ndarray::Ix2>()
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))
-        };
+        let read_f16 =
+            |f16_t: &GpuTensor,
+             orig_shape: &[usize]|
+             -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+                let f32_t = ctx.f16_packed_to_f32(f16_t)?;
+                let arr_d = f32_t.to_cpu()?;
+                let shape = vec![orig_shape[0], orig_shape[1]];
+                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                    .map_err(|e| {
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
+                    })?;
+                arr_dyn.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
+                })
+            };
+        let read_f32 =
+            |t: &GpuTensor,
+             orig_shape: &[usize]|
+             -> Result<Array2<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+                let t_t = ctx.transpose(t)?;
+                let arr_d = t_t.to_cpu()?;
+                let shape = vec![orig_shape[0], orig_shape[1]];
+                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                    .map_err(|e| {
+                        nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
+                    })?;
+                arr_dyn.into_dimensionality::<ndarray::Ix2>().map_err(|e| {
+                    nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
+                })
+            };
         // Use stored shapes from GqaGpuWeights (not self.wq which may be None after drop_cpu_weights)
         let wq_shape = &gw.wq_shape;
         let wk_shape = &gw.wk_shape;
@@ -287,7 +336,7 @@ impl GQA {
             read_f32(f32_t, wq_shape)?
         } else {
             return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
-                "GQA weights not available on GPU".into()
+                "GQA weights not available on GPU".into(),
             ));
         };
         let wk = if let Some(ref f16) = gw.wk_f16 {
@@ -296,7 +345,7 @@ impl GQA {
             read_f32(f32_t, wk_shape)?
         } else {
             return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
-                "GQA weights not available on GPU".into()
+                "GQA weights not available on GPU".into(),
             ));
         };
         let wv = if let Some(ref f16) = gw.wv_f16 {
@@ -305,7 +354,7 @@ impl GQA {
             read_f32(f32_t, wv_shape)?
         } else {
             return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
-                "GQA weights not available on GPU".into()
+                "GQA weights not available on GPU".into(),
             ));
         };
         let wo = if let Some(ref f16) = gw.wo_f16 {
@@ -314,7 +363,7 @@ impl GQA {
             read_f32(f32_t, wo_shape)?
         } else {
             return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
-                "GQA weights not available on GPU".into()
+                "GQA weights not available on GPU".into(),
             ));
         };
         Ok((wq, wk, wv, wo))
@@ -359,9 +408,7 @@ impl GQA {
             let k_shape = k.dim();
             let k_2d = k
                 .into_shape((k_shape.0 * k_shape.1, k_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -375,9 +422,7 @@ impl GQA {
             let q_shape = q.dim();
             let q_2d = q
                 .into_shape((q_shape.0 * q_shape.1, q_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -388,20 +433,21 @@ impl GQA {
         }
 
         let kv_dim = self.num_kv_heads * self.head_dim;
-        let (k_cached, v_cached, total_seq, is_causal): (Cow<[f32]>, Cow<[f32]>, usize, bool) = match cache {
-            Some(cache) if layer_idx < cache.len() => {
-                let entry = &cache[layer_idx];
-                let seq = entry.k.len() / (batch_size * kv_dim);
-                (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq, false)
-            }
-            _ => {
-                let kf: Vec<f32> = k.iter().copied().collect();
-                let vf: Vec<f32> = v.iter().copied().collect();
-                // No cache: batch_size = seq_len, all tokens attend in one forward.
-                // Apply causal mask so token i only attends to tokens 0..=i.
-                (Cow::Owned(kf), Cow::Owned(vf), batch_size, true)
-            }
-        };
+        let (k_cached, v_cached, total_seq, is_causal): (Cow<[f32]>, Cow<[f32]>, usize, bool) =
+            match cache {
+                Some(cache) if layer_idx < cache.len() => {
+                    let entry = &cache[layer_idx];
+                    let seq = entry.k.len() / (batch_size * kv_dim);
+                    (Cow::Borrowed(&entry.k), Cow::Borrowed(&entry.v), seq, false)
+                }
+                _ => {
+                    let kf: Vec<f32> = k.iter().copied().collect();
+                    let vf: Vec<f32> = v.iter().copied().collect();
+                    // No cache: batch_size = seq_len, all tokens attend in one forward.
+                    // Apply causal mask so token i only attends to tokens 0..=i.
+                    (Cow::Owned(kf), Cow::Owned(vf), batch_size, true)
+                }
+            };
 
         let mut output = Array2::zeros((batch_size, self.num_heads * self.head_dim));
 
@@ -413,14 +459,16 @@ impl GQA {
             if k_end > k_cached.len() || v_end > v_cached.len() {
                 continue;
             }
-            let Ok(k_2d) = ndarray::ArrayView2::from_shape(
-                (total_seq, kv_dim),
-                &k_cached[k_start..k_end],
-            ) else { continue };
-            let Ok(v_2d) = ndarray::ArrayView2::from_shape(
-                (total_seq, kv_dim),
-                &v_cached[v_start..v_end],
-            ) else { continue };
+            let Ok(k_2d) =
+                ndarray::ArrayView2::from_shape((total_seq, kv_dim), &k_cached[k_start..k_end])
+            else {
+                continue;
+            };
+            let Ok(v_2d) =
+                ndarray::ArrayView2::from_shape((total_seq, kv_dim), &v_cached[v_start..v_end])
+            else {
+                continue;
+            };
 
             for kv_h in 0..self.num_kv_heads {
                 let kv_off = kv_h * self.head_dim;
@@ -521,9 +569,7 @@ impl GQA {
             let k_shape = k.dim();
             let k_2d = k
                 .into_shape((k_shape.0 * k_shape.1, k_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -537,9 +583,7 @@ impl GQA {
             let q_shape = q.dim();
             let q_2d = q
                 .into_shape((q_shape.0 * q_shape.1, q_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -672,9 +716,7 @@ impl GQA {
             let k_shape = k.dim();
             let k_2d = k
                 .into_shape((k_shape.0 * k_shape.1, k_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -688,9 +730,7 @@ impl GQA {
             let q_shape = q.dim();
             let q_2d = q
                 .into_shape((q_shape.0 * q_shape.1, q_shape.2))
-                .unwrap_or_else(|_| {
-                    ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2))
-                });
+                .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
@@ -734,7 +774,9 @@ impl GQA {
 
                 // Batched score: dot product with all cached K positions at once
                 let k_slice = k_arr.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
-                let raw_scores: Vec<f32> = k_slice.dot(&q_slice).iter()
+                let raw_scores: Vec<f32> = k_slice
+                    .dot(&q_slice)
+                    .iter()
                     .map(|s| *s * self.head_dim_rs)
                     .collect();
 
@@ -755,7 +797,8 @@ impl GQA {
 
                 // Batched V aggregation: [num_tokens] · [num_tokens, head_dim] → [head_dim]
                 let v_slice = v_arr.slice(ndarray::s![.., kv_off..kv_off + self.head_dim]);
-                let weights = Array1::from_vec(exp_scores.iter().map(|e| e * inv_exp_sum).collect());
+                let weights =
+                    Array1::from_vec(exp_scores.iter().map(|e| e * inv_exp_sum).collect());
                 let out_row_arr = weights.dot(&v_slice);
 
                 let out_base = h * self.head_dim;

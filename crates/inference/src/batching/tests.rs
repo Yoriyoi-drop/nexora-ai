@@ -73,7 +73,10 @@ fn test_sequence_completes_at_max_tokens() {
     assert!(r.completed.is_empty());
     // Step 2: generate 1 more → total=4 >= max_tokens=4 → finished
     let r = engine.step();
-    assert!(!r.completed.is_empty(), "expected completion at step 2 (total=4 >= max=4)");
+    assert!(
+        !r.completed.is_empty(),
+        "expected completion at step 2 (total=4 >= max=4)"
+    );
     assert_eq!(r.completed[0].finish_reason, FinishReason::MaxTokens);
 }
 
@@ -150,7 +153,10 @@ fn test_adaptive_batching_scales_down_on_low_throughput() {
         engine.adaptive_batch_size <= engine.config.max_batch_size,
         "adaptive batch should not exceed max"
     );
-    assert!(engine.batch_step_count > 0, "should have completed at least 1 step");
+    assert!(
+        engine.batch_step_count > 0,
+        "should have completed at least 1 step"
+    );
 }
 
 #[test]
@@ -238,7 +244,10 @@ fn test_load_shedding_rejects_when_queue_full() {
     }
     // Next request should be rejected by load shedding (max_queue_depth)
     let rejected = engine.add_request(test_request(vec![5], 5));
-    assert_eq!(rejected, 0, "load shedding should reject when queue is full");
+    assert_eq!(
+        rejected, 0,
+        "load shedding should reject when queue is full"
+    );
     assert_eq!(engine.rejected_count(), 1, "rejected_count should be 1");
 }
 
@@ -259,7 +268,10 @@ fn test_load_shedding_respects_max_total_sequences() {
     assert_ne!(engine.add_request(test_request(vec![2], 5)), 0);
     // max_total_sequences should be hit before max_queue_depth
     let rejected = engine.add_request(test_request(vec![3], 5));
-    assert_eq!(rejected, 0, "should reject when max_total_sequences reached");
+    assert_eq!(
+        rejected, 0,
+        "should reject when max_total_sequences reached"
+    );
 }
 
 #[test]
@@ -379,10 +391,7 @@ fn test_concurrent_fill_and_drain() {
     for cycle in 0..5 {
         // Fill
         for i in 0..20u32 {
-            engine.add_request(test_request(
-                vec![cycle * 100 + i, cycle * 100 + i + 1],
-                8,
-            ));
+            engine.add_request(test_request(vec![cycle * 100 + i, cycle * 100 + i + 1], 8));
         }
 
         // Process
@@ -395,8 +404,19 @@ fn test_concurrent_fill_and_drain() {
 
         // Drain
         let drained = engine.drain_completed();
-        assert_eq!(drained.len(), 20, "cycle {}: should drain 20 (got {})", cycle, drained.len());
-        assert_eq!(engine.active_count(), 0, "cycle {}: no active after drain", cycle);
+        assert_eq!(
+            drained.len(),
+            20,
+            "cycle {}: should drain 20 (got {})",
+            cycle,
+            drained.len()
+        );
+        assert_eq!(
+            engine.active_count(),
+            0,
+            "cycle {}: no active after drain",
+            cycle
+        );
     }
 }
 
@@ -404,10 +424,8 @@ fn test_concurrent_fill_and_drain() {
 #[test]
 fn test_default_config_stability() {
     let model = MockModel { vocab_size: 100 };
-    let mut engine = ContinuousBatchingEngine::with_config(
-        model,
-        ContinuousBatchingConfig::default(),
-    );
+    let mut engine =
+        ContinuousBatchingEngine::with_config(model, ContinuousBatchingConfig::default());
 
     for i in 0..50u32 {
         engine.add_request(test_request(vec![i, i + 1], 10));
@@ -466,7 +484,10 @@ fn test_chaos_mixed_load() {
             }
         }
     }
-    assert!(steps < 100, "mixed-load should complete in <100 steps (was {steps})");
+    assert!(
+        steps < 100,
+        "mixed-load should complete in <100 steps (was {steps})"
+    );
     assert_eq!(short_completed, 5, "all short sequences should complete");
     assert_eq!(long_completed, 2, "all long sequences should complete");
 }
@@ -502,8 +523,14 @@ fn test_chaos_spike() {
         steps += 1;
         total_completed += r.completed.len() as u64;
     }
-    assert!(steps < 200, "spike should complete in <200 steps (was {steps})");
-    assert_eq!(total_completed, 50, "all 50 spike sequences should complete");
+    assert!(
+        steps < 200,
+        "spike should complete in <200 steps (was {steps})"
+    );
+    assert_eq!(
+        total_completed, 50,
+        "all 50 spike sequences should complete"
+    );
 }
 
 /// Long-tail: one very long sequence among many short ones.
@@ -533,7 +560,10 @@ fn test_chaos_long_tail() {
         let _ = engine.step();
         steps += 1;
     }
-    assert!(steps < 200, "long-tail should complete in <200 steps (was {steps})");
+    assert!(
+        steps < 200,
+        "long-tail should complete in <200 steps (was {steps})"
+    );
 
     // The long sequence should have been processed (not starved)
     let long_seq = engine.get_sequence(long_id);
@@ -583,7 +613,12 @@ fn test_chaos_starvation_avoidance() {
         let r = engine.step();
         steps += 1;
         for c in &r.completed {
-            if c.request_id == engine.get_sequence(short_id).map(|s| s.request_id).unwrap_or_default() {
+            if c.request_id
+                == engine
+                    .get_sequence(short_id)
+                    .map(|s| s.request_id)
+                    .unwrap_or_default()
+            {
                 short_done = true;
             }
         }
@@ -620,8 +655,11 @@ fn test_padding_waste_tracking() {
     engine.add_request(test_request(vec![3, 4], 6));
     let r = engine.step();
     assert_eq!(r.batch_size, 2);
-    assert!((r.padding_waste - 0.75).abs() < 1e-6,
-        "expected padding_waste=0.75, got {}", r.padding_waste);
+    assert!(
+        (r.padding_waste - 0.75).abs() < 1e-6,
+        "expected padding_waste=0.75, got {}",
+        r.padding_waste
+    );
 }
 
 /// Fairness: verify TokenBucket policy distributes tokens across sequences.
@@ -648,7 +686,10 @@ fn test_fairness_token_bucket() {
         let _ = engine.step();
         steps += 1;
     }
-    assert!(steps < 100, "token bucket should complete in <100 steps (was {steps})");
+    assert!(
+        steps < 100,
+        "token bucket should complete in <100 steps (was {steps})"
+    );
 }
 
 /// Defragmentation: verify data integrity after defragment.
@@ -700,12 +741,18 @@ fn test_paged_cache_defragmentation() {
         assert!(
             (k[0] - exp_k).abs() < 1e-5,
             "seq={} pos={} k corrupted: expected {} got {}",
-            seq_id, pos, exp_k, k[0]
+            seq_id,
+            pos,
+            exp_k,
+            k[0]
         );
         assert!(
             (v[0] - exp_v).abs() < 1e-5,
             "seq={} pos={} v corrupted: expected {} got {}",
-            seq_id, pos, exp_v, v[0]
+            seq_id,
+            pos,
+            exp_v,
+            v[0]
         );
     }
 }
@@ -738,7 +785,10 @@ fn test_fragmentation_tracking() {
         "expected ~0.75 internal frag with 1/4 tokens filled, got {}",
         stats.internal_fragmentation_ratio
     );
-    assert_eq!(stats.wasted_slots, 3, "3 wasted slots in 1-block with 1 token");
+    assert_eq!(
+        stats.wasted_slots, 3,
+        "3 wasted slots in 1-block with 1 token"
+    );
 }
 
 /// Scheduling policy: verify Fifo selects oldest ready sequences first.
@@ -791,5 +841,8 @@ fn test_scheduling_policy_priority_aging() {
     let ready = engine.select_ready_sequences();
     assert!(!ready.is_empty());
     // The first-added sequence (oldest) should be the first selected
-    assert_eq!(ready[0].0, ids[0], "PriorityAging should select oldest seq first");
+    assert_eq!(
+        ready[0].0, ids[0],
+        "PriorityAging should select oldest seq first"
+    );
 }

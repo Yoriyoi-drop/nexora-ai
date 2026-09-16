@@ -302,14 +302,17 @@ pub fn global_pool() -> &'static TensorPool {
     match GLOBAL_TENSOR_POOL.as_ref() {
         Ok(pool) => pool,
         Err(msg) => {
-            tracing::error!("Global tensor pool unavailable: {}. Operations will fail.", msg);
+            tracing::error!(
+                "Global tensor pool unavailable: {}. Operations will fail.",
+                msg
+            );
             &*NOOP_TENSOR_POOL
         }
     }
 }
 
-static NOOP_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::new(|| {
-    TensorPool {
+static NOOP_TENSOR_POOL: std::sync::LazyLock<TensorPool> =
+    std::sync::LazyLock::new(|| TensorPool {
         pool_1d: Arc::new(Mutex::new(Vec::new())),
         pool_2d: Arc::new(Mutex::new(Vec::new())),
         pool_dyn: Arc::new(Mutex::new(Vec::new())),
@@ -317,8 +320,7 @@ static NOOP_TENSOR_POOL: std::sync::LazyLock<TensorPool> = std::sync::LazyLock::
         size_categories_2d: Vec::new(),
         size_categories_dyn: Vec::new(),
         max_pool_size: 0,
-    }
-});
+    });
 
 /// RAII wrapper untuk automatic tensor return
 pub struct PooledTensor1D {

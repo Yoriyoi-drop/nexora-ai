@@ -1,16 +1,16 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
-pub const TASK_TYPES: [&str; 5] = [
-    "qa", "summarize", "translate", "generate", "analyze",
-];
+pub const TASK_TYPES: [&str; 5] = ["qa", "summarize", "translate", "generate", "analyze"];
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<GenericClassifier<{TASK_TYPES.len()}>> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{ TASK_TYPES.len() }>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn task_params(task_type: &str) -> (usize, f32) {

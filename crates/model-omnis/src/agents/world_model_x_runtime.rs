@@ -27,7 +27,10 @@ impl WorldModelRuntimeAgent {
             .map_err(|e| NxrModelError::Internal(e))
     }
 
-    pub async fn process_input(&self, input: &str) -> NxrModelResult<HashMap<String, serde_json::Value>> {
+    pub async fn process_input(
+        &self,
+        input: &str,
+    ) -> NxrModelResult<HashMap<String, serde_json::Value>> {
         let prompt = format!(
             "Extract structured information from the following text. Return as key-value pairs.\n\nText: {input}"
         );
@@ -36,7 +39,10 @@ impl WorldModelRuntimeAgent {
             .map_err(|e| NxrModelError::Internal(e))?;
         let mut map = HashMap::new();
         map.insert("extracted".to_string(), serde_json::Value::String(result));
-        map.insert("status".to_string(), serde_json::Value::String("processed".to_string()));
+        map.insert(
+            "status".to_string(),
+            serde_json::Value::String("processed".to_string()),
+        );
         Ok(map)
     }
 }

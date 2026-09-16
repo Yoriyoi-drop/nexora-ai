@@ -261,7 +261,11 @@ impl TokenizerCache {
             }
         }
 
-        debug!("Tokenizer cache loaded: {} entries from {}", self.memory_cache.len(), path.display());
+        debug!(
+            "Tokenizer cache loaded: {} entries from {}",
+            self.memory_cache.len(),
+            path.display()
+        );
         Ok(true)
     }
 

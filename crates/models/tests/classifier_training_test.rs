@@ -1,7 +1,11 @@
 use ndarray::{Array1, Array2};
 use nexora_models::classifier_util;
 
-fn make_classifier(embed_dim: usize, hidden: usize, num_classes: usize) -> (Array2<f32>, Array1<f32>, Array2<f32>, Array1<f32>) {
+fn make_classifier(
+    embed_dim: usize,
+    hidden: usize,
+    num_classes: usize,
+) -> (Array2<f32>, Array1<f32>, Array2<f32>, Array1<f32>) {
     let w1 = classifier_util::xavier_init(embed_dim, hidden);
     let b1 = Array1::zeros(hidden);
     let w2 = classifier_util::xavier_init(hidden, num_classes);
@@ -73,8 +77,14 @@ fn test_classifier_weights_save_load() {
 
     assert_eq!(w1.shape(), w1_loaded.shape());
     assert_eq!(b1.len(), b1_loaded.len());
-    assert!(w1.iter().zip(w1_loaded.iter()).all(|(a, b)| (a - b).abs() < 1e-6));
-    assert!(b1.iter().zip(b1_loaded.iter()).all(|(a, b)| (a - b).abs() < 1e-6));
+    assert!(w1
+        .iter()
+        .zip(w1_loaded.iter())
+        .all(|(a, b)| (a - b).abs() < 1e-6));
+    assert!(b1
+        .iter()
+        .zip(b1_loaded.iter())
+        .all(|(a, b)| (a - b).abs() < 1e-6));
 
     let _ = std::fs::remove_file(path);
 }

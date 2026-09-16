@@ -120,5 +120,3 @@ pub struct StepResult {
     /// Number of tokens decoded in this step.
     pub decode_tokens: usize,
 }
-
-

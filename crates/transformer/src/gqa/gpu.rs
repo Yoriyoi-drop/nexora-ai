@@ -1,7 +1,7 @@
+use super::gqa_cpu::GQA;
+use super::kv_cache::{KVCacheEntry, KVCacheProvider};
 use ndarray::{Array1, Array2};
 use nexora_deeplearning::autograd::gpu::{GpuContext, GpuDtype, GpuTensor};
-use super::kv_cache::{KVCacheProvider, KVCacheEntry};
-use super::gqa_cpu::GQA;
 
 #[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
@@ -114,10 +114,12 @@ impl GpuKVCacheEntry {
         new_v: &GpuTensor,
     ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         if self.seq_len >= self.capacity {
-            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
-                "GpuKVCacheEntry capacity exceeded: {} >= {}",
-                self.seq_len, self.capacity
-            )));
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                format!(
+                    "GpuKVCacheEntry capacity exceeded: {} >= {}",
+                    self.seq_len, self.capacity
+                ),
+            ));
         }
         // COW: jika buffer shared, copy dulu sebelum write
         self.cow_ensure_unique(ctx)?;
@@ -197,10 +199,12 @@ impl GpuKVCacheEntry {
         num_tokens: usize,
     ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         if self.seq_len + num_tokens > self.capacity {
-            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
-                "GpuKVCacheEntry capacity exceeded: {} + {} > {}",
-                self.seq_len, num_tokens, self.capacity
-            )));
+            return Err(nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                format!(
+                    "GpuKVCacheEntry capacity exceeded: {} + {} > {}",
+                    self.seq_len, num_tokens, self.capacity
+                ),
+            ));
         }
         let kv_elems = self.kv_heads * self.head_dim;
 
@@ -293,10 +297,19 @@ impl GpuKVCacheEntry {
         let token_bytes = kv_elems * elem_size;
         let offset = (pos * token_bytes) as u64;
 
-        let k_raw = self.k.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
-        let v_raw = self.v.to_cpu_raw_bytes_slice(offset, token_bytes as u64).ok()?;
+        let k_raw = self
+            .k
+            .to_cpu_raw_bytes_slice(offset, token_bytes as u64)
+            .ok()?;
+        let v_raw = self
+            .v
+            .to_cpu_raw_bytes_slice(offset, token_bytes as u64)
+            .ok()?;
 
-        Some((Self::raw_to_f32(k_raw, self.f16_storage), Self::raw_to_f32(v_raw, self.f16_storage)))
+        Some((
+            Self::raw_to_f32(k_raw, self.f16_storage),
+            Self::raw_to_f32(v_raw, self.f16_storage),
+        ))
     }
 
     /// Bulk read tokens [start, end) in a single GPU→CPU transfer.
@@ -317,23 +330,47 @@ impl GpuKVCacheEntry {
         let v_all = self.v.to_cpu_raw_bytes_slice(offset, byte_len).ok()?;
 
         let k_tokens = if self.f16_storage {
-            k_all.chunks_exact(token_bytes).map(|chunk| {
-                chunk.chunks_exact(2).map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
+            k_all
+                .chunks_exact(token_bytes)
+                .map(|chunk| {
+                    chunk
+                        .chunks_exact(2)
+                        .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
         } else {
-            k_all.chunks_exact(token_bytes).map(|chunk| {
-                chunk.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
+            k_all
+                .chunks_exact(token_bytes)
+                .map(|chunk| {
+                    chunk
+                        .chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
         };
 
         let v_tokens = if self.f16_storage {
-            v_all.chunks_exact(token_bytes).map(|chunk| {
-                chunk.chunks_exact(2).map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
+            v_all
+                .chunks_exact(token_bytes)
+                .map(|chunk| {
+                    chunk
+                        .chunks_exact(2)
+                        .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
         } else {
-            v_all.chunks_exact(token_bytes).map(|chunk| {
-                chunk.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
+            v_all
+                .chunks_exact(token_bytes)
+                .map(|chunk| {
+                    chunk
+                        .chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
         };
 
         Some(k_tokens.into_iter().zip(v_tokens).collect())
@@ -354,7 +391,10 @@ impl GpuKVCacheEntry {
     /// Clear the cache (reset sequence length).
     /// Does NOT deallocate buffers — memset to zero.
     /// Uses u32 zero fill for F16 storage, f32 zero fill for F32 storage.
-    pub fn clear(&mut self, ctx: &GpuContext) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn clear(
+        &mut self,
+        ctx: &GpuContext,
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         // COW: jika buffer shared, copy dulu sebelum write
         self.cow_ensure_unique(ctx)?;
         if self.f16_storage {
@@ -375,10 +415,14 @@ impl GpuKVCacheEntry {
     /// Instead of immediately copying GPU buffers (expensive), this increments
     /// a shared reference counter. The first `append()` or `clear()` on any
     /// cloned entry triggers the real buffer copy.
-    pub fn deep_clone(&self, _ctx: &GpuContext) -> Result<Self, nexora_deeplearning::autograd::gpu::GpuError> {
-        let cow_count = self.cow_count.clone().unwrap_or_else(|| {
-            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1))
-        });
+    pub fn deep_clone(
+        &self,
+        _ctx: &GpuContext,
+    ) -> Result<Self, nexora_deeplearning::autograd::gpu::GpuError> {
+        let cow_count = self
+            .cow_count
+            .clone()
+            .unwrap_or_else(|| std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1)));
         // Increment shared count — this clone shares the buffers
         cow_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -497,9 +541,8 @@ impl GpuKVCache {
             self.entries.len(),
             source.entries.len()
         );
-        let ctx = nexora_deeplearning::autograd::gpu::GpuContext::global().map_err(|_| {
-            nexora_deeplearning::autograd::gpu::GpuError::NotInitialized
-        })?;
+        let ctx = nexora_deeplearning::autograd::gpu::GpuContext::global()
+            .map_err(|_| nexora_deeplearning::autograd::gpu::GpuError::NotInitialized)?;
         for (dst_entry, src_entry) in self.entries.iter_mut().zip(source.entries.iter()) {
             dst_entry.copy_prefix_from(&ctx, src_entry, prefix_len)?;
         }
@@ -583,18 +626,22 @@ impl GQA {
                     .map_err(|e| GpuError::Unsupported(e.to_string()))?,
             )?)
         };
-        let wq = mk(self.wq.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("GQA wq not available for GPU upload".into())
-        })?)?;
-        let wk = mk(self.wk.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("GQA wk not available".into())
-        })?)?;
-        let wv = mk(self.wv.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("GQA wv not available".into())
-        })?)?;
-        let wo = mk(self.wo.as_ref().ok_or_else(|| {
-            GpuError::Unsupported("GQA wo not available".into())
-        })?)?;
+        let wq = mk(self
+            .wq
+            .as_ref()
+            .ok_or_else(|| GpuError::Unsupported("GQA wq not available for GPU upload".into()))?)?;
+        let wk = mk(self
+            .wk
+            .as_ref()
+            .ok_or_else(|| GpuError::Unsupported("GQA wk not available".into()))?)?;
+        let wv = mk(self
+            .wv
+            .as_ref()
+            .ok_or_else(|| GpuError::Unsupported("GQA wv not available".into()))?)?;
+        let wo = mk(self
+            .wo
+            .as_ref()
+            .ok_or_else(|| GpuError::Unsupported("GQA wo not available".into()))?)?;
         let use_f16 = self.use_half_precision;
         let (wq_f16, wk_f16, wv_f16, wo_f16) = if use_f16 {
             let wq_t = ctx.transpose(&wq)?;
@@ -650,18 +697,30 @@ impl GQA {
     ) -> Result<GqaGpuTemps, nexora_deeplearning::autograd::gpu::GpuError> {
         use nexora_deeplearning::autograd::gpu::GpuError;
         Ok(GqaGpuTemps {
-            wq_t: ctx.f16_packed_to_f32(cached.wq_f16.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("GQA f16 missing wq".into())
-            })?)?,
-            wk_t: ctx.f16_packed_to_f32(cached.wk_f16.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("GQA f16 missing wk".into())
-            })?)?,
-            wv_t: ctx.f16_packed_to_f32(cached.wv_f16.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("GQA f16 missing wv".into())
-            })?)?,
-            wo_t: ctx.f16_packed_to_f32(cached.wo_f16.as_ref().ok_or_else(|| {
-                GpuError::Unsupported("GQA f16 missing wo".into())
-            })?)?,
+            wq_t: ctx.f16_packed_to_f32(
+                cached
+                    .wq_f16
+                    .as_ref()
+                    .ok_or_else(|| GpuError::Unsupported("GQA f16 missing wq".into()))?,
+            )?,
+            wk_t: ctx.f16_packed_to_f32(
+                cached
+                    .wk_f16
+                    .as_ref()
+                    .ok_or_else(|| GpuError::Unsupported("GQA f16 missing wk".into()))?,
+            )?,
+            wv_t: ctx.f16_packed_to_f32(
+                cached
+                    .wv_f16
+                    .as_ref()
+                    .ok_or_else(|| GpuError::Unsupported("GQA f16 missing wv".into()))?,
+            )?,
+            wo_t: ctx.f16_packed_to_f32(
+                cached
+                    .wo_f16
+                    .as_ref()
+                    .ok_or_else(|| GpuError::Unsupported("GQA f16 missing wo".into()))?,
+            )?,
         })
     }
 
@@ -675,7 +734,10 @@ impl GQA {
         layer_idx: usize,
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
@@ -696,18 +758,42 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
-        })?;
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
-        })?;
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
-        })?;
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
-        })?;
+        let wq_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wq_t)
+            .or_else(|| cached.wq_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wq_t not available on GPU".into(),
+                )
+            })?;
+        let wk_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wk_t)
+            .or_else(|| cached.wk_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wk_t not available on GPU".into(),
+                )
+            })?;
+        let wv_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wv_t)
+            .or_else(|| cached.wv_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wv_t not available on GPU".into(),
+                )
+            })?;
+        let wo_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wo_t)
+            .or_else(|| cached.wo_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wo_t not available on GPU".into(),
+                )
+            })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -834,7 +920,10 @@ impl GQA {
         cache: &mut GpuKVCacheEntry,
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -855,18 +944,42 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
-        })?;
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
-        })?;
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
-        })?;
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
-        })?;
+        let wq_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wq_t)
+            .or_else(|| cached.wq_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wq_t not available on GPU".into(),
+                )
+            })?;
+        let wk_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wk_t)
+            .or_else(|| cached.wk_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wk_t not available on GPU".into(),
+                )
+            })?;
+        let wv_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wv_t)
+            .or_else(|| cached.wv_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wv_t not available on GPU".into(),
+                )
+            })?;
+        let wo_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wo_t)
+            .or_else(|| cached.wo_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wo_t not available on GPU".into(),
+                )
+            })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -915,7 +1028,10 @@ impl GQA {
         cache: &mut GpuKVCacheEntry,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
         let ctx = GpuContext::global()?;
@@ -936,18 +1052,42 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
-        })?;
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
-        })?;
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
-        })?;
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
-        })?;
+        let wq_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wq_t)
+            .or_else(|| cached.wq_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wq_t not available on GPU".into(),
+                )
+            })?;
+        let wk_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wk_t)
+            .or_else(|| cached.wk_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wk_t not available on GPU".into(),
+                )
+            })?;
+        let wv_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wv_t)
+            .or_else(|| cached.wv_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wv_t not available on GPU".into(),
+                )
+            })?;
+        let wo_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wo_t)
+            .or_else(|| cached.wo_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wo_t not available on GPU".into(),
+                )
+            })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -1009,7 +1149,10 @@ impl GQA {
         layer_idx: usize,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use ndarray::ArrayD;
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuError, GpuTensor};
 
@@ -1031,18 +1174,42 @@ impl GQA {
         } else {
             None
         };
-        let wq_t = _f16_temps.as_ref().map(|t| &t.wq_t).or_else(|| cached.wq_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wq_t not available on GPU".into())
-        })?;
-        let wk_t = _f16_temps.as_ref().map(|t| &t.wk_t).or_else(|| cached.wk_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wk_t not available on GPU".into())
-        })?;
-        let wv_t = _f16_temps.as_ref().map(|t| &t.wv_t).or_else(|| cached.wv_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wv_t not available on GPU".into())
-        })?;
-        let wo_t = _f16_temps.as_ref().map(|t| &t.wo_t).or_else(|| cached.wo_t.as_ref()).ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("wo_t not available on GPU".into())
-        })?;
+        let wq_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wq_t)
+            .or_else(|| cached.wq_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wq_t not available on GPU".into(),
+                )
+            })?;
+        let wk_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wk_t)
+            .or_else(|| cached.wk_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wk_t not available on GPU".into(),
+                )
+            })?;
+        let wv_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wv_t)
+            .or_else(|| cached.wv_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wv_t not available on GPU".into(),
+                )
+            })?;
+        let wo_t = _f16_temps
+            .as_ref()
+            .map(|t| &t.wo_t)
+            .or_else(|| cached.wo_t.as_ref())
+            .ok_or_else(|| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                    "wo_t not available on GPU".into(),
+                )
+            })?;
 
         // 2. QKV projection on GPU
         let q_proj = ctx.matmul(x_gpu, wq_t)?;
@@ -1275,4 +1442,3 @@ impl GQA {
         self.ensure_weights_gpu()
     }
 }
-

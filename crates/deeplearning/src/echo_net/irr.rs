@@ -20,10 +20,10 @@
 //! - Reasoning bisa mendalam
 //! - Mirip internal deliberation
 
+use crate::autograd::Tensor;
 use crate::echo_net::utils::ResonanceCalculator;
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use crate::autograd::Tensor;
 
 /// Reasoning step result
 #[derive(Debug, Clone)]

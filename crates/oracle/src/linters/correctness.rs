@@ -50,7 +50,10 @@ impl CorrectnessLinter {
                     pattern: match Regex::new(r"while\s*\(\s*(true|1)\s*\)") {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Potential Infinite Loop': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Potential Infinite Loop': {}",
+                                e
+                            );
                             None
                         }
                     },
@@ -62,10 +65,15 @@ impl CorrectnessLinter {
                 },
                 CorrectnessPattern {
                     name: "Uninitialized Variable",
-                    pattern: match Regex::new(r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;") {
+                    pattern: match Regex::new(
+                        r"\b(int|float|double|char)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*;",
+                    ) {
                         Ok(re) => Some(re),
                         Err(e) => {
-                            tracing::warn!("Failed to compile pattern 'Uninitialized Variable': {}", e);
+                            tracing::warn!(
+                                "Failed to compile pattern 'Uninitialized Variable': {}",
+                                e
+                            );
                             None
                         }
                     },

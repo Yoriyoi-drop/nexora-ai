@@ -163,7 +163,6 @@ pub trait PagedCacheReader {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct KVCacheEntry {
     pub k: Vec<f32>, // flat [seq_len, kv_dim]
@@ -214,10 +213,16 @@ impl KVCacheEntry {
         }
         let seq_len = self.seq_len();
         let (kp, ks) = crate::kv_cache_compression::quantize_4bit(
-            &self.k, self.num_kv_heads, self.head_dim, seq_len,
+            &self.k,
+            self.num_kv_heads,
+            self.head_dim,
+            seq_len,
         );
         let (vp, vs) = crate::kv_cache_compression::quantize_4bit(
-            &self.v, self.num_kv_heads, self.head_dim, seq_len,
+            &self.v,
+            self.num_kv_heads,
+            self.head_dim,
+            seq_len,
         );
         self.k_compressed = kp;
         self.v_compressed = vp;
@@ -248,15 +253,20 @@ impl KVCacheEntry {
         let kv_dim = self.kv_dim;
         let seq_len = self.compressed_seq_len;
         self.k = crate::kv_cache_compression::dequantize_4bit(
-            &self.k_compressed, &self.k_scales,
-            self.num_kv_heads, self.head_dim, seq_len,
+            &self.k_compressed,
+            &self.k_scales,
+            self.num_kv_heads,
+            self.head_dim,
+            seq_len,
         );
         self.v = crate::kv_cache_compression::dequantize_4bit(
-            &self.v_compressed, &self.v_scales,
-            self.num_kv_heads, self.head_dim, seq_len,
+            &self.v_compressed,
+            &self.v_scales,
+            self.num_kv_heads,
+            self.head_dim,
+            seq_len,
         );
         debug_assert_eq!(self.k.len(), seq_len * kv_dim);
         debug_assert_eq!(self.v.len(), seq_len * kv_dim);
     }
 }
-

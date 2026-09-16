@@ -44,8 +44,17 @@ impl TransformerBlock {
         }
     }
 
-    pub fn init_random(&mut self, hidden_size: usize, num_heads: usize, num_kv_heads: usize, head_dim: usize, intermediate_size: usize, expert_intermediate_size: usize) {
-        self.attention.init_random(hidden_size, num_heads, num_kv_heads, head_dim);
+    pub fn init_random(
+        &mut self,
+        hidden_size: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        intermediate_size: usize,
+        expert_intermediate_size: usize,
+    ) {
+        self.attention
+            .init_random(hidden_size, num_heads, num_kv_heads, head_dim);
         if self.experts.is_none() {
             self.ffn.init_random(hidden_size, intermediate_size);
         }
@@ -234,7 +243,10 @@ impl TransformerBlock {
         layer_idx: usize,
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         self.forward_gpu_with_rope_gpu_collective(x_gpu, cache, layer_idx, cos_gpu, sin_gpu, None)
     }
 
@@ -250,7 +262,10 @@ impl TransformerBlock {
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         collective: Option<&ShardCollective>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -285,7 +300,10 @@ impl TransformerBlock {
         layer_idx: usize,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         self.forward_gpu_collective(x_gpu, cache, layer_idx, cos, sin, None)
     }
 
@@ -298,7 +316,10 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
         collective: Option<&ShardCollective>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -333,8 +354,13 @@ impl TransformerBlock {
         layer_idx: usize,
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
-        self.forward_gpu_with_cache_precomputed_rope_collective(x_gpu, cache, layer_idx, cos_gpu, sin_gpu, None)
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
+        self.forward_gpu_with_cache_precomputed_rope_collective(
+            x_gpu, cache, layer_idx, cos_gpu, sin_gpu, None,
+        )
     }
 
     #[cfg(feature = "gpu")]
@@ -346,7 +372,10 @@ impl TransformerBlock {
         cos_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         sin_gpu: &nexora_deeplearning::autograd::gpu::GpuTensor,
         collective: Option<&ShardCollective>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -384,7 +413,10 @@ impl TransformerBlock {
         layer_idx: usize,
         cos: &Array1<f32>,
         sin: &Array1<f32>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         self.forward_gpu_with_cache_collective(x_gpu, cache, layer_idx, cos, sin, None)
     }
 
@@ -397,7 +429,10 @@ impl TransformerBlock {
         cos: &Array1<f32>,
         sin: &Array1<f32>,
         collective: Option<&ShardCollective>,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::GpuContext;
 
         let ctx = GpuContext::global()?;
@@ -456,7 +491,10 @@ pub(crate) fn collective_gpu_reduce(
     output: &nexora_deeplearning::autograd::gpu::GpuTensor,
     collective: Option<&ShardCollective>,
     _is_attn: bool,
-) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+) -> Result<
+    nexora_deeplearning::autograd::gpu::GpuTensor,
+    nexora_deeplearning::autograd::gpu::GpuError,
+> {
     use nexora_deeplearning::autograd::gpu::GpuTensor;
 
     let Some(col) = collective else {
@@ -470,8 +508,9 @@ pub(crate) fn collective_gpu_reduce(
 
     match col {
         ShardCollective::Nccl(nccl) => {
-            let reduced = nccl.all_reduce_gpu(ctx, output)
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+            let reduced = nccl.all_reduce_gpu(ctx, output).map_err(|e| {
+                nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string())
+            })?;
             ctx.add(residual, &reduced)
         }
         other => {
@@ -481,10 +520,12 @@ pub(crate) fn collective_gpu_reduce(
             let shape = output.shape();
             let rows = shape[0];
             let cols = if shape.len() > 1 { shape[1] } else { 1 };
-            let cpu_out_arr = cpu_out.into_dimensionality::<ndarray::Ix2>()
+            let cpu_out_arr = cpu_out
+                .into_dimensionality::<ndarray::Ix2>()
                 .unwrap_or_else(|_| Array2::zeros((rows, cols)));
-            let reduced = other.reduce_ffn(&cpu_out_arr)
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?;
+            let reduced = other.reduce_ffn(&cpu_out_arr).map_err(|e| {
+                nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string())
+            })?;
             let reduced_gpu = GpuTensor::from_cpu(&reduced.into_dyn())?;
             ctx.add(residual, &reduced_gpu)
         }
@@ -498,7 +539,10 @@ pub(crate) fn collective_gpu_all_reduce(
     h: &nexora_deeplearning::autograd::gpu::GpuTensor,
     collective: Option<&ShardCollective>,
     ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
-) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+) -> Result<
+    nexora_deeplearning::autograd::gpu::GpuTensor,
+    nexora_deeplearning::autograd::gpu::GpuError,
+> {
     let Some(col) = collective else {
         return Ok(h.clone());
     };
@@ -509,10 +553,9 @@ pub(crate) fn collective_gpu_all_reduce(
     }
 
     match col {
-        ShardCollective::Nccl(nccl) => {
-            nccl.all_reduce_gpu(ctx, h)
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string()))
-        }
+        ShardCollective::Nccl(nccl) => nccl.all_reduce_gpu(ctx, h).map_err(|e| {
+            nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string())
+        }),
         other => {
             let cpu_h = h.to_cpu()?;
             let shape = h.shape();
@@ -521,8 +564,11 @@ pub(crate) fn collective_gpu_all_reduce(
             let cpu_h_arr = cpu_h
                 .into_dimensionality::<ndarray::Ix2>()
                 .unwrap_or_else(|_| Array2::zeros((rows, cols)));
-            let reduced = other.reduce_ffn(&cpu_h_arr)
-                .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string()))?
+            let reduced = other
+                .reduce_ffn(&cpu_h_arr)
+                .map_err(|e| {
+                    nexora_deeplearning::autograd::gpu::GpuError::ShapeMismatch(e.to_string())
+                })?
                 .into_dyn();
             nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&reduced)
         }
@@ -535,11 +581,11 @@ mod tests {
     use super::*;
     use ndarray::array;
 
-fn small_block() -> TransformerBlock {
-    let mut block = TransformerBlock::new(8, 4, 2, 4, 16, 1e-6, 0, 0);
-    block.init_random(8, 4, 2, 4, 16, 0);
-    block
-}
+    fn small_block() -> TransformerBlock {
+        let mut block = TransformerBlock::new(8, 4, 2, 4, 16, 1e-6, 0, 0);
+        block.init_random(8, 4, 2, 4, 16, 0);
+        block
+    }
 
     #[test]
     fn test_block_new_shapes() {

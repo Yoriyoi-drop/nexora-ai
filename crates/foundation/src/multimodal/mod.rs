@@ -5,9 +5,9 @@
 
 pub use nexora_cognition::multimodal::*;
 
-use nexora_models::foundation::FoundationModel;
 pub use nexora_cognition::multimodal::MultiModalInputs as CaffeineInputs;
 pub use nexora_cognition::multimodal::TextInput;
+use nexora_models::foundation::FoundationModel;
 use nexora_shared::base_model::{InputData, NxrInput, NxrModel, NxrOutput};
 
 /// Enhanced CAFFEINE with NXR-SPECTRA integration

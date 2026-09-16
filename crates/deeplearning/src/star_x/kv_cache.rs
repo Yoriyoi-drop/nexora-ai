@@ -54,13 +54,18 @@ impl KVCache {
             return;
         }
         let dim = self.head_dim * self.num_heads;
-        let new_cap = (self.capacity * 2).max(needed).min(self.max_cache_size).max(64);
+        let new_cap = (self.capacity * 2)
+            .max(needed)
+            .min(self.max_cache_size)
+            .max(64);
         let mut new_keys = Array2::zeros((new_cap, dim));
         let mut new_values = Array2::zeros((new_cap, dim));
         if self.seq_len > 0 {
-            new_keys.slice_mut(s![0..self.seq_len, ..])
+            new_keys
+                .slice_mut(s![0..self.seq_len, ..])
                 .assign(&self.cached_keys.slice(s![0..self.seq_len, ..]));
-            new_values.slice_mut(s![0..self.seq_len, ..])
+            new_values
+                .slice_mut(s![0..self.seq_len, ..])
                 .assign(&self.cached_values.slice(s![0..self.seq_len, ..]));
         }
         self.cached_keys = new_keys;

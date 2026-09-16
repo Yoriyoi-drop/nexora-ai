@@ -37,8 +37,7 @@ pub fn warn_storage_only() {
 
 /// Unified quantization format — maps directly to safetensors dtype strings
 /// and model config. Covers all formats requested in the 10-year plan.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum QFormat {
     /// 16-bit half-precision float (2 bytes per element)
     #[default]
@@ -102,7 +101,6 @@ impl QFormat {
     }
 }
 
-
 // ─── Backward-compat alias ─────────────────────────────────────────────────
 
 /// Legacy enum — prefer `QFormat` for new code.
@@ -131,7 +129,9 @@ impl From<QFormat> for QuantizedDtype {
         match f {
             QFormat::Q8 { .. } => QuantizedDtype::Int8,
             QFormat::Q4 { group_size } => QuantizedDtype::Int4Groupwise { group_size },
-            QFormat::Q6 { .. } | QFormat::Q5 { .. } | QFormat::Q2 { .. } => QuantizedDtype::Int4Packed,
+            QFormat::Q6 { .. } | QFormat::Q5 { .. } | QFormat::Q2 { .. } => {
+                QuantizedDtype::Int4Packed
+            }
             QFormat::F16 | QFormat::BF16 => QuantizedDtype::Int8,
         }
     }
@@ -203,7 +203,10 @@ pub fn dequantize_bf16_to_f32(data: &[u16]) -> Vec<f32> {
 /// Quantize f32 Array2 to BF16, return packed u16 + shape.
 pub fn quantize_f32_to_bf16_array(weights: &Array2<f32>) -> (Vec<u16>, (usize, usize)) {
     let shape = weights.dim();
-    (quantize_f32_to_bf16(weights.as_slice().unwrap_or(&[])), shape)
+    (
+        quantize_f32_to_bf16(weights.as_slice().unwrap_or(&[])),
+        shape,
+    )
 }
 
 /// Dequantize BF16 data + shape back to Array2.
@@ -264,7 +267,11 @@ pub fn quantize_f32_to_int8(weights: &Array2<f32>) -> (Vec<u8>, f32, i16) {
     if elements.is_empty() {
         return (Vec::new(), 1.0, 0);
     }
-    let max_val = elements.iter().copied().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-10);
+    let max_val = elements
+        .iter()
+        .copied()
+        .fold(0.0f32, |a, b| a.max(b.abs()))
+        .max(1e-10);
     let scale = max_val / 127.0;
     let mut quantized = Vec::with_capacity(elements.len());
     for &v in &elements {
@@ -274,7 +281,13 @@ pub fn quantize_f32_to_int8(weights: &Array2<f32>) -> (Vec<u8>, f32, i16) {
     (quantized, scale, 0)
 }
 
-pub fn dequantize_int8_to_f32(data: &[u8], scale: f32, zero_point: i16, rows: usize, cols: usize) -> Array2<f32> {
+pub fn dequantize_int8_to_f32(
+    data: &[u8],
+    scale: f32,
+    zero_point: i16,
+    rows: usize,
+    cols: usize,
+) -> Array2<f32> {
     let expected = rows * cols;
     let mut out = Array2::zeros((rows, cols));
     for (i, &byte) in data.iter().enumerate().take(expected.min(data.len())) {
@@ -284,7 +297,14 @@ pub fn dequantize_int8_to_f32(data: &[u8], scale: f32, zero_point: i16, rows: us
     out
 }
 
-pub fn matmul_int8(input: &Array2<f32>, w_data: &[u8], w_scale: f32, w_zero: i16, w_rows: usize, w_cols: usize) -> Array2<f32> {
+pub fn matmul_int8(
+    input: &Array2<f32>,
+    w_data: &[u8],
+    w_scale: f32,
+    w_zero: i16,
+    w_rows: usize,
+    w_cols: usize,
+) -> Array2<f32> {
     let batch = input.shape()[0];
     let mut output = Array2::zeros((batch, w_rows));
     for b in 0..batch {
@@ -294,7 +314,9 @@ pub fn matmul_int8(input: &Array2<f32>, w_data: &[u8], w_scale: f32, w_zero: i16
                 let idx = r * w_cols + c;
                 let w_val = if idx < w_data.len() {
                     (w_data[idx] as i8 as i16 - w_zero) as f32 * w_scale
-                } else { 0.0 };
+                } else {
+                    0.0
+                };
                 dot += input[[b, c]] * w_val;
             }
             output[[b, r]] = dot;
@@ -310,7 +332,11 @@ pub fn quantize_f32_to_int4_packed(weights: &Array2<f32>) -> (Vec<u8>, f32) {
     if elements.is_empty() {
         return (Vec::new(), 1.0);
     }
-    let max_val = elements.iter().copied().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-10);
+    let max_val = elements
+        .iter()
+        .copied()
+        .fold(0.0f32, |a, b| a.max(b.abs()))
+        .max(1e-10);
     let scale = max_val / 7.0;
     let n = elements.len();
     let packed_len = n.div_ceil(2);
@@ -332,12 +358,21 @@ fn sign_extend_4bit(nibble: u8) -> i8 {
     ((nibble as i8) << 4) >> 4
 }
 
-pub fn dequantize_int4_packed_to_f32(data: &[u8], scale: f32, rows: usize, cols: usize) -> Array2<f32> {
+pub fn dequantize_int4_packed_to_f32(
+    data: &[u8],
+    scale: f32,
+    rows: usize,
+    cols: usize,
+) -> Array2<f32> {
     let expected = rows * cols;
     let mut out = Array2::zeros((rows, cols));
     for i in 0..expected.min(data.len() * 2) {
         let byte = data[i / 2];
-        let nibble = if i % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F };
+        let nibble = if i % 2 == 0 {
+            (byte >> 4) & 0x0F
+        } else {
+            byte & 0x0F
+        };
         let val = sign_extend_4bit(nibble) as f32 * scale;
         out[[i / cols, i % cols]] = val;
     }
@@ -346,7 +381,10 @@ pub fn dequantize_int4_packed_to_f32(data: &[u8], scale: f32, rows: usize, cols:
 
 // ─── INT4 groupwise quantization (existing) ────────────────────────────────
 
-pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) -> (Vec<u8>, Vec<f32>) {
+pub fn quantize_f32_to_int4_groupwise(
+    weights: &Array2<f32>,
+    group_size: usize,
+) -> (Vec<u8>, Vec<f32>) {
     let (rows, cols) = weights.dim();
     let n = rows * cols;
     if n == 0 {
@@ -361,7 +399,9 @@ pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) 
         let start = g * gs;
         let end = (start + gs).min(n);
         let mut max_abs = 0.0f32;
-        for &v in flat[start..end].iter() { max_abs = max_abs.max(v.abs()); }
+        for &v in flat[start..end].iter() {
+            max_abs = max_abs.max(v.abs());
+        }
         max_abs = max_abs.max(1e-10);
         let scale = max_abs / 7.0;
         for i in start..end {
@@ -369,7 +409,8 @@ pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) 
             let nibble = (q as u8) & 0x0F;
             let offset = i - start;
             if offset.is_multiple_of(2) {
-                packed[(start + offset) / 2] = (nibble << 4) | (packed[(start + offset) / 2] & 0x0F);
+                packed[(start + offset) / 2] =
+                    (nibble << 4) | (packed[(start + offset) / 2] & 0x0F);
             } else {
                 packed[(start + offset) / 2] = (packed[(start + offset) / 2] & 0xF0) | nibble;
             }
@@ -379,14 +420,24 @@ pub fn quantize_f32_to_int4_groupwise(weights: &Array2<f32>, group_size: usize) 
     (packed, scales)
 }
 
-pub fn dequantize_int4_groupwise_to_f32(data: &[u8], scales: &[f32], group_size: usize, rows: usize, cols: usize) -> Array2<f32> {
+pub fn dequantize_int4_groupwise_to_f32(
+    data: &[u8],
+    scales: &[f32],
+    group_size: usize,
+    rows: usize,
+    cols: usize,
+) -> Array2<f32> {
     let n = rows * cols;
     let gs = group_size.max(1);
     let mut out = Array2::zeros((rows, cols));
     for i in 0..n.min(data.len() * 2) {
         let g = i / gs;
         let byte = data[i / 2];
-        let nibble = if i % 2 == 0 { (byte >> 4) & 0x0F } else { byte & 0x0F };
+        let nibble = if i % 2 == 0 {
+            (byte >> 4) & 0x0F
+        } else {
+            byte & 0x0F
+        };
         let scale = scales.get(g).copied().unwrap_or(1.0);
         let val = sign_extend_4bit(nibble) as f32 * scale;
         out[[i / cols, i % cols]] = val;
@@ -428,7 +479,9 @@ fn unpack_to_i8(data: &[u8], n: usize, bits: u8) -> Vec<i8> {
             let byte_idx = bit_pos / 8;
             let bit = if byte_idx < data.len() {
                 (data[byte_idx] >> (bit_pos % 8)) & 1
-            } else { 0 };
+            } else {
+                0
+            };
             uv |= bit << b;
             bit_pos += 1;
         }
@@ -445,7 +498,11 @@ fn unpack_to_i8(data: &[u8], n: usize, bits: u8) -> Vec<i8> {
 
 /// Quantize f32 weights to N-bit per-group (N=5 or 6).
 /// Returns (packed_bytes, scales).
-pub fn quantize_f32_to_nbit_groupwise(weights: &Array2<f32>, group_size: usize, bits: u8) -> (Vec<u8>, Vec<f32>) {
+pub fn quantize_f32_to_nbit_groupwise(
+    weights: &Array2<f32>,
+    group_size: usize,
+    bits: u8,
+) -> (Vec<u8>, Vec<f32>) {
     let (rows, cols) = weights.dim();
     let n = rows * cols;
     if n == 0 {
@@ -462,11 +519,15 @@ pub fn quantize_f32_to_nbit_groupwise(weights: &Array2<f32>, group_size: usize, 
         let start = g * gs;
         let end = (start + gs).min(n);
         let mut max_abs = 0.0f32;
-        for &v in flat[start..end].iter() { max_abs = max_abs.max(v.abs()); }
+        for &v in flat[start..end].iter() {
+            max_abs = max_abs.max(v.abs());
+        }
         max_abs = max_abs.max(1e-10);
         let scale = max_abs / max_quant as f32;
         for i in start..end {
-            let q = (flat[i] / scale).round().clamp(-(max_quant as f32), max_quant as f32) as i8;
+            let q = (flat[i] / scale)
+                .round()
+                .clamp(-(max_quant as f32), max_quant as f32) as i8;
             quantized.push(q);
         }
         scales.push(scale);
@@ -476,7 +537,14 @@ pub fn quantize_f32_to_nbit_groupwise(weights: &Array2<f32>, group_size: usize, 
 }
 
 /// Dequantize N-bit data back to f32.
-pub fn dequantize_nbit_groupwise_to_f32(data: &[u8], scales: &[f32], group_size: usize, bits: u8, rows: usize, cols: usize) -> Array2<f32> {
+pub fn dequantize_nbit_groupwise_to_f32(
+    data: &[u8],
+    scales: &[f32],
+    group_size: usize,
+    bits: u8,
+    rows: usize,
+    cols: usize,
+) -> Array2<f32> {
     let n = rows * cols;
     let gs = group_size.max(1);
     let vals = unpack_to_i8(data, n, bits);
@@ -499,14 +567,22 @@ pub fn pack_q2(v0: u8, v1: u8, v2: u8, v3: u8) -> u8 {
 
 /// Unpack one byte into four Q2 values (0-3).
 pub fn unpack_q2(packed: u8) -> (u8, u8, u8, u8) {
-    (packed & 0x03, (packed >> 2) & 0x03, (packed >> 4) & 0x03, (packed >> 6) & 0x03)
+    (
+        packed & 0x03,
+        (packed >> 2) & 0x03,
+        (packed >> 4) & 0x03,
+        (packed >> 6) & 0x03,
+    )
 }
 
 /// Quantize f32 weights to Q2 (2-bit) per-group symmetric.
 /// Range: -2..1 (4 values, unsigned 0..3 shifted by -2).
 /// Scale = max_abs / 2.0 (since max quantized absolute value is 2).
 /// Returns (packed_bytes, scales) with 4 values packed per byte.
-pub fn quantize_f32_to_q2_groupwise(weights: &Array2<f32>, group_size: usize) -> (Vec<u8>, Vec<f32>) {
+pub fn quantize_f32_to_q2_groupwise(
+    weights: &Array2<f32>,
+    group_size: usize,
+) -> (Vec<u8>, Vec<f32>) {
     let (rows, cols) = weights.dim();
     let n = rows * cols;
     if n == 0 {
@@ -522,7 +598,9 @@ pub fn quantize_f32_to_q2_groupwise(weights: &Array2<f32>, group_size: usize) ->
         let start = g * gs;
         let end = (start + gs).min(n);
         let mut max_abs = 0.0f32;
-        for &v in flat[start..end].iter() { max_abs = max_abs.max(v.abs()); }
+        for &v in flat[start..end].iter() {
+            max_abs = max_abs.max(v.abs());
+        }
         max_abs = max_abs.max(1e-10);
         let scale = max_abs / 2.0;
 
@@ -540,7 +618,13 @@ pub fn quantize_f32_to_q2_groupwise(weights: &Array2<f32>, group_size: usize) ->
 }
 
 /// Dequantize Q2 data back to f32.
-pub fn dequantize_q2_groupwise_to_f32(data: &[u8], scales: &[f32], group_size: usize, rows: usize, cols: usize) -> Array2<f32> {
+pub fn dequantize_q2_groupwise_to_f32(
+    data: &[u8],
+    scales: &[f32],
+    group_size: usize,
+    rows: usize,
+    cols: usize,
+) -> Array2<f32> {
     let n = rows * cols;
     let gs = group_size.max(1);
     let mut out = Array2::zeros((rows, cols));
@@ -550,7 +634,9 @@ pub fn dequantize_q2_groupwise_to_f32(data: &[u8], scales: &[f32], group_size: u
         let sub_idx = i % 4;
         let v = if byte_idx < data.len() {
             (data[byte_idx] >> (sub_idx * 2)) & 0x03
-        } else { 0 };
+        } else {
+            0
+        };
         let scale = scales.get(g).copied().unwrap_or(1.0);
         let val = (v as i8 - 2) as f32 * scale; // shift 0..3 → -2..1
         out[[i / cols, i % cols]] = val;
@@ -567,15 +653,36 @@ pub fn quantize_linear(weights: &Array2<f32>, dtype: QuantizedDtype) -> Quantize
     match dtype {
         QuantizedDtype::Int8 => {
             let (data, scale, zp) = quantize_f32_to_int8(weights);
-            QuantizedTensor { dtype, data, shape, scales: vec![scale], zero_point: zp, format: None }
+            QuantizedTensor {
+                dtype,
+                data,
+                shape,
+                scales: vec![scale],
+                zero_point: zp,
+                format: None,
+            }
         }
         QuantizedDtype::Int4Packed => {
             let (data, scale) = quantize_f32_to_int4_packed(weights);
-            QuantizedTensor { dtype, data, shape, scales: vec![scale], zero_point: 0, format: None }
+            QuantizedTensor {
+                dtype,
+                data,
+                shape,
+                scales: vec![scale],
+                zero_point: 0,
+                format: None,
+            }
         }
         QuantizedDtype::Int4Groupwise { group_size } => {
             let (data, scales) = quantize_f32_to_int4_groupwise(weights, group_size);
-            QuantizedTensor { dtype, data, shape, scales, zero_point: 0, format: None }
+            QuantizedTensor {
+                dtype,
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: None,
+            }
         }
     }
 }
@@ -589,37 +696,102 @@ pub fn quantize_with_format(weights: &Array2<f32>, format: QFormat) -> Quantized
         QFormat::F16 => {
             let data_u16 = pack_f32_to_f16(weights.as_slice().unwrap_or(&[]));
             let data: Vec<u8> = data_u16.iter().flat_map(|&b| b.to_le_bytes()).collect();
-            QuantizedTensor { dtype: QuantizedDtype::Int8, data, shape, scales: vec![1.0], zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int8,
+                data,
+                shape,
+                scales: vec![1.0],
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::BF16 => {
             let data_u16 = quantize_f32_to_bf16(weights.as_slice().unwrap_or(&[]));
             let data: Vec<u8> = data_u16.iter().flat_map(|&b| b.to_le_bytes()).collect();
-            QuantizedTensor { dtype: QuantizedDtype::Int8, data, shape, scales: vec![1.0], zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int8,
+                data,
+                shape,
+                scales: vec![1.0],
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::Q8 { group_size } => {
-            let gs = if group_size == 0 { QFormat::default_group_size() } else { group_size };
+            let gs = if group_size == 0 {
+                QFormat::default_group_size()
+            } else {
+                group_size
+            };
             let (data, scales) = quantize_f32_to_int4_groupwise(weights, gs);
-            QuantizedTensor { dtype: QuantizedDtype::Int4Groupwise { group_size: gs }, data, shape, scales, zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int4Groupwise { group_size: gs },
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::Q6 { group_size } => {
-            let gs = if group_size == 0 { QFormat::default_group_size() } else { group_size };
+            let gs = if group_size == 0 {
+                QFormat::default_group_size()
+            } else {
+                group_size
+            };
             let (data, scales) = quantize_f32_to_nbit_groupwise(weights, gs, 6);
-            QuantizedTensor { dtype: QuantizedDtype::Int4Groupwise { group_size: gs }, data, shape, scales, zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int4Groupwise { group_size: gs },
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::Q5 { group_size } => {
-            let gs = if group_size == 0 { QFormat::default_group_size() } else { group_size };
+            let gs = if group_size == 0 {
+                QFormat::default_group_size()
+            } else {
+                group_size
+            };
             let (data, scales) = quantize_f32_to_nbit_groupwise(weights, gs, 5);
-            QuantizedTensor { dtype: QuantizedDtype::Int4Groupwise { group_size: gs }, data, shape, scales, zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int4Groupwise { group_size: gs },
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::Q4 { group_size } => {
-            let gs = if group_size == 0 { QFormat::default_group_size() } else { group_size };
+            let gs = if group_size == 0 {
+                QFormat::default_group_size()
+            } else {
+                group_size
+            };
             let (data, scales) = quantize_f32_to_int4_groupwise(weights, gs);
-            QuantizedTensor { dtype: QuantizedDtype::Int4Groupwise { group_size: gs }, data, shape, scales, zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int4Groupwise { group_size: gs },
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: Some(format),
+            }
         }
         QFormat::Q2 { group_size } => {
             let gs = if group_size == 0 { 256 } else { group_size };
             let (data, scales) = quantize_f32_to_q2_groupwise(weights, gs);
-            QuantizedTensor { dtype: QuantizedDtype::Int4Packed, data, shape, scales, zero_point: 0, format: Some(format) }
+            QuantizedTensor {
+                dtype: QuantizedDtype::Int4Packed,
+                data,
+                shape,
+                scales,
+                zero_point: 0,
+                format: Some(format),
+            }
         }
     }
 }
@@ -630,11 +802,19 @@ pub fn dequantize_with_format(tensor: &QuantizedTensor) -> Array2<f32> {
     let (rows, cols) = tensor.shape;
     match tensor.format {
         Some(QFormat::F16) => {
-            let data_u16: Vec<u16> = tensor.data.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let data_u16: Vec<u16> = tensor
+                .data
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
             dequantize_bf16_to_array(&data_u16, rows, cols)
         }
         Some(QFormat::BF16) => {
-            let data_u16: Vec<u16> = tensor.data.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let data_u16: Vec<u16> = tensor
+                .data
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
             dequantize_bf16_to_array(&data_u16, rows, cols)
         }
         Some(QFormat::Q2 { group_size }) => {
@@ -642,8 +822,15 @@ pub fn dequantize_with_format(tensor: &QuantizedTensor) -> Array2<f32> {
             dequantize_q2_groupwise_to_f32(&tensor.data, &tensor.scales, gs, rows, cols)
         }
         Some(QFormat::Q6 { group_size }) | Some(QFormat::Q5 { group_size }) => {
-            let bits = tensor.format.map(|f| f.bits_per_element() as u8).unwrap_or(4);
-            let gs = if group_size == 0 { QFormat::default_group_size() } else { group_size };
+            let bits = tensor
+                .format
+                .map(|f| f.bits_per_element() as u8)
+                .unwrap_or(4);
+            let gs = if group_size == 0 {
+                QFormat::default_group_size()
+            } else {
+                group_size
+            };
             dequantize_nbit_groupwise_to_f32(&tensor.data, &tensor.scales, gs, bits, rows, cols)
         }
         _ => dequantize_linear(tensor),
@@ -671,7 +858,12 @@ pub fn dequantize_linear(tensor: &QuantizedTensor) -> Array2<f32> {
 /// Compute the RMSE between original and quantized-dequantized weights.
 pub fn quantization_error(original: &Array2<f32>, reconstructed: &Array2<f32>) -> f64 {
     let n = original.len().max(1);
-    let sum_sq: f64 = original.iter().zip(reconstructed.iter()).map(|(a, b)| (*a - *b) as f64).map(|d| d * d).sum();
+    let sum_sq: f64 = original
+        .iter()
+        .zip(reconstructed.iter())
+        .map(|(a, b)| (*a - *b) as f64)
+        .map(|d| d * d)
+        .sum();
     (sum_sq / n as f64).sqrt()
 }
 
@@ -682,7 +874,13 @@ mod tests {
     use super::*;
 
     fn test_weights() -> Array2<f32> {
-        Array2::from_shape_vec((4, 3), vec![0.5, -1.2, 2.3, -3.4, 4.5, -5.6, 6.7, -7.8, 8.9, -9.0, 0.1, -0.2]).unwrap()
+        Array2::from_shape_vec(
+            (4, 3),
+            vec![
+                0.5, -1.2, 2.3, -3.4, 4.5, -5.6, 6.7, -7.8, 8.9, -9.0, 0.1, -0.2,
+            ],
+        )
+        .unwrap()
     }
 
     #[test]
@@ -692,7 +890,11 @@ mod tests {
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
         assert!(err < 0.06, "INT8 roundtrip error too high: {err}");
-        assert!(qt.compression_ratio() >= 3.0, "ratio={}", qt.compression_ratio());
+        assert!(
+            qt.compression_ratio() >= 3.0,
+            "ratio={}",
+            qt.compression_ratio()
+        );
     }
 
     #[test]
@@ -702,7 +904,11 @@ mod tests {
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
         assert!(err < 1.0, "INT4 packed roundtrip error too high: {err}");
-        assert!(qt.compression_ratio() >= 4.0, "ratio={}", qt.compression_ratio());
+        assert!(
+            qt.compression_ratio() >= 4.0,
+            "ratio={}",
+            qt.compression_ratio()
+        );
     }
 
     #[test]
@@ -712,7 +918,11 @@ mod tests {
         let w2 = dequantize_linear(&qt);
         let err = quantization_error(&w, &w2);
         assert!(err < 1.0, "INT4 groupwise roundtrip error too high: {err}");
-        assert!(qt.compression_ratio() >= 2.0, "ratio={}", qt.compression_ratio());
+        assert!(
+            qt.compression_ratio() >= 2.0,
+            "ratio={}",
+            qt.compression_ratio()
+        );
     }
 
     #[test]
@@ -788,7 +998,12 @@ mod tests {
     #[test]
     fn test_empty_weights() {
         let w = Array2::<f32>::zeros((0, 0));
-        for fmt in [QFormat::F16, QFormat::BF16, QFormat::Q8 { group_size: 128 }, QFormat::Q4 { group_size: 128 }] {
+        for fmt in [
+            QFormat::F16,
+            QFormat::BF16,
+            QFormat::Q8 { group_size: 128 },
+            QFormat::Q4 { group_size: 128 },
+        ] {
             let qt = quantize_with_format(&w, fmt);
             assert!(qt.data.is_empty(), "{:?} should produce empty data", fmt);
         }
@@ -831,7 +1046,12 @@ mod tests {
         for i in 0..2 {
             for j in 0..4 {
                 let diff = (result[[i, j]] - expected[[i, j]]).abs();
-                assert!(diff < 0.1, "matmul_int8 mismatch at ({i},{j}): got {}, expected {}", result[[i, j]], expected[[i, j]]);
+                assert!(
+                    diff < 0.1,
+                    "matmul_int8 mismatch at ({i},{j}): got {}, expected {}",
+                    result[[i, j]],
+                    expected[[i, j]]
+                );
             }
         }
     }

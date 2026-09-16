@@ -64,8 +64,9 @@ fn decompress_zstd(path: &Path) -> Result<std::fs::File> {
 
         // Write to temp file
         let temp_path = path.with_extension("arrow.tmp");
-        std::fs::write(&temp_path, decoder)
-            .with_context(|| format!("Failed to write decompressed data: {}", temp_path.display()))?;
+        std::fs::write(&temp_path, decoder).with_context(|| {
+            format!("Failed to write decompressed data: {}", temp_path.display())
+        })?;
 
         std::fs::File::open(&temp_path)
             .with_context(|| format!("Failed to open decompressed file: {}", temp_path.display()))
@@ -127,7 +128,12 @@ impl ArrowBatchStream {
             .or_else(|_| schema.index_of("Output"))
             .ok();
 
-        Ok(Self { reader, source, text_idx, output_idx })
+        Ok(Self {
+            reader,
+            source,
+            text_idx,
+            output_idx,
+        })
     }
 }
 
@@ -193,7 +199,11 @@ impl ArrowBytesStream {
             .or_else(|_| schema.index_of("input"))
             .or_else(|_| schema.index_of("content"))
             .map_err(|_| anyhow::anyhow!("No text column found in arrow schema"))?;
-        Ok(Self { reader, source, text_idx })
+        Ok(Self {
+            reader,
+            source,
+            text_idx,
+        })
     }
 }
 

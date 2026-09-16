@@ -2,9 +2,9 @@ use crate::classifier;
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
 use nexora_oracle::CodeLinterManager;
+use nexora_transformer::CausalLM;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -50,13 +50,28 @@ pub async fn delegate(prompt: &str) -> String {
     // Emergency keyword block: catch obvious jailbreak attempts regardless of classifier
     let prompt_lower = prompt.to_lowercase();
     let jailbreak_keywords = [
-        "ignore all instructions", "ignore your instructions", "ignore your safety",
-        "bypass safety", "you are now dan", "act as dan", "no restrictions",
-        "you are free", "do anything now", "you have no limits",
-        "ignore your previous", "forget your training", "override your programming",
+        "ignore all instructions",
+        "ignore your instructions",
+        "ignore your safety",
+        "bypass safety",
+        "you are now dan",
+        "act as dan",
+        "no restrictions",
+        "you are free",
+        "do anything now",
+        "you have no limits",
+        "ignore your previous",
+        "forget your training",
+        "override your programming",
     ];
-    if jailbreak_keywords.iter().any(|kw| prompt_lower.contains(kw)) {
-        tracing::warn!("CIPHER EMERGENCY BLOCK: jailbreak keyword match, prompt={:.50}", prompt);
+    if jailbreak_keywords
+        .iter()
+        .any(|kw| prompt_lower.contains(kw))
+    {
+        tracing::warn!(
+            "CIPHER EMERGENCY BLOCK: jailbreak keyword match, prompt={:.50}",
+            prompt
+        );
         return "[Cipher security] Request blocked: jailbreak attempt detected".to_string();
     }
 
@@ -94,7 +109,12 @@ pub async fn delegate(prompt: &str) -> String {
             let issues: Vec<String> = results
                 .iter()
                 .flat_map(|r| r.issues.iter())
-                .map(|i| format!("[{}] {} (severity: {:?})", i.category, i.message, i.severity))
+                .map(|i| {
+                    format!(
+                        "[{}] {} (severity: {:?})",
+                        i.category, i.message, i.severity
+                    )
+                })
                 .collect();
             if issues.is_empty() {
                 "No security issues detected".to_string()
@@ -123,8 +143,10 @@ pub async fn delegate(prompt: &str) -> String {
          {sanitized_prompt}\n\n\
          Security findings:"
     );
-    delegation_base::call_model(foundation(), &checklist, 512, 0.3).await.unwrap_or_else(|e| {
-        tracing::warn!("cipher delegation call failed: {}", e);
-        format!("[cipher inference error: {}]", e)
-    })
+    delegation_base::call_model(foundation(), &checklist, 512, 0.3)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("cipher delegation call failed: {}", e);
+            format!("[cipher inference error: {}]", e)
+        })
 }

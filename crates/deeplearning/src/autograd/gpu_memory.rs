@@ -3,24 +3,24 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const SIZE_BUCKETS: &[u64] = &[
-    1 << 10,                // 1KB
-    1 << 12,                // 4KB
-    1 << 14,                // 16KB
-    1 << 16,                // 64KB
-    1 << 18,                // 256KB
-    1 << 20,                // 1MB
+    1 << 10,               // 1KB
+    1 << 12,               // 4KB
+    1 << 14,               // 16KB
+    1 << 16,               // 64KB
+    1 << 18,               // 256KB
+    1 << 20,               // 1MB
     (1 << 20) + (1 << 19), // 1.5MB
-    1 << 21,                // 2MB
+    1 << 21,               // 2MB
     (1 << 21) + (1 << 20), // 3MB
-    1 << 22,                // 4MB
-    1 << 24,                // 16MB
-    1 << 26,                // 64MB
-    1 << 28,                // 256MB
-    1 << 30,                // 1GB
-    1 << 31,                // 2GB
-    (1 << 30) + (1 << 30),  // 4GB
-    1 << 33,                // 8GB
-    1 << 34,                // 16GB — max, enough for 24–48 GB GPUs
+    1 << 22,               // 4MB
+    1 << 24,               // 16MB
+    1 << 26,               // 64MB
+    1 << 28,               // 256MB
+    1 << 30,               // 1GB
+    1 << 31,               // 2GB
+    (1 << 30) + (1 << 30), // 4GB
+    1 << 33,               // 8GB
+    1 << 34,               // 16GB — max, enough for 24–48 GB GPUs
 ];
 
 pub fn bucket_for(size: u64) -> usize {
@@ -261,7 +261,9 @@ impl GpuMemoryPool {
             }
         }
         // Step 3: Recalculate total remaining bytes from bucket sizes
-        let remaining: u64 = self.free_buffers.iter()
+        let remaining: u64 = self
+            .free_buffers
+            .iter()
             .flat_map(|((bucket_idx, _usage), list)| {
                 let b_size = bucket_size(*bucket_idx);
                 list.iter().map(move |_| b_size)
@@ -269,7 +271,10 @@ impl GpuMemoryPool {
             .sum();
         let bytes_freed = before_total.saturating_sub(remaining);
         if bytes_freed > 0 {
-            tracing::debug!("GpuMemoryPool::compact: freed {:.2} MB", bytes_freed as f64 / 1_048_576.0);
+            tracing::debug!(
+                "GpuMemoryPool::compact: freed {:.2} MB",
+                bytes_freed as f64 / 1_048_576.0
+            );
         }
         // Force GPU to release memory
         self.device.poll(wgpu::PollType::Poll);
@@ -283,7 +288,9 @@ impl GpuMemoryPool {
         if total_allocated == 0 {
             return 0.0;
         }
-        let total_wasted: u64 = self.free_buffers.values()
+        let total_wasted: u64 = self
+            .free_buffers
+            .values()
             .flat_map(|v| v.iter())
             .map(|(buf, _)| {
                 let buf_size = buf.size();
@@ -368,22 +375,42 @@ impl MemoryCoordinator {
         }
     }
 
-    pub fn total_vram(&self) -> u64 { self.total_vram }
-    pub fn pool_used(&self) -> u64 { self.pool_used_bytes }
-    pub fn external_used(&self) -> u64 { self.external_used_bytes }
-    pub fn total_used(&self) -> u64 { self.pool_used_bytes + self.external_used_bytes }
-    pub fn available(&self) -> u64 { self.total_vram.saturating_sub(self.total_used()) }
-    pub fn usage_ratio(&self) -> f64 { self.total_used() as f64 / self.total_vram as f64 }
+    pub fn total_vram(&self) -> u64 {
+        self.total_vram
+    }
+    pub fn pool_used(&self) -> u64 {
+        self.pool_used_bytes
+    }
+    pub fn external_used(&self) -> u64 {
+        self.external_used_bytes
+    }
+    pub fn total_used(&self) -> u64 {
+        self.pool_used_bytes + self.external_used_bytes
+    }
+    pub fn available(&self) -> u64 {
+        self.total_vram.saturating_sub(self.total_used())
+    }
+    pub fn usage_ratio(&self) -> f64 {
+        self.total_used() as f64 / self.total_vram as f64
+    }
 
-    pub fn set_pool_used(&mut self, bytes: u64) { self.pool_used_bytes = bytes; }
-    pub fn add_pool_used(&mut self, bytes: u64) { self.pool_used_bytes += bytes; }
+    pub fn set_pool_used(&mut self, bytes: u64) {
+        self.pool_used_bytes = bytes;
+    }
+    pub fn add_pool_used(&mut self, bytes: u64) {
+        self.pool_used_bytes += bytes;
+    }
     pub fn release_pool(&mut self, bytes: u64) {
         self.pool_used_bytes = self.pool_used_bytes.saturating_sub(bytes);
     }
 
     /// Register external allocation (KV cache, activations, etc).
-    pub fn set_external(&mut self, bytes: u64) { self.external_used_bytes = bytes; }
-    pub fn add_external(&mut self, bytes: u64) { self.external_used_bytes += bytes; }
+    pub fn set_external(&mut self, bytes: u64) {
+        self.external_used_bytes = bytes;
+    }
+    pub fn add_external(&mut self, bytes: u64) {
+        self.external_used_bytes += bytes;
+    }
     pub fn release_external(&mut self, bytes: u64) {
         self.external_used_bytes = self.external_used_bytes.saturating_sub(bytes);
     }

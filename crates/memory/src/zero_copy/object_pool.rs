@@ -63,10 +63,12 @@ impl<T: Default> TypedObjectPool<T> {
     pub fn acquire(&self) -> Option<T> {
         let mut pool = self.pool.lock();
         if let Some(obj) = pool.pop() {
-            self.reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.reused
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Some(obj)
         } else {
-            self.created.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.created
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Some(T::default())
         }
     }

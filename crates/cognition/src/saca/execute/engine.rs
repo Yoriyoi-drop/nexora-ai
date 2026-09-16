@@ -520,7 +520,11 @@ impl SandboxCodeExecutor {
                 Ok(ExecutionOutput {
                     success,
                     stdout,
-                    error_logs: if success { vec![] } else { vec![stderr.clone()] },
+                    error_logs: if success {
+                        vec![]
+                    } else {
+                        vec![stderr.clone()]
+                    },
                     stderr,
                     exit_code: output.status.code().unwrap_or(-1),
                     execution_time: Some(elapsed.as_millis() as u64),

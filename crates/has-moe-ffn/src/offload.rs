@@ -206,12 +206,12 @@ pub struct ExpertOffloader {
 impl ExpertOffloader {
     /// Create offloader for N experts with given dimensions.
     /// `cpu_weights` must contain ALL experts' weights.
-    pub fn new(
-        config: OffloadConfig,
-        cpu_weights: Vec<ExpertWeights>,
-    ) -> Self {
+    pub fn new(config: OffloadConfig, cpu_weights: Vec<ExpertWeights>) -> Self {
         let num_experts = cpu_weights.len();
-        let expert_size = cpu_weights.first().map(|w| w.size_bytes() as u64).unwrap_or(0);
+        let expert_size = cpu_weights
+            .first()
+            .map(|w| w.size_bytes() as u64)
+            .unwrap_or(0);
         let budget = if config.gpu_budget_bytes > 0 {
             config.gpu_budget_bytes
         } else {
@@ -241,10 +241,7 @@ impl ExpertOffloader {
     /// 2. Evicts cold experts if budget exceeded
     /// 3. Uploads missing experts async
     /// 4. Returns available & missing expert sets
-    pub fn prepare(
-        &mut self,
-        top_experts: &[usize],
-    ) -> OffloadBatch {
+    pub fn prepare(&mut self, top_experts: &[usize]) -> OffloadBatch {
         // Touch all requested experts (track LRU)
         let mut available = Vec::new();
         let mut missing = Vec::new();
@@ -258,12 +255,19 @@ impl ExpertOffloader {
                 available.push(eid);
             } else {
                 let urgency = self.compute_urgency(eid);
-                missing.push(OffloadCandidate { expert_id: eid, urgency });
+                missing.push(OffloadCandidate {
+                    expert_id: eid,
+                    urgency,
+                });
             }
         }
 
         // Sort missing by urgency (highest first)
-        missing.sort_by(|a, b| b.urgency.partial_cmp(&a.urgency).unwrap_or(std::cmp::Ordering::Equal));
+        missing.sort_by(|a, b| {
+            b.urgency
+                .partial_cmp(&a.urgency)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Upload missing experts (up to max_uploads_per_step)
         let mut uploaded = Vec::new();
@@ -372,7 +376,14 @@ impl ExpertOffloader {
             return;
         }
         // Co-occurrence: which experts appear together with recent ones?
-        let recent: Vec<usize> = self.router_history.iter().rev().take(5).flatten().copied().collect();
+        let recent: Vec<usize> = self
+            .router_history
+            .iter()
+            .rev()
+            .take(5)
+            .flatten()
+            .copied()
+            .collect();
         for &eid in &recent {
             if eid >= self.cpu_pool.len() {
                 continue;
@@ -408,7 +419,11 @@ impl ExpertOffloader {
         let max_freq = self.usage_freq.iter().max().copied().unwrap_or(1).max(1) as f32;
         let freq_norm = freq / max_freq;
         // Recency bonus: if it was used in last 5 router decisions
-        let recency = self.router_history.iter().rev().take(5)
+        let recency = self
+            .router_history
+            .iter()
+            .rev()
+            .take(5)
             .any(|h| h.contains(&expert_id));
         let recency_bonus = if recency { 0.3 } else { 0.0 };
         (0.7 * freq_norm + 0.3) + recency_bonus
@@ -466,7 +481,14 @@ mod tests {
         let fc1_b = vec![0.0f32; inter];
         let fc2_w = vec![0.1f32; hidden * inter];
         let fc2_b = vec![0.0f32; hidden];
-        ExpertWeights { fc1_w, fc1_b, fc2_w, fc2_b, hidden_size: hidden, intermediate_size: inter }
+        ExpertWeights {
+            fc1_w,
+            fc1_b,
+            fc2_w,
+            fc2_b,
+            hidden_size: hidden,
+            intermediate_size: inter,
+        }
     }
 
     #[test]

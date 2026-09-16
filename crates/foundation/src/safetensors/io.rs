@@ -135,9 +135,8 @@ pub fn save_safetensors_with_meta(
         __metadata__: metadata,
         tensors: header_map,
     };
-    let header_json = serde_json::to_string(&header_obj).map_err(|e| {
-        FoundationError::Configuration(format!("JSON serialize header: {}", e))
-    })?;
+    let header_json = serde_json::to_string(&header_obj)
+        .map_err(|e| FoundationError::Configuration(format!("JSON serialize header: {}", e)))?;
     let header_bytes = header_json.as_bytes();
     let header_len = header_bytes.len() as u64;
 
@@ -201,13 +200,11 @@ pub fn load_safetensors_with_meta(
         )));
     }
 
-    let header_json = std::str::from_utf8(&raw[8..header_end]).map_err(|e| {
-        FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e))
-    })?;
+    let header_json = std::str::from_utf8(&raw[8..header_end])
+        .map_err(|e| FoundationError::Configuration(format!("Invalid UTF-8 in header: {}", e)))?;
 
-    let header: SafetensorsHeader = serde_json::from_str(header_json).map_err(|e| {
-        FoundationError::Configuration(format!("Invalid JSON header: {}", e))
-    })?;
+    let header: SafetensorsHeader = serde_json::from_str(header_json)
+        .map_err(|e| FoundationError::Configuration(format!("Invalid JSON header: {}", e)))?;
 
     const MAX_TENSOR_ELEMENTS: usize = 500_000_000; // 500M elements ~ 2GB for F32
 
@@ -238,9 +235,7 @@ pub fn load_safetensors_with_meta(
                 }
                 v
             }
-            "F16" => {
-                f16_bytes_to_f32_slice(bytes)
-            }
+            "F16" => f16_bytes_to_f32_slice(bytes),
             other => {
                 return Err(FoundationError::Configuration(format!(
                     "Unsupported dtype '{}' for tensor '{}' (supported: F32, F16)",
@@ -250,10 +245,7 @@ pub fn load_safetensors_with_meta(
         };
 
         let arr = ArrayD::from_shape_vec(entry.shape.clone(), floats).map_err(|e| {
-            FoundationError::Configuration(format!(
-                "Shape mismatch for tensor '{}': {}",
-                name, e
-            ))
+            FoundationError::Configuration(format!("Shape mismatch for tensor '{}': {}", name, e))
         })?;
         result.insert(name.clone(), arr);
     }
@@ -262,9 +254,7 @@ pub fn load_safetensors_with_meta(
 }
 
 /// Load safetensors into f32 tensors (metadata is discarded).
-pub fn load_safetensors(
-    path: impl AsRef<Path>,
-) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
+pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<String, ArrayD<f32>>> {
     load_safetensors_with_meta(path).map(|(tensors, _meta)| tensors)
 }
 

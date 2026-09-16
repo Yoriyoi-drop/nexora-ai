@@ -286,19 +286,23 @@ impl TokenSequenceProcessor {
     /// Validate token sequence
     pub fn validate_sequence(&self, tokens: &[UnifiedToken]) -> Result<()> {
         if tokens.len() > self.max_sequence_length {
-            return Err(crate::multimodal::error::CaffeineError::tokenizer(&format!(
-                "Sequence length {} exceeds maximum {}",
-                tokens.len(),
-                self.max_sequence_length
-            )));
+            return Err(crate::multimodal::error::CaffeineError::tokenizer(
+                &format!(
+                    "Sequence length {} exceeds maximum {}",
+                    tokens.len(),
+                    self.max_sequence_length
+                ),
+            ));
         }
 
         for token in tokens {
             if token.token_id >= self.vocab_size {
-                return Err(crate::multimodal::error::CaffeineError::tokenizer(&format!(
-                    "Token ID {} exceeds vocabulary size {}",
-                    token.token_id, self.vocab_size
-                )));
+                return Err(crate::multimodal::error::CaffeineError::tokenizer(
+                    &format!(
+                        "Token ID {} exceeds vocabulary size {}",
+                        token.token_id, self.vocab_size
+                    ),
+                ));
             }
         }
 

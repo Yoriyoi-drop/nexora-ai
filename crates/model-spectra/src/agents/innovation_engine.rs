@@ -485,19 +485,17 @@ impl BaseAgent for InnovationEngineAgent {
         let overall_score = (word_count * 0.02).min(0.9).max(0.1);
 
         Ok(InnovationTaskOutput {
-            generated_concepts: vec![
-                GeneratedConcept {
-                    id: "concept_1".to_string(),
-                    name: "Preliminary concept".to_string(),
-                    description: input.description.clone(),
-                    features: HashMap::new(),
-                    innovation_type: InnovationStrategy::Incremental,
-                    generation_method: GenerationMethod::Guided,
-                    novelty_score: 0.3,
-                    feasibility_score: 0.5,
-                    impact_score: 0.4,
-                },
-            ],
+            generated_concepts: vec![GeneratedConcept {
+                id: "concept_1".to_string(),
+                name: "Preliminary concept".to_string(),
+                description: input.description.clone(),
+                features: HashMap::new(),
+                innovation_type: InnovationStrategy::Incremental,
+                generation_method: GenerationMethod::Guided,
+                novelty_score: 0.3,
+                feasibility_score: 0.5,
+                impact_score: 0.4,
+            }],
             innovation_scores: InnovationScores {
                 overall_score,
                 novelty_score: 0.4,

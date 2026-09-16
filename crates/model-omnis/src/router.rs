@@ -1,10 +1,16 @@
-use nexora_model_core::classifier_util;
-use nexora_has_moe_ffn::Router;
 use ndarray::Array2;
+use nexora_has_moe_ffn::Router;
+use nexora_model_core::classifier_util;
 use std::sync::OnceLock;
 
 pub const DOMAINS: [&str; 7] = [
-    "math", "science", "code", "creative", "reasoning", "factual", "general",
+    "math",
+    "science",
+    "code",
+    "creative",
+    "reasoning",
+    "factual",
+    "general",
 ];
 
 static ROUTER: OnceLock<OmnisMoERouter> = OnceLock::new();
@@ -19,7 +25,10 @@ impl OmnisMoERouter {
         let hidden_size = embed_table.shape()[1];
         let mut moe_router = Router::new(hidden_size, DOMAINS.len(), 2);
         moe_router.init_random();
-        Self { moe_router, embed_table }
+        Self {
+            moe_router,
+            embed_table,
+        }
     }
 
     pub fn predict(&self, token_ids: &[u32]) -> Vec<(String, f32)> {
@@ -48,13 +57,34 @@ pub fn init_router(embed_table: Array2<f32>) {
 }
 
 const EXPERT_PROMPTS: &[(&str, &str)] = &[
-    ("math", "You are a mathematics expert. Solve step-by-step with clear reasoning."),
-    ("science", "You are a science expert. Provide accurate, evidence-based explanations."),
-    ("code", "You are a code expert. Write clean, idiomatic, well-documented code."),
-    ("creative", "You are a creative writing expert. Be imaginative and engaging."),
-    ("reasoning", "You are a logical reasoning expert. Analyze systematically from first principles."),
-    ("factual", "You are a factual knowledge expert. Provide precise, well-sourced information."),
-    ("general", "You are a general-purpose assistant. Respond helpfully and accurately."),
+    (
+        "math",
+        "You are a mathematics expert. Solve step-by-step with clear reasoning.",
+    ),
+    (
+        "science",
+        "You are a science expert. Provide accurate, evidence-based explanations.",
+    ),
+    (
+        "code",
+        "You are a code expert. Write clean, idiomatic, well-documented code.",
+    ),
+    (
+        "creative",
+        "You are a creative writing expert. Be imaginative and engaging.",
+    ),
+    (
+        "reasoning",
+        "You are a logical reasoning expert. Analyze systematically from first principles.",
+    ),
+    (
+        "factual",
+        "You are a factual knowledge expert. Provide precise, well-sourced information.",
+    ),
+    (
+        "general",
+        "You are a general-purpose assistant. Respond helpfully and accurately.",
+    ),
 ];
 
 pub fn domain_system_prompt(domain: &str) -> &'static str {

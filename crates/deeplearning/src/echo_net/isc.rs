@@ -13,10 +13,10 @@
 //! Ini mengubah distribusi resonansi kembali ke representasi token yang dapat digunakan
 //! untuk output atau layer berikutnya.
 
+use crate::autograd::{Tensor, TensorOps};
 use crate::echo_net::utils::{Complex, HolographicFFT};
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use crate::autograd::{Tensor, TensorOps};
 use std::f32::consts::PI;
 
 /// Spectral collapse configuration

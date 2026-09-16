@@ -35,7 +35,10 @@ impl CudaTensor {
         if expected != self.numel() {
             return Err(format!(
                 "CudaTensor reshape: {:?} -> {:?} element count mismatch ({} vs {})",
-                self.shape, new_shape, self.numel(), expected
+                self.shape,
+                new_shape,
+                self.numel(),
+                expected
             ));
         }
         Ok(CudaTensor {
@@ -50,7 +53,12 @@ impl CudaTensor {
     }
 
     /// Create a CUDA tensor from host data.
-    pub fn from_cpu(stream: &Arc<CudaStream>, shape: Vec<usize>, data: &[f32], device_id: usize) -> Result<Self, String> {
+    pub fn from_cpu(
+        stream: &Arc<CudaStream>,
+        shape: Vec<usize>,
+        data: &[f32],
+        device_id: usize,
+    ) -> Result<Self, String> {
         let numel: usize = shape.iter().product();
         if data.len() < numel {
             return Err(format!(
@@ -70,7 +78,11 @@ impl CudaTensor {
     }
 
     /// Create a zero-filled CUDA tensor directly on GPU — no CPU Vec<f32> intermediate.
-    pub fn zeros(stream: &Arc<CudaStream>, shape: Vec<usize>, device_id: usize) -> Result<Self, String> {
+    pub fn zeros(
+        stream: &Arc<CudaStream>,
+        shape: Vec<usize>,
+        device_id: usize,
+    ) -> Result<Self, String> {
         let numel: usize = shape.iter().product();
         let buffer = stream
             .alloc_zeros::<f32>(numel)

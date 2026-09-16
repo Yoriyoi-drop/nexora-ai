@@ -142,14 +142,7 @@ fn bench_large_batch(c: &mut Criterion) {
     let requests: Vec<InferenceRequest> = (0..256)
         .map(|i| make_request(vec![i as u32, (i + 1) as u32], 64))
         .collect();
-    run_bench(
-        c,
-        "batch_256_seq_64tok_64slot",
-        config,
-        requests,
-        0,
-        2000,
-    );
+    run_bench(c, "batch_256_seq_64tok_64slot", config, requests, 0, 2000);
 }
 
 fn bench_spike_load(c: &mut Criterion) {
@@ -164,14 +157,7 @@ fn bench_spike_load(c: &mut Criterion) {
     let requests: Vec<InferenceRequest> = (0..200)
         .map(|i| make_request(vec![i as u32, (i + 1) as u32], 10))
         .collect();
-    run_bench(
-        c,
-        "spike_200_seq_10tok",
-        config,
-        requests,
-        0,
-        5000,
-    );
+    run_bench(c, "spike_200_seq_10tok", config, requests, 0, 5000);
 }
 
 fn bench_mixed_workload(c: &mut Criterion) {
@@ -188,19 +174,9 @@ fn bench_mixed_workload(c: &mut Criterion) {
         requests.push(make_request(vec![i as u32, i as u32 + 1], 4));
     }
     for i in 0..20 {
-        requests.push(make_request(
-            vec![(80 + i) as u32, (80 + i + 1) as u32],
-            50,
-        ));
+        requests.push(make_request(vec![(80 + i) as u32, (80 + i + 1) as u32], 50));
     }
-    run_bench(
-        c,
-        "mixed_80short_20long",
-        config,
-        requests,
-        0,
-        2000,
-    );
+    run_bench(c, "mixed_80short_20long", config, requests, 0, 2000);
 }
 
 fn bench_starvation_avoidance(c: &mut Criterion) {
@@ -219,10 +195,7 @@ fn bench_starvation_avoidance(c: &mut Criterion) {
         requests.push(make_request(vec![i as u32, i as u32 + 1], 4));
     }
     for i in 0..10 {
-        requests.push(make_request(
-            vec![(40 + i) as u32, (40 + i + 1) as u32],
-            80,
-        ));
+        requests.push(make_request(vec![(40 + i) as u32, (40 + i + 1) as u32], 80));
     }
     run_bench(
         c,

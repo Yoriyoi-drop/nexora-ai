@@ -6,8 +6,8 @@
 //! - Duration estimation based on action category heuristics
 //! - Plan optimisation by parallelising independent steps
 
-use async_trait::async_trait;
 use crate::{FoundationError, FoundationResult};
+use async_trait::async_trait;
 use std::collections::{HashMap, HashSet, VecDeque};
 use uuid::Uuid;
 

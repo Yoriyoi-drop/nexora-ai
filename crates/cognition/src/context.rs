@@ -8,8 +8,8 @@
 //! - prune_context: removes entries below importance threshold
 //! - retrieve_relevant: TF-IDF cosine similarity without external embedding backend
 
-use async_trait::async_trait;
 use crate::{FoundationError, FoundationResult};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use uuid::Uuid;
 

@@ -111,8 +111,6 @@ impl QuantizedLinearLayer {
     }
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizationReport {
     pub f32_bytes: usize,
@@ -155,6 +153,4 @@ mod tests {
         let deq = qlinear.dequantize();
         assert_eq!(deq.weight.dim(), linear.weight.dim());
     }
-
-
 }

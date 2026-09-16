@@ -23,7 +23,11 @@ impl LoraWeights {
         // B: zeros
         let lora_b = Array2::zeros((rank, out_dim));
         let scaling = alpha / rank as f32;
-        Self { lora_a, lora_b, scaling }
+        Self {
+            lora_a,
+            lora_b,
+            scaling,
+        }
     }
 
     /// Apply LoRA: output += (x @ A) @ B * scaling
@@ -76,8 +80,13 @@ impl LayerLoRA {
         let sum = |w: &Option<LoraWeights>| -> usize {
             w.as_ref().map_or(0, |l| l.lora_a.len() + l.lora_b.len())
         };
-        sum(&self.q) + sum(&self.k) + sum(&self.v) + sum(&self.o)
-            + sum(&self.w1) + sum(&self.w2) + sum(&self.w3)
+        sum(&self.q)
+            + sum(&self.k)
+            + sum(&self.v)
+            + sum(&self.o)
+            + sum(&self.w1)
+            + sum(&self.w2)
+            + sum(&self.w3)
     }
 }
 
@@ -91,7 +100,10 @@ pub fn save_lora_adapters(
     let mut arrays: Vec<ndarray::ArrayD<f32>> = Vec::new();
 
     for layer in adapters {
-        let save = |name: &str, w: &Option<LoraWeights>, keys: &mut Vec<String>, vals: &mut Vec<ndarray::ArrayD<f32>>| {
+        let save = |name: &str,
+                    w: &Option<LoraWeights>,
+                    keys: &mut Vec<String>,
+                    vals: &mut Vec<ndarray::ArrayD<f32>>| {
             if let Some(ref lw) = w {
                 keys.push(format!("lora.{}.{}.a", layer.layer_idx, name));
                 vals.push(lw.lora_a.clone().into_dyn());
@@ -108,7 +120,8 @@ pub fn save_lora_adapters(
         save("w3", &layer.w3, &mut tensors, &mut arrays);
     }
 
-    let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors.iter()
+    let refs: Vec<(&str, ndarray::ArrayD<f32>)> = tensors
+        .iter()
         .zip(arrays.into_iter())
         .map(|(k, v)| (k.as_str(), v))
         .collect();
@@ -132,9 +145,7 @@ pub fn load_lora_adapters(
 ) -> Result<Vec<LayerLoRA>, Box<dyn std::error::Error>> {
     let loaded = crate::safetensors::load_safetensors(path)?;
 
-    let mut adapters: Vec<LayerLoRA> = (0..num_layers)
-        .map(|i| LayerLoRA::new(i))
-        .collect();
+    let mut adapters: Vec<LayerLoRA> = (0..num_layers).map(|i| LayerLoRA::new(i)).collect();
 
     for (key, tensor) in loaded.iter() {
         // Parse key format: "lora.{layer_idx}.{weight_name}.{a|b}"

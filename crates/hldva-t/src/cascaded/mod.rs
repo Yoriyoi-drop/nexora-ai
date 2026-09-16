@@ -13,7 +13,8 @@ pub mod upsampler;
 use crate::{
     config::{CascadedConfig, UpsamplerConfig},
     dit::{DiTModel, LayerNorm, Linear, GELU},
-    gpu_ops, types::*,
+    gpu_ops,
+    types::*,
 };
 use nexora_atqs::Tensor;
 
@@ -260,7 +261,11 @@ impl UpsamplerStage {
         let noise_data = predicted_noise.data();
         let mut denoised = Vec::with_capacity(noisy_data.len());
         for i in 0..noisy_data.len() {
-            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            let nv = if i < noise_data.len() {
+                noise_data[i]
+            } else {
+                0.0
+            };
             denoised.push(noisy_data[i] - alpha * nv);
         }
         Ok(Tensor::new(denoised, noisy_latent.shape().to_vec()))
@@ -437,7 +442,9 @@ impl NoiseConditioningAugmentation {
         };
 
         if gpu_ops::gpu_available() {
-            let noise_data: Vec<f32> = (0..latent.data.data().len()).map(|_| self.randn() * noise_level).collect();
+            let noise_data: Vec<f32> = (0..latent.data.data().len())
+                .map(|_| self.randn() * noise_level)
+                .collect();
             let noise_t = Tensor::new(noise_data, latent.data.shape().to_vec());
             let noisy = gpu_ops::gpu_add(&latent.data, &noise_t)?;
             return Ok(LatentSpace::new(noisy, latent.resolution, latent.channels));

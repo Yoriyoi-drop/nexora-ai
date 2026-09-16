@@ -153,7 +153,9 @@ impl GpuRecoveryManager {
 
         let consecutive = self.consecutive_failures.load(Ordering::Relaxed);
         if consecutive >= threshold {
-            let prev = self.circuit_state.swap(CircuitState::Open.to_u32(), Ordering::Release);
+            let prev = self
+                .circuit_state
+                .swap(CircuitState::Open.to_u32(), Ordering::Release);
             if prev != CircuitState::Open.to_u32() {
                 self.circuit_break_events.fetch_add(1, Ordering::Relaxed);
                 tracing::error!(
@@ -171,7 +173,9 @@ impl GpuRecoveryManager {
     pub fn record_recovery(&self) {
         self.consecutive_failures.store(0, Ordering::Relaxed);
         self.recovered_count.fetch_add(1, Ordering::Relaxed);
-        let prev = self.circuit_state.swap(CircuitState::Closed.to_u32(), Ordering::Release);
+        let prev = self
+            .circuit_state
+            .swap(CircuitState::Closed.to_u32(), Ordering::Release);
         if let Ok(mut t) = self.last_recovery_time.lock() {
             *t = Some(Instant::now());
         }
@@ -232,7 +236,8 @@ impl GpuRecoveryManager {
         let mut last_err = None;
         for attempt in 0..=max_retries {
             if attempt > 0 {
-                let backoff_ms = self.backoff_duration(attempt, base_backoff, max_backoff, jitter_factor);
+                let backoff_ms =
+                    self.backoff_duration(attempt, base_backoff, max_backoff, jitter_factor);
                 std::thread::sleep(backoff_ms);
             }
 
@@ -252,7 +257,13 @@ impl GpuRecoveryManager {
                     }
 
                     // DeviceLost gets fewer retries
-                    if attempt >= self.config.lock().map(|c| c.max_retries_for(kind)).unwrap_or(1) {
+                    if attempt
+                        >= self
+                            .config
+                            .lock()
+                            .map(|c| c.max_retries_for(kind))
+                            .unwrap_or(1)
+                    {
                         return Err(e);
                     }
 
@@ -261,7 +272,11 @@ impl GpuRecoveryManager {
                         attempt + 1,
                         max_retries + 1,
                         e,
-                        if tripped { "Circuit breaker OPENED!" } else { "Retrying..." }
+                        if tripped {
+                            "Circuit breaker OPENED!"
+                        } else {
+                            "Retrying..."
+                        }
                     );
                     last_err = Some(e);
                 }
@@ -272,13 +287,7 @@ impl GpuRecoveryManager {
     }
 
     /// Compute exponential backoff with jitter.
-    fn backoff_duration(
-        &self,
-        attempt: u32,
-        base_ms: u64,
-        max_ms: u64,
-        jitter: f64,
-    ) -> Duration {
+    fn backoff_duration(&self, attempt: u32, base_ms: u64, max_ms: u64, jitter: f64) -> Duration {
         let exp = base_ms.saturating_mul(1u64 << attempt.saturating_sub(1).min(10));
         let capped = exp.min(max_ms);
         let jitter_amount = (capped as f64 * jitter) as u64;

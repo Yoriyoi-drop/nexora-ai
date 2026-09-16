@@ -10,7 +10,6 @@
 ///   Values are quantized to signed 4-bit range [-8, 7].
 ///   Two values are packed per byte: byte = (val0 << 4) | (val1 & 0x0F).
 ///   Scales are stored per-head as f32: `num_kv_heads` scales.
-
 use ndarray::Array2;
 
 /// Quantize a flat K/V slice into packed 4-bit with per-head scales.
@@ -117,7 +116,12 @@ pub fn quantize_kv_2d(
     head_dim: usize,
 ) -> (Vec<u8>, Vec<f32>) {
     let seq_len = kv.shape()[0];
-    quantize_4bit(kv.as_slice().unwrap_or(&[]), num_kv_heads, head_dim, seq_len)
+    quantize_4bit(
+        kv.as_slice().unwrap_or(&[]),
+        num_kv_heads,
+        head_dim,
+        seq_len,
+    )
 }
 
 /// Decompress back to 2D array (shape `[seq_len, kv_dim]`).
@@ -167,7 +171,8 @@ mod tests {
 
     #[test]
     fn test_dequantize_2d() {
-        let kv = Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
+        let kv =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
         let (packed, scales) = quantize_kv_2d(&kv, 2, 2);
         let deq = dequantize_kv_2d(&packed, &scales, 2, 2, 2);
         assert_eq!(deq.shape(), &[2, 4]);
@@ -180,12 +185,22 @@ mod tests {
         let data: Vec<f32> = (0..1024).map(|_| rng.gen::<f32>() * 10.0 - 5.0).collect();
         let (packed, scales) = quantize_4bit(&data, 8, 16, 8); // 8 heads, head_dim=16, 8 tokens
         let deq = dequantize_4bit(&packed, &scales, 8, 16, 8);
-        let max_err: f32 = data.iter().zip(deq.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        let max_err: f32 = data
+            .iter()
+            .zip(deq.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
         // Max theoretical error: scale * 0.5 (rounding). With max_abs/7 scale, max error ≈ (max/7)*0.5
         assert!(max_err < 2.0, "max error too large: {}", max_err);
     }
 }
 
 fn clamp(val: f32, min: f32, max: f32) -> f32 {
-    if val < min { min } else if val > max { max } else { val }
+    if val < min {
+        min
+    } else if val > max {
+        max
+    } else {
+        val
+    }
 }

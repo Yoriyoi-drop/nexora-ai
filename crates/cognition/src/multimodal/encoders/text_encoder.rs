@@ -189,7 +189,8 @@ impl TextEncoder {
         for layer_idx in 0..6 {
             // Multi-head attention with pre-norm
             let normed = layer_norm(&hidden, embed_dim);
-            let attn_out = self.multi_head_attention(&normed, seq_len, embed_dim, num_heads, head_dim)?;
+            let attn_out =
+                self.multi_head_attention(&normed, seq_len, embed_dim, num_heads, head_dim)?;
             hidden = &hidden + &attn_out;
 
             // FFN with pre-norm
@@ -199,7 +200,10 @@ impl TextEncoder {
         }
 
         let shape = vec![1, seq_len, embed_dim];
-        Ok(ArrayD::from_shape_vec(shape, hidden.into_raw_vec_and_offset().0)?)
+        Ok(ArrayD::from_shape_vec(
+            shape,
+            hidden.into_raw_vec_and_offset().0,
+        )?)
     }
 
     /// Multi-head self-attention
@@ -273,11 +277,23 @@ impl TextEncoder {
     /// Collect all trainable weights for checkpoint
     pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
         let mut weights = Vec::new();
-        weights.push(("text_encoder.token_embed.weight".to_string(), self.token_embedding.weight.clone().into_dyn()));
-        weights.push(("text_encoder.qkv_proj".to_string(), self.qkv_proj.clone().into_dyn()));
+        weights.push((
+            "text_encoder.token_embed.weight".to_string(),
+            self.token_embedding.weight.clone().into_dyn(),
+        ));
+        weights.push((
+            "text_encoder.qkv_proj".to_string(),
+            self.qkv_proj.clone().into_dyn(),
+        ));
         for (i, ffn) in self.ffn_layers.iter().enumerate() {
-            weights.push((format!("text_encoder.ffn_{}.fc1", i), ffn.fc1.clone().into_dyn()));
-            weights.push((format!("text_encoder.ffn_{}.fc2", i), ffn.fc2.clone().into_dyn()));
+            weights.push((
+                format!("text_encoder.ffn_{}.fc1", i),
+                ffn.fc1.clone().into_dyn(),
+            ));
+            weights.push((
+                format!("text_encoder.ffn_{}.fc2", i),
+                ffn.fc2.clone().into_dyn(),
+            ));
         }
         weights
     }

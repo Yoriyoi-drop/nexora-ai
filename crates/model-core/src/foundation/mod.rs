@@ -176,16 +176,36 @@ impl FoundationModel {
         Ok(())
     }
 
-    pub fn omnis() -> Self { Self::new(NxrModelId::Omnis) }
-    pub fn vortex() -> Self { Self::new(NxrModelId::Vortex) }
-    pub fn aether() -> Self { Self::new(NxrModelId::Aether) }
-    pub fn spectra() -> Self { Self::new(NxrModelId::Spectra) }
-    pub fn nexum() -> Self { Self::new(NxrModelId::Nexum) }
-    pub fn axiom() -> Self { Self::new(NxrModelId::Axiom) }
-    pub fn cipher() -> Self { Self::new(NxrModelId::Cipher) }
-    pub fn swift() -> Self { Self::new(NxrModelId::Swift) }
-    pub fn kronos() -> Self { Self::new(NxrModelId::Kronos) }
-    pub fn genesis() -> Self { Self::new(NxrModelId::Genesis) }
+    pub fn omnis() -> Self {
+        Self::new(NxrModelId::Omnis)
+    }
+    pub fn vortex() -> Self {
+        Self::new(NxrModelId::Vortex)
+    }
+    pub fn aether() -> Self {
+        Self::new(NxrModelId::Aether)
+    }
+    pub fn spectra() -> Self {
+        Self::new(NxrModelId::Spectra)
+    }
+    pub fn nexum() -> Self {
+        Self::new(NxrModelId::Nexum)
+    }
+    pub fn axiom() -> Self {
+        Self::new(NxrModelId::Axiom)
+    }
+    pub fn cipher() -> Self {
+        Self::new(NxrModelId::Cipher)
+    }
+    pub fn swift() -> Self {
+        Self::new(NxrModelId::Swift)
+    }
+    pub fn kronos() -> Self {
+        Self::new(NxrModelId::Kronos)
+    }
+    pub fn genesis() -> Self {
+        Self::new(NxrModelId::Genesis)
+    }
 
     pub fn from_checkpoint(path: &str) -> Self {
         let model_id = NxrModelId::Omnis;
@@ -217,12 +237,7 @@ impl FoundationModel {
 
 impl std::fmt::Debug for FoundationModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let model_initialized = self
-            .model
-            .lock()
-            .ok()
-            .map(|g| g.is_some())
-            .unwrap_or(false);
+        let model_initialized = self.model.lock().ok().map(|g| g.is_some()).unwrap_or(false);
         f.debug_struct("FoundationModel")
             .field("model_id", &self.model_id)
             .field("tokenizer", &self.tokenizer.is_some())
@@ -294,9 +309,16 @@ impl NxrModel for FoundationModel {
         let model_id = self.model_id.to_string();
         let inferences = self.inference_count.load(Ordering::Relaxed);
         let status = tokio::task::spawn_blocking(move || {
-            model.lock()
+            model
+                .lock()
                 .ok()
-                .map(|g| if g.is_some() { "ready" } else { "uninitialized" })
+                .map(|g| {
+                    if g.is_some() {
+                        "ready"
+                    } else {
+                        "uninitialized"
+                    }
+                })
                 .unwrap_or("poisoned")
                 .to_string()
         })
@@ -400,15 +422,16 @@ impl NxrModel for FoundationModel {
         let model_arc = self.model.clone();
         let (elapsed_ms, output_ids, memory_gb) = tokio::task::spawn_blocking(move || {
             let guard = model_arc.lock().unwrap_or_else(|e| {
-                tracing::warn!("Mutex poisoned during infer, recovering — model state may be inconsistent");
+                tracing::warn!(
+                    "Mutex poisoned during infer, recovering — model state may be inconsistent"
+                );
                 e.into_inner()
             });
             let model = guard.as_deref().ok_or_else(|| {
                 NxrModelError::NotInitialized("Model failed to initialize".to_string())
             })?;
             let start = Instant::now();
-            let (output_ids, _cache) =
-                model.generate(&prompt_ids, max_tokens, temperature, top_k);
+            let (output_ids, _cache) = model.generate(&prompt_ids, max_tokens, temperature, top_k);
             let elapsed_ms = start.elapsed().as_millis() as u64;
             let memory_gb = model.memory_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
             Ok::<_, NxrModelError>((elapsed_ms, output_ids, memory_gb))
@@ -422,8 +445,7 @@ impl NxrModel for FoundationModel {
         self.inference_count.fetch_add(1, Ordering::Relaxed);
         self.total_generated
             .fetch_add(n_tokens as u64, Ordering::Relaxed);
-        self.total_time_ms
-            .fetch_add(elapsed_ms, Ordering::Relaxed);
+        self.total_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
 
         let mut output = NxrOutput {
             id: uuid::Uuid::new_v4(),
@@ -631,14 +653,9 @@ impl NxrModel for FoundationModel {
 
     async fn is_ready(&self) -> bool {
         let model = self.model.clone();
-        tokio::task::spawn_blocking(move || {
-            model.lock()
-                .ok()
-                .map(|g| g.is_some())
-                .unwrap_or(false)
-        })
-        .await
-        .unwrap_or(false)
+        tokio::task::spawn_blocking(move || model.lock().ok().map(|g| g.is_some()).unwrap_or(false))
+            .await
+            .unwrap_or(false)
     }
 
     async fn resource_usage(&self) -> Result<ResourceUsage, NxrModelError> {

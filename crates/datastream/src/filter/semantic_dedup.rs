@@ -142,7 +142,11 @@ impl SemanticDedupFilter {
         let mut shared = 0usize;
         while i < sorted_a.len() && j < sorted_b.len() {
             match sorted_a[i].cmp(&sorted_b[j]) {
-                std::cmp::Ordering::Equal => { shared += 1; i += 1; j += 1; }
+                std::cmp::Ordering::Equal => {
+                    shared += 1;
+                    i += 1;
+                    j += 1;
+                }
                 std::cmp::Ordering::Less => i += 1,
                 std::cmp::Ordering::Greater => j += 1,
             }
@@ -161,7 +165,9 @@ impl Filter for SemanticDedupFilter {
     async fn evaluate(&self, sample: &DataSample) -> FilterResult {
         let sig = self.minhash_signature(&sample.text);
         let Ok(mut signatures) = self.signatures.try_lock() else {
-            tracing::warn!("SemanticDedupFilter::evaluate: signatures mutex poisoned, passing through");
+            tracing::warn!(
+                "SemanticDedupFilter::evaluate: signatures mutex poisoned, passing through"
+            );
             return FilterResult {
                 passed: true,
                 sample_id: sample.id,
@@ -171,7 +177,9 @@ impl Filter for SemanticDedupFilter {
             };
         };
         let Ok(mut lsh) = self.lsh_index.try_lock() else {
-            tracing::warn!("SemanticDedupFilter::evaluate: lsh_index mutex poisoned, passing through");
+            tracing::warn!(
+                "SemanticDedupFilter::evaluate: lsh_index mutex poisoned, passing through"
+            );
             return FilterResult {
                 passed: true,
                 sample_id: sample.id,
@@ -197,7 +205,9 @@ impl Filter for SemanticDedupFilter {
 
         // Only compare against candidates (not all stored signatures)
         for &candidate_idx in &candidates {
-            if candidate_idx >= signatures.len() { continue; }
+            if candidate_idx >= signatures.len() {
+                continue;
+            }
             let similarity = Self::jaccard_similarity(&sig, &signatures[candidate_idx]);
             if similarity >= self.similarity_threshold {
                 return FilterResult {

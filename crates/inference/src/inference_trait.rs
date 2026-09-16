@@ -229,7 +229,8 @@ pub struct ObservabilitySnapshot {
 
 /// Collect a snapshot of all observability counters.
 pub fn observability_snapshot() -> ObservabilitySnapshot {
-    let gpu_ok = cfg!(feature = "gpu") && nexora_deeplearning::autograd::gpu::GpuContext::is_available();
+    let gpu_ok =
+        cfg!(feature = "gpu") && nexora_deeplearning::autograd::gpu::GpuContext::is_available();
     let gpu_tokens = GPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let cpu_tokens = CPU_TOKENS_GENERATED.load(Ordering::Relaxed);
     let total = gpu_tokens + cpu_tokens;
@@ -687,9 +688,7 @@ impl ModelForward for nexora_transformer::CausalLM {
                     .collect();
 
                 // Per-seq seeds: mix base seed with sequence index
-                let seeds: Vec<u64> = (0..n)
-                    .map(|i| seed.wrapping_add(i as u64))
-                    .collect();
+                let seeds: Vec<u64> = (0..n).map(|i| seed.wrapping_add(i as u64)).collect();
                 let top_ks_u32: Vec<u32> = top_ks.iter().map(|&k| k as u32).collect();
 
                 let result = self.forward_gpu_batched_sample(

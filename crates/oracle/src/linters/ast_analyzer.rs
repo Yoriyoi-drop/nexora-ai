@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use syn::{
-    visit::Visit, Expr, ExprCall, Item,
-};
+use syn::{visit::Visit, Expr, ExprCall, Item};
 
 use crate::linters::{CodeIssue, IssueSeverity};
 
@@ -39,7 +37,10 @@ fn is_test_item(item: &Item) -> bool {
         _ => return false,
     };
     attrs.iter().any(|a| {
-        let path_str = a.path().segments.iter()
+        let path_str = a
+            .path()
+            .segments
+            .iter()
             .map(|s| s.ident.to_string())
             .collect::<Vec<_>>()
             .join("::");
@@ -65,10 +66,14 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
         let ln = syn::spanned::Spanned::span(&node.unsafe_token).start().line;
         let block_text = quote::quote!(#node).to_string();
 
-        let has_ptr_deref = block_text.contains("*const") || block_text.contains("*mut")
-            || block_text.contains("as *") || block_text.contains("ptr::");
-        let has_ffi = block_text.contains("extern") || block_text.contains("FFI")
-            || block_text.contains("libc::") || block_text.contains("winapi::");
+        let has_ptr_deref = block_text.contains("*const")
+            || block_text.contains("*mut")
+            || block_text.contains("as *")
+            || block_text.contains("ptr::");
+        let has_ffi = block_text.contains("extern")
+            || block_text.contains("FFI")
+            || block_text.contains("libc::")
+            || block_text.contains("winapi::");
         let has_uninit = block_text.contains("uninitialized") || block_text.contains("zeroed");
         let has_union = block_text.contains("union") || block_text.contains(".__");
 
@@ -78,9 +83,13 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
                 category: "Security".to_string(),
                 message: format!(
                     "High-risk unsafe block: {}",
-                    if has_ptr_deref { "raw pointer dereference" }
-                    else if has_uninit { "uninitialized memory" }
-                    else { "union field access" }
+                    if has_ptr_deref {
+                        "raw pointer dereference"
+                    } else if has_uninit {
+                        "uninitialized memory"
+                    } else {
+                        "union field access"
+                    }
                 ),
                 line_number: Some(ln),
                 column_number: None,
@@ -131,7 +140,8 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
                 self.findings.push(CodeIssue {
                     severity: IssueSeverity::Warning,
                     category: "Security".to_string(),
-                    message: "std::process::exit() — aborts all cleanup. Prefer graceful shutdown".to_string(),
+                    message: "std::process::exit() — aborts all cleanup. Prefer graceful shutdown"
+                        .to_string(),
                     line_number: Some(ln),
                     column_number: None,
                     rule_id: "AST-PROCESS-EXIT".to_string(),
@@ -160,7 +170,8 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
     fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
         let mac_path = path_to_string(&node.mac.path);
         let lower = mac_path.to_lowercase();
-        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable" {
+        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable"
+        {
             let ln = syn::spanned::Spanned::span(node).start().line;
             let severity = match lower.as_str() {
                 "panic" | "unreachable" => IssueSeverity::Error,
@@ -192,7 +203,8 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
     fn visit_expr_macro(&mut self, node: &'ast syn::ExprMacro) {
         let mac_path = path_to_string(&node.mac.path);
         let lower = mac_path.to_lowercase();
-        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable" {
+        if lower == "panic" || lower == "todo" || lower == "unimplemented" || lower == "unreachable"
+        {
             let ln = syn::spanned::Spanned::span(node).start().line;
             let severity = match lower.as_str() {
                 "panic" | "unreachable" => IssueSeverity::Error,
@@ -247,7 +259,11 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
             let expr = &*init.expr;
             let expr_text = quote::quote!(#expr).to_string();
             let it = expr_text.to_lowercase().replace("format !", "format!");
-            if it.contains("select ") || it.contains("insert ") || it.contains("delete from ") || it.contains("update ") {
+            if it.contains("select ")
+                || it.contains("insert ")
+                || it.contains("delete from ")
+                || it.contains("update ")
+            {
                 if it.contains("format!") || it.contains("+ ") || it.contains("push_str") {
                     self.findings.push(CodeIssue {
                         severity: IssueSeverity::Critical,
@@ -264,7 +280,14 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
             let pat_lower = pat_text.to_lowercase();
 
             let mut hardcoded = false;
-            if pat_lower.contains("password") || pat_lower.contains("api_key") || pat_lower.contains("secret") || pat_lower.contains("auth_token") || pat_lower.contains("token") || pat_lower.contains("credential") || pat_lower.contains("apikey") {
+            if pat_lower.contains("password")
+                || pat_lower.contains("api_key")
+                || pat_lower.contains("secret")
+                || pat_lower.contains("auth_token")
+                || pat_lower.contains("token")
+                || pat_lower.contains("credential")
+                || pat_lower.contains("apikey")
+            {
                 if expr_text.contains(r#"""#) || expr_text.contains(r#"'"#) {
                     hardcoded = true;
                 }
@@ -272,7 +295,11 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
 
             if !hardcoded {
                 let expr_lower = expr_text.to_lowercase();
-                if expr_lower.contains("password") || expr_lower.contains("api_key") || expr_lower.contains("secret") || expr_lower.contains("auth_token") {
+                if expr_lower.contains("password")
+                    || expr_lower.contains("api_key")
+                    || expr_lower.contains("secret")
+                    || expr_lower.contains("auth_token")
+                {
                     if expr_lower.contains(r#""#) || expr_lower.contains(r#"'"#) {
                         hardcoded = true;
                     }
@@ -283,7 +310,9 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
                 self.findings.push(CodeIssue {
                     severity: IssueSeverity::Error,
                     category: "Security".to_string(),
-                    message: "Hardcoded secret detected — use environment variables or secret store".to_string(),
+                    message:
+                        "Hardcoded secret detected — use environment variables or secret store"
+                            .to_string(),
                     line_number: Some(ln),
                     column_number: None,
                     rule_id: "AST-HARDCODED-SECRET".to_string(),
@@ -312,7 +341,11 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
                     category: "Security".to_string(),
                     message: format!(
                         "#[{}] on `{}` — symbol export may bypass ASLR. Ensure this is intentional",
-                        if has_no_mangle { "no_mangle" } else { "export_name" },
+                        if has_no_mangle {
+                            "no_mangle"
+                        } else {
+                            "export_name"
+                        },
                         func.sig.ident,
                     ),
                     line_number: Some(ln),
@@ -341,7 +374,11 @@ impl<'ast> Visit<'ast> for RustSecurityVisitor<'ast> {
 }
 
 fn path_to_string(path: &syn::Path) -> String {
-    path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::")
+    path.segments
+        .iter()
+        .map(|s| s.ident.to_string())
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 /// Analyze Rust code using syn AST parser
@@ -379,8 +416,12 @@ pub fn analyze_rust_ast(code: &str) -> AstFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("ast_issues".to_string(), issues.len() as f32);
-    metrics.insert("ast_high_severity".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error)).count() as f32,
+    metrics.insert(
+        "ast_high_severity".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error))
+            .count() as f32,
     );
 
     AstFindings { issues, metrics }
@@ -390,13 +431,17 @@ fn check_recursive_types(file: &syn::File, issues: &mut Vec<CodeIssue>) {
     for item in &file.items {
         if let syn::Item::Struct(ref s) = item {
             let type_name = s.ident.to_string();
-            let field_types: Vec<String> = s.fields.iter()
+            let field_types: Vec<String> = s
+                .fields
+                .iter()
                 .map(|f| quote::quote!(#f.ty).to_string())
                 .collect();
 
             if field_types.iter().any(|ft| ft.contains(&type_name)) {
                 let line = syn::spanned::Spanned::span(item).start().line;
-                if !field_types.iter().any(|ft| ft.contains("Box<")) && !field_types.iter().any(|ft| ft.contains("Arc<")) {
+                if !field_types.iter().any(|ft| ft.contains("Box<"))
+                    && !field_types.iter().any(|ft| ft.contains("Arc<"))
+                {
                     issues.push(CodeIssue {
                         severity: IssueSeverity::Warning,
                         category: "Security".to_string(),
@@ -529,7 +574,10 @@ fn foo() {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-UNSAFE-HIGH"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-UNSAFE-HIGH"));
     }
 
     #[test]
@@ -540,7 +588,10 @@ fn run(cmd: &str) {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-CMD-INJECTION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-CMD-INJECTION"));
     }
 
     #[test]
@@ -563,7 +614,10 @@ struct Node {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-RECURSIVE-TYPE"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-RECURSIVE-TYPE"));
     }
 
     #[test]
@@ -572,7 +626,10 @@ struct Node {
 let query = format!("SELECT * FROM users WHERE id = {}", user_id);
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-SQL-FORMAT"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-SQL-FORMAT"));
     }
 
     #[test]
@@ -585,7 +642,10 @@ fn check(x: i32) {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-PANIC-MACRO"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-PANIC-MACRO"));
     }
 
     #[test]
@@ -596,7 +656,10 @@ fn process() {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-TODO-MACRO"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-TODO-MACRO"));
     }
 
     #[test]
@@ -629,7 +692,10 @@ fn cleanup() {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-PROCESS-EXIT"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-PROCESS-EXIT"));
     }
 
     #[test]
@@ -649,7 +715,10 @@ unsafe fn dangerous(p: *const u8) -> u8 {
 let api_key = "sk-1234567890abcdef";
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-HARDCODED-SECRET"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-HARDCODED-SECRET"));
     }
 
     #[test]
@@ -660,7 +729,10 @@ fn feature() {
 }
 "#;
         let findings = analyze_rust_ast(code);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "AST-UNIMPLEMENTED-MACRO"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "AST-UNIMPLEMENTED-MACRO"));
     }
 
     #[test]
@@ -679,7 +751,14 @@ mod tests {
 "#;
         let findings = analyze_rust_ast(code);
         // unwrap inside #[cfg(test)] should be filtered out
-        let unwrap_count = findings.issues.iter().filter(|i| i.rule_id == "AST-UNWRAP").count();
-        assert_eq!(unwrap_count, 0, "unwrap in #[cfg(test)] should not be flagged");
+        let unwrap_count = findings
+            .issues
+            .iter()
+            .filter(|i| i.rule_id == "AST-UNWRAP")
+            .count();
+        assert_eq!(
+            unwrap_count, 0,
+            "unwrap in #[cfg(test)] should not be flagged"
+        );
     }
 }

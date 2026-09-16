@@ -114,7 +114,10 @@ impl OracleVortexIntegration {
                 nexora_oracle::trainer::OracleConfig::default(),
                 size,
             ) {
-                Ok(t) => { trainer = Some(t); break; }
+                Ok(t) => {
+                    trainer = Some(t);
+                    break;
+                }
                 Err(e) => tracing::warn!("OracleTrainer(size={}) failed: {:?}", size, e),
             }
         }
@@ -198,7 +201,8 @@ mod tests {
 
     #[test]
     fn test_oracle_vortex_default_fallback_never_panics() {
-        let instance = OracleVortexIntegration::default_fallback().expect("default_fallback should succeed");
+        let instance =
+            OracleVortexIntegration::default_fallback().expect("default_fallback should succeed");
         assert!(instance.integration_config.enable_vortex_analysis);
         assert_eq!(instance.integration_config.analysis_depth, 4);
     }

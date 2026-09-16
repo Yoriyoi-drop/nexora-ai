@@ -83,8 +83,9 @@ impl GraphValidator {
 
             // Di sini sebenarnya akan dijalankan operasi sesungguhnya
             // Untuk eager mode, kita simulasikan output shapes berdasarkan input
-            if let Ok(output_shapes) = crate::gnac::smart_tensor::propagation::ShapePropagator::new()
-                .propagate(node, &input_shapes)
+            if let Ok(output_shapes) =
+                crate::gnac::smart_tensor::propagation::ShapePropagator::new()
+                    .propagate(node, &input_shapes)
             {
                 shapes.insert(node_id, output_shapes);
             }

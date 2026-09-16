@@ -119,10 +119,7 @@ impl CausalLmModel {
         // Weight di-load sekali untuk semua 10 model crates.
         let backbone = match nexora_transformer::resolve_single_backbone() {
             Ok(b) => {
-                info!(
-                    "Using shared single backbone for {:?}",
-                    model_id
-                );
+                info!("Using shared single backbone for {:?}", model_id);
                 b
             }
             Err(e) => {
@@ -168,8 +165,7 @@ impl CausalLmModel {
             if self.sedc_enabled {
                 match model.compress_sedc_default() {
                     Ok(Some(report)) => {
-                        let report_str =
-                            serde_json::to_string_pretty(&report).unwrap_or_default();
+                        let report_str = serde_json::to_string_pretty(&report).unwrap_or_default();
                         *self.sedc_report.write().await = Some(report_str);
                         info!("SEDC compression stored in model ✓");
                     }
@@ -211,7 +207,10 @@ impl CausalLmModel {
 
         *self.model.write().await = Some(model);
         *self.initialized.write().await = true;
-        info!("CausalLM model loaded: {} params", backbone.config.parameter_count());
+        info!(
+            "CausalLM model loaded: {} params",
+            backbone.config.parameter_count()
+        );
         Ok(())
     }
 
@@ -251,7 +250,6 @@ impl CausalLmModel {
 
     #[cfg(feature = "gpu")]
     pub async fn load_checkpoint_gpu(&self, path: &str) -> NxrModelResult<()> {
-        
         let tc = self.transformer_config.read().await.clone();
         let gpu_model = CausalLM::from_checkpoint_gpu(tc, path)
             .map_err(|e| NxrModelError::Inference(format!("GPU checkpoint load failed: {}", e)))?;
@@ -336,7 +334,11 @@ impl CausalLmModel {
                     .iter()
                     .filter_map(|t| {
                         let ids = tok.encode(t);
-                        if ids.len() >= 2 { Some(ids) } else { None }
+                        if ids.len() >= 2 {
+                            Some(ids)
+                        } else {
+                            None
+                        }
                     })
                     .collect(),
                 None => Vec::new(),
@@ -351,7 +353,11 @@ impl CausalLmModel {
             data.iter()
                 .filter_map(|t| {
                     let ids = tok.encode(t);
-                    if ids.len() >= 2 { Some(ids.len()) } else { None }
+                    if ids.len() >= 2 {
+                        Some(ids.len())
+                    } else {
+                        None
+                    }
                 })
                 .sum()
         };
@@ -392,9 +398,9 @@ impl CausalLmModel {
         while trainer.step < max_steps {
             let mut epoch: Vec<Vec<u32>> = {
                 let tokenizer = self.tokenizer.read().await;
-                let tok = tokenizer
-                    .as_ref()
-                    .ok_or_else(|| NxrModelError::NotInitialized("Tokenizer not loaded".to_string()))?;
+                let tok = tokenizer.as_ref().ok_or_else(|| {
+                    NxrModelError::NotInitialized("Tokenizer not loaded".to_string())
+                })?;
                 let mut batch: Vec<Vec<u32>> = Vec::with_capacity(data.len().min(10000));
                 for text in data {
                     let ids = tok.encode(text);
@@ -412,9 +418,13 @@ impl CausalLmModel {
                 }
                 let mut chunks: Vec<(&[u32], &[u32])> = Vec::new();
                 chunks.extend(sample.chunks(seq_length + 1).filter_map(|c| {
-                    if c.len() < 2 { return None; }
+                    if c.len() < 2 {
+                        return None;
+                    }
                     let seq = c.len().min(seq_length + 1);
-                    if seq < 2 { return None; }
+                    if seq < 2 {
+                        return None;
+                    }
                     let input = &c[..seq - 1];
                     let target = &c[1..seq];
                     Some((input, target))
@@ -732,7 +742,8 @@ impl NxrModel for CausalLmModel {
 
     async fn infer(&self, _input: &NxrInput) -> NxrModelResult<NxrOutput> {
         Err(NxrModelError::NotInitialized(
-            "Legacy inference path disabled. Use inference engine via generate_text() or chat().".to_string()
+            "Legacy inference path disabled. Use inference engine via generate_text() or chat()."
+                .to_string(),
         ))
     }
 
@@ -742,7 +753,8 @@ impl NxrModel for CausalLmModel {
         _callback: Arc<dyn Fn(NxrStreamChunk) + Send + Sync>,
     ) -> NxrModelResult<()> {
         Err(NxrModelError::NotInitialized(
-            "Legacy streaming inference disabled. Use inference engine via generate_text_stream().".to_string()
+            "Legacy streaming inference disabled. Use inference engine via generate_text_stream()."
+                .to_string(),
         ))
     }
 
@@ -911,8 +923,6 @@ impl NxrModel for CausalLmModel {
         })
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -6,8 +6,6 @@
 pub mod analyzer;
 pub mod delegation;
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::sync::Arc;
 pub use nexora_alignment::hallucination::HallucinationGuard;
 use nexora_has_moe_ffn::HasMoeFFNConfig;
 use nexora_shared::{
@@ -24,6 +22,8 @@ use nexora_shared::{
     model_identity::{ModelMeta, NxrModelId},
     model_registry::{global_registry, NxrModelRegistry},
 };
+use std::collections::HashMap;
+use std::sync::Arc;
 
 // Include all Vortex modules
 mod agents;
@@ -520,7 +520,6 @@ impl FoundationModel {
         }
         None
     }
-
 }
 
 const VORTEX_SYSTEM_PROMPT: &str = "You are NXR-VORTEX (Variable Optimization Recursive Text & Expert eXchange) [NXR-02 APEX], a code generation and software engineering specialist. Capabilities: code synthesis, debugging, architecture analysis, code review, test generation, and optimization across all programming languages. Provide detailed technical responses with code examples.";
@@ -560,9 +559,11 @@ impl NxrModel for FoundationModel {
 
         let text = match &input.data {
             nexora_shared::base_model::InputData::Text(t) => t.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "Text input required".to_string(),
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "Text input required".to_string(),
+                ))
+            }
         };
         let result = crate::delegation::delegate(&text).await;
         Ok(NxrOutput {
@@ -602,7 +603,8 @@ impl NxrModel for FoundationModel {
         let augmented = augment_vortex_input(input)?;
         static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::vortex());
+        let foundation =
+            FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::vortex());
         foundation.infer_stream(&augmented, callback).await
     }
 

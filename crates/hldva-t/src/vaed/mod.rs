@@ -21,7 +21,11 @@ impl VAE {
     pub fn new(config: &VAEConfig) -> HLDVAResult<Self> {
         let encoder = VAEEncoder::new(config)?;
         let decoder = VAEDecoder::new(config)?;
-        Ok(Self { config: config.clone(), encoder, decoder })
+        Ok(Self {
+            config: config.clone(),
+            encoder,
+            decoder,
+        })
     }
 
     pub fn encode(&self, image: &Tensor) -> HLDVAResult<LatentSpace> {
@@ -53,7 +57,9 @@ impl VAE {
         Ok(Tensor::new(vec![kl_sum / n], vec![1]))
     }
 
-    pub fn config(&self) -> &VAEConfig { &self.config }
+    pub fn config(&self) -> &VAEConfig {
+        &self.config
+    }
 }
 
 /// VAE Encoder — GPU accelerated convolution
@@ -123,7 +129,14 @@ impl VAEEncoder {
         let latent_resolution = Resolution::new(current_size.0 / 8, current_size.1 / 8);
 
         Ok(LatentSpace::new(
-            Tensor::new(latent_data, vec![latent_resolution.height, latent_resolution.width, self.config.latent_dim]),
+            Tensor::new(
+                latent_data,
+                vec![
+                    latent_resolution.height,
+                    latent_resolution.width,
+                    self.config.latent_dim,
+                ],
+            ),
             latent_resolution,
             self.config.latent_dim,
         ))
@@ -230,7 +243,11 @@ impl VAEDecoder {
                     let sy = y / scale;
                     let sx = x / scale;
                     let idx = (sy * width + sx) * channels + c % channels;
-                    img.push(if idx < latent_data.len() { latent_data[idx] } else { 0.0 });
+                    img.push(if idx < latent_data.len() {
+                        latent_data[idx]
+                    } else {
+                        0.0
+                    });
                 }
             }
         }
@@ -287,10 +304,20 @@ pub struct ConvBlock {
 }
 
 impl ConvBlock {
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize, stride: usize, padding: usize) -> HLDVAResult<Self> {
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+    ) -> HLDVAResult<Self> {
         let conv = Conv2D::new(in_channels, out_channels, kernel_size, stride, padding)?;
         let norm = LayerNorm2D::new(out_channels)?;
-        Ok(Self { conv, norm, activation: ReLU })
+        Ok(Self {
+            conv,
+            norm,
+            activation: ReLU,
+        })
     }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
@@ -388,7 +415,11 @@ impl UpsampleBlock {
                     let sx = x / scale;
                     if sy < height && sx < width {
                         let idx = (sy * width + sx) * channels + c;
-                        upsampled.push(if idx < input_data.len() { input_data[idx] } else { 0.0 });
+                        upsampled.push(if idx < input_data.len() {
+                            input_data[idx]
+                        } else {
+                            0.0
+                        });
                     } else {
                         upsampled.push(0.0);
                     }
@@ -414,11 +445,28 @@ pub struct Conv2D {
 }
 
 impl Conv2D {
-    pub fn new(in_channels: usize, out_channels: usize, kernel_size: usize, stride: usize, padding: usize) -> HLDVAResult<Self> {
+    pub fn new(
+        in_channels: usize,
+        out_channels: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+    ) -> HLDVAResult<Self> {
         let weight_size = out_channels * in_channels * kernel_size * kernel_size;
-        let weight = Tensor::new(vec![0.0; weight_size], vec![out_channels, in_channels, kernel_size, kernel_size]);
+        let weight = Tensor::new(
+            vec![0.0; weight_size],
+            vec![out_channels, in_channels, kernel_size, kernel_size],
+        );
         let bias = Tensor::new(vec![0.0; out_channels], vec![out_channels]);
-        Ok(Self { in_channels, out_channels, kernel_size, stride, padding, weight, bias })
+        Ok(Self {
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            weight,
+            bias,
+        })
     }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
@@ -455,7 +503,10 @@ impl Conv2D {
                                 let in_x = out_x * self.stride + kx - self.padding;
                                 if in_y < height && in_x < width {
                                     let in_idx = (in_y * width + in_x) * channels + in_c;
-                                    let w_idx = ((out_c * self.in_channels + in_c) * self.kernel_size + ky) * self.kernel_size + kx;
+                                    let w_idx =
+                                        ((out_c * self.in_channels + in_c) * self.kernel_size + ky)
+                                            * self.kernel_size
+                                            + kx;
                                     if in_idx < input_data.len() && w_idx < weight_data.len() {
                                         sum += input_data[in_idx] * weight_data[w_idx];
                                     }
@@ -463,7 +514,11 @@ impl Conv2D {
                             }
                         }
                     }
-                    sum += if out_c < bias_data.len() { bias_data[out_c] } else { 0.0 };
+                    sum += if out_c < bias_data.len() {
+                        bias_data[out_c]
+                    } else {
+                        0.0
+                    };
                     output.push(sum);
                 }
             }
@@ -529,8 +584,16 @@ impl LayerNorm2D {
                     let idx = (h * width + w) * channels + c;
                     if idx < input_data.len() {
                         let normalized = (input_data[idx] - mean) / std;
-                        let wv = if c < weight_data.len() { weight_data[c] } else { 1.0 };
-                        let bv = if c < bias_data.len() { bias_data[c] } else { 0.0 };
+                        let wv = if c < weight_data.len() {
+                            weight_data[c]
+                        } else {
+                            1.0
+                        };
+                        let bv = if c < bias_data.len() {
+                            bias_data[c]
+                        } else {
+                            0.0
+                        };
                         output.push(normalized * wv + bv);
                     }
                 }

@@ -11,9 +11,7 @@ impl GpuEmbedding {
     pub fn new(vocab_size: usize, embed_dim: usize) -> Self {
         let weight = try_init_weight(vocab_size, embed_dim);
         if weight.is_some() {
-            info!(
-                "GPU embedding initialized: vocab={vocab_size}, dim={embed_dim}"
-            );
+            info!("GPU embedding initialized: vocab={vocab_size}, dim={embed_dim}");
         }
         Self {
             weight,
@@ -72,7 +70,10 @@ impl GpuEmbedding {
     }
 
     pub fn lookup_batched(&self, batch_ids: &[Vec<u32>]) -> Option<Vec<Vec<f32>>> {
-        let flat: Vec<u32> = batch_ids.iter().flat_map(|ids| ids.iter().copied()).collect();
+        let flat: Vec<u32> = batch_ids
+            .iter()
+            .flat_map(|ids| ids.iter().copied())
+            .collect();
         let result = self.lookup(&flat)?;
         let mut batched = Vec::with_capacity(batch_ids.len());
         let mut offset = 0;
@@ -93,7 +94,9 @@ impl GpuEmbedding {
             );
             return;
         }
-        match nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&cpu_weights.clone().into_dyn()) {
+        match nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(
+            &cpu_weights.clone().into_dyn(),
+        ) {
             Ok(t) => {
                 self.weight = Some(t);
                 info!("GPU embedding weights updated");
@@ -112,7 +115,10 @@ impl GpuEmbedding {
     }
 }
 
-fn try_init_weight(vocab_size: usize, embed_dim: usize) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+fn try_init_weight(
+    vocab_size: usize,
+    embed_dim: usize,
+) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
     let _ = nexora_deeplearning::autograd::gpu::GpuContext::init().ok()?;
     let ctx = nexora_deeplearning::autograd::gpu::GpuContext::global().ok()?;
     let arr = ndarray::Array2::<f32>::zeros((vocab_size, embed_dim));

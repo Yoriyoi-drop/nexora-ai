@@ -1,11 +1,13 @@
 use crate::classifier;
+use nexora_cognition::multimodal::types::{
+    AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput,
+};
+use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use nexora_cognition::multimodal::{CaffeineConfig, CaffeineProcessor, MultimodalResult};
-use nexora_cognition::multimodal::types::{AudioInput, ImageInput, MultiModalInputs, TextInput, VideoInput};
+use nexora_transformer::CausalLM;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -49,7 +51,11 @@ fn classify(text: &str) -> Vec<(String, f32)> {
 }
 
 fn dominant_emotion(emotions: &[(String, f32)]) -> String {
-    emotions.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(e, _)| e.clone()).unwrap_or_default()
+    emotions
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(e, _)| e.clone())
+        .unwrap_or_default()
 }
 
 pub async fn delegate(prompt: &str) -> String {
@@ -78,10 +84,13 @@ pub async fn delegate_multimodal(
         video,
         context: None,
     };
-    let mm_result = mm.process_multimodal(&multimodal).await.unwrap_or_else(|e| {
-        tracing::warn!("aether multimodal processing failed: {}", e);
-        MultimodalResult::default()
-    });
+    let mm_result = mm
+        .process_multimodal(&multimodal)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("aether multimodal processing failed: {}", e);
+            MultimodalResult::default()
+        });
     let mm_summary = mm_result.processing_summary;
 
     let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
@@ -91,8 +100,10 @@ pub async fn delegate_multimodal(
          User input: {sanitized_prompt}\n\
          Response (empathetic, emotionally aware):"
     );
-    delegation_base::call_model(foundation(), &framed, 512, 0.8).await.unwrap_or_else(|e| {
-        tracing::warn!("aether delegation call failed: {}", e);
-        format!("[aether inference error: {}]", e)
-    })
+    delegation_base::call_model(foundation(), &framed, 512, 0.8)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("aether delegation call failed: {}", e);
+            format!("[aether inference error: {}]", e)
+        })
 }

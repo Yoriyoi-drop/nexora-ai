@@ -358,7 +358,10 @@ fn compute_weight_gradients(
              Finite-difference would require {} forward passes — INFEASIBLE. \
              Returning zero gradients. Calibration will not update this layer. \
              Use backpropagation via autograd engine for real training.",
-            layer_idx, num_params, FD_MAX_PARAMS, num_params * 2
+            layer_idx,
+            num_params,
+            FD_MAX_PARAMS,
+            num_params * 2
         );
         return Ok(Array::zeros(weights.shape()));
     }
@@ -367,7 +370,8 @@ fn compute_weight_gradients(
     let mut gradients = Array::zeros(weights.shape());
 
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
 
     for (idx, _) in weights.indexed_iter() {
         if std::time::Instant::now() > deadline {
@@ -403,7 +407,8 @@ fn compute_bias_gradients(
     let mut gradients = Array::zeros(biases.shape());
 
     let original_loss = compute_layer_loss(model, layer_idx, batch)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(FD_GRADIENT_TIMEOUT_SECS);
 
     for (idx, &_bias) in biases.indexed_iter() {
         if std::time::Instant::now() > deadline {

@@ -81,7 +81,12 @@ fn slice_rows(t: &Tensor, start: usize, end: usize) -> Tensor {
 }
 
 /// Apply causal mask within a chunk: position i attends only to kv_start..=i
-fn causal_mask_chunk(scores: &Tensor, _seq_len: usize, chunk_start: usize, _chunk_end: usize) -> Tensor {
+fn causal_mask_chunk(
+    scores: &Tensor,
+    _seq_len: usize,
+    chunk_start: usize,
+    _chunk_end: usize,
+) -> Tensor {
     let data = scores.data();
     let shape = data.shape();
     if shape.len() != 2 {
@@ -182,17 +187,21 @@ impl TrainableCausalLM {
             .iter()
             .map(|b| {
                 let experts = b.experts.as_ref().map(|exps| {
-                    exps.iter().enumerate().map(|(e_idx, e)| {
-                        TrainableSwiGLU {
+                    exps.iter()
+                        .enumerate()
+                        .map(|(e_idx, e)| TrainableSwiGLU {
                             w1: to_tensor(e.w1.as_ref(), &format!("experts.{}.w1", e_idx)),
                             w2: to_tensor(e.w2.as_ref(), &format!("experts.{}.w2", e_idx)),
                             w3: to_tensor(e.w3.as_ref(), &format!("experts.{}.w3", e_idx)),
-                        }
-                    }).collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>()
                 });
                 TrainableBlock {
                     attention_norm: TrainableRMSNorm {
-                        weight: to_tensor_1d(b.attention_norm.weight.as_ref(), "attention_norm.weight"),
+                        weight: to_tensor_1d(
+                            b.attention_norm.weight.as_ref(),
+                            "attention_norm.weight",
+                        ),
                         eps: b.attention_norm.eps,
                     },
                     ffn_norm: TrainableRMSNorm {
@@ -221,7 +230,10 @@ impl TrainableCausalLM {
 
         let lm_head = if model.weight_tied {
             // Weight tying: lm_head shares token_embedding
-            let t = to_tensor(model.token_embedding.as_ref(), "token_embedding (lm_head tied)");
+            let t = to_tensor(
+                model.token_embedding.as_ref(),
+                "token_embedding (lm_head tied)",
+            );
             t
         } else {
             to_tensor(model.lm_head.as_ref(), "lm_head")
@@ -244,113 +256,157 @@ impl TrainableCausalLM {
         &self,
         model: &mut CausalLM,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        model.token_embedding = Some(self
-            .token_embedding
-            .data()
-            .into_dimensionality::<ndarray::Ix2>()
-            .map_err(|_| "Internal invariant: token_embedding must be 2D")?
-            .to_owned());
+        model.token_embedding = Some(
+            self.token_embedding
+                .data()
+                .into_dimensionality::<ndarray::Ix2>()
+                .map_err(|_| "Internal invariant: token_embedding must be 2D")?
+                .to_owned(),
+        );
         if model.weight_tied {
             model.lm_head = None;
         } else {
-            model.lm_head = Some(self
-                .lm_head
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: lm_head must be 2D")?
-                .to_owned());
+            model.lm_head = Some(
+                self.lm_head
+                    .data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: lm_head must be 2D")?
+                    .to_owned(),
+            );
         }
         model.norm.weight = Some(
-            self.norm.weight.data()
+            self.norm
+                .weight
+                .data()
                 .into_dimensionality::<ndarray::Ix1>()
                 .map_err(|_| "Internal invariant: norm must be 1D")?
-                .to_owned());
+                .to_owned(),
+        );
         for (i, block) in self.blocks.iter().enumerate() {
             model.blocks[i].attention_norm.weight = Some(
-                block.attention_norm.weight.data()
+                block
+                    .attention_norm
+                    .weight
+                    .data()
                     .into_dimensionality::<ndarray::Ix1>()
                     .map_err(|_| "Internal invariant: attention norm must be 1D")?
-                    .to_owned());
+                    .to_owned(),
+            );
             model.blocks[i].ffn_norm.weight = Some(
-                block.ffn_norm.weight.data()
+                block
+                    .ffn_norm
+                    .weight
+                    .data()
                     .into_dimensionality::<ndarray::Ix1>()
                     .map_err(|_| "Internal invariant: ffn norm must be 1D")?
-                    .to_owned());
-            model.blocks[i].attention.wq = Some(block
-                .attention
-                .wq
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: attention wq must be 2D")?
-                .to_owned());
-            model.blocks[i].attention.wk = Some(block
-                .attention
-                .wk
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: attention wk must be 2D")?
-                .to_owned());
-            model.blocks[i].attention.wv = Some(block
-                .attention
-                .wv
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: attention wv must be 2D")?
-                .to_owned());
-            model.blocks[i].attention.wo = Some(block
-                .attention
-                .wo
-                .data()
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|_| "Internal invariant: attention wo must be 2D")?
-                .to_owned());
+                    .to_owned(),
+            );
+            model.blocks[i].attention.wq = Some(
+                block
+                    .attention
+                    .wq
+                    .data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: attention wq must be 2D")?
+                    .to_owned(),
+            );
+            model.blocks[i].attention.wk = Some(
+                block
+                    .attention
+                    .wk
+                    .data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: attention wk must be 2D")?
+                    .to_owned(),
+            );
+            model.blocks[i].attention.wv = Some(
+                block
+                    .attention
+                    .wv
+                    .data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: attention wv must be 2D")?
+                    .to_owned(),
+            );
+            model.blocks[i].attention.wo = Some(
+                block
+                    .attention
+                    .wo
+                    .data()
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|_| "Internal invariant: attention wo must be 2D")?
+                    .to_owned(),
+            );
             model.blocks[i].ffn.w1 = Some(
-                block.ffn.w1.data()
+                block
+                    .ffn
+                    .w1
+                    .data()
                     .into_dimensionality::<ndarray::Ix2>()
                     .map_err(|_| "Internal invariant: ffn w1 must be 2D")?
-                    .to_owned());
+                    .to_owned(),
+            );
             model.blocks[i].ffn.w2 = Some(
-                block.ffn.w2.data()
+                block
+                    .ffn
+                    .w2
+                    .data()
                     .into_dimensionality::<ndarray::Ix2>()
                     .map_err(|_| "Internal invariant: ffn w2 must be 2D")?
-                    .to_owned());
+                    .to_owned(),
+            );
             model.blocks[i].ffn.w3 = Some(
-                block.ffn.w3.data()
+                block
+                    .ffn
+                    .w3
+                    .data()
                     .into_dimensionality::<ndarray::Ix2>()
                     .map_err(|_| "Internal invariant: ffn w3 must be 2D")?
-                    .to_owned());
+                    .to_owned(),
+            );
             // Sync expert weights
             if let Some(train_experts) = &block.experts {
                 let inf_experts = model.blocks[i].experts.get_or_insert_with(|| {
-                    (0..train_experts.len()).map(|_| {
-                        let mut e = super::swiglu::SwiGLU::new(
-                            model.config.hidden_size,
-                            model.config.expert_intermediate_size,
-                        );
-                        e.init_random(
-                            model.config.hidden_size,
-                            model.config.expert_intermediate_size,
-                        );
-                        e
-                    }).collect()
+                    (0..train_experts.len())
+                        .map(|_| {
+                            let mut e = super::swiglu::SwiGLU::new(
+                                model.config.hidden_size,
+                                model.config.expert_intermediate_size,
+                            );
+                            e.init_random(
+                                model.config.hidden_size,
+                                model.config.expert_intermediate_size,
+                            );
+                            e
+                        })
+                        .collect()
                 });
                 for (e_idx, train_e) in train_experts.iter().enumerate() {
                     if e_idx < inf_experts.len() {
                         inf_experts[e_idx].w1 = Some(
-                            train_e.w1.data()
+                            train_e
+                                .w1
+                                .data()
                                 .into_dimensionality::<ndarray::Ix2>()
                                 .map_err(|_| "Internal invariant: expert w1 must be 2D")?
-                                .to_owned());
+                                .to_owned(),
+                        );
                         inf_experts[e_idx].w2 = Some(
-                            train_e.w2.data()
+                            train_e
+                                .w2
+                                .data()
                                 .into_dimensionality::<ndarray::Ix2>()
                                 .map_err(|_| "Internal invariant: expert w2 must be 2D")?
-                                .to_owned());
+                                .to_owned(),
+                        );
                         inf_experts[e_idx].w3 = Some(
-                            train_e.w3.data()
+                            train_e
+                                .w3
+                                .data()
                                 .into_dimensionality::<ndarray::Ix2>()
                                 .map_err(|_| "Internal invariant: expert w3 must be 2D")?
-                                .to_owned());
+                                .to_owned(),
+                        );
                     }
                 }
             }
@@ -387,16 +443,14 @@ impl TrainableCausalLM {
             let attn_out = if cfg.chunked_attention && seq_len > cfg.attention_chunk_size {
                 // FIX 1+2: Chunked causal attention — avoids O(S²) score matrix
                 self.chunked_attention_forward(
-                    &q_proj, &k_proj, &v_proj,
-                    seq_len, q_total, k_total, head_dim, n_heads, n_kv_heads, num_groups,
-                cfg,
-            )
-        } else {
+                    &q_proj, &k_proj, &v_proj, seq_len, q_total, k_total, head_dim, n_heads,
+                    n_kv_heads, num_groups, cfg,
+                )
+            } else {
                 // Original per-head GQA for short sequences (≤ chunk_size)
                 self.per_head_attention_forward(
-                    &q_proj, &k_proj, &v_proj,
-                    seq_len, q_total, k_total, head_dim, n_heads, n_kv_heads, num_groups,
-                    cfg,
+                    &q_proj, &k_proj, &v_proj, seq_len, q_total, k_total, head_dim, n_heads,
+                    n_kv_heads, num_groups, cfg,
                 )
             };
 
@@ -465,7 +519,8 @@ impl TrainableCausalLM {
                 let v_chunk = slice_rows(&v_h, chunk_start, chunk_end);
 
                 let scale = (head_dim as f32).sqrt();
-                let scores = q_h.matmul(&k_chunk.transpose())
+                let scores = q_h
+                    .matmul(&k_chunk.transpose())
                     .div(&Tensor::from_slice(&[scale], &[1]));
 
                 let masked = causal_mask_chunk(&scores, seq_len, chunk_start, chunk_end);
@@ -573,7 +628,9 @@ impl TrainableCausalLM {
                 }
             };
             let n = sum.div(&Tensor::from_slice(&[experts.len() as f32], &[1]));
-            if cfg.early_free { drop(sum); }
+            if cfg.early_free {
+                drop(sum);
+            }
             n
         } else {
             let gate = normed.matmul(&block.ffn.w1.transpose());
@@ -591,15 +648,15 @@ impl TrainableCausalLM {
     }
 
     pub fn parameters(&self) -> Vec<Tensor> {
-        let mut params = vec![
-            self.token_embedding.clone(),
-            self.norm.weight.clone(),
-        ];
+        let mut params = vec![self.token_embedding.clone(), self.norm.weight.clone()];
         // Only add lm_head if it differs from token_embedding (non-tied)
         let lm_head_data = self.lm_head.data();
         let te_data = self.token_embedding.data();
         let is_tied = lm_head_data.shape() == te_data.shape()
-            && lm_head_data.iter().zip(te_data.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
+            && lm_head_data
+                .iter()
+                .zip(te_data.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6);
         if !is_tied {
             params.push(self.lm_head.clone());
         }
@@ -630,7 +687,10 @@ impl TrainableCausalLM {
         let lm_head_data = self.lm_head.data();
         let te_data = self.token_embedding.data();
         let is_tied = lm_head_data.shape() == te_data.shape()
-            && lm_head_data.iter().zip(te_data.iter()).all(|(a, b)| (a - b).abs() < 1e-6);
+            && lm_head_data
+                .iter()
+                .zip(te_data.iter())
+                .all(|(a, b)| (a - b).abs() < 1e-6);
         if !is_tied {
             self.lm_head.zero_grad();
         }
@@ -674,7 +734,10 @@ impl TrainableCausalLM {
         let lm_head_data = self.lm_head.data();
         let te_data = self.token_embedding.data();
         if lm_head_data.shape() != te_data.shape()
-            || lm_head_data.iter().zip(te_data.iter()).any(|(a, b)| (a - b).abs() > 1e-6)
+            || lm_head_data
+                .iter()
+                .zip(te_data.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-6)
         {
             tensors.push(("lm_head".into(), lm_head_data));
         }
@@ -748,19 +811,22 @@ impl TrainableCausalLM {
             })
         }
 
-        model.token_embedding = Some(
-            to_fixed::<ndarray::Ix2>(get_arr("token_embedding")?, "token_embedding")?);
+        model.token_embedding = Some(to_fixed::<ndarray::Ix2>(
+            get_arr("token_embedding")?,
+            "token_embedding",
+        )?);
         if loaded.contains_key("lm_head") {
-            model.lm_head = Some(
-                to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?);
+            model.lm_head = Some(to_fixed::<ndarray::Ix2>(get_arr("lm_head")?, "lm_head")?);
             model.weight_tied = false;
         } else {
             model.lm_head = None;
             model.weight_tied = true;
             tracing::info!("trainable load_checkpoint: lm_head not found — weight tying enabled");
         }
-        model.norm.weight = Some(
-            to_fixed::<ndarray::Ix1>(get_arr("norm.weight")?, "norm.weight")?);
+        model.norm.weight = Some(to_fixed::<ndarray::Ix1>(
+            get_arr("norm.weight")?,
+            "norm.weight",
+        )?);
 
         for (i, block) in model.blocks.iter_mut().enumerate() {
             macro_rules! load {
@@ -952,7 +1018,7 @@ mod tests {
                 use_half_precision: true,
                 shard: Default::default(),
                 shared_expert: 0,
-            use_domain_experts: false,
+                use_domain_experts: false,
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
             assert!(reloaded.blocks[0]
@@ -993,13 +1059,19 @@ mod tests {
                 use_half_precision: true,
                 shard: Default::default(),
                 shared_expert: 0,
-            use_domain_experts: false,
+                use_domain_experts: false,
             });
             TrainableCausalLM::load_checkpoint(&mut reloaded, path).unwrap();
             let wq_len = original_wq.shape()[0] * original_wq.shape()[1];
             for j in 0..wq_len {
                 let orig_val = original_wq.as_slice().unwrap()[j];
-                let reloaded_val = reloaded.blocks[0].attention.wq.as_ref().unwrap().as_slice().unwrap()[j];
+                let reloaded_val = reloaded.blocks[0]
+                    .attention
+                    .wq
+                    .as_ref()
+                    .unwrap()
+                    .as_slice()
+                    .unwrap()[j];
                 assert!(
                     (orig_val - reloaded_val).abs() < 1e-5,
                     "mismatch at {j}: {orig_val} vs {reloaded_val}"

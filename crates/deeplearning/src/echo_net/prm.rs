@@ -19,10 +19,10 @@
 //! - Informasi baru adaptif
 //! - Memory saturation turun drastis
 
+use crate::autograd::Tensor;
 use crate::echo_net::HolographicWave;
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use crate::autograd::Tensor;
 use std::collections::HashMap;
 
 /// Memory entry with metadata

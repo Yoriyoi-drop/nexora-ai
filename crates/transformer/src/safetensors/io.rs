@@ -237,9 +237,7 @@ pub fn load_safetensors_with_meta(
 }
 
 /// Load safetensors into f32 tensors (metadata is discarded).
-pub fn load_safetensors(
-    path: impl AsRef<Path>,
-) -> TransformerResult<HashMap<String, ArrayD<f32>>> {
+pub fn load_safetensors(path: impl AsRef<Path>) -> TransformerResult<HashMap<String, ArrayD<f32>>> {
     load_safetensors_with_meta(path).map(|(tensors, _meta)| tensors)
 }
 

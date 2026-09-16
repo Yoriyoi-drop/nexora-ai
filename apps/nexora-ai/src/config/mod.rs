@@ -15,6 +15,6 @@ pub use loader::NexoraConfig;
 pub use logging::LoggingConfig;
 pub use memory::MemoryConfig;
 pub use models::ModelsConfig;
-pub use tokenizer::{SpecialTokens, TokenizerConfig};
 pub use system::SystemConfig;
+pub use tokenizer::{SpecialTokens, TokenizerConfig};
 pub use utils::UtilsConfig;

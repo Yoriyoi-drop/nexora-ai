@@ -62,7 +62,10 @@ impl RMSNorm {
     /// After GPU upload, call `readback_weight()` first if CPU path needed.
     pub fn forward(&self, x: &Array2<f32>) -> TransformerResult<Array2<f32>> {
         let weight = self.weight.as_ref().ok_or_else(|| {
-            TransformerError::Implementation("RMSNorm CPU weight not available — call readback_weight() or use forward_gpu()".into())
+            TransformerError::Implementation(
+                "RMSNorm CPU weight not available — call readback_weight() or use forward_gpu()"
+                    .into(),
+            )
         })?;
         let (batch_size, hidden_size) = x.dim();
         let mut output = Array2::zeros((batch_size, hidden_size));
@@ -95,7 +98,10 @@ impl RMSNorm {
     /// Upload weight data directly to GPU — takes `&[f32]` so caller
     /// can provide from safetensors without keeping CPU `Array1`.
     #[cfg(feature = "gpu")]
-    pub fn preupload_from_slice(&self, weight_data: &[f32]) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn preupload_from_slice(
+        &self,
+        weight_data: &[f32],
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         use nexora_deeplearning::autograd::gpu::GpuContext;
         if self.gpu_weights.get().is_some() {
             return Ok(());
@@ -103,12 +109,16 @@ impl RMSNorm {
         let _ctx = GpuContext::global()?;
         let weight_shape = vec![weight_data.len()];
         let weight_arr = ndarray::ArrayD::from_shape_vec(weight_shape, weight_data.to_vec())
-            .map_err(|e| nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string()))?;
+            .map_err(|e| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
+            })?;
         self.gpu_weights
             .set(RmsNormGpuWeights {
                 weight: nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&weight_arr)?,
             })
-            .map_err(|_| nexora_deeplearning::autograd::gpu::GpuError::Unsupported("already set".into()))?;
+            .map_err(|_| {
+                nexora_deeplearning::autograd::gpu::GpuError::Unsupported("already set".into())
+            })?;
         Ok(())
     }
 
@@ -117,7 +127,9 @@ impl RMSNorm {
     #[cfg(feature = "gpu")]
     pub fn preupload_gpu(&self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         let weight = self.weight.as_ref().ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("RMSNorm CPU weight not available for preupload".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                "RMSNorm CPU weight not available for preupload".into(),
+            )
         })?;
         if let Some(slice) = weight.as_slice() {
             self.preupload_from_slice(slice)
@@ -130,9 +142,13 @@ impl RMSNorm {
     /// Readback weight from GPU → populate `weight` field.
     /// Used before checkpoint save or training sync.
     #[cfg(feature = "gpu")]
-    pub fn readback_weight(&self) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn readback_weight(
+        &self,
+    ) -> Result<Array1<f32>, nexora_deeplearning::autograd::gpu::GpuError> {
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("RMSNorm weights not on GPU".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                "RMSNorm weights not on GPU".into(),
+            )
         })?;
         let cpu = cached.weight.to_cpu()?;
         let flat = cpu.as_slice().unwrap_or(&[]);
@@ -144,7 +160,10 @@ impl RMSNorm {
     pub fn forward_gpu(
         &self,
         x: &nexora_deeplearning::autograd::gpu::GpuTensor,
-    ) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+    ) -> Result<
+        nexora_deeplearning::autograd::gpu::GpuTensor,
+        nexora_deeplearning::autograd::gpu::GpuError,
+    > {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global()?;
         if self.gpu_weights.get().is_none() {
@@ -167,7 +186,9 @@ impl RMSNorm {
             }
         }
         let cached = self.gpu_weights.get().ok_or_else(|| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported("RMS norm weights not initialized".into())
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(
+                "RMS norm weights not initialized".into(),
+            )
         })?;
         ctx.rms_norm(x, &cached.weight, self.eps)
     }
@@ -228,7 +249,9 @@ mod tests {
         let norm = RMSNorm::new(4, 1e-6);
         let x = array![1.5, -2.5, 3.5, -4.5];
         let out_1d = norm.forward_1d(&x).unwrap();
-        let out_2d = norm.forward(&x.view().insert_axis(ndarray::Axis(0)).to_owned()).unwrap();
+        let out_2d = norm
+            .forward(&x.view().insert_axis(ndarray::Axis(0)).to_owned())
+            .unwrap();
         for j in 0..4 {
             assert!((out_1d[j] - out_2d[[0, j]]).abs() < 1e-5, "mismatch at {j}");
         }

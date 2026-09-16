@@ -2,12 +2,12 @@ use ndarray::ArrayD;
 use tracing::{debug, warn};
 
 use super::super::tensor::Tensor;
+#[cfg(feature = "device-cuda")]
+use crate::autograd::gpu::CudaRuntime;
 #[cfg(feature = "device-gpu")]
 use crate::autograd::gpu::{GpuContext, GpuTensor, ReduceOp};
 #[cfg(feature = "device-gpu")]
 use crate::autograd::{tensor::next_tensor_id, Storage};
-#[cfg(feature = "device-cuda")]
-use crate::autograd::gpu::CudaRuntime;
 
 pub fn sum(input: &Tensor) -> Tensor {
     #[cfg(feature = "device-cuda")]
@@ -26,14 +26,19 @@ pub fn sum(input: &Tensor) -> Tensor {
                         let shape_saved = ArrayD::from_shape_vec(
                             vec![orig_shape.len()],
                             orig_shape.iter().map(|&x| x as f32).collect(),
-                        ).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                        )
+                        .unwrap_or_else(|e| {
+                            debug!("shape encoding failed: {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_result,
                             vec![input.clone()],
                             vec![shape_saved],
                             Box::new(|grad, saved| {
                                 let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                                let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                let orig_shape: Vec<usize> =
+                                    shape_data.iter().map(|&x| x as usize).collect();
                                 let grad_val = grad.iter().copied().next().unwrap_or(1.0);
                                 vec![ArrayD::from_elem(orig_shape, grad_val)]
                             }),
@@ -77,9 +82,12 @@ pub fn sum(input: &Tensor) -> Tensor {
                                 vec![ArrayD::from_elem(orig_shape, grad_val)]
                             }),
                             Some(Box::new(move |_saved_gpu, grad_gpu, ctx| {
-                                let da =
-                                    crate::autograd::gpu_backward::sum_backward(ctx, &orig_shape, grad_gpu)
-                                        .map_err(|e| format!("sum_backward: {e}"))?;
+                                let da = crate::autograd::gpu_backward::sum_backward(
+                                    ctx,
+                                    &orig_shape,
+                                    grad_gpu,
+                                )
+                                .map_err(|e| format!("sum_backward: {e}"))?;
                                 Ok(vec![da])
                             })),
                         );
@@ -166,14 +174,19 @@ pub fn mean(input: &Tensor) -> Tensor {
                         let shape_saved = ArrayD::from_shape_vec(
                             vec![orig_shape.len()],
                             orig_shape.iter().map(|&x| x as f32).collect(),
-                        ).unwrap_or_else(|e| { debug!("shape encoding failed: {e}"); ArrayD::zeros(vec![0]) });
+                        )
+                        .unwrap_or_else(|e| {
+                            debug!("shape encoding failed: {e}");
+                            ArrayD::zeros(vec![0])
+                        });
                         return Tensor::from_cuda_with_grad_fn(
                             cuda_result,
                             vec![input.clone()],
                             vec![shape_saved, ArrayD::from_elem(vec![1], numel)],
                             Box::new(|grad, saved| {
                                 let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                                let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                                let orig_shape: Vec<usize> =
+                                    shape_data.iter().map(|&x| x as usize).collect();
                                 let n = saved[1].iter().copied().next().unwrap_or(1.0);
                                 let grad_val = grad.iter().copied().next().unwrap_or(1.0);
                                 vec![ArrayD::from_elem(orig_shape, grad_val / n)]

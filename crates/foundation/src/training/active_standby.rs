@@ -16,8 +16,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::info;
 
-use nexora_shared::model_identity::NxrModelId;
 use crate::causal_lm_model::CausalLmModel;
+use nexora_shared::model_identity::NxrModelId;
 
 /// Konfigurasi Active-Standby Scheduler
 #[derive(Debug, Clone)]
@@ -87,7 +87,11 @@ impl ActiveStandbyScheduler {
             .enumerate()
             .map(|(i, id)| ModelState {
                 id: *id,
-                status: if i < config.num_active { ModelStatus::Active } else { ModelStatus::Standby },
+                status: if i < config.num_active {
+                    ModelStatus::Active
+                } else {
+                    ModelStatus::Standby
+                },
                 steps_trained: 0,
                 last_checkpoint: None,
             })
@@ -105,12 +109,20 @@ impl ActiveStandbyScheduler {
 
     /// Daftar ID model yang aktif saat ini.
     pub fn active_model_ids(&self) -> Vec<NxrModelId> {
-        self.models.iter().filter(|m| m.status == ModelStatus::Active).map(|m| m.id).collect()
+        self.models
+            .iter()
+            .filter(|m| m.status == ModelStatus::Active)
+            .map(|m| m.id)
+            .collect()
     }
 
     /// Daftar ID model yang standby.
     pub fn standby_model_ids(&self) -> Vec<NxrModelId> {
-        self.models.iter().filter(|m| m.status == ModelStatus::Standby).map(|m| m.id).collect()
+        self.models
+            .iter()
+            .filter(|m| m.status == ModelStatus::Standby)
+            .map(|m| m.id)
+            .collect()
     }
 
     /// Catat step training. Return true jika perlu rotasi.
@@ -128,8 +140,14 @@ impl ActiveStandbyScheduler {
 
     /// Pasangan rotasi berikutnya: (deactivate, activate).
     pub fn next_rotation(&self) -> Option<(NxrModelId, NxrModelId)> {
-        let first_active = self.models.iter().find(|m| m.status == ModelStatus::Active)?;
-        let first_standby = self.models.iter().find(|m| m.status == ModelStatus::Standby)?;
+        let first_active = self
+            .models
+            .iter()
+            .find(|m| m.status == ModelStatus::Active)?;
+        let first_standby = self
+            .models
+            .iter()
+            .find(|m| m.status == ModelStatus::Standby)?;
         Some((first_active.id, first_standby.id))
     }
 
@@ -212,13 +230,22 @@ async fn save_checkpoint_model(
 ) {
     let raw = match registry.get_model_raw(&model_id).await {
         Ok(r) => r,
-        Err(e) => { tracing::warn!("save_checkpoint: model {:?} not found: {}", model_id, e); return; }
+        Err(e) => {
+            tracing::warn!("save_checkpoint: model {:?} not found: {}", model_id, e);
+            return;
+        }
     };
     let model: Arc<CausalLmModel> = match raw.downcast::<CausalLmModel>() {
         Ok(m) => m,
-        Err(_) => { tracing::warn!("save_checkpoint: downcast failed for {:?}", model_id); return; }
+        Err(_) => {
+            tracing::warn!("save_checkpoint: downcast failed for {:?}", model_id);
+            return;
+        }
     };
-    if let Err(e) = model.save_checkpoint(path.to_str().unwrap_or("model.safetensors")).await {
+    if let Err(e) = model
+        .save_checkpoint(path.to_str().unwrap_or("model.safetensors"))
+        .await
+    {
         tracing::warn!("save_checkpoint: save failed for {:?}: {}", model_id, e);
     }
 }
@@ -230,13 +257,22 @@ async fn load_checkpoint_model(
 ) {
     let raw = match registry.get_model_raw(&model_id).await {
         Ok(r) => r,
-        Err(e) => { tracing::warn!("load_checkpoint: model {:?} not found: {}", model_id, e); return; }
+        Err(e) => {
+            tracing::warn!("load_checkpoint: model {:?} not found: {}", model_id, e);
+            return;
+        }
     };
     let model: Arc<CausalLmModel> = match raw.downcast::<CausalLmModel>() {
         Ok(m) => m,
-        Err(_) => { tracing::warn!("load_checkpoint: downcast failed for {:?}", model_id); return; }
+        Err(_) => {
+            tracing::warn!("load_checkpoint: downcast failed for {:?}", model_id);
+            return;
+        }
     };
-    if let Err(e) = model.load_checkpoint(path.to_str().unwrap_or("model.safetensors")).await {
+    if let Err(e) = model
+        .load_checkpoint(path.to_str().unwrap_or("model.safetensors"))
+        .await
+    {
         tracing::warn!("load_checkpoint: load failed for {:?}: {}", model_id, e);
     }
 }
@@ -273,7 +309,11 @@ mod tests {
 
     #[test]
     fn test_scheduler_initial_state() {
-        let config = ActiveStandbyConfig { num_active: 2, num_total: 10, ..Default::default() };
+        let config = ActiveStandbyConfig {
+            num_active: 2,
+            num_total: 10,
+            ..Default::default()
+        };
         let scheduler = ActiveStandbyScheduler::new(config);
         assert_eq!(scheduler.active_model_ids().len(), 2);
         assert_eq!(scheduler.standby_model_ids().len(), 8);
@@ -282,7 +322,11 @@ mod tests {
 
     #[test]
     fn test_next_rotation() {
-        let config = ActiveStandbyConfig { num_active: 2, num_total: 5, ..Default::default() };
+        let config = ActiveStandbyConfig {
+            num_active: 2,
+            num_total: 5,
+            ..Default::default()
+        };
         let scheduler = ActiveStandbyScheduler::new(config);
         let rotation = scheduler.next_rotation();
         assert!(rotation.is_some());
@@ -292,12 +336,19 @@ mod tests {
 
     #[test]
     fn test_record_step_triggers_rotation() {
-        let config = ActiveStandbyConfig { num_active: 2, num_total: 4, rotate_every_steps: 3, ..Default::default() };
+        let config = ActiveStandbyConfig {
+            num_active: 2,
+            num_total: 4,
+            rotate_every_steps: 3,
+            ..Default::default()
+        };
         let mut scheduler = ActiveStandbyScheduler::new(config);
         let first = scheduler.active_model_ids()[0];
         let mut needs_rotate = false;
         for _ in 0..3 {
-            if scheduler.record_step(first) { needs_rotate = true; }
+            if scheduler.record_step(first) {
+                needs_rotate = true;
+            }
         }
         assert!(needs_rotate);
         assert_eq!(scheduler.steps_since_rotation, 0);

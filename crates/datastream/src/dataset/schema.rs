@@ -97,7 +97,9 @@ impl DatasetSchema {
             .collect();
 
         for field in &self.fields {
-            let found = parquet_cols.iter().any(|name| name == &field.name.to_lowercase());
+            let found = parquet_cols
+                .iter()
+                .any(|name| name == &field.name.to_lowercase());
             if !found && !field.nullable {
                 issues.push(SchemaIssue::MissingColumn {
                     field: field.name.clone(),

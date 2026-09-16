@@ -45,8 +45,7 @@ impl GossipProtocol {
         shared_secret: Option<String>,
         tls_enabled: bool,
     ) -> Self {
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5));
+        let mut client_builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
         if let Some(ref secret) = shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
             if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
@@ -73,8 +72,7 @@ impl GossipProtocol {
         self.shared_secret = secret;
         self.tls_enabled = tls;
         // Rebuild client with auth header
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5));
+        let mut client_builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
         if let Some(ref secret) = self.shared_secret {
             let mut headers = reqwest::header::HeaderMap::new();
             if let Ok(val) = reqwest::header::HeaderValue::try_from(secret.as_str()) {
@@ -145,15 +143,19 @@ impl GossipProtocol {
     }
 
     fn gossip_scheme(&self) -> &'static str {
-        if self.tls_enabled { "https" } else { "http" }
+        if self.tls_enabled {
+            "https"
+        } else {
+            "http"
+        }
     }
 
-    async fn push_to(
-        &self,
-        peer: NodeInfo,
-        message: GossipMessage,
-    ) -> Result<(), anyhow::Error> {
-        let url = format!("{}://{}/cluster/gossip/push", self.gossip_scheme(), peer.address);
+    async fn push_to(&self, peer: NodeInfo, message: GossipMessage) -> Result<(), anyhow::Error> {
+        let url = format!(
+            "{}://{}/cluster/gossip/push",
+            self.gossip_scheme(),
+            peer.address
+        );
         let resp = self
             .client
             .post(&url)
@@ -186,11 +188,12 @@ impl GossipProtocol {
         }
     }
 
-    async fn pull_from(
-        &self,
-        peer: NodeInfo,
-    ) -> Result<Option<GossipMessage>, anyhow::Error> {
-        let url = format!("{}://{}/cluster/gossip/pull", self.gossip_scheme(), peer.address);
+    async fn pull_from(&self, peer: NodeInfo) -> Result<Option<GossipMessage>, anyhow::Error> {
+        let url = format!(
+            "{}://{}/cluster/gossip/pull",
+            self.gossip_scheme(),
+            peer.address
+        );
         let local_msg = self.build_gossip_message().await;
 
         let resp = self
@@ -202,15 +205,13 @@ impl GossipProtocol {
             .await;
 
         match resp {
-            Ok(r) if r.status().is_success() => {
-                match r.json::<GossipMessage>().await {
-                    Ok(remote_msg) => Ok(Some(remote_msg)),
-                    Err(e) => {
-                        debug!("Failed to decode gossip pull response: {}", e);
-                        Ok(None)
-                    }
+            Ok(r) if r.status().is_success() => match r.json::<GossipMessage>().await {
+                Ok(remote_msg) => Ok(Some(remote_msg)),
+                Err(e) => {
+                    debug!("Failed to decode gossip pull response: {}", e);
+                    Ok(None)
                 }
-            }
+            },
             Ok(r) => {
                 debug!("Gossip pull from {} returned {}", peer.address, r.status());
                 self.registry

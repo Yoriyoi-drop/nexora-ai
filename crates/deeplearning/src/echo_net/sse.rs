@@ -16,10 +16,10 @@
 //! Representasi gelombang:
 //! Ψ_t(ω) = A_t(ω) * e^(i(ω_t + φ_t))
 
+use crate::autograd::Tensor;
 use crate::echo_net::{ComplexTensor, HolographicWave};
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD, ArrayView1};
-use crate::autograd::Tensor;
 use rand::Rng;
 
 /// Semantic Spectral Embedding implementation

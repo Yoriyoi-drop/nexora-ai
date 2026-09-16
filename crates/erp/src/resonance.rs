@@ -627,10 +627,7 @@ impl ResonanceClusterer {
         let mut community_map: HashMap<usize, Vec<usize>> = HashMap::new();
 
         for (node, community) in communities.iter().enumerate() {
-            community_map
-                .entry(*community)
-                .or_default()
-                .push(node);
+            community_map.entry(*community).or_default().push(node);
         }
 
         let mut groups = Vec::new();

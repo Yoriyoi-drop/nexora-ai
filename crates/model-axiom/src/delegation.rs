@@ -1,10 +1,10 @@
 use crate::classifier;
+use nexora_cognition::saca::SacaEngine;
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use nexora_cognition::saca::SacaEngine;
+use nexora_transformer::CausalLM;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -46,7 +46,10 @@ static SACA: OnceLock<SacaEngine> = OnceLock::new();
 pub async fn delegate(prompt: &str) -> String {
     init_classifier();
     let types = classify_reasoning(prompt);
-    let primary = types.first().map(|(r, _)| r.as_str()).unwrap_or("analytical");
+    let primary = types
+        .first()
+        .map(|(r, _)| r.as_str())
+        .unwrap_or("analytical");
     let focus = classifier::reasoning_prompt(primary);
 
     let engine = SACA.get_or_init(SacaEngine::new);
@@ -56,7 +59,9 @@ pub async fn delegate(prompt: &str) -> String {
             r.conclusion
         }
         _ => {
-            tracing::warn!("axiom SACA reasoning unavailable (type: {primary}), using prompt-based reasoning");
+            tracing::warn!(
+                "axiom SACA reasoning unavailable (type: {primary}), using prompt-based reasoning"
+            );
             let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
             let framed = format!(
                 "[Axiom reasoning | type: {primary}]\n\
@@ -64,10 +69,12 @@ pub async fn delegate(prompt: &str) -> String {
                  Input: {sanitized_prompt}\n\
                  Conclusion:"
             );
-            delegation_base::call_model(foundation(), &framed, 512, 0.3).await.unwrap_or_else(|e| {
-                tracing::warn!("axiom delegation call failed: {}", e);
-                format!("[axiom inference error: {}]", e)
-            })
+            delegation_base::call_model(foundation(), &framed, 512, 0.3)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("axiom delegation call failed: {}", e);
+                    format!("[axiom inference error: {}]", e)
+                })
         }
     }
 }

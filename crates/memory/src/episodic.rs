@@ -785,8 +785,14 @@ mod tests {
 
         // Should find episode 2 (manually related AND auto-linked via shared tag "project")
         // Episode 3 has no shared tags, not linked
-        assert!(related.iter().any(|e| e.id == id2), "episode 2 should be related");
-        assert!(!related.iter().any(|e| e.id == _id3), "episode 3 should NOT be related");
+        assert!(
+            related.iter().any(|e| e.id == id2),
+            "episode 2 should be related"
+        );
+        assert!(
+            !related.iter().any(|e| e.id == _id3),
+            "episode 3 should NOT be related"
+        );
     }
 
     #[tokio::test]

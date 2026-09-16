@@ -46,7 +46,10 @@ impl BufferPool {
             total += size * bufs.len();
             count += bufs.len();
         }
-        BufferPoolStats { total_bytes: total, total_buffers: count }
+        BufferPoolStats {
+            total_bytes: total,
+            total_buffers: count,
+        }
     }
 }
 

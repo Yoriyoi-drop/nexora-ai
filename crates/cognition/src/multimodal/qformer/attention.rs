@@ -109,18 +109,35 @@ impl MultiHeadAttention {
         let mut v_all = Vec::with_capacity(n * nh * dh);
 
         for h in 0..nh {
-            q_all.extend(gpu_compute::try_gpu_matmul(q_slice, &self.query_weights[h],
-                batch_size, seq_len, self._hidden_dim, dh)?);
-            k_all.extend(gpu_compute::try_gpu_matmul(k_slice, &self.key_weights[h],
-                batch_size, seq_len, self._hidden_dim, dh)?);
-            v_all.extend(gpu_compute::try_gpu_matmul(v_slice, &self.value_weights[h],
-                batch_size, seq_len, self._hidden_dim, dh)?);
+            q_all.extend(gpu_compute::try_gpu_matmul(
+                q_slice,
+                &self.query_weights[h],
+                batch_size,
+                seq_len,
+                self._hidden_dim,
+                dh,
+            )?);
+            k_all.extend(gpu_compute::try_gpu_matmul(
+                k_slice,
+                &self.key_weights[h],
+                batch_size,
+                seq_len,
+                self._hidden_dim,
+                dh,
+            )?);
+            v_all.extend(gpu_compute::try_gpu_matmul(
+                v_slice,
+                &self.value_weights[h],
+                batch_size,
+                seq_len,
+                self._hidden_dim,
+                dh,
+            )?);
         }
 
         // Fused attention: [B, H, S, D] layout
         let attended = gpu_compute::try_gpu_attention(
-            &q_all, &k_all, &v_all,
-            batch_size, seq_len, nh, dh, false,
+            &q_all, &k_all, &v_all, batch_size, seq_len, nh, dh, false,
         )?;
 
         // attended layout: [B, H, S, D] -> concat heads: [B, S, H*D]
@@ -139,8 +156,12 @@ impl MultiHeadAttention {
 
         // Output projection
         let output = gpu_compute::try_gpu_matmul(
-            &concat, &self.output_weights,
-            batch_size, seq_len, nh * dh, self._hidden_dim,
+            &concat,
+            &self.output_weights,
+            batch_size,
+            seq_len,
+            nh * dh,
+            self._hidden_dim,
         )?;
 
         let shape = vec![batch_size, seq_len, self._hidden_dim];
@@ -149,9 +170,16 @@ impl MultiHeadAttention {
 
     #[cfg(not(feature = "gpu"))]
     fn forward_gpu(
-        &self, _query: &ArrayD<f32>, _key: &ArrayD<f32>, _value: &ArrayD<f32>,
-        _batch_size: usize, _seq_len: usize, _hidden_dim: usize,
-    ) -> Option<ArrayD<f32>> { None }
+        &self,
+        _query: &ArrayD<f32>,
+        _key: &ArrayD<f32>,
+        _value: &ArrayD<f32>,
+        _batch_size: usize,
+        _seq_len: usize,
+        _hidden_dim: usize,
+    ) -> Option<ArrayD<f32>> {
+        None
+    }
 
     /// Scaled dot-product attention — streaming per-query to avoid O(S²) memory
     fn scaled_dot_product_attention(
@@ -380,10 +408,7 @@ impl QueryAttention {
 
         // Store attention weights for visualization
         let weight_shape = vec![num_queries, context_len];
-        self.attention_weights = Some(ArrayD::from_shape_vec(
-            weight_shape,
-            attention_weights,
-        )?);
+        self.attention_weights = Some(ArrayD::from_shape_vec(weight_shape, attention_weights)?);
 
         let output_shape = vec![1, num_queries, self._hidden_dim];
         Ok(ArrayD::from_shape_vec(output_shape, output)?)

@@ -477,7 +477,9 @@ impl BlaaEmbeddingsEngine {
         })
     }
 
-    async fn acquire_client(&self) -> InferenceResult<(tokio::sync::SemaphorePermit<'_>, BlaaClient)> {
+    async fn acquire_client(
+        &self,
+    ) -> InferenceResult<(tokio::sync::SemaphorePermit<'_>, BlaaClient)> {
         let permit = self
             .concurrency
             .acquire()

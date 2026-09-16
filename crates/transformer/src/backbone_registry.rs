@@ -175,8 +175,7 @@ pub fn tier_parameter_count(_tier: ModelTier) -> usize {
 }
 
 /// Clear all backbones — frees memory. Panggil kalau mau reload.
-pub fn clear_all_backbones() {
-}
+pub fn clear_all_backbones() {}
 
 /// Jumlah backbones yang sudah di-inisialisasi.
 pub fn initialized_backbone_count() -> usize {
@@ -221,9 +220,11 @@ mod tests {
             ..Default::default()
         };
         match name {
-            "primary" => TINY_PRIMARY.get_or_init(|| Arc::new(CausalLM::new(config.clone())))
+            "primary" => TINY_PRIMARY
+                .get_or_init(|| Arc::new(CausalLM::new(config.clone())))
                 .clone(),
-            "standby" => TINY_STANDBY.get_or_init(|| Arc::new(CausalLM::new(config.clone())))
+            "standby" => TINY_STANDBY
+                .get_or_init(|| Arc::new(CausalLM::new(config.clone())))
                 .clone(),
             _ => Arc::new(CausalLM::new(config)),
         }

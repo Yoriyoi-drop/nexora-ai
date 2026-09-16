@@ -93,11 +93,7 @@ impl PagedKVCacheProvider {
         }
     }
 
-    pub fn new_shared(
-        seq_id: u64,
-        cache: Arc<RwLock<PagedKVCache>>,
-        num_layers: usize,
-    ) -> Self {
+    pub fn new_shared(seq_id: u64, cache: Arc<RwLock<PagedKVCache>>, num_layers: usize) -> Self {
         // Read dimensions from the underlying paged cache config
         let (num_kv_heads, head_dim, max_seq_len) = tokio::task::block_in_place(|| {
             let guard = match cache.read() {
@@ -400,7 +396,9 @@ impl PagedKVCacheProvider {
     /// Convenience: sync all paged cache providers in a map.
     /// Called after each generation step when paged cache + GPU is active.
     #[cfg(feature = "gpu")]
-    pub fn sync_all_gpu_to_paged(caches: &mut std::collections::HashMap<u64, Box<dyn KVCacheProvider>>) {
+    pub fn sync_all_gpu_to_paged(
+        caches: &mut std::collections::HashMap<u64, Box<dyn KVCacheProvider>>,
+    ) {
         for (_seq_id, provider) in caches.iter_mut() {
             if let Some(paged) = provider.as_any_mut().downcast_mut::<PagedKVCacheProvider>() {
                 paged.sync_gpu_to_paged();

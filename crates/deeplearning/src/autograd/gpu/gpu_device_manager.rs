@@ -108,13 +108,7 @@ impl GpuDeviceManager {
                 label: Some("allreduce_copy_back"),
             });
         for grad in grads {
-            cb.copy_buffer_to_buffer(
-                out_tensor.buffer(),
-                0,
-                grad.buffer(),
-                0,
-                (numel * 4) as u64,
-            );
+            cb.copy_buffer_to_buffer(out_tensor.buffer(), 0, grad.buffer(), 0, (numel * 4) as u64);
         }
         ctx.queue.submit(Some(cb.finish()));
 

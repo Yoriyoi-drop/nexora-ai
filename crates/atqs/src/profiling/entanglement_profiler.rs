@@ -238,9 +238,7 @@ fn truncate_trg_bonds(
     let (u, s, vt) = compute_truncated_svd(&reshaped, max_dim)?;
 
     // Reconstruct with truncated components
-    let truncated = u
-        .dot(&Array::from_diag(&Array::from_vec(s)))
-        .dot(&vt);
+    let truncated = u.dot(&Array::from_diag(&Array::from_vec(s))).dot(&vt);
 
     // Reshape back to iPEPS format
     let new_shape = [max_dim, shape[1], shape[2], shape[3]];

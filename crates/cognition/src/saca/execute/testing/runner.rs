@@ -6,8 +6,8 @@ use super::generator::{TestCase, TestType};
 use crate::saca::error::*;
 use std::io::Write;
 use std::time::Duration;
-use tokio::process::Command;
 use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 
 /// Test runner for executing test cases
 pub struct TestRunner;

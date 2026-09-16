@@ -114,20 +114,31 @@ impl ExpertDomain {
     /// Which tier does this domain belong to?
     pub fn tier(&self) -> &'static str {
         match self {
-            ExpertDomain::Math | ExpertDomain::Language | ExpertDomain::Logic
-            | ExpertDomain::Science | ExpertDomain::Code | ExpertDomain::Factual
-            | ExpertDomain::Reasoning | ExpertDomain::General => "shared",
-            ExpertDomain::AdvReasoning | ExpertDomain::MultiModal
-            | ExpertDomain::MetaLearning | ExpertDomain::DeepCode
+            ExpertDomain::Math
+            | ExpertDomain::Language
+            | ExpertDomain::Logic
+            | ExpertDomain::Science
+            | ExpertDomain::Code
+            | ExpertDomain::Factual
+            | ExpertDomain::Reasoning
+            | ExpertDomain::General => "shared",
+            ExpertDomain::AdvReasoning
+            | ExpertDomain::MultiModal
+            | ExpertDomain::MetaLearning
+            | ExpertDomain::DeepCode
             | ExpertDomain::ScientificDiscovery => "ultra",
-            ExpertDomain::CodeReview | ExpertDomain::Emotional
-            | ExpertDomain::TaskPlanning | ExpertDomain::SystemDesign => "apex",
-            ExpertDomain::Creative | ExpertDomain::Security
-            | ExpertDomain::DataAnalysis => "pro",
-            ExpertDomain::Temporal | ExpertDomain::Retrieval
-            | ExpertDomain::Summarization => "core",
-            ExpertDomain::FastPath | ExpertDomain::Classification
-            | ExpertDomain::Extraction | ExpertDomain::Translation => "edge",
+            ExpertDomain::CodeReview
+            | ExpertDomain::Emotional
+            | ExpertDomain::TaskPlanning
+            | ExpertDomain::SystemDesign => "apex",
+            ExpertDomain::Creative | ExpertDomain::Security | ExpertDomain::DataAnalysis => "pro",
+            ExpertDomain::Temporal | ExpertDomain::Retrieval | ExpertDomain::Summarization => {
+                "core"
+            }
+            ExpertDomain::FastPath
+            | ExpertDomain::Classification
+            | ExpertDomain::Extraction
+            | ExpertDomain::Translation => "edge",
         }
     }
 }
@@ -172,38 +183,119 @@ impl ExpertPoolConfig {
         Self {
             domain_counts: vec![
                 // Shared (96)
-                DomainCount { domain: ExpertDomain::Math, count: 14 },
-                DomainCount { domain: ExpertDomain::Language, count: 18 },
-                DomainCount { domain: ExpertDomain::Logic, count: 10 },
-                DomainCount { domain: ExpertDomain::Science, count: 12 },
-                DomainCount { domain: ExpertDomain::Code, count: 14 },
-                DomainCount { domain: ExpertDomain::Factual, count: 12 },
-                DomainCount { domain: ExpertDomain::Reasoning, count: 10 },
-                DomainCount { domain: ExpertDomain::General, count: 6 },
+                DomainCount {
+                    domain: ExpertDomain::Math,
+                    count: 14,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Language,
+                    count: 18,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Logic,
+                    count: 10,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Science,
+                    count: 12,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Code,
+                    count: 14,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Factual,
+                    count: 12,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Reasoning,
+                    count: 10,
+                },
+                DomainCount {
+                    domain: ExpertDomain::General,
+                    count: 6,
+                },
                 // Ultra (48)
-                DomainCount { domain: ExpertDomain::AdvReasoning, count: 12 },
-                DomainCount { domain: ExpertDomain::MultiModal, count: 12 },
-                DomainCount { domain: ExpertDomain::MetaLearning, count: 6 },
-                DomainCount { domain: ExpertDomain::DeepCode, count: 10 },
-                DomainCount { domain: ExpertDomain::ScientificDiscovery, count: 8 },
+                DomainCount {
+                    domain: ExpertDomain::AdvReasoning,
+                    count: 12,
+                },
+                DomainCount {
+                    domain: ExpertDomain::MultiModal,
+                    count: 12,
+                },
+                DomainCount {
+                    domain: ExpertDomain::MetaLearning,
+                    count: 6,
+                },
+                DomainCount {
+                    domain: ExpertDomain::DeepCode,
+                    count: 10,
+                },
+                DomainCount {
+                    domain: ExpertDomain::ScientificDiscovery,
+                    count: 8,
+                },
                 // Apex (36)
-                DomainCount { domain: ExpertDomain::CodeReview, count: 12 },
-                DomainCount { domain: ExpertDomain::Emotional, count: 8 },
-                DomainCount { domain: ExpertDomain::TaskPlanning, count: 10 },
-                DomainCount { domain: ExpertDomain::SystemDesign, count: 6 },
+                DomainCount {
+                    domain: ExpertDomain::CodeReview,
+                    count: 12,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Emotional,
+                    count: 8,
+                },
+                DomainCount {
+                    domain: ExpertDomain::TaskPlanning,
+                    count: 10,
+                },
+                DomainCount {
+                    domain: ExpertDomain::SystemDesign,
+                    count: 6,
+                },
                 // Pro (28)
-                DomainCount { domain: ExpertDomain::Creative, count: 10 },
-                DomainCount { domain: ExpertDomain::Security, count: 8 },
-                DomainCount { domain: ExpertDomain::DataAnalysis, count: 10 },
+                DomainCount {
+                    domain: ExpertDomain::Creative,
+                    count: 10,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Security,
+                    count: 8,
+                },
+                DomainCount {
+                    domain: ExpertDomain::DataAnalysis,
+                    count: 10,
+                },
                 // Core (24)
-                DomainCount { domain: ExpertDomain::Temporal, count: 8 },
-                DomainCount { domain: ExpertDomain::Retrieval, count: 8 },
-                DomainCount { domain: ExpertDomain::Summarization, count: 8 },
+                DomainCount {
+                    domain: ExpertDomain::Temporal,
+                    count: 8,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Retrieval,
+                    count: 8,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Summarization,
+                    count: 8,
+                },
                 // Edge (24)
-                DomainCount { domain: ExpertDomain::FastPath, count: 8 },
-                DomainCount { domain: ExpertDomain::Classification, count: 6 },
-                DomainCount { domain: ExpertDomain::Extraction, count: 6 },
-                DomainCount { domain: ExpertDomain::Translation, count: 4 },
+                DomainCount {
+                    domain: ExpertDomain::FastPath,
+                    count: 8,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Classification,
+                    count: 6,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Extraction,
+                    count: 6,
+                },
+                DomainCount {
+                    domain: ExpertDomain::Translation,
+                    count: 4,
+                },
             ],
             total_experts: 256,
             shared_bias: 0.3,
@@ -216,7 +308,8 @@ impl ExpertPoolConfig {
         let sum: usize = self.domain_counts.iter().map(|d| d.count).sum();
         if sum != self.total_experts {
             return Err(format!(
-                "Expert pool counts sum to {} but expected {}", sum, self.total_experts
+                "Expert pool counts sum to {} but expected {}",
+                sum, self.total_experts
             ));
         }
         Ok(())

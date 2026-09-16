@@ -3,10 +3,10 @@
 //! Supervisor untuk semua agent dalam sistem Nexora.
 //! Bertanggung jawab untuk spawn, stop, dan monitoring agent.
 
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc as StdArc;
-use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -164,9 +164,9 @@ impl AgentManager {
             registry: StdArc::new(AgentRegistry::new()),
             lifecycle: StdArc::new(LifecycleManager::new(config.clone())),
             message_bus: StdArc::new(MessageBus::new()),
-            state: StdArc::new(AgentState::new().with_memory_store(
-                StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new())),
-            )),
+            state: StdArc::new(AgentState::new().with_memory_store(StdArc::new(
+                tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new()),
+            ))),
             config,
             background_handles: StdArc::new(std::sync::Mutex::new(Vec::new())),
             command_rx: StdArc::new(RwLock::new(Some(command_rx))),
@@ -215,7 +215,10 @@ impl AgentManager {
         // Restore state from memory
         if let Ok((sessions, agents)) = self.state.restore_from_memory().await {
             if sessions > 0 || agents > 0 {
-                info!("Restored {} sessions and {} agents from memory", sessions, agents);
+                info!(
+                    "Restored {} sessions and {} agents from memory",
+                    sessions, agents
+                );
             }
         }
 
@@ -339,13 +342,19 @@ impl AgentManager {
                             warn!("HealthCheck response channel closed");
                         }
                     }
-                    ManagerCommand::DispatchPlan { plan_id, response_tx } => {
+                    ManagerCommand::DispatchPlan {
+                        plan_id,
+                        response_tx,
+                    } => {
                         let result = self.dispatch_plan_internal(plan_id).await;
                         if response_tx.send(result).is_err() {
                             warn!("DispatchPlan response channel closed");
                         }
                     }
-                    ManagerCommand::PlanStatus { plan_id, response_tx } => {
+                    ManagerCommand::PlanStatus {
+                        plan_id,
+                        response_tx,
+                    } => {
                         let result = self.plan_status_internal(plan_id).await;
                         if response_tx.send(result).is_err() {
                             warn!("PlanStatus response channel closed");
@@ -359,7 +368,8 @@ impl AgentManager {
                     }
                     ManagerCommand::StopRandomAgent { response_tx } => {
                         let agents = self.list_agent_ids_internal().await;
-                        let agent_ids: Vec<Uuid> = agents.values().flat_map(|v| v.iter()).copied().collect();
+                        let agent_ids: Vec<Uuid> =
+                            agents.values().flat_map(|v| v.iter()).copied().collect();
                         let result = if let Some(id) = agent_ids.into_iter().next() {
                             self.stop_agent_internal(id).await
                         } else {
@@ -515,7 +525,10 @@ impl AgentManager {
                 &message.message_type,
                 &serde_json::to_vec(&message.payload).unwrap_or_default(),
             ) {
-                warn!("Agent communication blocked by isolation firewall: {} -> {}: {}", src_id, agent_id, e);
+                warn!(
+                    "Agent communication blocked by isolation firewall: {} -> {}: {}",
+                    src_id, agent_id, e
+                );
                 return Err(AgentError::ProcessingError {
                     operation: "isolation_firewall".to_string(),
                     reason: format!("Agent communication blocked: {}", e),
@@ -524,11 +537,16 @@ impl AgentManager {
 
             // Step 0c: Tool access verification for execute_step messages
             if message.message_type == "execute_step" {
-                let tool = message.payload.get("step_type")
+                let tool = message
+                    .payload
+                    .get("step_type")
                     .and_then(|v| v.as_str())
                     .unwrap_or("processing");
                 if let Err(e) = isolation.verify_tool_access(agent_id, tool) {
-                    warn!("Tool access denied by isolation: agent={} tool={}: {}", agent_id, tool, e);
+                    warn!(
+                        "Tool access denied by isolation: agent={} tool={}: {}",
+                        agent_id, tool, e
+                    );
                     return Err(AgentError::ProcessingError {
                         operation: "isolation_tool_check".to_string(),
                         reason: format!("Tool access denied: {}", e),
@@ -554,7 +572,9 @@ impl AgentManager {
                 context.parameters.insert(k.clone(), v.clone());
             }
         } else {
-            context.parameters.insert("payload".to_string(), message.payload);
+            context
+                .parameters
+                .insert("payload".to_string(), message.payload);
         }
 
         // Step 2: Process message
@@ -610,10 +630,12 @@ impl AgentManager {
         info!("Dispatching plan {} to workers", plan_id);
 
         let planner_ids = self.registry.get_agents_by_type("planner").await?;
-        let planner_id = planner_ids.first().ok_or_else(|| AgentError::ProcessingError {
-            operation: "dispatch_plan".to_string(),
-            reason: "No planner agent available".to_string(),
-        })?;
+        let planner_id = planner_ids
+            .first()
+            .ok_or_else(|| AgentError::ProcessingError {
+                operation: "dispatch_plan".to_string(),
+                reason: "No planner agent available".to_string(),
+            })?;
 
         let worker_ids = self.registry.get_agents_by_type("worker").await?;
         if worker_ids.is_empty() {
@@ -635,16 +657,23 @@ impl AgentManager {
             );
             let plan_resp = self.send_message_internal(*planner_id, get_msg).await?;
 
-            let plan_status = plan_resp.payload.get("plan")
+            let plan_status = plan_resp
+                .payload
+                .get("plan")
                 .and_then(|p| p.get("status"))
                 .and_then(|s| s.as_str())
                 .unwrap_or("");
             if plan_status == "Completed" || plan_status == "Failed" {
-                info!("Plan {} is already {} ({} steps dispatched)", plan_id, plan_status, dispatched);
+                info!(
+                    "Plan {} is already {} ({} steps dispatched)",
+                    plan_id, plan_status, dispatched
+                );
                 return Ok(());
             }
 
-            let plan_steps = plan_resp.payload.get("plan")
+            let plan_steps = plan_resp
+                .payload
+                .get("plan")
                 .and_then(|p| p.get("steps"))
                 .and_then(|s| s.as_array())
                 .ok_or_else(|| AgentError::ProcessingError {
@@ -652,11 +681,10 @@ impl AgentManager {
                     reason: "Invalid plan response from planner".to_string(),
                 })?;
 
-            let pending_steps: Vec<(usize, &Value)> = plan_steps.iter()
+            let pending_steps: Vec<(usize, &Value)> = plan_steps
+                .iter()
                 .enumerate()
-                .filter(|(_, s)| {
-                    s.get("status").and_then(|v| v.as_str()) == Some("Pending")
-                })
+                .filter(|(_, s)| s.get("status").and_then(|v| v.as_str()) == Some("Pending"))
                 .collect();
 
             if pending_steps.is_empty() {
@@ -670,17 +698,20 @@ impl AgentManager {
             }
 
             for (i, step) in &pending_steps {
-                let step_id = step.get("step_id")
+                let step_id = step
+                    .get("step_id")
                     .and_then(|s| s.as_str())
                     .ok_or_else(|| AgentError::ProcessingError {
                         operation: "dispatch_plan".to_string(),
                         reason: "Step missing step_id".to_string(),
                     })?;
 
-                let description = step.get("description")
+                let description = step
+                    .get("description")
                     .and_then(|s| s.as_str())
                     .unwrap_or("Execute step");
-                let step_type = step.get("step_type")
+                let step_type = step
+                    .get("step_type")
                     .and_then(|s| s.as_str())
                     .unwrap_or("Processing");
 
@@ -689,7 +720,10 @@ impl AgentManager {
 
                 // Quarantine check before dispatching to worker
                 if let Err(e) = self.check_agent_quarantined(worker_id).await {
-                    warn!("Skipping quarantined worker {} for step {}: {}", worker_id, step_id, e);
+                    warn!(
+                        "Skipping quarantined worker {} for step {}: {}",
+                        worker_id, step_id, e
+                    );
                     continue;
                 }
 
@@ -706,7 +740,11 @@ impl AgentManager {
                 let exec_resp = self.send_message_internal(worker_id, exec_msg).await;
                 match exec_resp {
                     Ok(resp) => {
-                        let success = resp.payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let success = resp
+                            .payload
+                            .get("success")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
 
                         // Notify planner about step completion
                         let complete_msg = crate::AgentMessage::new(
@@ -720,7 +758,10 @@ impl AgentManager {
                         let _ = self.send_message_internal(*planner_id, complete_msg).await;
 
                         dispatched += 1;
-                        info!("Step {} done via worker {} (success={})", step_id, worker_id, success);
+                        info!(
+                            "Step {} done via worker {} (success={})",
+                            step_id, worker_id, success
+                        );
 
                         if !success {
                             has_failure = true;
@@ -757,7 +798,10 @@ impl AgentManager {
         if has_failure {
             warn!("Plan {} completed with some step failures", plan_id);
         } else {
-            info!("Plan {} completed successfully ({} steps)", plan_id, dispatched);
+            info!(
+                "Plan {} completed successfully ({} steps)",
+                plan_id, dispatched
+            );
         }
         Ok(())
     }
@@ -765,10 +809,12 @@ impl AgentManager {
     /// Get plan status from planner
     async fn plan_status_internal(&self, plan_id: Uuid) -> Result<Value> {
         let planner_ids = self.registry.get_agents_by_type("planner").await?;
-        let planner_id = planner_ids.first().ok_or_else(|| AgentError::ProcessingError {
-            operation: "plan_status".to_string(),
-            reason: "No planner agent available".to_string(),
-        })?;
+        let planner_id = planner_ids
+            .first()
+            .ok_or_else(|| AgentError::ProcessingError {
+                operation: "plan_status".to_string(),
+                reason: "No planner agent available".to_string(),
+            })?;
 
         let msg = crate::AgentMessage::new(
             "get_plan",
@@ -862,7 +908,8 @@ impl AgentManager {
                 crate::memory_agent::MemoryAgentConfig::default(),
             ))),
             "planner" => {
-                let store = StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
+                let store =
+                    StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
                 Ok(Box::new(
                     crate::planner_agent::PlannerAgent::new(
                         crate::planner_agent::PlannerAgentConfig::default(),
@@ -877,9 +924,8 @@ impl AgentManager {
                 crate::validation_agent::ValidationAgentConfig::default(),
             ))),
             "worker" => {
-                let store = StdArc::new(tokio::sync::Mutex::new(
-                    nexora_memory::MemoryLayers::new(),
-                ));
+                let store =
+                    StdArc::new(tokio::sync::Mutex::new(nexora_memory::MemoryLayers::new()));
                 let mut agent = crate::worker_agent::WorkerAgent::new(
                     crate::worker_agent::WorkerAgentConfig::default(),
                 )
@@ -911,7 +957,8 @@ impl AgentManager {
         trigger: nexora_alignment::isolation::killswitch::KillTrigger,
     ) -> Result<nexora_alignment::isolation::killswitch::KillEvent> {
         match &self.isolation {
-            Some(isolation) => isolation.trigger_kill_switch(target, reason, trigger)
+            Some(isolation) => isolation
+                .trigger_kill_switch(target, reason, trigger)
                 .map_err(|e| AgentError::ProcessingError {
                     operation: "kill_switch".to_string(),
                     reason: e.to_string(),
@@ -1055,10 +1102,7 @@ mod tests {
             ..Default::default()
         });
         let cmd_tx = manager.command_sender();
-        manager
-            .start()
-            .await
-            .expect("AgentManager should start");
+        manager.start().await.expect("AgentManager should start");
 
         // Spawn planner + 2 worker agents
         let agent_types = vec!["planner", "worker", "worker"];
@@ -1073,7 +1117,12 @@ mod tests {
                 .await
                 .expect("SpawnAgent should send");
             let result = rx.await.expect("Spawn response should arrive");
-            assert!(result.is_ok(), "Agent {} should spawn: {:?}", agent_type, result.err());
+            assert!(
+                result.is_ok(),
+                "Agent {} should spawn: {:?}",
+                agent_type,
+                result.err()
+            );
         }
 
         // Create plan via planner
@@ -1121,10 +1170,12 @@ mod tests {
             })
             .await
             .expect("DispatchPlan should send");
-        let dispatch_result = dispatch_rx
-            .await
-            .expect("Dispatch response should arrive");
-        assert!(dispatch_result.is_ok(), "Dispatch should succeed: {:?}", dispatch_result.err());
+        let dispatch_result = dispatch_rx.await.expect("Dispatch response should arrive");
+        assert!(
+            dispatch_result.is_ok(),
+            "Dispatch should succeed: {:?}",
+            dispatch_result.err()
+        );
 
         // Check plan completed
         let (status_tx, status_rx) = tokio::sync::oneshot::channel();

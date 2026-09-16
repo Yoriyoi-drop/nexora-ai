@@ -1,7 +1,7 @@
 //! Utility functions for SPARO (Structured Preference Alignment and Reward Optimization)
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Utility functions for alignment algorithms
 pub struct AlignmentUtils;
@@ -13,7 +13,8 @@ impl AlignmentUtils {
             return f32::INFINITY;
         }
 
-        p.iter().zip(q.iter())
+        p.iter()
+            .zip(q.iter())
             .map(|(pi, qi)| {
                 if *pi > 0.0 && *qi > 0.0 {
                     pi * (pi / qi).ln()
@@ -71,15 +72,22 @@ impl RewardUtils {
         }
 
         let mean = rewards.iter().sum::<f32>() / rewards.len() as f32;
-        let variance = rewards.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / rewards.len() as f32;
+        let variance =
+            rewards.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / rewards.len() as f32;
         let std_dev = variance.sqrt();
-        
+
         let mut stats = HashMap::new();
         stats.insert("mean".to_string(), mean);
         stats.insert("std_dev".to_string(), std_dev);
-        stats.insert("min".to_string(), rewards.iter().cloned().fold(f32::INFINITY, f32::min));
-        stats.insert("max".to_string(), rewards.iter().cloned().fold(f32::NEG_INFINITY, f32::max));
-        
+        stats.insert(
+            "min".to_string(),
+            rewards.iter().cloned().fold(f32::INFINITY, f32::min),
+        );
+        stats.insert(
+            "max".to_string(),
+            rewards.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+        );
+
         stats
     }
 
@@ -91,7 +99,7 @@ impl RewardUtils {
     /// Calculate advantage values
     pub fn calculate_advantages(rewards: &[f32], values: &[f32], gamma: f32) -> Vec<f32> {
         let mut advantages = Vec::with_capacity(rewards.len());
-        
+
         for i in 0..rewards.len() {
             let mut advantage = 0.0;
             for j in i..rewards.len() {
@@ -100,7 +108,7 @@ impl RewardUtils {
             }
             advantages.push(advantage);
         }
-        
+
         advantages
     }
 }
@@ -139,7 +147,7 @@ impl AlignmentConfig {
         if self.max_epochs == 0 {
             return Err("Max epochs must be non-zero".to_string());
         }
-        if ! (0.0..=1.0).contains(&self.gamma) {
+        if !(0.0..=1.0).contains(&self.gamma) {
             return Err("Gamma must be between 0 and 1".to_string());
         }
         Ok(())

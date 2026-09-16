@@ -202,7 +202,9 @@ impl PagedCacheConfig {
         if suggested != self.block_size {
             tracing::info!(
                 "Adaptive block size: {} → {} (avg_seq_len={})",
-                self.block_size, suggested, avg_seq_len
+                self.block_size,
+                suggested,
+                avg_seq_len
             );
             self.block_size = suggested;
         }

@@ -51,7 +51,11 @@ impl ResidualConnection {
         for (i, &x_val) in x_data.iter().enumerate() {
             let sub_val = if i < sub_data.len() { sub_data[i] } else { 0.0 };
             let residual = x_val + sub_val;
-            output.push(if rand::random::<f32>() < self.dropout { 0.0 } else { residual });
+            output.push(if rand::random::<f32>() < self.dropout {
+                0.0
+            } else {
+                residual
+            });
         }
 
         Ok(Tensor::new(output, x.shape().to_vec()))

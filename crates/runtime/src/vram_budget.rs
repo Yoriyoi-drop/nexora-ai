@@ -55,7 +55,10 @@ pub struct VramReservation {
 
 impl VramReservation {
     pub fn new(bytes: u64, budget: Arc<Mutex<VramBudget>>) -> Self {
-        Self { bytes, budget: Some(budget) }
+        Self {
+            bytes,
+            budget: Some(budget),
+        }
     }
 }
 
@@ -131,7 +134,12 @@ impl VramBudget {
     }
 
     /// Auto-configure limits based on model size and expert count.
-    pub fn auto_configure(&mut self, model_params: usize, _num_experts: usize, bits_per_weight: usize) {
+    pub fn auto_configure(
+        &mut self,
+        model_params: usize,
+        _num_experts: usize,
+        bits_per_weight: usize,
+    ) {
         let bytes_per_param = bits_per_weight as f64 / 8.0;
         let model_weight_bytes = (model_params as f64 * bytes_per_param) as u64;
         // Dense weights always resident
@@ -142,7 +150,8 @@ impl VramBudget {
         // Set eviction threshold: model + expert + headroom
         let total_fixed = model_weight_bytes + expert_bytes;
         let min_headroom = 512_000_000u64; // 512MB minimum
-        self.eviction_threshold = (total_fixed + min_headroom).min(self.total_bytes - self.reserved_bytes);
+        self.eviction_threshold =
+            (total_fixed + min_headroom).min(self.total_bytes - self.reserved_bytes);
         self.critical_threshold = (self.total_bytes as f64 * 0.90) as u64;
     }
 
@@ -188,7 +197,11 @@ impl VramBudget {
 
     /// Reserve `bytes` of VRAM. Returns `Err` if would exceed critical.
     /// Uses `self_arc` so the returned VramReservation can release on drop.
-    pub fn reserve(&mut self, bytes: u64, self_arc: Arc<Mutex<VramBudget>>) -> Result<VramReservation, String> {
+    pub fn reserve(
+        &mut self,
+        bytes: u64,
+        self_arc: Arc<Mutex<VramBudget>>,
+    ) -> Result<VramReservation, String> {
         if !self.can_allocate(bytes) {
             return Err(format!(
                 "VRAM allocation of {} bytes would exceed critical threshold ({} used / {} total)",
@@ -198,9 +211,13 @@ impl VramBudget {
             ));
         }
         self.breakdown.temp_buffers_bytes += bytes;
-        self.peak_used_bytes.fetch_max(self.used_bytes(), Ordering::Relaxed);
+        self.peak_used_bytes
+            .fetch_max(self.used_bytes(), Ordering::Relaxed);
         self.record_sample();
-        Ok(VramReservation { bytes, budget: Some(self_arc) })
+        Ok(VramReservation {
+            bytes,
+            budget: Some(self_arc),
+        })
     }
 
     fn release_internal(&mut self, bytes: u64) {
@@ -215,7 +232,8 @@ impl VramBudget {
     /// Update expert weight GPU usage (call after offloader swap).
     pub fn set_expert_weights(&mut self, bytes: u64) {
         self.breakdown.expert_weights_bytes = bytes;
-        self.peak_used_bytes.fetch_max(self.used_bytes(), Ordering::Relaxed);
+        self.peak_used_bytes
+            .fetch_max(self.used_bytes(), Ordering::Relaxed);
     }
 
     /// Update KV cache usage.
@@ -323,7 +341,9 @@ impl VramBudget {
             return None;
         }
         let used = self.used_bytes();
-        let remaining = self.critical_threshold.saturating_sub(used + self.reserved_bytes);
+        let remaining = self
+            .critical_threshold
+            .saturating_sub(used + self.reserved_bytes);
         if remaining == 0 {
             return Some(0.0);
         }
@@ -367,7 +387,10 @@ impl VramBudget {
         let pressure = self.predicted_pressure();
         tracing::info!(
             "VRAM: {:.2}GB used / {:.2}GB total ({:.2}GB free, pressure={:?})",
-            used_gb, total_gb, avail_gb, pressure
+            used_gb,
+            total_gb,
+            avail_gb,
+            pressure
         );
         if let Some(secs) = self.seconds_to_critical() {
             tracing::info!("  forecast: critical in {:.1}s at current rate", secs);

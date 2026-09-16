@@ -68,7 +68,10 @@ fn try_gpu_batch_cosine_similarity(
 }
 
 #[cfg(feature = "gpu")]
-fn compute_row_norms_gpu(ctx: &nexora_deeplearning::autograd::gpu::GpuContext, matrix: &nexora_deeplearning::autograd::gpu::GpuTensor) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+fn compute_row_norms_gpu(
+    ctx: &nexora_deeplearning::autograd::gpu::GpuContext,
+    matrix: &nexora_deeplearning::autograd::gpu::GpuTensor,
+) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
     use nexora_deeplearning::autograd::gpu::GpuTensor;
     let sq = ctx.mul(matrix, matrix).ok()?;
     let rows = matrix.shape()[0];
@@ -81,8 +84,8 @@ fn compute_row_norms_gpu(ctx: &nexora_deeplearning::autograd::gpu::GpuContext, m
     // Broadcast scalar sum back
     let sum_val = sum_result.to_cpu_first_element().ok()?;
     let per_row = sum_val / rows as f32; // approximate, not correct
-    // Actually we need per-row sum, not total sum
-    // Better approach: compute elementwise in loop
+                                         // Actually we need per-row sum, not total sum
+                                         // Better approach: compute elementwise in loop
     drop(sum_result);
 
     // Manual row-wise sum using reshape + matmul
@@ -192,18 +195,12 @@ fn try_gpu_sum_squares(_values: &Array1<f32>) -> Option<Result<f32, String>> {
 }
 
 /// Try to compute matrix-matrix multiply on GPU.
-pub fn try_matmul(
-    a: &Array2<f32>,
-    b: &Array2<f32>,
-) -> Option<Result<Array2<f32>, String>> {
+pub fn try_matmul(a: &Array2<f32>, b: &Array2<f32>) -> Option<Result<Array2<f32>, String>> {
     try_gpu_matmul(a, b)
 }
 
 #[cfg(feature = "gpu")]
-fn try_gpu_matmul(
-    a: &Array2<f32>,
-    b: &Array2<f32>,
-) -> Option<Result<Array2<f32>, String>> {
+fn try_gpu_matmul(a: &Array2<f32>, b: &Array2<f32>) -> Option<Result<Array2<f32>, String>> {
     use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
 
     let ctx = GpuContext::global().ok()?;
@@ -220,14 +217,15 @@ fn try_gpu_matmul(
     let out_flat = out_gpu.to_cpu().ok()?;
     let out_slice = out_flat.as_slice().unwrap_or(&[]);
 
-    Some(Ok(Array2::from_shape_vec((a_rows, b_cols), out_slice.to_vec()).unwrap()))
+    Some(Ok(Array2::from_shape_vec(
+        (a_rows, b_cols),
+        out_slice.to_vec(),
+    )
+    .unwrap()))
 }
 
 #[cfg(not(feature = "gpu"))]
-fn try_gpu_matmul(
-    _a: &Array2<f32>,
-    _b: &Array2<f32>,
-) -> Option<Result<Array2<f32>, String>> {
+fn try_gpu_matmul(_a: &Array2<f32>, _b: &Array2<f32>) -> Option<Result<Array2<f32>, String>> {
     None
 }
 
@@ -305,7 +303,12 @@ pub fn try_elem_div(a: &Array1<f32>, b: &Array1<f32>) -> Option<Result<Array1<f3
 }
 
 #[cfg(feature = "gpu")]
-enum ElemOp { Add, Sub, Mul, Div }
+enum ElemOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
 
 #[cfg(feature = "gpu")]
 fn try_gpu_elem_binary(
@@ -338,7 +341,12 @@ fn try_gpu_elem_binary(
 }
 
 #[cfg(not(feature = "gpu"))]
-enum ElemOp { Add, Sub, Mul, Div }
+enum ElemOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
 
 #[cfg(not(feature = "gpu"))]
 fn try_gpu_elem_binary(

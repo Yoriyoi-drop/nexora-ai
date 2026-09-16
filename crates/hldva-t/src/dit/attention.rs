@@ -42,10 +42,18 @@ impl MultiHeadAttention {
         })
     }
 
-    pub fn q_projection(&self) -> &Linear { &self.q_projection }
-    pub fn k_projection(&self) -> &Linear { &self.k_projection }
-    pub fn v_projection(&self) -> &Linear { &self.v_projection }
-    pub fn out_projection(&self) -> &Linear { &self.out_projection }
+    pub fn q_projection(&self) -> &Linear {
+        &self.q_projection
+    }
+    pub fn k_projection(&self) -> &Linear {
+        &self.k_projection
+    }
+    pub fn v_projection(&self) -> &Linear {
+        &self.v_projection
+    }
+    pub fn out_projection(&self) -> &Linear {
+        &self.out_projection
+    }
 
     pub fn forward(&self, query: &Tensor, key: &Tensor, value: &Tensor) -> HLDVAResult<Tensor> {
         let q = self.q_projection.forward(query)?;
@@ -66,7 +74,12 @@ impl MultiHeadAttention {
 
     /// GPU-accelerated scaled dot-product attention via fused_attention.
     /// Falls back to CPU if GPU unavailable.
-    fn scaled_dot_product_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
+    fn scaled_dot_product_attention(
+        &self,
+        q: &Tensor,
+        k: &Tensor,
+        v: &Tensor,
+    ) -> HLDVAResult<Tensor> {
         if gpu_ops::gpu_available() {
             return self.scaled_dot_product_attention_gpu(q, k, v);
         }
@@ -74,7 +87,12 @@ impl MultiHeadAttention {
     }
 
     /// GPU fused attention — all heads batched in one call
-    fn scaled_dot_product_attention_gpu(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
+    fn scaled_dot_product_attention_gpu(
+        &self,
+        q: &Tensor,
+        k: &Tensor,
+        v: &Tensor,
+    ) -> HLDVAResult<Tensor> {
         let q_data = q.data();
         let seq_len = q_data.len() / (self.num_heads * self.head_dim);
         let scale = (self.head_dim as f32).sqrt();
@@ -98,7 +116,10 @@ impl MultiHeadAttention {
             .collect();
 
         // Reshape to [B=1, H, S, D]
-        let q_4d = Tensor::new(q_data.to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
+        let q_4d = Tensor::new(
+            q_data.to_vec(),
+            vec![1, self.num_heads, seq_len, self.head_dim],
+        );
         let k_4d = Tensor::new(k_expanded, vec![1, self.num_heads, seq_len, self.head_dim]);
         let v_4d = Tensor::new(v_expanded, vec![1, self.num_heads, seq_len, self.head_dim]);
 
@@ -110,7 +131,12 @@ impl MultiHeadAttention {
     }
 
     /// CPU fallback attention (per-head dot-product)
-    fn scaled_dot_product_attention_cpu(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> HLDVAResult<Tensor> {
+    fn scaled_dot_product_attention_cpu(
+        &self,
+        q: &Tensor,
+        k: &Tensor,
+        v: &Tensor,
+    ) -> HLDVAResult<Tensor> {
         let q_data = q.data();
         let k_data = k.data();
         let v_data = v.data();
@@ -245,13 +271,26 @@ impl Linear {
         let weight = Tensor::new(weight_data, vec![out_features, in_features]);
         let bias = Some(Tensor::new(vec![0.0; out_features], vec![out_features]));
 
-        Ok(Self { in_features, out_features, weight, bias })
+        Ok(Self {
+            in_features,
+            out_features,
+            weight,
+            bias,
+        })
     }
 
-    pub fn weight(&self) -> &Tensor { &self.weight }
-    pub fn weight_mut(&mut self) -> &mut Tensor { &mut self.weight }
-    pub fn bias(&self) -> Option<&Tensor> { self.bias.as_ref() }
-    pub fn bias_mut(&mut self) -> Option<&mut Tensor> { self.bias.as_mut() }
+    pub fn weight(&self) -> &Tensor {
+        &self.weight
+    }
+    pub fn weight_mut(&mut self) -> &mut Tensor {
+        &mut self.weight
+    }
+    pub fn bias(&self) -> Option<&Tensor> {
+        self.bias.as_ref()
+    }
+    pub fn bias_mut(&mut self) -> Option<&mut Tensor> {
+        self.bias.as_mut()
+    }
 
     /// Forward pass: y = x @ W^T + b
     /// Uses GPU matmul when available, CPU fallback otherwise.
@@ -275,7 +314,8 @@ impl Linear {
         // Use GPU matmul: input [1, in] × W^T [in, out] → [1, out]
         // For higher dims, reshape first
         let w_data = self.weight.data();
-        let w_t_data: Vec<f32> = if self.weight.shape() == vec![self.out_features, self.in_features] {
+        let w_t_data: Vec<f32> = if self.weight.shape() == vec![self.out_features, self.in_features]
+        {
             // Transpose on CPU then upload
             let mut w_t = Vec::with_capacity(self.in_features * self.out_features);
             for i in 0..self.in_features {
@@ -363,7 +403,12 @@ impl LayerNorm {
     pub fn new(hidden_dim: usize) -> HLDVAResult<Self> {
         let weight = Tensor::new(vec![1.0; hidden_dim], vec![hidden_dim]);
         let bias = Tensor::new(vec![0.0; hidden_dim], vec![hidden_dim]);
-        Ok(Self { _hidden_dim: hidden_dim, weight, bias, eps: 1e-6 })
+        Ok(Self {
+            _hidden_dim: hidden_dim,
+            weight,
+            bias,
+            eps: 1e-6,
+        })
     }
 
     /// GPU layer_norm when available, CPU fallback
@@ -380,7 +425,8 @@ impl LayerNorm {
         let bias_data = self.bias.data();
 
         let mean: f32 = input_data.iter().sum::<f32>() / input_data.len() as f32;
-        let variance: f32 = input_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / input_data.len() as f32;
+        let variance: f32 =
+            input_data.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / input_data.len() as f32;
 
         let mut output = Vec::with_capacity(input_data.len());
         for (i, &x) in input_data.iter().enumerate() {
@@ -408,11 +454,21 @@ impl FeedForward {
         let intermediate_dim = hidden_dim * 4;
         let linear1 = Linear::new(hidden_dim, intermediate_dim)?;
         let linear2 = Linear::new(intermediate_dim, hidden_dim)?;
-        Ok(Self { hidden_dim, intermediate_dim, linear1, linear2, activation: GELU })
+        Ok(Self {
+            hidden_dim,
+            intermediate_dim,
+            linear1,
+            linear2,
+            activation: GELU,
+        })
     }
 
-    pub fn linear1(&self) -> &Linear { &self.linear1 }
-    pub fn linear2(&self) -> &Linear { &self.linear2 }
+    pub fn linear1(&self) -> &Linear {
+        &self.linear1
+    }
+    pub fn linear2(&self) -> &Linear {
+        &self.linear2
+    }
 
     pub fn forward(&self, input: &Tensor) -> HLDVAResult<Tensor> {
         let hidden = self.linear1.forward(input)?;

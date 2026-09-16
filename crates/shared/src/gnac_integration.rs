@@ -359,7 +359,10 @@ impl GnacEngine {
         } else {
             tracing::debug!(
                 "GNAC elastic: strategy={:?} complexity={:.3} full path ({} nodes) precision={:?}",
-                strategy, complexity, node_count, precision
+                strategy,
+                complexity,
+                node_count,
+                precision
             );
         }
 

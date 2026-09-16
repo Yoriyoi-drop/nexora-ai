@@ -183,8 +183,7 @@ pub struct MemoryStats {
 static GLOBAL_ORACLE_MEMORY: OnceLock<RwLock<SharedOracleMemory>> = OnceLock::new();
 
 pub fn global_oracle_memory() -> &'static RwLock<SharedOracleMemory> {
-    GLOBAL_ORACLE_MEMORY
-        .get_or_init(|| RwLock::new(SharedOracleMemory::new(10_000)))
+    GLOBAL_ORACLE_MEMORY.get_or_init(|| RwLock::new(SharedOracleMemory::new(10_000)))
 }
 
 #[cfg(test)]

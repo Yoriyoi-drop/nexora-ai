@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-
 use super::gpu_types::*;
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
@@ -125,7 +124,10 @@ impl GpuContext {
         ctx_mut.shader_cache.clear();
         ctx_mut.bind_group_layout_cache.clear();
         ctx_mut.pipelines.clear();
-        *ctx_mut.bind_group_cache_mutex.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        *ctx_mut
+            .bind_group_cache_mutex
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = HashMap::new();
         #[cfg(feature = "cuda")]
         {
             let _ = ctx_mut.cuda_cache.lock().map(|mut c| c.clear());
@@ -133,12 +135,10 @@ impl GpuContext {
 
         // 3. Recreate device + queue from new adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..Default::default()
-            },
-        ))
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            ..Default::default()
+        }))
         .map_err(|_| GpuError::DeviceLost("No adapter found after device lost".into()))?;
 
         let adapter_features = adapter.features();
@@ -159,16 +159,14 @@ impl GpuContext {
             required_features |= wgpu::Features::PIPELINE_CACHE;
         }
 
-        let (dev, q) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("Nexora GPU Device (recovered)"),
-                required_features,
-                required_limits: wgpu::Limits::default(),
-                experimental_features: wgpu::ExperimentalFeatures::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
-                trace: wgpu::Trace::Off,
-            },
-        ))
+        let (dev, q) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Nexora GPU Device (recovered)"),
+            required_features,
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::default(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: wgpu::Trace::Off,
+        }))
         .map_err(|e| GpuError::DeviceLost(format!("Device re-request failed: {}", e)))?;
 
         // 4. Replace device + queue
@@ -177,13 +175,21 @@ impl GpuContext {
 
         // 5. Recreate memory pool
         let new_pool = crate::autograd::gpu_memory::GpuMemoryPool::new(&ctx_mut.device);
-        *ctx_mut.memory_pool.lock().unwrap_or_else(|e| e.into_inner()) = new_pool;
+        *ctx_mut
+            .memory_pool
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = new_pool;
 
         // 6. Recreate command encoder
-        let enc = ctx_mut.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("nexora_reusable_encoder_recovered"),
-        });
-        *ctx_mut.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        let enc = ctx_mut
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nexora_reusable_encoder_recovered"),
+            });
+        *ctx_mut
+            .current_encoder
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(enc);
 
         // 7. Recompile all pipelines
         match ctx_mut.compile_all_pipelines() {
@@ -213,11 +219,18 @@ impl GpuContext {
         let ctx_mut = unsafe { &mut *(self as *const GpuContext as *mut GpuContext) };
 
         ctx_mut.clear_memory_pool();
-        let enc = ctx_mut.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("nexora_reusable_encoder_reset"),
-        });
-        *ctx_mut.current_encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some(enc);
-        ctx_mut.ops_since_flush.store(0, std::sync::atomic::Ordering::Release);
+        let enc = ctx_mut
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("nexora_reusable_encoder_reset"),
+            });
+        *ctx_mut
+            .current_encoder
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(enc);
+        ctx_mut
+            .ops_since_flush
+            .store(0, std::sync::atomic::Ordering::Release);
         #[cfg(feature = "cuda")]
         {
             let _ = ctx_mut.cuda_cache.lock().map(|mut c| c.clear());

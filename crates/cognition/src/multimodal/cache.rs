@@ -63,7 +63,11 @@ impl Default for CompressionFormat {
 pub enum CompressedEmbedding {
     FP32(Vec<f32>),
     FP16(Vec<u16>),
-    INT8 { data: Vec<i8>, scale: f32, zero_point: i8 },
+    INT8 {
+        data: Vec<i8>,
+        scale: f32,
+        zero_point: i8,
+    },
 }
 
 impl CompressedEmbedding {
@@ -92,7 +96,11 @@ impl CompressedEmbedding {
                     .iter()
                     .map(|&x| ((x / scale).round() as i8).clamp(-128, 127))
                     .collect();
-                Self::INT8 { data: quantized, scale, zero_point }
+                Self::INT8 {
+                    data: quantized,
+                    scale,
+                    zero_point,
+                }
             }
         }
     }
@@ -102,7 +110,11 @@ impl CompressedEmbedding {
         match self {
             Self::FP32(d) => d.clone(),
             Self::FP16(d) => d.iter().map(|&x| fp16_to_f32(x)).collect(),
-            Self::INT8 { data, scale, zero_point } => {
+            Self::INT8 {
+                data,
+                scale,
+                zero_point,
+            } => {
                 let z = *zero_point as f32;
                 data.iter().map(|&x| (x as f32 - z) * scale).collect()
             }
@@ -742,7 +754,11 @@ impl MultiModalCache {
                     Some(e) => e,
                     None => continue,
                 };
-                (entry.hit_count, entry.storage_level, entry.created_at.elapsed())
+                (
+                    entry.hit_count,
+                    entry.storage_level,
+                    entry.created_at.elapsed(),
+                )
             };
 
             if hit > 5 && !matches!(level, StorageLevel::L1Gpu) {
@@ -914,7 +930,13 @@ mod tests {
         assert_eq!(original.len(), recovered.len());
         for (a, b) in original.iter().zip(recovered.iter()) {
             let diff = (a - b).abs();
-            assert!(diff < 0.01, "FP16 roundtrip error: {} vs {} (diff={})", a, b, diff);
+            assert!(
+                diff < 0.01,
+                "FP16 roundtrip error: {} vs {} (diff={})",
+                a,
+                b,
+                diff
+            );
         }
     }
 
@@ -945,21 +967,13 @@ mod tests {
         let hash = MultiModalCache::compute_hash(data);
 
         // First call — miss
-        let (_emb1, hit1) = cache.get_or_compute(
-            hash,
-            ModalityType::Text,
-            vec![768],
-            || vec![0.5f32; 768],
-        );
+        let (_emb1, hit1) =
+            cache.get_or_compute(hash, ModalityType::Text, vec![768], || vec![0.5f32; 768]);
         assert!(!hit1);
 
         // Second call — hit (dedup)
-        let (_emb2, hit2) = cache.get_or_compute(
-            hash,
-            ModalityType::Text,
-            vec![768],
-            || vec![0.5f32; 768],
-        );
+        let (_emb2, hit2) =
+            cache.get_or_compute(hash, ModalityType::Text, vec![768], || vec![0.5f32; 768]);
         assert!(hit2);
         assert_eq!(cache.stats().total_hits, 1);
         assert_eq!(cache.stats().total_misses, 1);

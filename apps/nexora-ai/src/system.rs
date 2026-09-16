@@ -7,17 +7,17 @@
 //! ObservabilityCollector → 33 metrics, dashboard data, prometheus output
 //! AgentAutoscaler → dynamic pool (3–49 agents)
 
+use nexora_agent::scaling::AgentAutoscaler;
 use nexora_cost_optimizer::CostOptimizer;
 use nexora_eventbus::EventBus;
-use nexora_memory::pool::UnifiedMemoryManager;
 use nexora_memory::hybrid_cache::HybridCacheManager;
-use nexora_monitoring::observability::{ObservabilityCollector, MetricsReporter};
-use nexora_runtime::scheduler_v2::DagScheduler;
-use nexora_agent::scaling::AgentAutoscaler;
+use nexora_memory::pool::UnifiedMemoryManager;
+use nexora_monitoring::observability::{MetricsReporter, ObservabilityCollector};
 use nexora_runtime::gpu_runtime::scheduler::GpuScheduler;
+use nexora_runtime::scheduler_v2::DagScheduler;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tracing::info;
 
 /// System-wide integration — bootstrap semua subsystem baru
@@ -105,16 +105,15 @@ impl NexoraSystem {
         }
 
         info!("NexoraSystem started");
-        self.event_bus.emit_system_event("system.ready", "NexoraSystem ready");
+        self.event_bus
+            .emit_system_event("system.ready", "NexoraSystem ready");
     }
 
     /// Route request through cost optimizer → report metrics
     pub async fn optimize_request(&self, input: &str) -> (bool, f64) {
         let result = self.cost_optimizer.optimize(input);
-        self.observability.record_cost(
-            result.estimated_cost,
-            result.savings_vs_large,
-        );
+        self.observability
+            .record_cost(result.estimated_cost, result.savings_vs_large);
         (result.use_large_model, result.estimated_cost)
     }
 
@@ -139,7 +138,8 @@ impl NexoraSystem {
 
     pub async fn shutdown(&self) {
         self.running.store(false, Ordering::SeqCst);
-        self.event_bus.emit_system_event("system.shutdown", "NexoraSystem stopping");
+        self.event_bus
+            .emit_system_event("system.shutdown", "NexoraSystem stopping");
         self.event_bus.shutdown().await;
         self.observability.shutdown();
         info!("NexoraSystem shutdown");

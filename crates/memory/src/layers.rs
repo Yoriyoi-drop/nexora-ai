@@ -339,7 +339,8 @@ impl MemoryLayers {
                 .map(|(k, v)| (k.clone(), v.last_access))
                 .collect();
             entries.select_nth_unstable_by(count - 1, |a, b| a.1.cmp(&b.1));
-            let keys_to_remove: Vec<String> = entries.into_iter().take(count).map(|(k, _)| k).collect();
+            let keys_to_remove: Vec<String> =
+                entries.into_iter().take(count).map(|(k, _)| k).collect();
             for key in keys_to_remove {
                 layer_map.remove(&key);
             }

@@ -16,10 +16,7 @@ impl TfVectorizer {
         let mut word_to_idx = HashMap::with_capacity(TF_VOCAB_SIZE);
         for text in texts {
             for word in text.split_whitespace() {
-                let clean: String = word
-                    .chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .collect();
+                let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
                 if clean.is_empty() {
                     continue;
                 }
@@ -38,10 +35,7 @@ impl TfVectorizer {
         let mut matrix = ndarray::Array2::<f32>::zeros((texts.len(), vocab));
         for (row, text) in texts.iter().enumerate() {
             for word in text.split_whitespace() {
-                let clean: String = word
-                    .chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .collect();
+                let clean: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
                 if let Some(&idx) = self.word_to_idx.get(&clean) {
                     matrix[[row, idx]] += 1.0;
                 }
@@ -65,9 +59,7 @@ pub fn gpu_batch_verify(
         Ok(c) => c,
         Err(_) => {
             info!("GPU not available for batch verification");
-            return Err(HallucinationError::Internal(
-                "GPU not initialized".into(),
-            ));
+            return Err(HallucinationError::Internal("GPU not initialized".into()));
         }
     };
 
@@ -88,8 +80,9 @@ pub fn gpu_batch_verify(
 
     let n_sent = sent_features.nrows();
     let n_src = src_features.nrows();
-    let gpu_sent = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&sent_features.into_dyn())
-        .map_err(|e| HallucinationError::Internal(e.to_string()))?;
+    let gpu_sent =
+        nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&sent_features.into_dyn())
+            .map_err(|e| HallucinationError::Internal(e.to_string()))?;
     let gpu_src = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&src_features.into_dyn())
         .map_err(|e| HallucinationError::Internal(e.to_string()))?;
 

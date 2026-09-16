@@ -27,7 +27,12 @@ impl NumaAwareScheduler {
     }
 
     /// Assign task ke NUMA node dengan resource paling tersedia
-    pub fn assign_node(&self, task_id: uuid::Uuid, required_memory: u64, preferred: Option<u32>) -> u32 {
+    pub fn assign_node(
+        &self,
+        task_id: uuid::Uuid,
+        required_memory: u64,
+        preferred: Option<u32>,
+    ) -> u32 {
         let node = preferred.unwrap_or_else(|| {
             let mut best = 0u32;
             let mut best_free = 0u64;
@@ -44,8 +49,7 @@ impl NumaAwareScheduler {
 
         let idx = node as usize;
         if idx < self.node_count {
-            self.node_memory_used[idx]
-                .fetch_add(required_memory as usize, Ordering::Relaxed);
+            self.node_memory_used[idx].fetch_add(required_memory as usize, Ordering::Relaxed);
             self.node_cpu_usage[idx].fetch_add(1, Ordering::Relaxed);
         }
         self.task_to_node.insert(task_id, node);
@@ -56,8 +60,7 @@ impl NumaAwareScheduler {
         if let Some((_, node)) = self.task_to_node.remove(task_id) {
             let idx = node as usize;
             if idx < self.node_count {
-                self.node_memory_used[idx]
-                    .fetch_sub(memory as usize, Ordering::Relaxed);
+                self.node_memory_used[idx].fetch_sub(memory as usize, Ordering::Relaxed);
                 self.node_cpu_usage[idx].fetch_sub(1, Ordering::Relaxed);
             }
         }

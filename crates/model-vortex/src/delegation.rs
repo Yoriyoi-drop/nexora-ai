@@ -1,10 +1,10 @@
+use crate::analyzer;
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use crate::analyzer;
 use nexora_oracle::CodeLinterManager;
+use nexora_transformer::CausalLM;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
@@ -80,7 +80,10 @@ fn run_linters(code: &str, language: &str) -> String {
 pub async fn delegate(prompt: &str) -> String {
     init_analyzer();
     let categories = classify_review(prompt);
-    let primary = categories.first().map(|(c, _)| c.as_str()).unwrap_or("general");
+    let primary = categories
+        .first()
+        .map(|(c, _)| c.as_str())
+        .unwrap_or("general");
     let lang = analyzer::detect_language(prompt);
 
     let verification = run_linters(prompt, lang);
@@ -94,8 +97,10 @@ pub async fn delegate(prompt: &str) -> String {
          ```\n{sanitized_prompt}\n```\n\n\
          Code review:"
     );
-    delegation_base::call_model(foundation(), &framed, 512, 0.4).await.unwrap_or_else(|e| {
-        tracing::warn!("vortex delegation call failed: {}", e);
-        format!("[vortex inference error: {}]", e)
-    })
+    delegation_base::call_model(foundation(), &framed, 512, 0.4)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("vortex delegation call failed: {}", e);
+            format!("[vortex inference error: {}]", e)
+        })
 }

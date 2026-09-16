@@ -38,13 +38,14 @@ impl PagedKVCache {
         if bs == 0 {
             return (0.0, 0);
         }
-        let (total_slots, filled_slots) = self.blocks.iter().flatten().fold(
-            (0usize, 0usize),
-            |(total, filled), block| {
-                let cap = bs;
-                (total + cap, filled + block.filled)
-            },
-        );
+        let (total_slots, filled_slots) =
+            self.blocks
+                .iter()
+                .flatten()
+                .fold((0usize, 0usize), |(total, filled), block| {
+                    let cap = bs;
+                    (total + cap, filled + block.filled)
+                });
         if total_slots == 0 {
             return (0.0, 0);
         }
@@ -232,9 +233,12 @@ impl PagedKVCache {
 
         // Update global observability atomics
         let mem_bytes = self.memory_usage_bytes();
-        crate::inference_trait::KV_CACHE_TOTAL_BLOCKS.store(total as u64, std::sync::atomic::Ordering::Relaxed);
-        crate::inference_trait::KV_CACHE_USED_BLOCKS.store(used as u64, std::sync::atomic::Ordering::Relaxed);
-        crate::inference_trait::KV_CACHE_MEMORY_BYTES.store(mem_bytes as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_TOTAL_BLOCKS
+            .store(total as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_USED_BLOCKS
+            .store(used as u64, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::KV_CACHE_MEMORY_BYTES
+            .store(mem_bytes as u64, std::sync::atomic::Ordering::Relaxed);
         crate::inference_trait::KV_CACHE_INTERNAL_FRAG.store(
             (int_frag * 1_000_000.0) as u64,
             std::sync::atomic::Ordering::Relaxed,

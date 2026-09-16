@@ -28,7 +28,9 @@ impl KVCacheBlock {
     }
 
     pub fn decrement_ref(&self) -> usize {
-        self.ref_count.fetch_sub(1, Ordering::Relaxed).saturating_sub(1)
+        self.ref_count
+            .fetch_sub(1, Ordering::Relaxed)
+            .saturating_sub(1)
     }
 }
 

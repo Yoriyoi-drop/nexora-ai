@@ -447,9 +447,7 @@ fn truncate_bonds(tensor: &ArrayD<f32>, max_dim: usize) -> Result<ArrayD<f32>, c
     let (u, s, vt) = compute_svd_truncated(&reshaped, max_dim)?;
 
     // Reconstruct with truncated singular values
-    let truncated = u
-        .dot(&Array::from_diag(&Array::from_vec(s)))
-        .dot(&vt);
+    let truncated = u.dot(&Array::from_diag(&Array::from_vec(s))).dot(&vt);
 
     Ok(truncated
         .into_shape(shape)

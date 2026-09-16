@@ -75,7 +75,12 @@ mod tests {
 
     fn graph_with_attention() -> NeuralGraph {
         let mut g = NeuralGraph::new("test");
-        let attn = crate::gnac::canvas::GraphNode::new(crate::gnac::NodeType::SelfAttention, "attn", 0.0, 0.0);
+        let attn = crate::gnac::canvas::GraphNode::new(
+            crate::gnac::NodeType::SelfAttention,
+            "attn",
+            0.0,
+            0.0,
+        );
         g.add_node(attn);
         g
     }

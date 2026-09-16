@@ -633,9 +633,15 @@ impl ActionHandler for NavigateHandler {
         }
 
         if !is_safe_url(destination) {
-            warn!("Dangerous navigation destination blocked: '{}'", destination);
+            warn!(
+                "Dangerous navigation destination blocked: '{}'",
+                destination
+            );
             return Err(crate::multimodal::error::CaffeineError::action_head(
-                &format!("Navigation blocked: invalid or dangerous URL: {}", destination),
+                &format!(
+                    "Navigation blocked: invalid or dangerous URL: {}",
+                    destination
+                ),
             ));
         }
 

@@ -21,10 +21,10 @@ use nexora_shared::{
         ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
         NxrStreamChunk, ResourceUsage, ValidationResult,
     },
-    model_identity::ModelMeta,
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
+    model_identity::ModelMeta,
 };
 
 use self::{
@@ -181,7 +181,9 @@ impl FoundationModel {
 
         let analysis = self.analyze_strategic_context(scenario).await?;
         let risk_assessment = self.assess_risks(&analysis).await?;
-        let decision = self.generate_strategic_decision(&analysis, &risk_assessment).await?;
+        let decision = self
+            .generate_strategic_decision(&analysis, &risk_assessment)
+            .await?;
         let simulation = self.simulate_outcomes(&decision).await?;
 
         Ok(format!(
@@ -267,7 +269,10 @@ impl FoundationModel {
     }
 
     /// Simulate decision outcomes via foundation CausalLM.
-    async fn simulate_outcomes(&self, decision: &StrategicDecision) -> NxrModelResult<SimulationResult> {
+    async fn simulate_outcomes(
+        &self,
+        decision: &StrategicDecision,
+    ) -> NxrModelResult<SimulationResult> {
         let prompt = format!(
             "Simulate the likely outcomes of this strategic decision. Estimate success probability (0-1), \
              expected ROI, and time to break even (in months).\n\nDecision: {}\n\nSimulation Results:",
@@ -396,9 +401,11 @@ impl NxrModel for FoundationModel {
 
         let text = match &input.data {
             nexora_shared::base_model::InputData::Text(t) => t.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "Text input required".to_string(),
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "Text input required".to_string(),
+                ))
+            }
         };
         let result = crate::delegation::delegate(&text).await;
         Ok(NxrOutput {
@@ -438,7 +445,8 @@ impl NxrModel for FoundationModel {
         let augmented = augment_axiom_input(input)?;
         static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::axiom());
+        let foundation =
+            FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::axiom());
         foundation.infer_stream(&augmented, callback).await
     }
 

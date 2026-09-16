@@ -70,7 +70,11 @@ impl OraclePool {
         Self::new_with_config(max_size, vocab_size, OracleBackboneConfig::default())
     }
 
-    pub fn new_with_config(max_size: usize, vocab_size: usize, backbone_config: OracleBackboneConfig) -> Self {
+    pub fn new_with_config(
+        max_size: usize,
+        vocab_size: usize,
+        backbone_config: OracleBackboneConfig,
+    ) -> Self {
         let instances = (0..max_size)
             .map(|id| Mutex::new(OraclePoolInstance::new(id)))
             .collect();
@@ -97,18 +101,24 @@ impl OraclePool {
 
         loop {
             for instance in &self.instances {
-                let mut guard = instance.lock().map_err(|e| PoolError::LockError(e.to_string()))?;
+                let mut guard = instance
+                    .lock()
+                    .map_err(|e| PoolError::LockError(e.to_string()))?;
                 if guard.status == OracleInstanceStatus::Idle {
                     guard.status = OracleInstanceStatus::Busy;
                     guard.last_used = Instant::now();
                     guard.total_uses += 1;
 
                     if guard.backbone.is_none() {
-                        guard.backbone = Some(OracleBackbone::new(self.backbone_config.clone(), self.vocab_size));
+                        guard.backbone = Some(OracleBackbone::new(
+                            self.backbone_config.clone(),
+                            self.vocab_size,
+                        ));
                     }
 
                     let elapsed = start.elapsed();
-                    self.acquire_times_ns.fetch_add(elapsed.as_nanos() as u64, Ordering::SeqCst);
+                    self.acquire_times_ns
+                        .fetch_add(elapsed.as_nanos() as u64, Ordering::SeqCst);
                     self.acquire_count.fetch_add(1, Ordering::SeqCst);
 
                     return Ok(PooledOracle {
@@ -136,18 +146,24 @@ impl OraclePool {
 
         loop {
             for instance in &pool.instances {
-                let mut guard = instance.lock().map_err(|e| PoolError::LockError(e.to_string()))?;
+                let mut guard = instance
+                    .lock()
+                    .map_err(|e| PoolError::LockError(e.to_string()))?;
                 if guard.status == OracleInstanceStatus::Idle {
                     guard.status = OracleInstanceStatus::Busy;
                     guard.last_used = Instant::now();
                     guard.total_uses += 1;
 
                     if guard.backbone.is_none() {
-                        guard.backbone = Some(OracleBackbone::new(pool.backbone_config.clone(), pool.vocab_size));
+                        guard.backbone = Some(OracleBackbone::new(
+                            pool.backbone_config.clone(),
+                            pool.vocab_size,
+                        ));
                     }
 
                     let elapsed = start.elapsed();
-                    pool.acquire_times_ns.fetch_add(elapsed.as_nanos() as u64, Ordering::SeqCst);
+                    pool.acquire_times_ns
+                        .fetch_add(elapsed.as_nanos() as u64, Ordering::SeqCst);
                     pool.acquire_count.fetch_add(1, Ordering::SeqCst);
 
                     return Ok(PooledOracle {
@@ -184,7 +200,9 @@ impl OraclePool {
         F: FnOnce(&OracleBackbone) -> R,
     {
         if let Some(instance) = self.instances.get(id) {
-            let guard = instance.lock().map_err(|e| PoolError::LockError(e.to_string()))?;
+            let guard = instance
+                .lock()
+                .map_err(|e| PoolError::LockError(e.to_string()))?;
             if let Some(ref backbone) = guard.backbone {
                 Ok(f(backbone))
             } else {
@@ -333,9 +351,7 @@ mod tests {
         let pool = Arc::new(OraclePool::new_with_config(1, 1000, tiny_config()));
         let oracle = OraclePool::acquire_arc(&pool).expect("acquire");
         let id = oracle.id();
-        let result = pool.with_backbone(id, |bb| {
-            format!("d_model={}", bb.config.d_model)
-        });
+        let result = pool.with_backbone(id, |bb| format!("d_model={}", bb.config.d_model));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "d_model=16");
     }

@@ -80,7 +80,6 @@ impl WorkStealingScheduler {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.global_rx.is_empty()
-            && self.local_receivers.iter().all(|r| r.is_empty())
+        self.global_rx.is_empty() && self.local_receivers.iter().all(|r| r.is_empty())
     }
 }

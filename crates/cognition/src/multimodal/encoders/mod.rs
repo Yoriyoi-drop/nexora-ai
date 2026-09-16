@@ -134,19 +134,16 @@ impl MultiModalEncoders {
                 let estimated_patches = (input.width / 16).max(1) * (input.height / 16).max(1) + 1;
                 let shape = vec![1, estimated_patches, 768];
 
-                let (compressed, _hit) = cache_guard.get_or_compute(
-                    hash,
-                    ModalityType::Image,
-                    shape,
-                    || {
-                        self.image_encoder.encode(input)
+                let (compressed, _hit) =
+                    cache_guard.get_or_compute(hash, ModalityType::Image, shape, || {
+                        self.image_encoder
+                            .encode(input)
                             .map(|arr| arr.iter().copied().collect::<Vec<f32>>())
                             .unwrap_or_else(|e| {
                                 tracing::warn!("image_encoder failed: {:?}", e);
                                 vec![0.0f32; 768]
                             })
-                    },
-                );
+                    });
 
                 let recovered = compressed.to_fp32();
                 return ndarray::ArrayD::from_shape_vec(
@@ -174,28 +171,22 @@ impl MultiModalEncoders {
                 let estimated_audio_seq = (input.data.len() / 320).max(1).min(3000);
                 let shape = vec![1, estimated_audio_seq, 768];
 
-                let (compressed, _hit) = cache_guard.get_or_compute(
-                    hash,
-                    ModalityType::Audio,
-                    shape,
-                    || {
-                        self.audio_encoder.encode(input)
+                let (compressed, _hit) =
+                    cache_guard.get_or_compute(hash, ModalityType::Audio, shape, || {
+                        self.audio_encoder
+                            .encode(input)
                             .map(|arr| arr.iter().copied().collect::<Vec<f32>>())
                             .unwrap_or_else(|e| {
                                 tracing::warn!("audio_encoder failed: {:?}", e);
                                 vec![0.0f32; 768]
                             })
-                    },
-                );
+                    });
 
                 let recovered = compressed.to_fp32();
                 // Estimate shape: [1, seq_len, embed_dim]
                 let seq_len = recovered.len() / 768;
-                return ndarray::ArrayD::from_shape_vec(
-                    vec![1, seq_len.max(1), 768],
-                    recovered,
-                )
-                .map_err(|e| crate::multimodal::error::CaffeineError::NdArray(e));
+                return ndarray::ArrayD::from_shape_vec(vec![1, seq_len.max(1), 768], recovered)
+                    .map_err(|e| crate::multimodal::error::CaffeineError::NdArray(e));
             }
         }
 
@@ -213,11 +204,8 @@ impl MultiModalEncoders {
                 let hash = MultiModalCache::hash_video_input(input);
                 let shape = vec![1, input.frames.len(), 768];
 
-                let (compressed, _hit) = cache_guard.get_or_compute(
-                    hash,
-                    ModalityType::Video,
-                    shape,
-                    || {
+                let (compressed, _hit) =
+                    cache_guard.get_or_compute(hash, ModalityType::Video, shape, || {
                         // FIX 5: Sliding window — process per-frame, buang setelah diproses
                         let mut all_embs = Vec::new();
                         for frame in &input.frames {
@@ -230,17 +218,13 @@ impl MultiModalEncoders {
                         } else {
                             all_embs
                         }
-                    },
-                );
+                    });
 
                 let recovered = compressed.to_fp32();
                 let total_len = recovered.len();
                 let seq_len = (total_len / 768).max(1);
-                return ndarray::ArrayD::from_shape_vec(
-                    vec![1, seq_len, 768],
-                    recovered,
-                )
-                .map_err(|e| crate::multimodal::error::CaffeineError::NdArray(e));
+                return ndarray::ArrayD::from_shape_vec(vec![1, seq_len, 768], recovered)
+                    .map_err(|e| crate::multimodal::error::CaffeineError::NdArray(e));
             }
         }
 

@@ -1,11 +1,11 @@
+use crate::classifier;
+use nexora_cognition::reflection::{Action, DefaultReflector, ReflectionEngine, ReflectionType};
+use nexora_cognition::saca::SacaEngine;
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use crate::classifier;
-use nexora_cognition::saca::SacaEngine;
-use nexora_cognition::reflection::{DefaultReflector, ReflectionEngine, Action, ReflectionType};
+use nexora_transformer::CausalLM;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use nexora_transformer::CausalLM;
 
 const MAX_REFINEMENT_ITERATIONS: usize = 3;
 const QUALITY_CONFIDENCE: f32 = 0.65;
@@ -70,9 +70,9 @@ pub async fn delegate(prompt: &str) -> String {
         _ => {
             tracing::warn!("genesis SACA reasoning unavailable, using direct generation");
             let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
-            delegation_base::call_model(foundation(), &sanitized_prompt, 256, 0.8).await.unwrap_or_else(|e| {
-                format!("[genesis inference error: {}]", e)
-            })
+            delegation_base::call_model(foundation(), &sanitized_prompt, 256, 0.8)
+                .await
+                .unwrap_or_else(|e| format!("[genesis inference error: {}]", e))
         }
     };
 
@@ -91,20 +91,38 @@ pub async fn delegate(prompt: &str) -> String {
             success: current.len() > 20,
         }];
 
-        let reflection = match reflector.reflect(&actions, &format!("quality refinement iteration {iteration}, focus: {primary}")).await {
+        let reflection = match reflector
+            .reflect(
+                &actions,
+                &format!("quality refinement iteration {iteration}, focus: {primary}"),
+            )
+            .await
+        {
             Ok(r) => r,
             Err(_) => break,
         };
 
         if reflection.confidence >= QUALITY_CONFIDENCE {
-            tracing::debug!("genesis quality confidence met (iter {iteration}, confidence: {:.2})", reflection.confidence);
+            tracing::debug!(
+                "genesis quality confidence met (iter {iteration}, confidence: {:.2})",
+                reflection.confidence
+            );
             break;
         }
 
-        let improvements = reflector.suggest_improvements(&reflection).await.unwrap_or_default();
-        let refinement_hint = improvements.first().map(|s| s.as_str()).unwrap_or("improve clarity");
+        let improvements = reflector
+            .suggest_improvements(&reflection)
+            .await
+            .unwrap_or_default();
+        let refinement_hint = improvements
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("improve clarity");
 
-        tracing::info!("genesis refinement iter {iteration}: confidence {:.2}, focus: {refinement_hint}", reflection.confidence);
+        tracing::info!(
+            "genesis refinement iter {iteration}: confidence {:.2}, focus: {refinement_hint}",
+            reflection.confidence
+        );
 
         match engine.reason(&current, refinement_hint).await {
             Ok(r) if !r.conclusion.is_empty() => {

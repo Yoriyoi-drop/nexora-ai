@@ -112,7 +112,9 @@ impl PagedKVCache {
     /// Creates a [`GpuPageTable`] with dimensions matching this cache's config
     /// and stores it for GPU-side paged attention operations.
     #[cfg(feature = "gpu")]
-    pub fn init_gpu_page_table(&mut self) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
+    pub fn init_gpu_page_table(
+        &mut self,
+    ) -> Result<(), nexora_deeplearning::autograd::gpu::GpuError> {
         let ctx = GpuContext::global()?;
         let page_table = GpuPageTable::new(
             ctx,
@@ -173,11 +175,7 @@ impl PagedKVCache {
     }
 
     /// Convert semua blocks milik sequence ke target tier format.
-    fn convert_sequence_blocks(
-        &mut self,
-        seq_id: u64,
-        target: MemoryTier,
-    ) {
+    fn convert_sequence_blocks(&mut self, seq_id: u64, target: MemoryTier) {
         let Some(table) = self.sequences.get(&seq_id) else {
             return;
         };
@@ -217,7 +215,12 @@ impl PagedKVCache {
             MemoryTier::Warm => MemoryTier::Hot,
             MemoryTier::Hot => return,
         };
-        info!("Promoting seq {} from {} to {}", seq_id, from.label(), target.label());
+        info!(
+            "Promoting seq {} from {} to {}",
+            seq_id,
+            from.label(),
+            target.label()
+        );
         self.convert_sequence_blocks(seq_id, target);
     }
 
@@ -257,7 +260,9 @@ impl PagedKVCache {
             return false;
         }
         let now = Instant::now();
-        let mut candidates: Vec<(u64, &SeqAccess)> = self.seq_access.iter()
+        let mut candidates: Vec<(u64, &SeqAccess)> = self
+            .seq_access
+            .iter()
             .filter(|(_, acc)| {
                 acc.tier != MemoryTier::Cold
                     && now.duration_since(acc.tier_changed_at).as_secs_f64() > 1.0
@@ -271,15 +276,21 @@ impl PagedKVCache {
         candidates.sort_by(|a, b| {
             let a_idle = a.1.idle_secs();
             let b_idle = b.1.idle_secs();
-            b_idle.partial_cmp(&a_idle).unwrap_or(std::cmp::Ordering::Equal)
+            b_idle
+                .partial_cmp(&a_idle)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
         let best = candidates[0].0;
         // Jangan demote jika masih di bawah threshold
         let idle = candidates[0].1.idle_secs();
         let since_change = candidates[0].1.since_tier_change_secs();
         match candidates[0].1.tier {
-            MemoryTier::Hot if idle < self.config.hot_to_warm_secs || since_change < 5.0 => return false,
-            MemoryTier::Warm if idle < self.config.warm_to_cold_secs || since_change < 5.0 => return false,
+            MemoryTier::Hot if idle < self.config.hot_to_warm_secs || since_change < 5.0 => {
+                return false
+            }
+            MemoryTier::Warm if idle < self.config.warm_to_cold_secs || since_change < 5.0 => {
+                return false
+            }
             _ => {}
         }
         self.demote_sequence(best)
@@ -292,7 +303,9 @@ impl PagedKVCache {
             return 0;
         }
         let now = Instant::now();
-        let seq_ids: Vec<u64> = self.seq_access.iter()
+        let seq_ids: Vec<u64> = self
+            .seq_access
+            .iter()
             .filter(|(_, acc)| {
                 let idle = now.duration_since(acc.last_access).as_secs_f64();
                 let since_tier = now.duration_since(acc.tier_changed_at).as_secs_f64();
@@ -321,7 +334,9 @@ impl PagedKVCache {
         }
         let _ = Instant::now();
         // Cari sequence Cold dengan idle terlama
-        let mut candidates: Vec<(u64, Instant)> = self.seq_access.iter()
+        let mut candidates: Vec<(u64, Instant)> = self
+            .seq_access
+            .iter()
             .filter(|(_, acc)| acc.tier == MemoryTier::Cold)
             .map(|(k, v)| (*k, v.last_access))
             .collect();
@@ -334,7 +349,11 @@ impl PagedKVCache {
         // Convert ke flat KVCacheEntry via read_layer_kv() (avoids to_flat_cache() 2GB alloc)
         let num_layers = self.config.num_layers;
         let mut entries = Vec::with_capacity(num_layers);
-        let token_ids: Vec<u32> = (0..self.sequences.get(&seq_id).map(|t| t.num_tokens).unwrap_or(0))
+        let token_ids: Vec<u32> = (0..self
+            .sequences
+            .get(&seq_id)
+            .map(|t| t.num_tokens)
+            .unwrap_or(0))
             .map(|i| i as u32)
             .collect();
         let cols = self.config.num_kv_heads * self.config.head_dim;
@@ -343,16 +362,23 @@ impl PagedKVCache {
                 Some(kv) => kv,
                 None => {
                     entries.push(KVCacheEntry {
-                        k: Vec::new(), v: Vec::new(), kv_dim: cols,
-                        num_kv_heads: self.config.num_kv_heads, head_dim: self.config.head_dim,
-                        k_compressed: Vec::new(), v_compressed: Vec::new(),
-                        k_scales: Vec::new(), v_scales: Vec::new(), compressed_seq_len: 0,
+                        k: Vec::new(),
+                        v: Vec::new(),
+                        kv_dim: cols,
+                        num_kv_heads: self.config.num_kv_heads,
+                        head_dim: self.config.head_dim,
+                        k_compressed: Vec::new(),
+                        v_compressed: Vec::new(),
+                        k_scales: Vec::new(),
+                        v_scales: Vec::new(),
+                        compressed_seq_len: 0,
                     });
                     continue;
                 }
             };
             entries.push(KVCacheEntry {
-                k, v,
+                k,
+                v,
                 kv_dim: cols,
                 num_kv_heads: self.config.num_kv_heads,
                 head_dim: self.config.head_dim,
@@ -365,10 +391,17 @@ impl PagedKVCache {
         }
 
         // Save to cold storage
-        let result = self.cold_storage.as_mut().map(|cold| cold.save(&token_ids, &entries));
+        let result = self
+            .cold_storage
+            .as_mut()
+            .map(|cold| cold.save(&token_ids, &entries));
         match result {
             Some(Ok(())) => {
-                info!("Offloaded seq {} to cold disk storage ({} entries)", seq_id, entries.len());
+                info!(
+                    "Offloaded seq {} to cold disk storage ({} entries)",
+                    seq_id,
+                    entries.len()
+                );
                 self.remove_sequence(seq_id);
                 1
             }
@@ -418,9 +451,7 @@ impl PagedKVCache {
         let mut candidates: Vec<(u64, &SeqAccess)> = self
             .seq_access
             .iter()
-            .filter(|(_, acc)| {
-                now.duration_since(acc.created_at).as_secs_f64() >= min_age
-            })
+            .filter(|(_, acc)| now.duration_since(acc.created_at).as_secs_f64() >= min_age)
             .map(|(k, v)| (*k, v))
             .collect();
 
@@ -454,7 +485,10 @@ impl PagedKVCache {
             info!(
                 "PagedKVCache: evicting seq {} (LRU, {} blocks)",
                 seq_id,
-                self.sequences.get(&seq_id).map(|t| t.num_tokens).unwrap_or(0)
+                self.sequences
+                    .get(&seq_id)
+                    .map(|t| t.num_tokens)
+                    .unwrap_or(0)
             );
             self.remove_sequence(seq_id);
             self.num_evicted += 1;
@@ -489,7 +523,9 @@ impl PagedKVCache {
             tier_label: &'static str,
             last_access: Instant,
         }
-        let mut candidates: Vec<Candidate> = self.seq_access.iter()
+        let mut candidates: Vec<Candidate> = self
+            .seq_access
+            .iter()
             .filter(|(_, acc)| {
                 now.duration_since(acc.created_at).as_secs_f64()
                     >= self.config.eviction_min_age_secs
@@ -516,7 +552,10 @@ impl PagedKVCache {
                 "Proactive eviction: seq {} (tier={:?}, blocks={})",
                 c.seq_id,
                 self.seq_access.get(&c.seq_id).map(|a| a.tier),
-                self.sequences.get(&c.seq_id).map(|t| t.num_tokens).unwrap_or(0)
+                self.sequences
+                    .get(&c.seq_id)
+                    .map(|t| t.num_tokens)
+                    .unwrap_or(0)
             );
             // Coba offload Cold ke disk dulu
             if self.config.enable_cold_disk_offload {
@@ -984,11 +1023,9 @@ impl PagedKVCache {
         // Estimated metadata overhead per block (~56 bytes: ref_count, filled, last_access, padding)
         let block_metadata = total * 56;
         // Sequence block tables: each sequence stores (seq_len / block_size) block IDs per layer
-        let block_table_overhead: usize = self.sequences.len()
-            * self.blocks.len()
-            * std::mem::size_of::<usize>()
-            * 4; // 4× estimate for Vec capacity overhead
-        // Free lists Vec capacity overhead
+        let block_table_overhead: usize =
+            self.sequences.len() * self.blocks.len() * std::mem::size_of::<usize>() * 4; // 4× estimate for Vec capacity overhead
+                                                                                         // Free lists Vec capacity overhead
         let free_list_overhead: usize = self.free_lists.iter().map(|f| f.capacity() * 8).sum();
         data_bytes + block_metadata + block_table_overhead + free_list_overhead
     }
@@ -1029,7 +1066,9 @@ impl PagedKVCache {
 
         let mut freed_any = false;
         for layer in 0..num_layers {
-            let Some(layer_table) = table.layers.get(layer) else { continue };
+            let Some(layer_table) = table.layers.get(layer) else {
+                continue;
+            };
             for logical in sink_blocks..window_block_start {
                 if logical >= layer_table.len() {
                     break;
@@ -1100,4 +1139,3 @@ impl nexora_transformer::PagedCacheReader for PagedKVCache {
 }
 
 // ─── Statistics & Fragmentation ──────────────────────────────────────────────
-

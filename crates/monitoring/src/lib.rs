@@ -1,8 +1,8 @@
 pub mod health;
 pub mod metrics;
+pub mod observability;
 pub mod profiling;
 pub mod tracing;
-pub mod observability;
 
 pub use health::{HealthChecker, HealthReport, HealthStatus, SystemMetrics};
 pub use metrics::MetricsCollector;

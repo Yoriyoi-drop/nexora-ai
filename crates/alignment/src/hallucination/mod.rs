@@ -87,7 +87,8 @@ impl HallucinationGuard {
             uncertainty_score: uncertainty,
             enhanced_prompt,
             requires_cot: uncertainty > 0.3,
-            knowledge_boundary: crate::hallucination::system_prompt::SystemPromptManager::knowledge_boundary(),
+            knowledge_boundary:
+                crate::hallucination::system_prompt::SystemPromptManager::knowledge_boundary(),
         };
 
         let post_check = self.post_gen.verify(input, sources).await?;

@@ -179,16 +179,16 @@ impl SecurityValidator {
         }
 
         // Check for malicious patterns (compile once, cache in config)
-    for pattern in &self.config.blocked_patterns {
-        // Try regex match first; fall back to substring match
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if re.is_match(input) {
+        for pattern in &self.config.blocked_patterns {
+            // Try regex match first; fall back to substring match
+            if let Ok(re) = regex::Regex::new(pattern) {
+                if re.is_match(input) {
+                    return Err(SecurityError::BlockedPattern(pattern.clone()));
+                }
+            } else if input.contains(pattern) {
                 return Err(SecurityError::BlockedPattern(pattern.clone()));
             }
-        } else if input.contains(pattern) {
-            return Err(SecurityError::BlockedPattern(pattern.clone()));
         }
-    }
 
         // Check for regex patterns
         for regex in MALICIOUS_PATTERNS.iter() {

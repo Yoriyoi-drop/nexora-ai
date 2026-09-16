@@ -19,9 +19,9 @@ use std::time::Instant;
 use tracing::{info, warn};
 
 use ndarray::Array1;
-use rand::seq::SliceRandom;
-use nexora_transformer::{resolve_single_backbone, CausalLM, TransformerConfig, TransformerResult};
 use nexora_deeplearning::quantization::QFormat;
+use nexora_transformer::{resolve_single_backbone, CausalLM, TransformerConfig, TransformerResult};
+use rand::seq::SliceRandom;
 
 /// Student model configuration presets for distillation targets.
 #[derive(Debug, Clone)]
@@ -178,10 +178,12 @@ impl KnowledgeDistiller {
     /// Create a new distiller for the given student model.
     /// Teacher is auto-resolved from shared backbone.
     pub fn new(student_id: &str) -> TransformerResult<Self> {
-        let student_config = StudentConfig::from_model_id(student_id)
-            .ok_or_else(|| nexora_transformer::TransformerError::Configuration(
-                format!("Unknown student model: {}. Available: swift-lite, aether-lite, omnis-lite", student_id)
-            ))?;
+        let student_config = StudentConfig::from_model_id(student_id).ok_or_else(|| {
+            nexora_transformer::TransformerError::Configuration(format!(
+                "Unknown student model: {}. Available: swift-lite, aether-lite, omnis-lite",
+                student_id
+            ))
+        })?;
 
         let teacher = resolve_single_backbone()?;
         let student = CausalLM::new(student_config.config.clone());
@@ -246,7 +248,11 @@ impl KnowledgeDistiller {
             .iter()
             .filter_map(|text| {
                 let ids: Vec<u32> = text.bytes().map(|b| b as u32).collect();
-                if ids.len() >= 2 { Some(ids) } else { None }
+                if ids.len() >= 2 {
+                    Some(ids)
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -255,7 +261,11 @@ impl KnowledgeDistiller {
                 .iter()
                 .filter_map(|text| {
                     let ids: Vec<u32> = text.bytes().map(|b| b as u32).collect();
-                    if ids.len() >= 2 { Some(ids) } else { None }
+                    if ids.len() >= 2 {
+                        Some(ids)
+                    } else {
+                        None
+                    }
                 })
                 .collect(),
             None => Vec::new(),
@@ -312,22 +322,21 @@ impl KnowledgeDistiller {
                     };
 
                     // Student forward with autograd
-                    let (student_logits, student_loss_ce) = match self.student_forward_ce(input, target) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            warn!("Student forward failed at step {}: {}", step, e);
-                            continue;
-                        }
-                    };
+                    let (student_logits, student_loss_ce) =
+                        match self.student_forward_ce(input, target) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                warn!("Student forward failed at step {}: {}", step, e);
+                                continue;
+                            }
+                        };
 
                     // KL divergence: softmax(teacher/T) vs softmax(student/T)
-                    let distill_loss = softmax_kl_divergence(
-                        &teacher_logits,
-                        &student_logits,
-                        temperature,
-                    );
+                    let distill_loss =
+                        softmax_kl_divergence(&teacher_logits, &student_logits, temperature);
 
-                    let total_loss = self.alpha * t2 * distill_loss + (1.0 - self.alpha) * student_loss_ce;
+                    let total_loss =
+                        self.alpha * t2 * distill_loss + (1.0 - self.alpha) * student_loss_ce;
 
                     batch_distill_loss += distill_loss;
                     batch_ce_loss += student_loss_ce;
@@ -370,7 +379,10 @@ impl KnowledgeDistiller {
 
         info!(
             "Distillation complete | {} → {} | {:.1}s | {:.1}× compression",
-            teacher_params, student_params, elapsed.as_secs_f64(), compression_ratio,
+            teacher_params,
+            student_params,
+            elapsed.as_secs_f64(),
+            compression_ratio,
         );
 
         Ok(DistillationReport {
@@ -433,7 +445,11 @@ impl KnowledgeDistiller {
             }
         }
 
-        if count > 0 { total_loss / count as f32 } else { 0.0 }
+        if count > 0 {
+            total_loss / count as f32
+        } else {
+            0.0
+        }
     }
 
     /// Save student model weights to safetensors.
@@ -514,11 +530,14 @@ fn compute_ce_loss(logits: &Array1<f32>, targets: &[u32]) -> f32 {
     let vocab_size = logits.len();
     let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let mut sum_exp = 0.0f32;
-    let shifted: Vec<f32> = logits.iter().map(|x| {
-        let s = (x - max_val).exp();
-        sum_exp += s;
-        s
-    }).collect();
+    let shifted: Vec<f32> = logits
+        .iter()
+        .map(|x| {
+            let s = (x - max_val).exp();
+            sum_exp += s;
+            s
+        })
+        .collect();
 
     let mut loss = 0.0f32;
     for &target_id in targets {
@@ -572,7 +591,11 @@ mod tests {
         let logits = Array1::from_vec(vec![10.0, 0.0, 0.0]);
         let targets = vec![0u32]; // token 0 has highest prob → low loss
         let loss = compute_ce_loss(&logits, &targets);
-        assert!(loss < 1.0, "CE loss for correct token should be low, got {}", loss);
+        assert!(
+            loss < 1.0,
+            "CE loss for correct token should be low, got {}",
+            loss
+        );
     }
 
     #[test]
@@ -580,7 +603,11 @@ mod tests {
         let logits = Array1::from_vec(vec![0.0, 0.0, 10.0]);
         let targets = vec![0u32]; // token 0 has low prob → high loss
         let loss = compute_ce_loss(&logits, &targets);
-        assert!(loss > 0.5, "CE loss for wrong token should be high, got {}", loss);
+        assert!(
+            loss > 0.5,
+            "CE loss for wrong token should be high, got {}",
+            loss
+        );
     }
 
     #[test]

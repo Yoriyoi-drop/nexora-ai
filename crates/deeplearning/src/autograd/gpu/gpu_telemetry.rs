@@ -77,7 +77,12 @@ impl GpuTelemetry {
         // Track peak usage
         let mut prev = self.vram_peak_used.load(Ordering::Relaxed);
         while used > prev {
-            match self.vram_peak_used.compare_exchange(prev, used, Ordering::Relaxed, Ordering::Relaxed) {
+            match self.vram_peak_used.compare_exchange(
+                prev,
+                used,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
                 Ok(_) => break,
                 Err(current) => prev = current,
             }
@@ -210,8 +215,10 @@ impl GpuTelemetry {
             };
             let freed = pool.compact();
             if freed > 0 {
-                tracing::info!("OOM recovery: compacted GPU pool, freed {:.2} MB",
-                    freed as f64 / 1_048_576.0);
+                tracing::info!(
+                    "OOM recovery: compacted GPU pool, freed {:.2} MB",
+                    freed as f64 / 1_048_576.0
+                );
                 // Update vram tracking
                 self.update_vram(
                     self.vram_used.load(Ordering::Relaxed).saturating_sub(freed),
@@ -226,10 +233,15 @@ impl GpuTelemetry {
             if let Ok(mut pool) = ctx.memory_pool.lock() {
                 let prev = pool.stats().bytes_allocated;
                 pool.clear();
-                tracing::warn!("OOM recovery: cleared GPU pool entirely (was {:.2} MB)",
-                    prev as f64 / 1_048_576.0);
-                self.update_vram(0, self.vram_total.load(Ordering::Relaxed),
-                    self.vram_total.load(Ordering::Relaxed));
+                tracing::warn!(
+                    "OOM recovery: cleared GPU pool entirely (was {:.2} MB)",
+                    prev as f64 / 1_048_576.0
+                );
+                self.update_vram(
+                    0,
+                    self.vram_total.load(Ordering::Relaxed),
+                    self.vram_total.load(Ordering::Relaxed),
+                );
                 self.mark_healthy();
                 return true;
             }

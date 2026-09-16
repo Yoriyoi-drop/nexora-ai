@@ -11,7 +11,8 @@ pub mod schedule;
 
 use crate::{
     config::{DDPMConfig, NoiseScheduleType},
-    gpu_ops, types::*,
+    gpu_ops,
+    types::*,
 };
 use nexora_atqs::Tensor;
 
@@ -66,7 +67,11 @@ impl DDPM {
         let noise_data = noise.data();
         let mut noisy = Vec::with_capacity(original_data.len());
         for i in 0..original_data.len() {
-            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            let nv = if i < noise_data.len() {
+                noise_data[i]
+            } else {
+                0.0
+            };
             noisy.push(sqrt_ab * original_data[i] + sqrt_1m_ab * nv);
         }
         Ok(Tensor::new(noisy, original.shape().to_vec()))
@@ -316,7 +321,9 @@ impl DDPM_Sampler {
             let s2 = gpu_ops::gpu_scale(&predicted_noise, c2)?;
             let mean = gpu_ops::gpu_add(&s1, &s2)?;
             // generate noise on CPU, upload, add
-            let noise_data: Vec<f32> = (0..noisy_latent.data().len()).map(|_| self.randn()).collect();
+            let noise_data: Vec<f32> = (0..noisy_latent.data().len())
+                .map(|_| self.randn())
+                .collect();
             let noise_t = Tensor::new(noise_data, noisy_latent.shape().to_vec());
             let scaled_noise = gpu_ops::gpu_scale(&noise_t, noise_std)?;
             return gpu_ops::gpu_add(&mean, &scaled_noise);
@@ -327,7 +334,11 @@ impl DDPM_Sampler {
         let mut denoised = Vec::with_capacity(noisy_data.len());
 
         for i in 0..noisy_data.len() {
-            let nv = if i < noise_data.len() { noise_data[i] } else { 0.0 };
+            let nv = if i < noise_data.len() {
+                noise_data[i]
+            } else {
+                0.0
+            };
             let mean = c1 * noisy_data[i] + c2 * nv;
             denoised.push(mean + self.randn() * noise_std);
         }
@@ -463,7 +474,11 @@ impl ClassifierFreeGuidance {
         let uncond_data = uncond_noise.data();
         let mut guided = Vec::with_capacity(cond_data.len());
         for i in 0..cond_data.len() {
-            let uv = if i < uncond_data.len() { uncond_data[i] } else { 0.0 };
+            let uv = if i < uncond_data.len() {
+                uncond_data[i]
+            } else {
+                0.0
+            };
             guided.push(uv + self.guidance_scale * (cond_data[i] - uv));
         }
         Ok(Tensor::new(guided, cond_noise.shape().to_vec()))

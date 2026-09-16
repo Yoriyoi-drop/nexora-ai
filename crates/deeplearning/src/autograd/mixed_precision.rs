@@ -1,8 +1,7 @@
 use ndarray::ArrayD;
 
 /// Numeric data type / precision
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum DType {
     F32,
     #[default]
@@ -27,7 +26,6 @@ impl DType {
         n * self.size_in_bytes()
     }
 }
-
 
 impl std::fmt::Display for DType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -335,8 +333,7 @@ impl AmpOptimizer {
     /// Cast model parameters to half-precision for forward/backward.
     /// Only needed when compute_dtype != F32 and before each forward pass.
     pub fn cast_model_to_compute_dtype(&self) {
-        if !self.compute_dtype.is_half() {
-        }
+        if !self.compute_dtype.is_half() {}
         // Parameters are kept in FP32 by inner optimizer;
         // we convert to half implicitly via data storage when needed.
         // The actual conversion happens inside ops based on dtype tag.

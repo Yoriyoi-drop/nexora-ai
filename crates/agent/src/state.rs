@@ -176,7 +176,10 @@ impl AgentState {
     }
 
     /// Attach memory store for state persistence
-    pub fn with_memory_store(mut self, store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>) -> Self {
+    pub fn with_memory_store(
+        mut self,
+        store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>,
+    ) -> Self {
         self.memory_store = Some(store);
         self
     }
@@ -644,12 +647,11 @@ impl AgentState {
         let mut store_guard = store.lock().await;
 
         let global = self.global_state.read().await;
-        let global_json = serde_json::to_string(&*global).map_err(|e| {
-            AgentError::ProcessingError {
+        let global_json =
+            serde_json::to_string(&*global).map_err(|e| AgentError::ProcessingError {
                 operation: "serialize_global".to_string(),
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
         store_guard
             .store(
                 nexora_memory::MemoryLayer::Long,
@@ -668,12 +670,11 @@ impl AgentState {
         for sid in &session_ids {
             if let Some(session) = sessions.get(sid) {
                 let key = format!("agent_state:session:{}", sid);
-                let val = serde_json::to_string(session).map_err(|e| {
-                    AgentError::ProcessingError {
+                let val =
+                    serde_json::to_string(session).map_err(|e| AgentError::ProcessingError {
                         operation: "serialize_session".to_string(),
                         reason: e.to_string(),
-                    }
-                })?;
+                    })?;
                 store_guard
                     .store(nexora_memory::MemoryLayer::Session, &key, &val)
                     .await
@@ -698,12 +699,11 @@ impl AgentState {
         for aid in &agent_ids {
             if let Some(agent) = agents.get(aid) {
                 let key = format!("agent_state:agent:{}", aid);
-                let val = serde_json::to_string(agent).map_err(|e| {
-                    AgentError::ProcessingError {
+                let val =
+                    serde_json::to_string(agent).map_err(|e| AgentError::ProcessingError {
                         operation: "serialize_agent".to_string(),
                         reason: e.to_string(),
-                    }
-                })?;
+                    })?;
                 store_guard
                     .store(nexora_memory::MemoryLayer::Long, &key, &val)
                     .await

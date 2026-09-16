@@ -22,7 +22,11 @@ impl From<&PrefixCache> for PrefixCacheStats {
         let hits = cache.hits.load(Ordering::Relaxed);
         let misses = cache.misses.load(Ordering::Relaxed);
         let total = hits + misses;
-        let hit_rate = if total == 0 { 0.0 } else { hits as f32 / total as f32 };
+        let hit_rate = if total == 0 {
+            0.0
+        } else {
+            hits as f32 / total as f32
+        };
         Self {
             total_nodes: cache.total_nodes.load(Ordering::Relaxed),
             total_memory_bytes: cache.total_memory.load(Ordering::Relaxed),
@@ -196,7 +200,10 @@ impl PrefixCache {
                     let depth = match nodes.get(&current_id) {
                         Some(n) => n.depth + 1,
                         None => {
-                            warn!("prefix_cache: parent {} missing for depth calc, using 1", current_id);
+                            warn!(
+                                "prefix_cache: parent {} missing for depth calc, using 1",
+                                current_id
+                            );
                             1
                         }
                     };
@@ -575,7 +582,9 @@ mod tests {
         let hit_rate = hits as f64 / (hits + misses) as f64;
         println!(
             "bench_hit_rate_shared_prefixes: exact match rate = {:.3} ({}/{} hits)",
-            hit_rate, hits, hits + misses
+            hit_rate,
+            hits,
+            hits + misses
         );
         assert!(hit_rate > 0.98, "exact match rate should be near 100%");
 
@@ -589,7 +598,11 @@ mod tests {
             total_nodes,
             without_sharing
         );
-        assert!(total_nodes <= 210, "node count should be around 205, got {}", total_nodes);
+        assert!(
+            total_nodes <= 210,
+            "node count should be around 205, got {}",
+            total_nodes
+        );
 
         // Probe with extended prompts — cache returns longest cached prefix
         // (the gen token node has the value, so extended prompt matches at full.len())
@@ -611,7 +624,10 @@ mod tests {
             "bench_hit_rate_shared_prefixes: extended prefix match rate = {:.3} ({}/{})",
             ext_hit_rate, ext_hits, ext_total
         );
-        assert!(ext_hit_rate > 0.98, "extended match should find deep prefix");
+        assert!(
+            ext_hit_rate > 0.98,
+            "extended match should find deep prefix"
+        );
     }
 
     #[tokio::test]
@@ -630,8 +646,22 @@ mod tests {
         full.extend(&gen);
         let logits = vec![0.5; 128];
         let kvcache = vec![
-            KVCacheEntry { k: vec![1.0; 64], v: vec![2.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
-            KVCacheEntry { k: vec![3.0; 64], v: vec![4.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
+            KVCacheEntry {
+                k: vec![1.0; 64],
+                v: vec![2.0; 64],
+                kv_dim: 64,
+                num_kv_heads: 4,
+                head_dim: 16,
+                ..Default::default()
+            },
+            KVCacheEntry {
+                k: vec![3.0; 64],
+                v: vec![4.0; 64],
+                kv_dim: 64,
+                num_kv_heads: 4,
+                head_dim: 16,
+                ..Default::default()
+            },
         ];
         cache
             .insert_with_kvcache(&full, logits.clone(), Some(kvcache))
@@ -652,8 +682,22 @@ mod tests {
         };
         let logits2 = vec![0.7; 128];
         let kvcache2 = vec![
-            KVCacheEntry { k: vec![5.0; 64], v: vec![6.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
-            KVCacheEntry { k: vec![7.0; 64], v: vec![8.0; 64], kv_dim: 64, num_kv_heads: 4, head_dim: 16, ..Default::default() },
+            KVCacheEntry {
+                k: vec![5.0; 64],
+                v: vec![6.0; 64],
+                kv_dim: 64,
+                num_kv_heads: 4,
+                head_dim: 16,
+                ..Default::default()
+            },
+            KVCacheEntry {
+                k: vec![7.0; 64],
+                v: vec![8.0; 64],
+                kv_dim: 64,
+                num_kv_heads: 4,
+                head_dim: 16,
+                ..Default::default()
+            },
         ];
         cache
             .insert_with_kvcache(&full2, logits2.clone(), Some(kvcache2))
@@ -680,7 +724,10 @@ mod tests {
         };
         let m3 = cache.match_prefix(&full3).await;
         // Prompt [5,10,15,20] was inserted as dummy entry, so prefix_len >= 4
-        assert!(m3.prefix_len >= 4, "shared prefix should match at least prompt");
+        assert!(
+            m3.prefix_len >= 4,
+            "shared prefix should match at least prompt"
+        );
 
         println!(
             "bench_kv_cache_storage_and_restore: session1=full/{}, session2=full/{}, session3=partial/{}",
@@ -812,7 +859,10 @@ mod tests {
             "bench_hit_rate_noisy_prefixes: exact hits = {}/{} ({:.3})",
             exact_hits, num_prompts, exact_rate
         );
-        assert!(exact_rate >= 0.97, "exact match should succeed without eviction");
+        assert!(
+            exact_rate >= 0.97,
+            "exact match should succeed without eviction"
+        );
 
         // Phase 3: Query with superset (full + extra suffix token after gen)
         let mut ext_hits = 0u64;
@@ -830,7 +880,10 @@ mod tests {
             "bench_hit_rate_noisy_prefixes: superset prefix match = {}/{} ({:.3})",
             ext_hits, ext_total, ext_rate
         );
-        assert!(ext_rate >= 0.95, "superset prompt should match deep prefix (got {ext_rate})");
+        assert!(
+            ext_rate >= 0.95,
+            "superset prompt should match deep prefix (got {ext_rate})"
+        );
 
         // Phase 4: Query with completely different prefixes → should all miss
         let mut miss_count = 0u64;
@@ -882,7 +935,11 @@ mod tests {
         let hot_survived = m_hot.prefix_len > 0;
         println!(
             "bench_collision_invalidation: hot seq {} survived eviction = {}",
-            if hot_survived { "[0,1,2,3,4]" } else { "0,1,2,3,4" },
+            if hot_survived {
+                "[0,1,2,3,4]"
+            } else {
+                "0,1,2,3,4"
+            },
             hot_survived
         );
 
@@ -892,6 +949,9 @@ mod tests {
             "bench_collision_invalidation: hits={}, misses={}, total_nodes={}",
             stats.hits, stats.misses, stats.total_nodes
         );
-        assert!(stats.hits > 0 || stats.misses > 0, "cache counters should be non-zero");
+        assert!(
+            stats.hits > 0 || stats.misses > 0,
+            "cache counters should be non-zero"
+        );
     }
 }

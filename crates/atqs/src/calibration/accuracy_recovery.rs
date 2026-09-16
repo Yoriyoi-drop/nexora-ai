@@ -519,8 +519,14 @@ fn generate_teacher_outputs_oracle(
 
         // Use last-token logits as teacher signal with softmax + temperature
         let last_logits = logits.slice(s![0, seq_len - 1, ..]).to_owned();
-        let max_val = last_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let shifted: Vec<f32> = last_logits.iter().map(|x| (x - max_val) / temperature).collect();
+        let max_val = last_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        let shifted: Vec<f32> = last_logits
+            .iter()
+            .map(|x| (x - max_val) / temperature)
+            .collect();
         let sum: f32 = shifted.iter().map(|x| x.exp()).sum();
         let softmax: Vec<f32> = if sum > 1e-10 {
             shifted.iter().map(|x| x.exp() / sum).collect()
@@ -593,8 +599,7 @@ fn update_model_with_distillation(
             // For a linear layer y = Wx, dL/dW = dL/dy * x^T.
             // Here we approximate using the mean student gradient as a scalar signal
             // times the weight magnitude, since we don't have the layer input activations.
-            let mean_grad: f32 =
-                grad_signal.iter().sum::<f32>() / grad_signal.len().max(1) as f32;
+            let mean_grad: f32 = grad_signal.iter().sum::<f32>() / grad_signal.len().max(1) as f32;
 
             for g in gradient.iter_mut() {
                 *g += mean_grad / num_samples as f32;

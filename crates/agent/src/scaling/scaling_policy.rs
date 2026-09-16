@@ -35,8 +35,7 @@ impl ScalingPolicy {
         let util = cpu_util.max(mem_util);
 
         // Scale up: utilization > threshold ATAU queue depth > threshold
-        if util > self.config.scale_up_threshold
-            || queue_depth > self.config.queue_depth_threshold
+        if util > self.config.scale_up_threshold || queue_depth > self.config.queue_depth_threshold
         {
             self.consecutive_high += 1;
             self.consecutive_low = 0;

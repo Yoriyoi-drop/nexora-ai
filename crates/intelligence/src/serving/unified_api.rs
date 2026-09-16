@@ -7,8 +7,8 @@
 //! - HAS-MoE-FFN (Hybrid Adaptive Structured MoE-FFN) — real top-k gating
 
 // Import from foundation modules
-use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 use nexora_cognition::multimodal::{Caffeine, CaffeineConfig, MultiModalInputs, TextInput};
+use nexora_foundation::atqs::{compression::CompressionEngine, ATQSConfig};
 use nexora_foundation::reasoning::{CodingTask, SACAConfig, SACAIntegration, SACASolution};
 
 use parking_lot::Mutex as ParkingMutex;

@@ -1,35 +1,41 @@
 pub mod atqs;
 pub mod backbone_registry;
 pub mod block;
+pub mod config;
 pub mod embedding_registry;
+pub mod gqa;
 pub mod kv_cache_compression;
 pub mod lazy_weights;
 pub mod lora;
-pub mod nccl_collective;
-pub mod sharded;
-pub mod config;
-pub mod gqa;
 pub mod model;
 pub mod mtp;
+pub mod nccl_collective;
 pub mod observer;
 pub mod quantized;
 pub mod rms_norm;
 pub mod rope;
 pub mod safetensors;
+pub mod sharded;
 pub mod swiglu;
 pub mod trainable;
 
-pub use atqs::{WeightsAtqs, BlockCompressedWeights, RawCompressedWeight};
+pub use atqs::{BlockCompressedWeights, RawCompressedWeight, WeightsAtqs};
 pub use lora::{LayerLoRA, LoraWeights};
 
-pub use backbone_registry::{resolve_single_backbone, resolve_single_backbone_with_config, resolve_tier_backbone, resolve_tier_backbone_with_config, clear_all_backbones, has_tier_backbone, tier_parameter_count, unload_tier_backbone, get_loaded_tiers, tier_vram_estimate_mb, is_primary_healthy, is_failover_active, reset_failover, promote_standby, initialized_backbone_count, is_failover};
+pub use backbone_registry::{
+    clear_all_backbones, get_loaded_tiers, has_tier_backbone, initialized_backbone_count,
+    is_failover, is_failover_active, is_primary_healthy, promote_standby, reset_failover,
+    resolve_single_backbone, resolve_single_backbone_with_config, resolve_tier_backbone,
+    resolve_tier_backbone_with_config, tier_parameter_count, tier_vram_estimate_mb,
+    unload_tier_backbone,
+};
 pub use config::TransformerConfig;
 pub use gqa::{CpuKVCache, KVCacheEntry, KVCacheProvider, PagedCacheReader};
 #[cfg(feature = "gpu")]
 pub use gqa::{GpuKVCache, GpuKVCacheEntry};
 pub use model::{CausalLM, LayerInjector};
-pub use observer::{WeightNotifier, WeightObserver};
 pub use mtp::{MTPConfig, MTPHeads, MTPInference};
+pub use observer::{WeightNotifier, WeightObserver};
 pub use rms_norm::RMSNorm;
 pub use rope::RoPE;
 pub use trainable::TrainableCausalLM;
@@ -84,7 +90,12 @@ pub fn pack_f32_slice_to_f16(data: &[f32]) -> Vec<u16> {
 /// f16_weights is stored row-major with shape (rows, cols).
 /// Corresponds to: out = x @ w^T where w has shape (rows, cols) and x has shape (m, cols)
 /// Parallelized over output rows via rayon — works for both batch>1 and batch=1.
-pub fn matmul_f16_cpu(x: &ndarray::Array2<f32>, f16_weights: &[u16], rows: usize, cols: usize) -> ndarray::Array2<f32> {
+pub fn matmul_f16_cpu(
+    x: &ndarray::Array2<f32>,
+    f16_weights: &[u16],
+    rows: usize,
+    cols: usize,
+) -> ndarray::Array2<f32> {
     let m = x.shape()[0];
     let mut out = ndarray::Array2::zeros((m, rows));
     let out_data = match out.as_slice_mut() {
@@ -94,25 +105,32 @@ pub fn matmul_f16_cpu(x: &ndarray::Array2<f32>, f16_weights: &[u16], rows: usize
     use rayon::prelude::*;
     let num_cpus = rayon::current_num_threads();
     let chunk = std::cmp::max(1, (m * rows) / (num_cpus * 4));
-    let x_contig = if x.is_standard_layout() { x } else { &x.to_owned() };
+    let x_contig = if x.is_standard_layout() {
+        x
+    } else {
+        &x.to_owned()
+    };
     let x_data = match x_contig.as_slice() {
         Some(s) => s,
         None => return out, // fallback: return unmodified zeros
     };
-    out_data.par_chunks_mut(chunk).enumerate().for_each(|(start_idx, vals)| {
-        for (offset, val) in vals.iter_mut().enumerate() {
-            let flat_idx = start_idx * chunk + offset;
-            let i = flat_idx / rows;
-            let j = flat_idx % rows;
-            let x_row_start = i * cols;
-            let w_row_start = j * cols;
-            let mut sum = 0.0f32;
-            for k in 0..cols {
-                sum += x_data[x_row_start + k] * f16_bits_to_f32(f16_weights[w_row_start + k]);
+    out_data
+        .par_chunks_mut(chunk)
+        .enumerate()
+        .for_each(|(start_idx, vals)| {
+            for (offset, val) in vals.iter_mut().enumerate() {
+                let flat_idx = start_idx * chunk + offset;
+                let i = flat_idx / rows;
+                let j = flat_idx % rows;
+                let x_row_start = i * cols;
+                let w_row_start = j * cols;
+                let mut sum = 0.0f32;
+                for k in 0..cols {
+                    sum += x_data[x_row_start + k] * f16_bits_to_f32(f16_weights[w_row_start + k]);
+                }
+                *val = sum;
             }
-            *val = sum;
-        }
-    });
+        });
     out
 }
 

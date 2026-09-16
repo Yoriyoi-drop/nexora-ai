@@ -248,9 +248,11 @@ impl NodeRegistry {
                     && n.capabilities.models.iter().any(|m| m == model_id)
             })
             .collect();
-        candidates
-            .into_iter()
-            .min_by(|a, b| a.load_score().partial_cmp(&b.load_score()).unwrap_or(std::cmp::Ordering::Equal))
+        candidates.into_iter().min_by(|a, b| {
+            a.load_score()
+                .partial_cmp(&b.load_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     pub async fn least_loaded_node(&self, exclude: &[Uuid]) -> Option<NodeInfo> {
@@ -260,9 +262,11 @@ impl NodeRegistry {
             .into_iter()
             .filter(|n| n.node_id != self.config.node_id && !exclude_set.contains(&n.node_id))
             .collect();
-        candidates
-            .into_iter()
-            .min_by(|a, b| a.load_score().partial_cmp(&b.load_score()).unwrap_or(std::cmp::Ordering::Equal))
+        candidates.into_iter().min_by(|a, b| {
+            a.load_score()
+                .partial_cmp(&b.load_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     pub async fn random_alive_node(&self) -> Option<NodeInfo> {
@@ -278,7 +282,9 @@ impl NodeRegistry {
             if node.state == NodeState::Alive && node.is_stale(timeout) {
                 node.state = NodeState::Suspect;
                 stale.push(node.node_id);
-            } else if node.state == NodeState::Suspect && node.is_stale(Duration::from_millis(self.config.node_eviction_timeout_ms)) {
+            } else if node.state == NodeState::Suspect
+                && node.is_stale(Duration::from_millis(self.config.node_eviction_timeout_ms))
+            {
                 node.state = NodeState::Dead;
             }
         }
@@ -304,10 +310,7 @@ impl NodeRegistry {
 
     pub async fn known_nodes_snapshot(&self) -> Vec<(Uuid, NodeState, u64)> {
         let nodes = self.nodes.read().await;
-        nodes
-            .values()
-            .map(|n| (n.node_id, n.state, 0))
-            .collect()
+        nodes.values().map(|n| (n.node_id, n.state, 0)).collect()
     }
 
     pub async fn merge_gossip(&self, message: &GossipMessage) {
@@ -322,9 +325,7 @@ impl NodeRegistry {
                     nodes.insert(*remote_id, info);
                 }
                 Some(existing) => {
-                    if *remote_state == NodeState::Dead
-                        && existing.state != NodeState::Dead
-                    {
+                    if *remote_state == NodeState::Dead && existing.state != NodeState::Dead {
                         if let Some(node) = nodes.get_mut(remote_id) {
                             node.state = NodeState::Suspect;
                         }

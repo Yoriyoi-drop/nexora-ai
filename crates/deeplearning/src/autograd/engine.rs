@@ -78,7 +78,9 @@ pub fn backward_engine(output: &Tensor) {
                                     }
                                     #[cfg(feature = "device-cuda")]
                                     Storage::Cuda(_, _) => {
-                                        Err(crate::autograd::gpu::GpuError::Unsupported("Cuda grad in Gpu backward path".into()))
+                                        Err(crate::autograd::gpu::GpuError::Unsupported(
+                                            "Cuda grad in Gpu backward path".into(),
+                                        ))
                                     }
                                 };
                                 let used_gpu_inner = match grad_gpu_result {
@@ -144,8 +146,11 @@ pub fn backward_engine(output: &Tensor) {
                                                         } else {
                                                             let gpu_grad_shape = gpu_grad.shape();
                                                             grads.insert(
-                                                                 inp.id(),
-                                                                 Storage::Gpu(gpu_grad, gpu_grad_shape),
+                                                                inp.id(),
+                                                                Storage::Gpu(
+                                                                    gpu_grad,
+                                                                    gpu_grad_shape,
+                                                                ),
                                                             );
                                                         }
                                                     }
@@ -192,12 +197,12 @@ pub fn backward_engine(output: &Tensor) {
                         let grad_cpu = match &grad_out_storage {
                             Storage::Cpu(arr) => arr.as_ref().clone(),
                             #[cfg(feature = "device-gpu")]
-                            Storage::Gpu(g, _) => {
-                                g.to_cpu().unwrap_or_else(|e| {
-                                    tracing::warn!("Backward CPU fallback: GpuTensor readback failed: {e}");
-                                    ndarray::ArrayD::zeros(grad_out_storage.shape())
-                                })
-                            }
+                            Storage::Gpu(g, _) => g.to_cpu().unwrap_or_else(|e| {
+                                tracing::warn!(
+                                    "Backward CPU fallback: GpuTensor readback failed: {e}"
+                                );
+                                ndarray::ArrayD::zeros(grad_out_storage.shape())
+                            }),
                             #[cfg(feature = "device-cuda")]
                             Storage::Cuda(tensor, _) => {
                                 match crate::autograd::gpu::CudaRuntime::global() {
@@ -212,9 +217,7 @@ pub fn backward_engine(output: &Tensor) {
                                                     tracing::warn!(
                                                         "Backward CPU fallback: CUDA shape mismatch: {e}"
                                                     );
-                                                    ndarray::ArrayD::zeros(
-                                                        grad_out_storage.shape(),
-                                                    )
+                                                    ndarray::ArrayD::zeros(grad_out_storage.shape())
                                                 }
                                             }
                                         }
@@ -291,16 +294,24 @@ pub fn backward_engine(output: &Tensor) {
                                     #[cfg(any(feature = "device-gpu", feature = "device-cuda"))]
                                     {
                                         let g_shape = g.shape().to_vec();
-                                        let storage = match crate::autograd::gpu::GpuContext::global() {
-                                            Ok(_ctx) => match crate::autograd::gpu::GpuTensor::from_cpu(&g) {
-                                                Ok(g_gpu) => Storage::Gpu(g_gpu, g_shape),
+                                        let storage =
+                                            match crate::autograd::gpu::GpuContext::global() {
+                                                Ok(_ctx) => {
+                                                    match crate::autograd::gpu::GpuTensor::from_cpu(
+                                                        &g,
+                                                    ) {
+                                                        Ok(g_gpu) => Storage::Gpu(g_gpu, g_shape),
+                                                        Err(_) => Storage::Cpu(Arc::new(g)),
+                                                    }
+                                                }
                                                 Err(_) => Storage::Cpu(Arc::new(g)),
-                                            },
-                                            Err(_) => Storage::Cpu(Arc::new(g)),
-                                        };
+                                            };
                                         grads.insert(inp.id(), storage);
                                     }
-                                    #[cfg(not(any(feature = "device-gpu", feature = "device-cuda")))]
+                                    #[cfg(not(any(
+                                        feature = "device-gpu",
+                                        feature = "device-cuda"
+                                    )))]
                                     {
                                         grads.insert(inp.id(), Storage::Cpu(Arc::new(g)));
                                     }

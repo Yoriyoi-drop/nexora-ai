@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::linters::ast_analyzer;
 use crate::linters::{CodeIssue, IssueSeverity};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct PyFindings {
@@ -30,22 +30,30 @@ pub fn analyze_python(code: &str) -> PyFindings {
 
     for (i, raw_line) in code.lines().enumerate() {
         let line_num = i + 1;
-        if is_comment_or_empty(raw_line) { continue; }
+        if is_comment_or_empty(raw_line) {
+            continue;
+        }
         let trimmed = raw_line.trim();
         let clean_line = if i < lines.len() { lines[i] } else { "" };
 
         let indent = detect_indent(raw_line);
         while let Some(top) = scopes.last() {
-            if indent <= top.indent { scopes.pop(); } else { break; }
+            if indent <= top.indent {
+                scopes.pop();
+            } else {
+                break;
+            }
         }
 
         if trimmed.ends_with(':') && !trimmed.starts_with('#') {
-            scopes.push(IndentScope { start_line: line_num, indent });
+            scopes.push(IndentScope {
+                start_line: line_num,
+                indent,
+            });
         }
 
         // ── exec() / eval() ────────────────────────────────────────
-        if (trimmed.starts_with("exec(") || trimmed.contains("exec("))
-            && !trimmed.starts_with('#')
+        if (trimmed.starts_with("exec(") || trimmed.contains("exec(")) && !trimmed.starts_with('#')
         {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Critical,
@@ -56,8 +64,7 @@ pub fn analyze_python(code: &str) -> PyFindings {
                 rule_id: "PY-EXEC".to_string(),
             });
         }
-        if (trimmed.starts_with("eval(") || trimmed.contains("eval("))
-            && !trimmed.starts_with('#')
+        if (trimmed.starts_with("eval(") || trimmed.contains("eval(")) && !trimmed.starts_with('#')
         {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Critical,
@@ -82,7 +89,10 @@ pub fn analyze_python(code: &str) -> PyFindings {
         }
 
         // ── yaml.load without SafeLoader ───────────────────────────
-        if trimmed.contains("yaml.load(") && !trimmed.contains("SafeLoader") && !trimmed.contains("FullLoader") {
+        if trimmed.contains("yaml.load(")
+            && !trimmed.contains("SafeLoader")
+            && !trimmed.contains("FullLoader")
+        {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Critical,
                 category: "Security".to_string(),
@@ -104,8 +114,10 @@ pub fn analyze_python(code: &str) -> PyFindings {
                 rule_id: "PY-CMD-INJECTION".to_string(),
             });
         }
-        if (trimmed.contains("subprocess.call(") || trimmed.contains("subprocess.Popen(")
-            || trimmed.contains("subprocess.run(") || trimmed.contains("subprocess.check_output("))
+        if (trimmed.contains("subprocess.call(")
+            || trimmed.contains("subprocess.Popen(")
+            || trimmed.contains("subprocess.run(")
+            || trimmed.contains("subprocess.check_output("))
             && (trimmed.contains("shell=True") || clean_line.contains("shell=True"))
         {
             issues.push(CodeIssue {
@@ -125,8 +137,11 @@ pub fn analyze_python(code: &str) -> PyFindings {
             || trimmed.to_uppercase().contains("UPDATE ")
             || trimmed.to_uppercase().contains("DROP ");
         if has_sql_kw {
-            let has_fmt = trimmed.contains("f\"") || trimmed.contains("f'")
-                || trimmed.contains(".format(") || trimmed.contains("%s") || trimmed.contains("%(");
+            let has_fmt = trimmed.contains("f\"")
+                || trimmed.contains("f'")
+                || trimmed.contains(".format(")
+                || trimmed.contains("%s")
+                || trimmed.contains("%(");
             if has_fmt {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
@@ -145,7 +160,9 @@ pub fn analyze_python(code: &str) -> PyFindings {
                 if s.start_line < line_num {
                     let src_line = code.lines().nth(s.start_line - 1).unwrap_or("");
                     src_line.trim().starts_with("def ")
-                } else { false }
+                } else {
+                    false
+                }
             });
             if in_fn {
                 issues.push(CodeIssue {
@@ -161,15 +178,23 @@ pub fn analyze_python(code: &str) -> PyFindings {
 
         // ── hardcoded secrets ──────────────────────────────────────
         let lower = trimmed.to_lowercase();
-        if (lower.contains("password") || lower.contains("secret") || lower.contains("api_key")
-            || lower.contains("apikey") || lower.contains("auth_token") || lower.contains("token"))
+        if (lower.contains("password")
+            || lower.contains("secret")
+            || lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("auth_token")
+            || lower.contains("token"))
             && (trimmed.contains('"') || trimmed.contains('\''))
-            && !lower.contains("env(") && !lower.contains("environ.get") && !lower.contains("os.getenv")
+            && !lower.contains("env(")
+            && !lower.contains("environ.get")
+            && !lower.contains("os.getenv")
         {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Error,
                 category: "Security".to_string(),
-                message: "Hardcoded secret detected — use environment variables or a secrets manager.".to_string(),
+                message:
+                    "Hardcoded secret detected — use environment variables or a secrets manager."
+                        .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "PY-HARDCODED-SECRET".to_string(),
@@ -208,8 +233,12 @@ pub fn analyze_python(code: &str) -> PyFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("py_issues".to_string(), issues.len() as f32);
-    metrics.insert("py_high_severity".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error)).count() as f32,
+    metrics.insert(
+        "py_high_severity".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error))
+            .count() as f32,
     );
 
     PyFindings { issues, metrics }
@@ -252,19 +281,28 @@ mod tests {
     #[test]
     fn test_python_sql_injection() {
         let findings = analyze_python(r#"query = f"SELECT * FROM users WHERE id = {user_id}""#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "PY-SQL-INJECTION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "PY-SQL-INJECTION"));
     }
 
     #[test]
     fn test_python_hardcoded_secret() {
         let findings = analyze_python(r#"api_key = "sk-1234abcd""#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "PY-HARDCODED-SECRET"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "PY-HARDCODED-SECRET"));
     }
 
     #[test]
     fn test_python_flask_debug() {
         let findings = analyze_python(r#"app.run(host="0.0.0.0", debug=True)"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "PY-FLASK-DEBUG"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "PY-FLASK-DEBUG"));
     }
 
     #[test]

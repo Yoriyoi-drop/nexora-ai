@@ -25,9 +25,8 @@ fn compile_injection_patterns() -> Vec<Regex> {
         r"(?i)ethical\s+(guidelines|boundaries|limits|restrictions).*(ignore|bypass|override)",
         r"(?i)\b(fuck|shit|damn|ass)\s+(you|the\s+system|the\s+ai)",
     ];
-    static REGEXES: std::sync::LazyLock<Vec<Regex>> = std::sync::LazyLock::new(|| {
-        PATTERNS.iter().filter_map(|p| Regex::new(p).ok()).collect()
-    });
+    static REGEXES: std::sync::LazyLock<Vec<Regex>> =
+        std::sync::LazyLock::new(|| PATTERNS.iter().filter_map(|p| Regex::new(p).ok()).collect());
     REGEXES.clone()
 }
 

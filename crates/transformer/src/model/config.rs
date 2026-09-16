@@ -1,5 +1,5 @@
-use ndarray::{Array1, Array2};
 use crate::TransformerResult;
+use ndarray::{Array1, Array2};
 
 /// Hook for injecting processing between transformer layers.
 pub trait LayerInjector: std::fmt::Debug + Send {
@@ -36,7 +36,10 @@ pub trait LayerInjector: std::fmt::Debug + Send {
             ))
         })?;
         self.after_layer(layer_idx, &mut h_2d, pos).map_err(|e| {
-            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!("injector after_layer: {}", e))
+            nexora_deeplearning::autograd::gpu::GpuError::Unsupported(format!(
+                "injector after_layer: {}",
+                e
+            ))
         })?;
         let h_dyn = h_2d.into_dyn();
         *h = nexora_deeplearning::autograd::gpu::GpuTensor::from_cpu(&h_dyn)?;
@@ -122,7 +125,10 @@ pub fn sample_token_gpu_keep_gpu(
     top_k: usize,
     top_p: f32,
     seed: u64,
-) -> Result<nexora_deeplearning::autograd::gpu::GpuTensor, nexora_deeplearning::autograd::gpu::GpuError> {
+) -> Result<
+    nexora_deeplearning::autograd::gpu::GpuTensor,
+    nexora_deeplearning::autograd::gpu::GpuError,
+> {
     use nexora_deeplearning::autograd::gpu::GpuContext;
 
     let ctx = GpuContext::global()?;

@@ -218,10 +218,7 @@ impl BatchProcessor {
         let batch_id = batch.batch_id;
 
         let items_count = batch.items.len();
-        self.active_batches
-            .write()
-            .await
-            .insert(batch_id, batch);
+        self.active_batches.write().await.insert(batch_id, batch);
         self.stats.write().await.increment_in_progress();
 
         if let Err(e) = self.batch_sender.send(batch_id).await {

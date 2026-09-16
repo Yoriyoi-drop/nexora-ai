@@ -46,8 +46,7 @@ impl GpuScheduler {
         let estimated = kernel.estimated_duration_us;
         self.task_queue.push(kernel);
         self.total_kernels.fetch_add(1, Ordering::Relaxed);
-        self.total_time_us
-            .fetch_add(estimated, Ordering::Relaxed);
+        self.total_time_us.fetch_add(estimated, Ordering::Relaxed);
         debug!("GPU kernel queued");
     }
 

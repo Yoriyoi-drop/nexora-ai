@@ -258,8 +258,7 @@ mod tests {
         let filter = ToxicityFilter::default();
         let clean = DataSample {
             id: Uuid::new_v4(),
-            text: "This is a clean and respectful sentence about technology and science."
-                .into(),
+            text: "This is a clean and respectful sentence about technology and science.".into(),
             token_ids: None,
             metadata: std::collections::HashMap::new(),
             source: types::SourceInfo {
@@ -281,7 +280,9 @@ mod tests {
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Nyata: validasi data sample shape di pipeline
-pub fn ds_validate_tensor(shape: &[usize]) -> std::result::Result<(), nexora_validation::ValidationError> {
+pub fn ds_validate_tensor(
+    shape: &[usize],
+) -> std::result::Result<(), nexora_validation::ValidationError> {
     nexora_validation::validate_tensor_shape(shape)
 }
 

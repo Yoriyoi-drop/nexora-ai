@@ -186,7 +186,8 @@ impl RequestScheduler {
                 return Err(InferenceError::InternalError(format!(
                     "Scheduler queue full: {} requests queued (max {})",
                     self.max_queue_depth, self.max_queue_depth
-                )).into());
+                ))
+                .into());
             }
             inner
                 .channels
@@ -211,7 +212,10 @@ impl RequestScheduler {
         let (strategy, rr_index) = {
             let inner = self.inner.read().await;
             if inner.active.len() >= self.max_concurrent_requests {
-                debug!("Maximum concurrent requests reached ({})", inner.active.len());
+                debug!(
+                    "Maximum concurrent requests reached ({})",
+                    inner.active.len()
+                );
                 return Ok(None);
             }
             if inner.queue.is_empty() {
@@ -483,7 +487,11 @@ impl RequestScheduler {
         Ok(())
     }
 
-    fn insert_into_queue_inner(queue: &mut VecDeque<QueuedRequest>, strategy: &SchedulingStrategy, request: QueuedRequest) {
+    fn insert_into_queue_inner(
+        queue: &mut VecDeque<QueuedRequest>,
+        strategy: &SchedulingStrategy,
+        request: QueuedRequest,
+    ) {
         let target_group = request.priority / 10 * 10;
         let insert_pos = match strategy {
             SchedulingStrategy::FIFO => None,
@@ -506,12 +514,12 @@ impl RequestScheduler {
                     existing_group < target_group
                 })
             }
-            SchedulingStrategy::Priority => {
-                queue.iter().position(|existing| request.priority > existing.priority)
-            }
-            SchedulingStrategy::SJF => {
-                queue.iter().position(|existing| request.estimated_time_ms < existing.estimated_time_ms)
-            }
+            SchedulingStrategy::Priority => queue
+                .iter()
+                .position(|existing| request.priority > existing.priority),
+            SchedulingStrategy::SJF => queue
+                .iter()
+                .position(|existing| request.estimated_time_ms < existing.estimated_time_ms),
         };
         match insert_pos {
             Some(pos) => queue.insert(pos, request),
@@ -637,9 +645,21 @@ mod tests {
     fn test_insert_into_queue_fifo() {
         let mut queue = VecDeque::new();
 
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::FIFO, test_request(50));
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::FIFO,
+            test_request(50),
+        );
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::FIFO,
+            test_request(50),
+        );
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::FIFO,
+            test_request(50),
+        );
 
         assert_eq!(queue.len(), 3);
     }
@@ -648,9 +668,21 @@ mod tests {
     fn test_insert_into_queue_priority() {
         let mut queue = VecDeque::new();
 
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(10));
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(90));
-        RequestScheduler::insert_into_queue_inner(&mut queue, &SchedulingStrategy::Priority, test_request(50));
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::Priority,
+            test_request(10),
+        );
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::Priority,
+            test_request(90),
+        );
+        RequestScheduler::insert_into_queue_inner(
+            &mut queue,
+            &SchedulingStrategy::Priority,
+            test_request(50),
+        );
 
         assert_eq!(queue.len(), 3);
         assert_eq!(queue[0].priority, 90, "highest priority first");

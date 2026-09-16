@@ -40,8 +40,7 @@ impl GpuAwareScheduler {
             .saturating_sub(self.gpu_memory_used[best_gpu].load(Ordering::Relaxed) as u64)
             >= required_memory
         {
-            self.gpu_memory_used[best_gpu]
-                .fetch_add(required_memory as usize, Ordering::Relaxed);
+            self.gpu_memory_used[best_gpu].fetch_add(required_memory as usize, Ordering::Relaxed);
             self.gpu_task_count[best_gpu].fetch_add(1, Ordering::Relaxed);
             self.task_to_gpu.insert(task_id, best_gpu);
             self.task_gpu_memory.insert(task_id, required_memory);
@@ -64,7 +63,11 @@ impl GpuAwareScheduler {
             .map(|i| {
                 let used = self.gpu_memory_used[i].load(Ordering::Relaxed) as f64;
                 let total = self.gpu_memory_total[i] as f64;
-                if total > 0.0 { used / total } else { 0.0 }
+                if total > 0.0 {
+                    used / total
+                } else {
+                    0.0
+                }
             })
             .collect()
     }

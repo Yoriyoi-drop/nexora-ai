@@ -309,10 +309,9 @@ pub enum ToolIsolationError {
 /// Allowed commands when using Shell/Terminal tool kind.
 /// Blocks arbitrary command execution via `/bin/sh -c`.
 const ALLOWED_SHELL_COMMANDS: &[&str] = &[
-    "ls", "cat", "echo", "pwd", "cd", "mkdir", "cp", "mv", "rm", "grep",
-    "find", "head", "tail", "sort", "wc", "diff", "which", "chmod",
-    "ps", "top", "df", "du", "date", "env", "whoami", "id", "uname",
-    "git", "cargo", "rustc", "python3", "node", "npm", "npx",
+    "ls", "cat", "echo", "pwd", "cd", "mkdir", "cp", "mv", "rm", "grep", "find", "head", "tail",
+    "sort", "wc", "diff", "which", "chmod", "ps", "top", "df", "du", "date", "env", "whoami", "id",
+    "uname", "git", "cargo", "rustc", "python3", "node", "npm", "npx",
 ];
 
 /// Check if a string contains shell metacharacters that could enable injection.
@@ -356,10 +355,7 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
                     return ToolExecutionResult {
                         success: false,
                         stdout: String::new(),
-                        stderr: format!(
-                            "Shell metacharacters blocked in Python argument: {}",
-                            arg
-                        ),
+                        stderr: format!("Shell metacharacters blocked in Python argument: {}", arg),
                         exit_code: -1,
                         execution_time_ms: 0,
                         sandbox_violations: vec!["blocked_shell_metachars".to_string()],
@@ -452,7 +448,10 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
                     return ToolExecutionResult {
                         success: false,
                         stdout: String::new(),
-                        stderr: format!("Invalid Network URL (must start with http:// or https://): {}", url),
+                        stderr: format!(
+                            "Invalid Network URL (must start with http:// or https://): {}",
+                            url
+                        ),
                         exit_code: -1,
                         execution_time_ms: 0,
                         sandbox_violations: vec!["blocked_network_url".to_string()],
@@ -474,7 +473,10 @@ async fn execute_real_command(request: &ToolExecutionRequest) -> ToolExecutionRe
                     return ToolExecutionResult {
                         success: false,
                         stdout: String::new(),
-                        stderr: format!("Command '{}' is not in the allowed shell commands list", cmd_name),
+                        stderr: format!(
+                            "Command '{}' is not in the allowed shell commands list",
+                            cmd_name
+                        ),
                         exit_code: -1,
                         execution_time_ms: 0,
                         sandbox_violations: vec!["blocked_command".to_string()],

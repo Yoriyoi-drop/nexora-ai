@@ -1,15 +1,15 @@
 pub mod arc_wrapper;
+pub mod arena;
 pub mod bytes_module;
 pub mod cow;
 pub mod memmap;
-pub mod arena;
 pub mod object_pool;
 
 pub use arc_wrapper::*;
+pub use arena::*;
 pub use bytes_module::*;
 pub use cow::*;
 pub use memmap::*;
-pub use arena::*;
 pub use object_pool::*;
 
 /// Zero-copy buffer — hindari clone data besar

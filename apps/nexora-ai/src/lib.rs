@@ -22,9 +22,9 @@ pub mod system;
 
 pub use cli::Cli;
 pub use config::NexoraConfig;
-pub use nexora_benchmark;
 pub use core::*;
-use nexora_alignment::isolation::{IsolationOrchestrator, IsolationCheckError};
+use nexora_alignment::isolation::{IsolationCheckError, IsolationOrchestrator};
+pub use nexora_benchmark;
 use nexora_memory::MemoryManager;
 
 // --- Foundation model integration ---
@@ -33,7 +33,7 @@ use nexora_foundation::shared::{model_identity::NxrModelId, model_registry::glob
 use nexora_foundation::tokenizer::{BpeConfig, BpeTokenizer};
 
 // --- Model delegation agents ---
-use nexora_models::{omnis, vortex, aether, spectra, nexum, axiom, cipher, swift, kronos, genesis};
+use nexora_models::{aether, axiom, cipher, genesis, kronos, nexum, omnis, spectra, swift, vortex};
 
 // --- Tier Router ---
 use crate::core::debate::DebateOrchestrator;
@@ -110,10 +110,9 @@ pub async fn create_inference_engine_inner(
         })?;
     }
 
-    let model_arc = causal_lm_model
-        .get_model_arc()
-        .await
-        .ok_or_else(|| NexoraError::model(format!("Model {} not loaded after lazy-load", model_id)))?;
+    let model_arc = causal_lm_model.get_model_arc().await.ok_or_else(|| {
+        NexoraError::model(format!("Model {} not loaded after lazy-load", model_id))
+    })?;
 
     let tokenizer = Arc::new(Mutex::new(BpeTokenizer::new(BpeConfig {
         vocab_size: model_arc.config.vocab_size,
@@ -130,15 +129,11 @@ pub async fn create_inference_engine_inner(
             seed_nodes: seed_nodes.to_vec(),
             ..Default::default()
         };
-        let node_registry =
-            Arc::new(nexora_runtime::cluster::NodeRegistry::new(cluster_cfg));
+        let node_registry = Arc::new(nexora_runtime::cluster::NodeRegistry::new(cluster_cfg));
         let node_id = node_registry.local_info().await.node_id;
-        let mut engine = nexora_inference::InferenceEngineStruct::with_model(
-            model_arc,
-            Some(tokenizer),
-            config,
-        )
-        .with_distributed(node_registry, node_id);
+        let mut engine =
+            nexora_inference::InferenceEngineStruct::with_model(model_arc, Some(tokenizer), config)
+                .with_distributed(node_registry, node_id);
         if let Some(mem) = memory.as_ref() {
             engine = engine.with_memory((**mem).clone());
         }
@@ -176,8 +171,16 @@ struct NexoraInferenceEngine {
 }
 
 impl NexoraInferenceEngine {
-    fn new(engine: Arc<nexora_inference::InferenceEngineStruct>, model_id: String, isolation: IsolationOrchestrator) -> Self {
-        Self { engine, model_id, isolation }
+    fn new(
+        engine: Arc<nexora_inference::InferenceEngineStruct>,
+        model_id: String,
+        isolation: IsolationOrchestrator,
+    ) -> Self {
+        Self {
+            engine,
+            model_id,
+            isolation,
+        }
     }
 
     fn sparo() -> &'static SparoSystem {
@@ -187,10 +190,16 @@ impl NexoraInferenceEngine {
     async fn check_input(prompt: &str) -> nexora_agent::Result<()> {
         match Self::sparo().align_behavior(prompt, "").await {
             Ok(result) if result.safety_level == "blocked" => {
-                warn!("SPARO agent blocked prompt: score={:.3}", result.alignment_score);
+                warn!(
+                    "SPARO agent blocked prompt: score={:.3}",
+                    result.alignment_score
+                );
                 return Err(nexora_agent::AgentError::ProcessingError {
                     operation: "generate_tokens".to_string(),
-                    reason: format!("Prompt rejected by safety alignment (score={:.3})", result.alignment_score),
+                    reason: format!(
+                        "Prompt rejected by safety alignment (score={:.3})",
+                        result.alignment_score
+                    ),
                 });
             }
             Err(e) => warn!("SPARO agent alignment failed (non-fatal): {}", e),
@@ -208,10 +217,16 @@ impl NexoraInferenceEngine {
         }
         match Self::sparo().align_behavior(output, prompt).await {
             Ok(result) if result.safety_level == "blocked" || result.alignment_score < 0.3 => {
-                warn!("SPARO agent blocked output: score={:.3}", result.alignment_score);
+                warn!(
+                    "SPARO agent blocked output: score={:.3}",
+                    result.alignment_score
+                );
                 return Err(nexora_agent::AgentError::ProcessingError {
                     operation: "generate_tokens".to_string(),
-                    reason: format!("Output rejected by safety alignment (score={:.3})", result.alignment_score),
+                    reason: format!(
+                        "Output rejected by safety alignment (score={:.3})",
+                        result.alignment_score
+                    ),
                 });
             }
             Err(e) => warn!("SPARO agent output check failed (non-fatal): {}", e),
@@ -223,7 +238,12 @@ impl NexoraInferenceEngine {
 
 #[async_trait::async_trait]
 impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
-    async fn start_session(&self, _session_id: Uuid, _model_id: &str, _config: &Value) -> nexora_agent::Result<()> {
+    async fn start_session(
+        &self,
+        _session_id: Uuid,
+        _model_id: &str,
+        _config: &Value,
+    ) -> nexora_agent::Result<()> {
         Ok(())
     }
 
@@ -237,7 +257,10 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
 
         // Isolation pre-inference check — block if agent is quarantined or lacks capability
         self.isolation.pre_inference_check(agent_id).map_err(|e| {
-            warn!("Inference blocked by isolation: agent={} reason={}", agent_id, e);
+            warn!(
+                "Inference blocked by isolation: agent={} reason={}",
+                agent_id, e
+            );
             nexora_agent::AgentError::ProcessingError {
                 operation: "pre_inference_check".to_string(),
                 reason: format!("Inference blocked by isolation: {}", e),
@@ -255,14 +278,12 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
             streaming: false,
             ..Default::default()
         };
-        let response = self
-            .engine
-            .generate_internal(request)
-            .await
-            .map_err(|e| nexora_agent::AgentError::ProcessingError {
+        let response = self.engine.generate_internal(request).await.map_err(|e| {
+            nexora_agent::AgentError::ProcessingError {
                 operation: "generate_tokens".to_string(),
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         Self::check_output(prompt, &response.text).await?;
         Ok(response.text)
@@ -273,12 +294,16 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
         agent_id: Uuid,
         prompt: &str,
         max_tokens: u32,
-    ) -> nexora_agent::Result<Box<dyn futures::Stream<Item = nexora_agent::Result<String>> + Send>> {
+    ) -> nexora_agent::Result<Box<dyn futures::Stream<Item = nexora_agent::Result<String>> + Send>>
+    {
         Self::check_input(prompt).await?;
 
         // Isolation pre-inference check — block if agent is quarantined or lacks capability
         self.isolation.pre_inference_check(agent_id).map_err(|e| {
-            warn!("Streaming inference blocked by isolation: agent={} reason={}", agent_id, e);
+            warn!(
+                "Streaming inference blocked by isolation: agent={} reason={}",
+                agent_id, e
+            );
             nexora_agent::AgentError::ProcessingError {
                 operation: "pre_inference_check".to_string(),
                 reason: format!("Streaming blocked by isolation: {}", e),
@@ -296,14 +321,12 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
             streaming: false,
             ..Default::default()
         };
-        let response = self
-            .engine
-            .generate_internal(request)
-            .await
-            .map_err(|e| nexora_agent::AgentError::ProcessingError {
+        let response = self.engine.generate_internal(request).await.map_err(|e| {
+            nexora_agent::AgentError::ProcessingError {
                 operation: "stream_tokens".to_string(),
                 reason: e.to_string(),
-            })?;
+            }
+        })?;
 
         Self::check_output(prompt, &response.text).await?;
         let stream = futures::stream::once(async move { Ok(response.text) });
@@ -314,7 +337,10 @@ impl nexora_agent::inference_agent::InferenceEngine for NexoraInferenceEngine {
         Ok(())
     }
 
-    async fn get_session_status(&self, _session_id: Uuid) -> nexora_agent::Result<nexora_agent::inference_agent::InferenceSessionStatus> {
+    async fn get_session_status(
+        &self,
+        _session_id: Uuid,
+    ) -> nexora_agent::Result<nexora_agent::inference_agent::InferenceSessionStatus> {
         Ok(nexora_agent::inference_agent::InferenceSessionStatus::Ready)
     }
 
@@ -408,7 +434,10 @@ impl NexoraAI {
                     true
                 }
                 Err(e) => {
-                    warn!("GPU initialization failed ({}), disabling GPU inference paths", e);
+                    warn!(
+                        "GPU initialization failed ({}), disabling GPU inference paths",
+                        e
+                    );
                     false
                 }
             }
@@ -431,14 +460,14 @@ impl NexoraAI {
                     NexoraError::system(format!("Failed to initialize foundation models: {}", e))
                 })?;
             } else {
-                nexora_foundation::init::initialize_foundation_models_with_gpu(
-                    ckpt_map,
-                    gpu_ok,
-                )
-                .await
-                .map_err(|e| {
-                    NexoraError::system(format!("Failed to initialize foundation models: {}", e))
-                })?;
+                nexora_foundation::init::initialize_foundation_models_with_gpu(ckpt_map, gpu_ok)
+                    .await
+                    .map_err(|e| {
+                        NexoraError::system(format!(
+                            "Failed to initialize foundation models: {}",
+                            e
+                        ))
+                    })?;
             }
         }
 
@@ -476,23 +505,24 @@ impl NexoraAI {
         info!("Monitoring system initialized");
 
         // Step 2h: Initialize gossip protocol for distributed mode
-        let gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>> = if config.core.enable_distributed {
-            let cluster_cfg = nexora_runtime::cluster::ClusterConfig {
-                node_id: uuid::Uuid::new_v4(),
-                listen_address: config.core.distributed_listen_address.clone(),
-                gossip_interval_ms: config.core.distributed_gossip_interval_ms,
-                seed_nodes: config.core.distributed_seed_nodes.clone(),
-                ..Default::default()
+        let gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>> =
+            if config.core.enable_distributed {
+                let cluster_cfg = nexora_runtime::cluster::ClusterConfig {
+                    node_id: uuid::Uuid::new_v4(),
+                    listen_address: config.core.distributed_listen_address.clone(),
+                    gossip_interval_ms: config.core.distributed_gossip_interval_ms,
+                    seed_nodes: config.core.distributed_seed_nodes.clone(),
+                    ..Default::default()
+                };
+                let registry = Arc::new(nexora_runtime::cluster::NodeRegistry::new(cluster_cfg));
+                let gp = Arc::new(nexora_runtime::gossip::GossipProtocol::new(registry));
+                let gp_clone = gp.clone();
+                tokio::spawn(async move { gp_clone.start().await });
+                info!("Gossip protocol started for distributed mode");
+                Some(gp)
+            } else {
+                None
             };
-            let registry = Arc::new(nexora_runtime::cluster::NodeRegistry::new(cluster_cfg));
-            let gp = Arc::new(nexora_runtime::gossip::GossipProtocol::new(registry));
-            let gp_clone = gp.clone();
-            tokio::spawn(async move { gp_clone.start().await });
-            info!("Gossip protocol started for distributed mode");
-            Some(gp)
-        } else {
-            None
-        };
 
         // Step 2i: Verify benchmark crate integration
         let _bench_sample = nexora_benchmark::MetricSample::from_samples(&[]);
@@ -501,7 +531,8 @@ impl NexoraAI {
         // Step 2j: Initialize NexoraSystem (event bus, memory pools, cost optimizer, observability)
         let mut system_builder = NexoraSystem::new().await;
         if config.system.enable_dag_scheduler {
-            system_builder = system_builder.with_dag_scheduler(config.system.dag_workers, config.system.gpu_count);
+            system_builder = system_builder
+                .with_dag_scheduler(config.system.dag_workers, config.system.gpu_count);
         }
         if config.system.enable_gpu_scheduler {
             system_builder = system_builder.with_gpu_scheduler(config.system.gpu_count);
@@ -511,7 +542,8 @@ impl NexoraAI {
         }
         system_builder.start().await;
         let system = system_builder;
-        info!("NexoraSystem initialized (eventbus={}, pools={}, costopt={}, observability={})",
+        info!(
+            "NexoraSystem initialized (eventbus={}, pools={}, costopt={}, observability={})",
             config.system.enable_eventbus,
             config.system.enable_memory_pools,
             config.system.enable_cost_optimizer,
@@ -582,20 +614,21 @@ impl NexoraAI {
                 config.core.distributed_gossip_interval_ms,
                 Some(memory_manager.clone()),
                 Some(erp_engine),
-
             )
             .await
             .map_err(|e| {
                 NexoraError::system(format!("Failed to initialize inference engine: {}", e))
             })?,
         );
-        info!("Inference engine ready (model: {}) — Edge/Swift streaming backend", active_model_id);
+        info!(
+            "Inference engine ready (model: {}) — Edge/Swift streaming backend",
+            active_model_id
+        );
 
         // Step 4: Initialize multi-agent system — wire engine, start, spawn 7 agents
         let agent_config = nexora_agent::agent_manager::AgentManagerConfig::default();
         let agent_manager = Arc::new(
-            nexora_agent::AgentManager::new(agent_config)
-                .with_isolation(isolation.clone()),
+            nexora_agent::AgentManager::new(agent_config).with_isolation(isolation.clone()),
         );
 
         // Wire inference engine into agent system with isolation
@@ -669,10 +702,7 @@ impl NexoraAI {
                 registry.clone(),
                 active_model_id,
             ),
-            chat_engine: crate::core::chat::ChatEngine::new(
-                registry.clone(),
-                active_model_id,
-            ),
+            chat_engine: crate::core::chat::ChatEngine::new(registry.clone(), active_model_id),
             text_generator: crate::core::generation::TextGenerator::new(
                 registry.clone(),
                 active_model_id,
@@ -764,10 +794,12 @@ impl NexoraAI {
         }
 
         // Isolation pre-inference check for direct API inference
-        self.isolation.pre_inference_check(uuid::Uuid::nil()).map_err(|e| {
-            warn!("Streaming inference blocked by isolation: reason={}", e);
-            NexoraError::system(format!("Inference blocked by isolation: {}", e))
-        })?;
+        self.isolation
+            .pre_inference_check(uuid::Uuid::nil())
+            .map_err(|e| {
+                warn!("Streaming inference blocked by isolation: reason={}", e);
+                NexoraError::system(format!("Inference blocked by isolation: {}", e))
+            })?;
 
         info!(
             "Streaming text via inference engine ({} model): prompt={}, max_tokens={}, temperature={}",
@@ -821,10 +853,12 @@ impl NexoraAI {
         }
 
         // Isolation pre-inference check for direct API inference
-        self.isolation.pre_inference_check(uuid::Uuid::nil()).map_err(|e| {
-            warn!("generate_text blocked by isolation: reason={}", e);
-            NexoraError::system(format!("Inference blocked by isolation: {}", e))
-        })?;
+        self.isolation
+            .pre_inference_check(uuid::Uuid::nil())
+            .map_err(|e| {
+                warn!("generate_text blocked by isolation: reason={}", e);
+                NexoraError::system(format!("Inference blocked by isolation: {}", e))
+            })?;
 
         // Route user input → (model, intent)
         let route = self.intent_router.route(prompt);
@@ -850,14 +884,14 @@ impl NexoraAI {
             // - Top-K Synthesis (insight dari semua model)
             // - Failure Mode (timeout + graceful fallback)
             let orchestrator = DebateOrchestrator::new(Default::default());
-            let debate_result = orchestrator
-                .orchestrate(prompt, route.model_id)
-                .await;
+            let debate_result = orchestrator.orchestrate(prompt, route.model_id).await;
 
             info!(
                 "Debate complete: winner={} consensus={} rounds={} depth={:?} complexity={:.2}",
-                debate_result.winner, debate_result.consensus,
-                debate_result.round_count, debate_result.depth,
+                debate_result.winner,
+                debate_result.consensus,
+                debate_result.round_count,
+                debate_result.depth,
                 debate_result.complexity_score
             );
 
@@ -893,14 +927,23 @@ impl NexoraAI {
 
         // ChatEngine tracks conversation context (sentiment, urgency, turn count)
         let conv_id = conversation_id.unwrap_or_else(|| {
-            format!("conv_{}", Uuid::new_v4().to_string().chars().take(8).collect::<String>())
+            format!(
+                "conv_{}",
+                Uuid::new_v4()
+                    .to_string()
+                    .chars()
+                    .take(8)
+                    .collect::<String>()
+            )
         });
         let _ctx = self.chat_engine.get_conversation_context(&conv_id).await?;
         let _analysis = self.chat_engine.analyze_chat_message(message);
 
         // Single backbone auto-loaded on first access by delegation agents
         let result = delegate_for_model(route.model_id, message).await;
-        self.chat_engine.store_conversation_turn(&conv_id, message, &result).await?;
+        self.chat_engine
+            .store_conversation_turn(&conv_id, message, &result)
+            .await?;
         Ok(result)
     }
 

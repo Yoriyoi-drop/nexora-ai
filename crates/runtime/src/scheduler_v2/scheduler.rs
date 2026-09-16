@@ -1,8 +1,8 @@
 use dashmap::DashSet;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::Notify;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -50,7 +50,12 @@ impl DagScheduler {
         let id = dag.id;
         let dag = Arc::new(dag);
         self.dags.write().insert(id, dag.clone());
-        info!("DAG submitted: id={}, name={}, tasks={}", id, dag.name, dag.task_count());
+        info!(
+            "DAG submitted: id={}, name={}, tasks={}",
+            id,
+            dag.name,
+            dag.task_count()
+        );
 
         let sorted = dag.topological_sort();
         for task_id in &sorted {
@@ -74,9 +79,10 @@ impl DagScheduler {
         self.priority_queue.push(id, task.priority);
         self.work_stealing.push_global(id);
         if let Some(deadline) = task.deadline_ms {
-            let deadline_instant = std::time::Instant::now()
-                + std::time::Duration::from_millis(deadline);
-            self.deadline_scheduler.add(id, deadline_instant, task.priority);
+            let deadline_instant =
+                std::time::Instant::now() + std::time::Duration::from_millis(deadline);
+            self.deadline_scheduler
+                .add(id, deadline_instant, task.priority);
         }
         self.notify.notify_waiters();
     }
@@ -139,9 +145,11 @@ impl DagScheduler {
         }
 
         if task.requires_gpu {
-            self.gpu_aware.assign_gpu(task_id, task.required_memory_mb * 1024 * 1024);
+            self.gpu_aware
+                .assign_gpu(task_id, task.required_memory_mb * 1024 * 1024);
         }
-        self.numa_aware.assign_node(task_id, task.required_memory_mb, task.numa_node);
+        self.numa_aware
+            .assign_node(task_id, task.required_memory_mb, task.numa_node);
 
         tokio::time::sleep(std::time::Duration::from_millis(
             task.estimated_duration_ms.min(50),
@@ -157,7 +165,8 @@ impl DagScheduler {
         }
 
         self.gpu_aware.release_gpu(&task_id);
-        self.numa_aware.release_node(&task_id, task.required_memory_mb);
+        self.numa_aware
+            .release_node(&task_id, task.required_memory_mb);
 
         Ok(())
     }
@@ -170,7 +179,10 @@ impl DagScheduler {
                 for dependent_id in &task.dependents {
                     if let Some(dep) = dag.tasks.get(dependent_id) {
                         let dep_task = dep.read();
-                        let all_deps_done = dep_task.dependencies.iter().all(|d| self.completed.contains(d));
+                        let all_deps_done = dep_task
+                            .dependencies
+                            .iter()
+                            .all(|d| self.completed.contains(d));
                         if all_deps_done && dep_task.status == TaskStatus::Pending {
                             drop(dep_task);
                             self.enqueue_task(dag.clone(), &dep.read());

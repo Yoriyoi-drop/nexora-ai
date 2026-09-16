@@ -1,5 +1,5 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
 pub const NUM_EMOTIONS: usize = 8;
@@ -11,7 +11,9 @@ const HIDDEN: usize = 64;
 static CLASSIFIER: OnceLock<GenericClassifier<NUM_EMOTIONS>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn detect_emotions(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
@@ -25,7 +27,7 @@ pub fn detect_emotions(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-fn init_cls(hidden: usize) -> GenericClassifier<NUM_EMOTIONS> {
+    fn init_cls(hidden: usize) -> GenericClassifier<NUM_EMOTIONS> {
         GenericClassifier::new(Array2::zeros((10, hidden)), HIDDEN)
     }
 

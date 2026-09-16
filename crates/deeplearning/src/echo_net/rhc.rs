@@ -17,10 +17,10 @@
 //! - Hierarchical memory
 //! - Abstraction reasoning
 
+use crate::autograd::Tensor;
 use crate::echo_net::utils::{Complex, HolographicFFT, MemoryCompressor};
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use crate::autograd::Tensor;
 
 /// Compression level configuration
 #[derive(Debug, Clone)]

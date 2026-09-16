@@ -37,7 +37,12 @@ impl HLDVAPipeline {
             tracing::warn!("GPU init failed (CPU fallback): {}", e);
         }
 
-        let device = if gpu_ops::gpu_available() { "gpu" } else { "cpu" }.to_string();
+        let device = if gpu_ops::gpu_available() {
+            "gpu"
+        } else {
+            "cpu"
+        }
+        .to_string();
         let dtype = "float32".to_string();
 
         // Inisialisasi komponen

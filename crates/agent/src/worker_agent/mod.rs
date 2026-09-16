@@ -24,12 +24,12 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::inference_agent::InferenceEngine;
+use crate::planner_agent::{PlanStep, StepType};
 use crate::{
     Agent, AgentConfig, AgentContext, AgentError, AgentMessage, AgentResponse, AgentStats,
     AgentStatus, Result,
 };
-use crate::inference_agent::InferenceEngine;
-use crate::planner_agent::{PlanStep, StepType};
 
 // ── WorkerAgent ────────────────────────────────────────────────────────────
 
@@ -122,12 +122,12 @@ impl WorkerAgent {
         loop {
             let work = {
                 let mut wm = self.active_work.lock().await;
-                let w = wm.get_mut(&work_id).ok_or_else(|| {
-                    AgentError::ProcessingError {
+                let w = wm
+                    .get_mut(&work_id)
+                    .ok_or_else(|| AgentError::ProcessingError {
                         operation: "run_step".to_string(),
                         reason: format!("Work item {} not found", work_id),
-                    }
-                })?;
+                    })?;
                 w.status = types::WorkStatus::Running;
                 w.last_updated = chrono::Utc::now();
                 w.clone()
@@ -320,18 +320,16 @@ impl Agent for WorkerAgent {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Processing");
 
-                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| {
-                    AgentError::ProcessingError {
+                let plan_id =
+                    Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
                         operation: "parse".to_string(),
                         reason: "Invalid plan_id".to_string(),
-                    }
-                })?;
-                let step_id = Uuid::parse_str(step_id_str).map_err(|_| {
-                    AgentError::ProcessingError {
+                    })?;
+                let step_id =
+                    Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
                         operation: "parse".to_string(),
                         reason: "Invalid step_id".to_string(),
-                    }
-                })?;
+                    })?;
 
                 let step_type = match step_type_str {
                     "DataCollection" => StepType::DataCollection,
@@ -380,12 +378,11 @@ impl Agent for WorkerAgent {
                         operation: "validate".to_string(),
                         reason: "work_id required".to_string(),
                     })?;
-                let work_id = Uuid::parse_str(work_id_str).map_err(|_| {
-                    AgentError::ProcessingError {
+                let work_id =
+                    Uuid::parse_str(work_id_str).map_err(|_| AgentError::ProcessingError {
                         operation: "parse".to_string(),
                         reason: "Invalid work_id".to_string(),
-                    }
-                })?;
+                    })?;
                 let work = self.get_work(work_id).await?;
 
                 match work {
@@ -426,12 +423,11 @@ impl Agent for WorkerAgent {
                         operation: "validate".to_string(),
                         reason: "work_id required".to_string(),
                     })?;
-                let work_id = Uuid::parse_str(work_id_str).map_err(|_| {
-                    AgentError::ProcessingError {
+                let work_id =
+                    Uuid::parse_str(work_id_str).map_err(|_| AgentError::ProcessingError {
                         operation: "parse".to_string(),
                         reason: "Invalid work_id".to_string(),
-                    }
-                })?;
+                    })?;
                 self.cancel_work(work_id).await?;
                 json!({"action": "cancel_work", "work_id": work_id, "status": "cancelled"})
             }
@@ -448,7 +444,8 @@ impl Agent for WorkerAgent {
         {
             let mut s = self.stats.lock().await;
             s.messages_processed += 1;
-            s.avg_processing_time_ms = (s.avg_processing_time_ms * (s.messages_processed - 1) as f64
+            s.avg_processing_time_ms = (s.avg_processing_time_ms
+                * (s.messages_processed - 1) as f64
                 + processing_time as f64)
                 / s.messages_processed as f64;
             s.last_activity = chrono::Utc::now();
@@ -506,10 +503,7 @@ impl Agent for WorkerAgent {
     }
 
     fn get_stats(&self) -> AgentStats {
-        self.stats
-            .try_lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.stats.try_lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     fn get_config(&self) -> AgentConfig {
@@ -581,11 +575,26 @@ mod tests {
 
     #[test]
     fn test_work_status_variants() {
-        assert!(matches!(types::WorkStatus::Pending, types::WorkStatus::Pending));
-        assert!(matches!(types::WorkStatus::Running, types::WorkStatus::Running));
-        assert!(matches!(types::WorkStatus::Completed, types::WorkStatus::Completed));
-        assert!(matches!(types::WorkStatus::Failed("x".into()), types::WorkStatus::Failed(_)));
-        assert!(matches!(types::WorkStatus::Cancelled, types::WorkStatus::Cancelled));
+        assert!(matches!(
+            types::WorkStatus::Pending,
+            types::WorkStatus::Pending
+        ));
+        assert!(matches!(
+            types::WorkStatus::Running,
+            types::WorkStatus::Running
+        ));
+        assert!(matches!(
+            types::WorkStatus::Completed,
+            types::WorkStatus::Completed
+        ));
+        assert!(matches!(
+            types::WorkStatus::Failed("x".into()),
+            types::WorkStatus::Failed(_)
+        ));
+        assert!(matches!(
+            types::WorkStatus::Cancelled,
+            types::WorkStatus::Cancelled
+        ));
     }
 
     #[test]

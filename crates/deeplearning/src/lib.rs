@@ -8,10 +8,10 @@
 //! - `quantization` — weight quantization helpers
 
 pub mod autograd;
-pub mod star_x;
-pub mod gnac;
 pub mod echo_net;
+pub mod gnac;
 pub mod quantization;
+pub mod star_x;
 
 /// Re-export all autograd symbols at crate root for backward compatibility
 pub use autograd::*;

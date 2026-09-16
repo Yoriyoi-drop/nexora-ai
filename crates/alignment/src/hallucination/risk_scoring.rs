@@ -1,4 +1,6 @@
-use crate::hallucination::types::{InGenCheckResult, PostGenCheckResult, PreGenCheckResult, RiskLevel, RiskScore};
+use crate::hallucination::types::{
+    InGenCheckResult, PostGenCheckResult, PreGenCheckResult, RiskLevel, RiskScore,
+};
 use crate::hallucination::GuardAction;
 
 #[derive(Debug, Clone)]

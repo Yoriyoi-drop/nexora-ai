@@ -127,18 +127,14 @@ mod tests {
     async fn test_data_input_validation() {
         let receiver = InputReceiver::new();
         let json_data = r#"{"key": "value"}"#;
-        let result = receiver
-            .receive_input(json_data, InputType::Data)
-            .await;
+        let result = receiver.receive_input(json_data, InputType::Data).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_command_with_slash_validation() {
         let receiver = InputReceiver::new();
-        let result = receiver
-            .receive_input("/start", InputType::Command)
-            .await;
+        let result = receiver.receive_input("/start", InputType::Command).await;
         assert!(result.is_ok());
     }
 
@@ -154,9 +150,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_data_input() {
         let receiver = InputReceiver::new();
-        let result = receiver
-            .receive_input("", InputType::Data)
-            .await;
+        let result = receiver.receive_input("", InputType::Data).await;
         assert!(result.is_err());
     }
 
@@ -164,9 +158,7 @@ mod tests {
     async fn test_code_input_validation() {
         let receiver = InputReceiver::new();
         let code = "fn main() { println!(\"hello\"); }";
-        let result = receiver
-            .receive_input(code, InputType::Code)
-            .await;
+        let result = receiver.receive_input(code, InputType::Code).await;
         assert!(result.is_ok());
     }
 
@@ -174,9 +166,7 @@ mod tests {
     async fn test_very_long_code_input() {
         let receiver = InputReceiver::new();
         let long_code = "fn test() {}\n".repeat(500);
-        let result = receiver
-            .receive_input(&long_code, InputType::Code)
-            .await;
+        let result = receiver.receive_input(&long_code, InputType::Code).await;
         assert!(result.is_ok());
     }
 

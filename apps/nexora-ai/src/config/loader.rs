@@ -8,8 +8,8 @@ use super::core::CoreConfig;
 use super::logging::LoggingConfig;
 use super::memory::MemoryConfig;
 use super::models::ModelsConfig;
-use super::tokenizer::TokenizerConfig;
 use super::system::SystemConfig;
+use super::tokenizer::TokenizerConfig;
 use super::utils::UtilsConfig;
 
 /// Main configuration for Nexora AI system

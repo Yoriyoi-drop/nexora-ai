@@ -46,8 +46,7 @@ impl super::WorkerAgent {
         match work.step.step_type {
             StepType::Generation => {
                 let prompt = build_prompt("Generate content for: ", desc);
-                let result =
-                    Self::infer_or_fallback(engine, "generate", &prompt, 512).await?;
+                let result = Self::infer_or_fallback(engine, "generate", &prompt, 512).await?;
                 Ok(json!({
                     "type": "generation",
                     "description": desc,
@@ -56,8 +55,7 @@ impl super::WorkerAgent {
             }
             StepType::Analysis => {
                 let prompt = build_prompt("Analyze the following: ", desc);
-                let result =
-                    Self::infer_or_fallback(engine, "analysis", &prompt, 256).await?;
+                let result = Self::infer_or_fallback(engine, "analysis", &prompt, 256).await?;
                 Ok(json!({
                     "type": "analysis",
                     "description": desc,
@@ -66,8 +64,7 @@ impl super::WorkerAgent {
             }
             StepType::Processing => {
                 let prompt = build_prompt("Process the following: ", desc);
-                let result =
-                    Self::infer_or_fallback(engine, "processing", &prompt, 256).await?;
+                let result = Self::infer_or_fallback(engine, "processing", &prompt, 256).await?;
                 Ok(json!({
                     "type": "processing",
                     "description": desc,
@@ -83,8 +80,7 @@ impl super::WorkerAgent {
                     s.push_str(desc);
                     s
                 };
-                let result =
-                    Self::infer_or_fallback(engine, "validation", &prompt, 128).await?;
+                let result = Self::infer_or_fallback(engine, "validation", &prompt, 128).await?;
                 let valid = result.to_lowercase().contains("valid");
                 Ok(json!({
                     "type": "validation",
@@ -105,8 +101,7 @@ impl super::WorkerAgent {
             }
             StepType::Communication => {
                 let prompt = build_prompt("Compose a communication about: ", desc);
-                let result =
-                    Self::infer_or_fallback(engine, "communication", &prompt, 256).await?;
+                let result = Self::infer_or_fallback(engine, "communication", &prompt, 256).await?;
                 Ok(json!({
                     "type": "communication",
                     "description": desc,
@@ -124,8 +119,7 @@ impl super::WorkerAgent {
                     s.push_str(sfx);
                     s
                 };
-                let result =
-                    Self::infer_or_fallback(engine, "decision", &prompt, 64).await?;
+                let result = Self::infer_or_fallback(engine, "decision", &prompt, 64).await?;
                 let decision = if result.to_lowercase().contains("approve") {
                     "approved"
                 } else {
@@ -150,8 +144,7 @@ impl super::WorkerAgent {
                     s.push_str(desc);
                     s
                 };
-                let result =
-                    Self::infer_or_fallback(engine, "custom", &prompt, 256).await?;
+                let result = Self::infer_or_fallback(engine, "custom", &prompt, 256).await?;
                 Ok(json!({
                     "type": "custom",
                     "label": label,

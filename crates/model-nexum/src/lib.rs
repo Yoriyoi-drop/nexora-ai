@@ -375,9 +375,11 @@ impl NxrModel for FoundationModel {
 
         let text = match &input.data {
             nexora_shared::base_model::InputData::Text(t) => t.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "Text input required".to_string(),
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "Text input required".to_string(),
+                ))
+            }
         };
         let result = crate::delegation::delegate(&text).await;
         Ok(NxrOutput {
@@ -417,7 +419,8 @@ impl NxrModel for FoundationModel {
         let augmented = augment_nexum_input(input)?;
         static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::nexum());
+        let foundation =
+            FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::nexum());
         foundation.infer_stream(&augmented, callback).await
     }
 

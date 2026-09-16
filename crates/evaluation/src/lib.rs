@@ -4,9 +4,9 @@
 //! any `CausalLM` via `TrainableCausalLM`.
 
 use nexora_deeplearning::autograd::ops::cross_entropy_loss;
-use nexora_deeplearning::autograd::{clear_tape, Tensor, TensorOps};
 #[cfg(feature = "gpu")]
 use nexora_deeplearning::autograd::set_gpu_auto_create;
+use nexora_deeplearning::autograd::{clear_tape, Tensor, TensorOps};
 use nexora_transformer::{CausalLM, TrainableCausalLM, TransformerConfig};
 use tracing::info;
 
@@ -44,7 +44,11 @@ impl EvalMetrics {
     pub fn new(avg_loss: f64, total_tokens: usize) -> Self {
         Self {
             avg_loss,
-            perplexity: if total_tokens > 0 { avg_loss.exp() } else { 1.0 },
+            perplexity: if total_tokens > 0 {
+                avg_loss.exp()
+            } else {
+                1.0
+            },
             total_tokens,
         }
     }
@@ -132,11 +136,21 @@ impl EvalMetrics {
 /// Trait for models that can be evaluated.
 pub trait Evaluate {
     /// Run evaluation on tokenized input sequences, returning metrics.
-    fn evaluate(&self, config: &TransformerConfig, sequences: &[Vec<u32>], seq_length: usize) -> EvalMetrics;
+    fn evaluate(
+        &self,
+        config: &TransformerConfig,
+        sequences: &[Vec<u32>],
+        seq_length: usize,
+    ) -> EvalMetrics;
 }
 
 impl Evaluate for CausalLM {
-    fn evaluate(&self, _config: &TransformerConfig, sequences: &[Vec<u32>], seq_length: usize) -> EvalMetrics {
+    fn evaluate(
+        &self,
+        _config: &TransformerConfig,
+        sequences: &[Vec<u32>],
+        seq_length: usize,
+    ) -> EvalMetrics {
         EvalMetrics::evaluate_loss(self, _config, sequences, seq_length)
     }
 }

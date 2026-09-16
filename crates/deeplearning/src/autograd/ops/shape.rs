@@ -3,9 +3,9 @@ use tracing::warn;
 
 use super::super::tensor::Tensor;
 #[cfg(feature = "device-gpu")]
-use crate::autograd::gpu::GpuContext;
-#[cfg(feature = "device-gpu")]
 use crate::autograd::gpu::gpu_recovery::RECOVERY_MANAGER;
+#[cfg(feature = "device-gpu")]
+use crate::autograd::gpu::GpuContext;
 #[cfg(feature = "device-gpu")]
 use crate::autograd::{tensor::next_tensor_id, Storage};
 
@@ -36,7 +36,8 @@ pub fn reshape(input: &Tensor, new_shape: &[usize]) -> Tensor {
                         vec![gpu_clone],
                         Box::new(|grad, saved| {
                             let shape_data: Vec<f32> = saved[0].iter().copied().collect();
-                            let orig_shape: Vec<usize> = shape_data.iter().map(|&x| x as usize).collect();
+                            let orig_shape: Vec<usize> =
+                                shape_data.iter().map(|&x| x as usize).collect();
                             let reshaped = grad.clone().into_shape_with_order(orig_shape.clone());
                             match reshaped {
                                 Ok(t) => vec![t],

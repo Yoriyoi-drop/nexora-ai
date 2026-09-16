@@ -38,7 +38,9 @@ impl GpuWeight {
         }
         let gpu = tensor_to_gpu(cpu)?;
         let _ = self.tensor.set(gpu);
-        self.tensor.get().ok_or_else(|| HLDVAError::Device("GpuWeight init race".into()))
+        self.tensor
+            .get()
+            .ok_or_else(|| HLDVAError::Device("GpuWeight init race".into()))
     }
 
     #[cfg(not(feature = "gpu"))]
@@ -98,7 +100,9 @@ pub fn tensor_to_gpu(t: &Tensor) -> HLDVAResult<GpuTensor> {
 
 #[cfg(feature = "gpu")]
 pub fn gpu_to_tensor(g: GpuTensor) -> HLDVAResult<Tensor> {
-    let arr = g.to_cpu().map_err(|e| HLDVAError::Tensor(format!("gpu→cpu: {}", e)))?;
+    let arr = g
+        .to_cpu()
+        .map_err(|e| HLDVAError::Tensor(format!("gpu→cpu: {}", e)))?;
     let shape = g.shape();
     let data: Vec<f32> = arr.into_raw_vec();
     Ok(Tensor::new(data, shape))
@@ -106,28 +110,33 @@ pub fn gpu_to_tensor(g: GpuTensor) -> HLDVAResult<Tensor> {
 
 #[cfg(feature = "gpu")]
 pub fn gpu_zeros(shape: &[usize]) -> HLDVAResult<GpuTensor> {
-    GpuTensor::zeros(shape)
-        .map_err(|e| HLDVAError::Tensor(format!("gpu zeros: {}", e)))
+    GpuTensor::zeros(shape).map_err(|e| HLDVAError::Tensor(format!("gpu zeros: {}", e)))
 }
 
 #[cfg(feature = "gpu")]
 pub fn gpu_ones(shape: &[usize]) -> HLDVAResult<GpuTensor> {
-    GpuTensor::ones(shape)
-        .map_err(|e| HLDVAError::Tensor(format!("gpu ones: {}", e)))
+    GpuTensor::ones(shape).map_err(|e| HLDVAError::Tensor(format!("gpu ones: {}", e)))
 }
 
 // ── GPU ops — always present, return Err when feature off ──────────
 
 fn gpu_err() -> HLDVAResult<Tensor> {
-    Err(HLDVAError::Device("GPU feature disabled or GPU unavailable".into()))
+    Err(HLDVAError::Device(
+        "GPU feature disabled or GPU unavailable".into(),
+    ))
 }
-
-
-
 
 // Elementwise
 #[cfg(feature = "gpu")]
-fn gpu_binary_op(a: &Tensor, b: &Tensor, op: fn(&GpuContext, &GpuTensor, &GpuTensor) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
+fn gpu_binary_op(
+    a: &Tensor,
+    b: &Tensor,
+    op: fn(
+        &GpuContext,
+        &GpuTensor,
+        &GpuTensor,
+    ) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>,
+) -> HLDVAResult<Tensor> {
     let c = ctx()?;
     let a_g = tensor_to_gpu(a)?;
     let b_g = tensor_to_gpu(b)?;
@@ -136,7 +145,13 @@ fn gpu_binary_op(a: &Tensor, b: &Tensor, op: fn(&GpuContext, &GpuTensor, &GpuTen
 }
 
 #[cfg(feature = "gpu")]
-fn gpu_unary_op(t: &Tensor, op: fn(&GpuContext, &GpuTensor) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>) -> HLDVAResult<Tensor> {
+fn gpu_unary_op(
+    t: &Tensor,
+    op: fn(
+        &GpuContext,
+        &GpuTensor,
+    ) -> Result<GpuTensor, nexora_deeplearning::autograd::gpu::GpuError>,
+) -> HLDVAResult<Tensor> {
     let c = ctx()?;
     let t_g = tensor_to_gpu(t)?;
     let r = op(c, &t_g).map_err(|e| HLDVAError::Tensor(format!("gpu op: {}", e)))?;
@@ -146,75 +161,149 @@ fn gpu_unary_op(t: &Tensor, op: fn(&GpuContext, &GpuTensor) -> Result<GpuTensor,
 // ── Public API ─────────────────────────────────────────────────────
 
 pub fn gpu_add(a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_binary_op(a, b, GpuContext::add) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_binary_op(a, b, GpuContext::add)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_sub(a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_binary_op(a, b, GpuContext::sub) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_binary_op(a, b, GpuContext::sub)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_mul(a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_binary_op(a, b, GpuContext::mul) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_binary_op(a, b, GpuContext::mul)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_div(a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_binary_op(a, b, GpuContext::div) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_binary_op(a, b, GpuContext::div)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_scale(t: &Tensor, factor: f32) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let t_g = tensor_to_gpu(t)?;
-        let f_g = GpuTensor::from_slice(vec![1], &[factor]).map_err(|e| HLDVAError::Tensor(format!("scale const: {}", e)))?;
-        let r = c.mul(&t_g, &f_g).map_err(|e| HLDVAError::Tensor(format!("scale: {}", e)))?;
+        let f_g = GpuTensor::from_slice(vec![1], &[factor])
+            .map_err(|e| HLDVAError::Tensor(format!("scale const: {}", e)))?;
+        let r = c
+            .mul(&t_g, &f_g)
+            .map_err(|e| HLDVAError::Tensor(format!("scale: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_add_scalar(t: &Tensor, scalar: f32) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let t_g = tensor_to_gpu(t)?;
-        let s_g = GpuTensor::from_slice(vec![1], &[scalar]).map_err(|e| HLDVAError::Tensor(format!("add_scalar const: {}", e)))?;
-        let r = c.add(&t_g, &s_g).map_err(|e| HLDVAError::Tensor(format!("add_scalar: {}", e)))?;
+        let s_g = GpuTensor::from_slice(vec![1], &[scalar])
+            .map_err(|e| HLDVAError::Tensor(format!("add_scalar const: {}", e)))?;
+        let r = c
+            .add(&t_g, &s_g)
+            .map_err(|e| HLDVAError::Tensor(format!("add_scalar: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_gelu(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::gelu) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::gelu)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_relu(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::relu) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::relu)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_sigmoid(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::sigmoid) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::sigmoid)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_tanh(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::tanh) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::tanh)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_exp(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::exp) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::exp)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_sqrt(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::sqrt) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::sqrt)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_neg(t: &Tensor) -> HLDVAResult<Tensor> {
@@ -222,75 +311,131 @@ pub fn gpu_neg(t: &Tensor) -> HLDVAResult<Tensor> {
 }
 
 pub fn gpu_matmul(a: &Tensor, b: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let a_g = tensor_to_gpu(a)?;
         let b_g = tensor_to_gpu(b)?;
-        let r = c.matmul(&a_g, &b_g).map_err(|e| HLDVAError::Tensor(format!("matmul: {}", e)))?;
+        let r = c
+            .matmul(&a_g, &b_g)
+            .map_err(|e| HLDVAError::Tensor(format!("matmul: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_transpose(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let t_g = tensor_to_gpu(t)?;
-        let r = c.transpose(&t_g).map_err(|e| HLDVAError::Tensor(format!("transpose: {}", e)))?;
+        let r = c
+            .transpose(&t_g)
+            .map_err(|e| HLDVAError::Tensor(format!("transpose: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_softmax(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] { gpu_unary_op(t, GpuContext::softmax) }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(feature = "gpu")]
+    {
+        gpu_unary_op(t, GpuContext::softmax)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_layer_norm(x: &Tensor, weight: &Tensor, bias: &Tensor, eps: f32) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let x_g = tensor_to_gpu(x)?;
         let w_g = tensor_to_gpu(weight)?;
         let b_g = tensor_to_gpu(bias)?;
-        let r = c.layer_norm(&x_g, &w_g, &b_g, eps).map_err(|e| HLDVAError::Tensor(format!("layer_norm: {}", e)))?;
+        let r = c
+            .layer_norm(&x_g, &w_g, &b_g, eps)
+            .map_err(|e| HLDVAError::Tensor(format!("layer_norm: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_rms_norm(x: &Tensor, weight: &Tensor, eps: f32) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let x_g = tensor_to_gpu(x)?;
         let w_g = tensor_to_gpu(weight)?;
-        let r = c.rms_norm(&x_g, &w_g, eps).map_err(|e| HLDVAError::Tensor(format!("rms_norm: {}", e)))?;
+        let r = c
+            .rms_norm(&x_g, &w_g, eps)
+            .map_err(|e| HLDVAError::Tensor(format!("rms_norm: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
-pub fn gpu_fused_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f32, causal: bool) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+pub fn gpu_fused_attention(
+    q: &Tensor,
+    k: &Tensor,
+    v: &Tensor,
+    scale: f32,
+    causal: bool,
+) -> HLDVAResult<Tensor> {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let q_g = tensor_to_gpu(q)?;
         let k_g = tensor_to_gpu(k)?;
         let v_g = tensor_to_gpu(v)?;
-        let r = c.fused_attention(&q_g, &k_g, &v_g, scale, causal).map_err(|e| HLDVAError::Tensor(format!("fused_attention: {}", e)))?;
+        let r = c
+            .fused_attention(&q_g, &k_g, &v_g, scale, causal)
+            .map_err(|e| HLDVAError::Tensor(format!("fused_attention: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
-pub fn gpu_conv2d(input: &Tensor, weight: &Tensor, bias: &Tensor, stride: usize, padding: usize) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+pub fn gpu_conv2d(
+    input: &Tensor,
+    weight: &Tensor,
+    bias: &Tensor,
+    stride: usize,
+    padding: usize,
+) -> HLDVAResult<Tensor> {
+    #[cfg(feature = "gpu")]
+    {
         let input_shape = input.shape();
         let weight_shape = weight.shape();
         if input_shape.len() < 3 || weight_shape.len() < 4 {
-            return Err(HLDVAError::Model("Invalid conv2d input/weight shape".into()));
+            return Err(HLDVAError::Model(
+                "Invalid conv2d input/weight shape".into(),
+            ));
         }
         let (in_h, in_w, in_c) = (input_shape[0], input_shape[1], input_shape[2]);
-        let (out_c, _w_in_c, k_h, k_w) = (weight_shape[0], weight_shape[1], weight_shape[2], weight_shape[3]);
+        let (out_c, _w_in_c, k_h, k_w) = (
+            weight_shape[0],
+            weight_shape[1],
+            weight_shape[2],
+            weight_shape[3],
+        );
         let out_h = (in_h + 2 * padding).saturating_sub(k_h) / stride + 1;
         let out_w = (in_w + 2 * padding).saturating_sub(k_w) / stride + 1;
 
@@ -304,7 +449,11 @@ pub fn gpu_conv2d(input: &Tensor, weight: &Tensor, bias: &Tensor, stride: usize,
                         for kx in 0..k_w {
                             let iy = oy * stride + ky;
                             let ix = ox * stride + kx;
-                            if iy >= padding && iy < in_h + padding && ix >= padding && ix < in_w + padding {
+                            if iy >= padding
+                                && iy < in_h + padding
+                                && ix >= padding
+                                && ix < in_w + padding
+                            {
                                 let iy_c = iy - padding;
                                 let ix_c = ix - padding;
                                 let idx = (iy_c * in_w + ix_c) * in_c + ic;
@@ -336,22 +485,37 @@ pub fn gpu_conv2d(input: &Tensor, weight: &Tensor, bias: &Tensor, stride: usize,
 
         Ok(Tensor::new(result_data, vec![out_h, out_w, out_c]))
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_l2_normalize(t: &Tensor) -> HLDVAResult<Tensor> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let c = ctx()?;
         let t_g = tensor_to_gpu(t)?;
-        let norm = c.l2_norm(&t_g).map_err(|e| HLDVAError::Tensor(format!("l2_norm: {}", e)))?;
-        let norm_val = norm.to_cpu_first_element().map_err(|e| HLDVAError::Tensor(format!("l2_norm readback: {}", e)))?;
-        if norm_val == 0.0 { return Ok(t.clone()); }
+        let norm = c
+            .l2_norm(&t_g)
+            .map_err(|e| HLDVAError::Tensor(format!("l2_norm: {}", e)))?;
+        let norm_val = norm
+            .to_cpu_first_element()
+            .map_err(|e| HLDVAError::Tensor(format!("l2_norm readback: {}", e)))?;
+        if norm_val == 0.0 {
+            return Ok(t.clone());
+        }
         let inv = GpuTensor::from_slice(vec![1], &[1.0 / norm_val])
             .map_err(|e| HLDVAError::Tensor(format!("l2_norm inv: {}", e)))?;
-        let r = c.mul(&t_g, &inv).map_err(|e| HLDVAError::Tensor(format!("l2_norm mul: {}", e)))?;
+        let r = c
+            .mul(&t_g, &inv)
+            .map_err(|e| HLDVAError::Tensor(format!("l2_norm mul: {}", e)))?;
         gpu_to_tensor(r)
     }
-    #[cfg(not(feature = "gpu"))] { gpu_err() }
+    #[cfg(not(feature = "gpu"))]
+    {
+        gpu_err()
+    }
 }
 
 pub fn gpu_cosine_similarity(a: &Tensor, b: &Tensor) -> HLDVAResult<f32> {
@@ -365,12 +529,15 @@ pub fn gpu_cosine_similarity(a: &Tensor, b: &Tensor) -> HLDVAResult<f32> {
 }
 
 pub fn gpu_sum(t: &Tensor) -> HLDVAResult<f32> {
-    #[cfg(feature = "gpu")] {
+    #[cfg(feature = "gpu")]
+    {
         let _c = ctx()?;
         let t_g = tensor_to_gpu(t)?;
-        t_g.sum_gpu().map_err(|e| HLDVAError::Tensor(format!("sum: {}", e)))
+        t_g.sum_gpu()
+            .map_err(|e| HLDVAError::Tensor(format!("sum: {}", e)))
     }
-    #[cfg(not(feature = "gpu"))] {
+    #[cfg(not(feature = "gpu"))]
+    {
         Err(HLDVAError::Device("GPU feature disabled".into()))
     }
 }

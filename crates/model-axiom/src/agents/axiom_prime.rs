@@ -222,7 +222,9 @@ impl AxiomPrimeAgent {
     /// FUTURE: Will delegate to foundation CausalLM. Currently returns
     /// a single older string — NOT performing real axiom derivation.
     async fn derive_axioms(&self, _input: &AxiomPrimeTaskInput) -> AgentResult<Vec<String>> {
-        Ok(vec!["[older — will delegate to foundation model]".to_string()])
+        Ok(vec![
+            "[older — will delegate to foundation model]".to_string()
+        ])
     }
 
     async fn assess_truth(
@@ -238,7 +240,9 @@ impl AxiomPrimeAgent {
         _input: &AxiomPrimeTaskInput,
         _axioms: &[String],
     ) -> AgentResult<Vec<String>> {
-        Ok(vec!["[older — will delegate to foundation model]".to_string()])
+        Ok(vec![
+            "[older — will delegate to foundation model]".to_string()
+        ])
     }
 
     async fn calculate_confidence(

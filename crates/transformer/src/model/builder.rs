@@ -1,11 +1,11 @@
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use ndarray::{Array1, Array2};
-use nexora_deeplearning::quantization::QFormat;
 use crate::block::TransformerBlock;
 use crate::embedding_registry;
 use crate::lora::LayerLoRA;
 use crate::rope::RoPE;
 use crate::{LayerInjector, TransformerConfig, TransformerError, TransformerResult};
+use ndarray::{Array1, Array2};
+use nexora_deeplearning::quantization::QFormat;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[cfg(feature = "gpu")]
 #[derive(Debug)]
@@ -253,7 +253,14 @@ impl CausalLM {
                     config.num_experts,
                     exp_int_local,
                 );
-                block.init_random(config.hidden_size, nh_local, nkv_local, head_dim, int_local, exp_int_local);
+                block.init_random(
+                    config.hidden_size,
+                    nh_local,
+                    nkv_local,
+                    head_dim,
+                    int_local,
+                    exp_int_local,
+                );
                 block
             })
             .collect();
@@ -283,9 +290,16 @@ impl CausalLM {
             None
         };
 
-        let qw = matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..} | QFormat::Q2{..});
+        let qw = matches!(
+            config.quantization,
+            QFormat::Q8 { .. }
+                | QFormat::Q6 { .. }
+                | QFormat::Q5 { .. }
+                | QFormat::Q4 { .. }
+                | QFormat::Q2 { .. }
+        );
         let hp = config.use_half_precision;
-        let use_atqs = matches!(config.quantization, QFormat::Q4 {..});
+        let use_atqs = matches!(config.quantization, QFormat::Q4 { .. });
 
         let mut model = Self {
             config,
@@ -363,16 +377,18 @@ impl CausalLM {
             None
         };
         let blocks: Vec<TransformerBlock> = (0..config.num_layers)
-            .map(|_| TransformerBlock::new(
-                config.hidden_size,
-                nh_local,
-                nkv_local,
-                head_dim,
-                int_local,
-                config.norm_eps,
-                config.num_experts,
-                exp_int_local,
-            ))
+            .map(|_| {
+                TransformerBlock::new(
+                    config.hidden_size,
+                    nh_local,
+                    nkv_local,
+                    head_dim,
+                    int_local,
+                    config.norm_eps,
+                    config.num_experts,
+                    exp_int_local,
+                )
+            })
             .collect();
         Self {
             config: config.clone(),
@@ -389,7 +405,14 @@ impl CausalLM {
                 .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
             injectors: Vec::new(),
             keep_on_gpu: false,
-            quantize_weights: matches!(config.quantization, QFormat::Q8{..} | QFormat::Q6{..} | QFormat::Q5{..} | QFormat::Q4{..} | QFormat::Q2{..}),
+            quantize_weights: matches!(
+                config.quantization,
+                QFormat::Q8 { .. }
+                    | QFormat::Q6 { .. }
+                    | QFormat::Q5 { .. }
+                    | QFormat::Q4 { .. }
+                    | QFormat::Q2 { .. }
+            ),
             use_half_precision: config.use_half_precision,
             weight_notifier: crate::observer::WeightNotifier::new(),
             lazy_loader: None,
@@ -417,8 +440,14 @@ impl CausalLM {
         let start = std::time::Instant::now();
         let weights = WeightsAtqs::compress(self)?;
         let elapsed = start.elapsed();
-        let num_weights = 2 + self.blocks.len() * 7
-            + self.blocks.iter().filter_map(|b| b.experts.as_ref()).map(|e| e.len() * 3).sum::<usize>();
+        let num_weights = 2
+            + self.blocks.len() * 7
+            + self
+                .blocks
+                .iter()
+                .filter_map(|b| b.experts.as_ref())
+                .map(|e| e.len() * 3)
+                .sum::<usize>();
         tracing::info!(
             "ATQS: compressed {} weight matrices in {:.2}s",
             num_weights,
@@ -463,8 +492,14 @@ impl CausalLM {
             )
         })?;
         let start = std::time::Instant::now();
-        let num_weights = 2 + self.blocks.len() * 7
-            + self.blocks.iter().filter_map(|b| b.experts.as_ref()).map(|e| e.len() * 3).sum::<usize>();
+        let num_weights = 2
+            + self.blocks.len() * 7
+            + self
+                .blocks
+                .iter()
+                .filter_map(|b| b.experts.as_ref())
+                .map(|e| e.len() * 3)
+                .sum::<usize>();
         cache.restore(self)?;
         self.atqs_compressed = Some(cache);
         let elapsed = start.elapsed();

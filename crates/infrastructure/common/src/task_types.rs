@@ -5,8 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Unified Task Type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum TaskType {
     #[default]
     Unknown = 0,
@@ -27,7 +26,6 @@ pub enum TaskType {
     Reasoning = 13,
     Creative = 14,
 }
-
 
 impl TaskType {
     pub fn name(&self) -> &'static str {

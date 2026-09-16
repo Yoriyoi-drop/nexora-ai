@@ -54,7 +54,11 @@ impl HybridCacheManager {
     pub fn overall_hit_rate(&self) -> f64 {
         let hits = self.total_hits() as f64;
         let total = hits + self.total_misses() as f64;
-        if total > 0.0 { hits / total } else { 0.0 }
+        if total > 0.0 {
+            hits / total
+        } else {
+            0.0
+        }
     }
 
     pub fn clear_all(&self) {

@@ -899,8 +899,6 @@ impl BlasOperations {
         b: &crate::autograd::gpu::GpuTensor,
         ctx: &crate::autograd::gpu::GpuContext,
     ) -> DLResult<crate::autograd::gpu::GpuTensor> {
-        
-
         let b_t = ctx
             .transpose(b)
             .map_err(|e| DeepLearningError::Computation {

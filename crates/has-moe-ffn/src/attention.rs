@@ -26,7 +26,11 @@ pub struct Attention {
 
 impl Attention {
     /// Create new attention mechanism
-    pub fn new(hidden_size: usize, num_heads: usize, dropout_rate: f32) -> Result<Self, HasMoeFfnError> {
+    pub fn new(
+        hidden_size: usize,
+        num_heads: usize,
+        dropout_rate: f32,
+    ) -> Result<Self, HasMoeFfnError> {
         if num_heads == 0 {
             return Err(HasMoeFfnError::config("num_heads must be positive"));
         }
@@ -290,7 +294,10 @@ mod tests {
     fn test_zero_heads_returns_error() {
         let result = Attention::new(8, 0, 0.0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_heads must be positive"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_heads must be positive"));
     }
 
     #[test]

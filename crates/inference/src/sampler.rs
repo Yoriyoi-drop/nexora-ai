@@ -232,10 +232,7 @@ impl Sampler {
         // Check exponential backoff: if we're in cooldown, skip GPU entirely.
         if let Some(until) = self.backoff_until {
             if Instant::now() < until {
-                tracing::debug!(
-                    "GPU in backoff until {:?}, skipping to CPU",
-                    until
-                );
+                tracing::debug!("GPU in backoff until {:?}, skipping to CPU", until);
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
                 return if self.allow_gpu_fallback {
                     self.sample_cpu(logits)
@@ -259,10 +256,7 @@ impl Sampler {
                 self.fallback_attempts += 1;
                 self.gpu_fallback_count.fetch_add(1, Ordering::Relaxed);
                 // Set exponential backoff
-                let wait = std::cmp::min(
-                    self.current_backoff * 2,
-                    self.max_backoff,
-                );
+                let wait = std::cmp::min(self.current_backoff * 2, self.max_backoff);
                 self.current_backoff = wait;
                 self.backoff_until = Some(Instant::now() + wait);
                 tracing::warn!(
@@ -961,8 +955,6 @@ pub fn top_p_filter(probs: &[f32], p: f32) -> Vec<f32> {
     }
     filtered
 }
-
-
 
 // --- Presets ---
 pub mod configs {

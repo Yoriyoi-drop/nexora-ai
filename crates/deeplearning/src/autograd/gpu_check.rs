@@ -276,7 +276,10 @@ impl GpuNanDetector {
         }
     }
 
-    pub fn ensure_pipelines(&mut self, ctx: &mut GpuContext) -> Result<(), crate::autograd::gpu::GpuError> {
+    pub fn ensure_pipelines(
+        &mut self,
+        ctx: &mut GpuContext,
+    ) -> Result<(), crate::autograd::gpu::GpuError> {
         if self.pipelines.is_some() {
             return Ok(());
         }

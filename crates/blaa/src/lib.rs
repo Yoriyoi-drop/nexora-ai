@@ -13,7 +13,6 @@ pub use client::BlaaClient;
 pub use config::BlaaConfig;
 pub use models::*;
 
-
 #[derive(Error, Debug)]
 pub enum BlaaError {
     #[error("Authentication failed: {0}")]

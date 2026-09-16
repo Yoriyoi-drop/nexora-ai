@@ -1,16 +1,23 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
 pub const CREATIVE_STYLES: [&str; 6] = [
-    "narrative", "poetic", "persuasive", "technical", "dialogue", "descriptive",
+    "narrative",
+    "poetic",
+    "persuasive",
+    "technical",
+    "dialogue",
+    "descriptive",
 ];
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<GenericClassifier<{CREATIVE_STYLES.len()}>> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{ CREATIVE_STYLES.len() }>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn style_params(style: &str) -> (f32, f32) {

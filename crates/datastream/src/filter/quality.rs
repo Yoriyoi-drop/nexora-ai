@@ -75,7 +75,8 @@ impl QualityFilter {
             );
         }
 
-        let avg_word_len: f64 = words.iter().map(|w| w.len() as f64).sum::<f64>() / word_count as f64;
+        let avg_word_len: f64 =
+            words.iter().map(|w| w.len() as f64).sum::<f64>() / word_count as f64;
         let has_mixed_case =
             text.chars().any(|c| c.is_lowercase()) && text.chars().any(|c| c.is_uppercase());
         let has_variety = word_freq.len() > 5;

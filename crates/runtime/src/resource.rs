@@ -39,22 +39,31 @@ impl ResourceManager {
         let permit = self.semaphore.clone().acquire_owned().await.map_err(|_| {
             InferenceError::ResourceExhausted("Failed to acquire resource".to_string())
         })?;
-        let pressure = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner())).pressure();
-        Ok(ResourceGuard { _permit: permit, _vram_pressure: pressure })
+        let pressure = tokio::task::block_in_place(|| {
+            self.vram_budget.lock().unwrap_or_else(|e| e.into_inner())
+        })
+        .pressure();
+        Ok(ResourceGuard {
+            _permit: permit,
+            _vram_pressure: pressure,
+        })
     }
 
     /// Acquire with VRAM check: rejects if allocation would cause OOM.
     pub async fn acquire_with_vram(&self, needed_vram: u64) -> Result<ResourceGuardVram> {
         // Check VRAM availability first
         {
-            let budget = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()));
+            let budget = tokio::task::block_in_place(|| {
+                self.vram_budget.lock().unwrap_or_else(|e| e.into_inner())
+            });
             if !budget.can_allocate(needed_vram) {
                 return Err(InferenceError::ResourceExhausted(format!(
                     "VRAM: need {} bytes, only {} available (pressure={:?})",
                     needed_vram,
                     budget.available(),
                     budget.pressure()
-                )).into());
+                ))
+                .into());
             }
         }
         // Then acquire semaphore
@@ -62,20 +71,34 @@ impl ResourceManager {
             InferenceError::ResourceExhausted("Failed to acquire resource".to_string())
         })?;
         let reservation = {
-            let mut budget = tokio::task::block_in_place(|| self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()));
-            budget.reserve(needed_vram, self.vram_budget.clone())
+            let mut budget = tokio::task::block_in_place(|| {
+                self.vram_budget.lock().unwrap_or_else(|e| e.into_inner())
+            });
+            budget
+                .reserve(needed_vram, self.vram_budget.clone())
                 .map_err(|e| InferenceError::ResourceExhausted(e))?
         };
-        Ok(ResourceGuardVram { _permit: permit, _reservation: Some(reservation) })
+        Ok(ResourceGuardVram {
+            _permit: permit,
+            _reservation: Some(reservation),
+        })
     }
 
     /// Check current VRAM pressure
     pub fn vram_pressure(&self) -> VramPressure {
-        self.vram_budget.lock().unwrap_or_else(|e| e.into_inner()).pressure()
+        self.vram_budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pressure()
     }
 
     /// Configure VRAM budget for a specific model
-    pub fn auto_configure_vram(&self, model_params: usize, num_experts: usize, bits_per_weight: usize) {
+    pub fn auto_configure_vram(
+        &self,
+        model_params: usize,
+        num_experts: usize,
+        bits_per_weight: usize,
+    ) {
         let mut budget = self.vram_budget.lock().unwrap_or_else(|e| e.into_inner());
         budget.auto_configure(model_params, num_experts, bits_per_weight);
     }
@@ -100,7 +123,10 @@ pub struct ResourceGuard {
 
 impl ResourceGuard {
     pub fn new(_permit: OwnedSemaphorePermit) -> Self {
-        Self { _permit, _vram_pressure: VramPressure::Ok }
+        Self {
+            _permit,
+            _vram_pressure: VramPressure::Ok,
+        }
     }
 }
 

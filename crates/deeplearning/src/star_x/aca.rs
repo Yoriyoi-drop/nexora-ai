@@ -200,8 +200,6 @@ impl AdaptiveComputeAllocation {
         input_gpu: &crate::autograd::gpu::GpuTensor,
         ctx: &crate::autograd::gpu::GpuContext,
     ) -> Option<crate::autograd::gpu::GpuTensor> {
-        
-
         let wt_gpu = ctx.transpose(weights_gpu).ok()?;
         ctx.matmul(input_gpu, &wt_gpu).ok()
     }
@@ -209,8 +207,8 @@ impl AdaptiveComputeAllocation {
     /// GPU-accelerated matrix multiplication (CPU round-trip fallback)
     #[cfg(feature = "gpu")]
     fn matmul_gpu(&self, weights: &Array2<f32>, input: &ArrayD<f32>) -> Option<ArrayD<f32>> {
-        use ndarray::ArrayD;
         use crate::autograd::gpu::{GpuContext, GpuTensor};
+        use ndarray::ArrayD;
 
         let ctx = GpuContext::global().ok()?;
         let w_shape = weights.shape();

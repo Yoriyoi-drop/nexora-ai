@@ -368,8 +368,9 @@ impl ERPTrainer {
                     #[cfg(feature = "gpu")]
                     {
                         use crate::gpu;
-                        let base = crate::gpu_try!(gpu::try_matvec(&layer.compressed_weights, input))
-                            .unwrap_or_else(|| layer.compressed_weights.dot(input));
+                        let base =
+                            crate::gpu_try!(gpu::try_matvec(&layer.compressed_weights, input))
+                                .unwrap_or_else(|| layer.compressed_weights.dot(input));
                         let la_input = crate::gpu_try!(gpu::try_matvec(&lora_a, input))
                             .unwrap_or_else(|| lora_a.dot(input));
                         (base, la_input)
@@ -473,7 +474,9 @@ impl ERPTrainer {
                     #[cfg(feature = "gpu")]
                     {
                         use crate::gpu;
-                        if let Some(Ok(result)) = gpu::try_matvec(&layer.compressed_weights, &current_input) {
+                        if let Some(Ok(result)) =
+                            gpu::try_matvec(&layer.compressed_weights, &current_input)
+                        {
                             result
                         } else {
                             layer.compressed_weights.dot(&current_input)

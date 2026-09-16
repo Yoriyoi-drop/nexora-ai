@@ -33,11 +33,7 @@ impl NcclCollective {
     /// `num_shards` / `shard_rank` — rank topology.
     ///
     /// Returns error if NCCL is unavailable or init fails.
-    pub fn new(
-        device_id: usize,
-        num_shards: usize,
-        shard_rank: usize,
-    ) -> TransformerResult<Self> {
+    pub fn new(device_id: usize, num_shards: usize, shard_rank: usize) -> TransformerResult<Self> {
         #[cfg(feature = "nccl")]
         {
             let inner = Self::init_nccl(device_id, num_shards, shard_rank)?;
@@ -70,17 +66,10 @@ impl NcclCollective {
                 crate::TransformerError::Implementation(format!("CUDA init for NCCL: {e}"))
             })?;
 
-        let id = Id::new().map_err(|e| {
-            crate::TransformerError::Implementation(format!("NCCL Id::new: {e}"))
-        })?;
+        let id = Id::new()
+            .map_err(|e| crate::TransformerError::Implementation(format!("NCCL Id::new: {e}")))?;
 
-        let comm = Comm::from_rank(
-            rt.stream.clone(),
-            shard_rank,
-            num_shards,
-            id,
-        )
-        .map_err(|e| {
+        let comm = Comm::from_rank(rt.stream.clone(), shard_rank, num_shards, id).map_err(|e| {
             crate::TransformerError::Implementation(format!("NCCL Comm::from_rank: {e}"))
         })?;
 
@@ -101,14 +90,9 @@ impl NcclCollective {
             let send = stream.clone_htod(buf).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
             })?;
-            let mut recv =
-                stream
-                    .alloc_zeros::<f32>(buf.len())
-                    .map_err(|e| {
-                        crate::TransformerError::Implementation(format!(
-                            "NCCL alloc_zeros: {e}"
-                        ))
-                    })?;
+            let mut recv = stream.alloc_zeros::<f32>(buf.len()).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL alloc_zeros: {e}"))
+            })?;
             self.inner
                 .comm
                 .all_reduce(&send, &mut recv, &ReduceOp::Sum)
@@ -141,14 +125,9 @@ impl NcclCollective {
             let send = stream.clone_htod(sendbuf).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
             })?;
-            let mut recv =
-                stream
-                    .alloc_zeros::<f32>(recvbuf.len())
-                    .map_err(|e| {
-                        crate::TransformerError::Implementation(format!(
-                            "NCCL alloc_zeros: {e}"
-                        ))
-                    })?;
+            let mut recv = stream.alloc_zeros::<f32>(recvbuf.len()).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL alloc_zeros: {e}"))
+            })?;
             self.inner.comm.all_gather(&send, &mut recv).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL all_gather: {e}"))
             })?;
@@ -177,14 +156,9 @@ impl NcclCollective {
             let send = stream.clone_htod(sendbuf).map_err(|e| {
                 crate::TransformerError::Implementation(format!("NCCL htod_copy: {e}"))
             })?;
-            let mut recv =
-                stream
-                    .alloc_zeros::<f32>(recvbuf.len())
-                    .map_err(|e| {
-                        crate::TransformerError::Implementation(format!(
-                            "NCCL alloc_zeros: {e}"
-                        ))
-                    })?;
+            let mut recv = stream.alloc_zeros::<f32>(recvbuf.len()).map_err(|e| {
+                crate::TransformerError::Implementation(format!("NCCL alloc_zeros: {e}"))
+            })?;
             self.inner
                 .comm
                 .reduce_scatter(&send, &mut recv, &ReduceOp::Sum)
@@ -283,10 +257,9 @@ pub fn collective_gpu_all_reduce(
     buf: &mut nexora_deeplearning::autograd::gpu::CudaSlice<f32>,
 ) -> TransformerResult<()> {
     use nexora_deeplearning::autograd::gpu::nccl::safe::ReduceOp;
-    nccl.all_reduce_in_place(buf, &ReduceOp::Sum)
-        .map_err(|e| {
-            crate::TransformerError::Implementation(format!("NCCL all_reduce_in_place: {e:?}"))
-        })?;
+    nccl.all_reduce_in_place(buf, &ReduceOp::Sum).map_err(|e| {
+        crate::TransformerError::Implementation(format!("NCCL all_reduce_in_place: {e:?}"))
+    })?;
     Ok(())
 }
 

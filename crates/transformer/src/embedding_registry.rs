@@ -14,11 +14,7 @@ fn registry() -> &'static RwLock<HashMap<(usize, usize, u64), Arc<Array2<f32>>>>
 /// If the table was already created, returns the cached `Arc<Array2<f32>>`.
 /// Otherwise creates, caches, and returns it.
 /// Uses write-first pattern to avoid read→write lock starvation.
-pub fn resolve_embedding(
-    vocab_size: usize,
-    hidden_size: usize,
-    seed: u64,
-) -> Arc<Array2<f32>> {
+pub fn resolve_embedding(vocab_size: usize, hidden_size: usize, seed: u64) -> Arc<Array2<f32>> {
     let key = (vocab_size, hidden_size, seed);
 
     // Fast path: try read lock first

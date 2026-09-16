@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -25,7 +25,10 @@ impl DegradationLevel {
     }
 
     pub fn allows_generation(&self) -> bool {
-        matches!(self, DegradationLevel::None | DegradationLevel::Reduced | DegradationLevel::Minimal)
+        matches!(
+            self,
+            DegradationLevel::None | DegradationLevel::Reduced | DegradationLevel::Minimal
+        )
     }
 
     pub fn allows_all_requests(&self) -> bool {
@@ -127,9 +130,13 @@ impl DegradationManager {
     fn compute_target_level(&self, error_rate: f64, avg_latency_ms: f64) -> DegradationLevel {
         if error_rate >= self.config.error_rate_readonly || avg_latency_ms >= 10_000.0 {
             DegradationLevel::ReadOnly
-        } else if error_rate >= self.config.error_rate_minimal || avg_latency_ms >= self.config.latency_ms_minimal {
+        } else if error_rate >= self.config.error_rate_minimal
+            || avg_latency_ms >= self.config.latency_ms_minimal
+        {
             DegradationLevel::Minimal
-        } else if error_rate >= self.config.error_rate_reduced || avg_latency_ms >= self.config.latency_ms_reduced {
+        } else if error_rate >= self.config.error_rate_reduced
+            || avg_latency_ms >= self.config.latency_ms_reduced
+        {
             DegradationLevel::Reduced
         } else {
             DegradationLevel::None

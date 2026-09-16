@@ -120,11 +120,10 @@ impl FoundationModel {
             ),
             identity,
             capabilities,
-            components: FoundationComponents::new()
-                .with_erp_config(nexora_erp::ERPConfig {
-                    compression_mode: nexora_erp::CompressionMode::Conservative,
-                    ..nexora_erp::ERPConfig::default()
-                }),
+            components: FoundationComponents::new().with_erp_config(nexora_erp::ERPConfig {
+                compression_mode: nexora_erp::CompressionMode::Conservative,
+                ..nexora_erp::ERPConfig::default()
+            }),
             config,
             hallucination: Some(nexora_alignment::hallucination::HallucinationGuard::new(
                 nexora_alignment::hallucination::GuardConfig::default(),
@@ -313,9 +312,11 @@ impl NxrModel for FoundationModel {
 
         let text = match &input.data {
             nexora_shared::base_model::InputData::Text(t) => t.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "Text input required".to_string(),
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "Text input required".to_string(),
+                ))
+            }
         };
         let result = crate::delegation::delegate(&text).await;
         Ok(NxrOutput {
@@ -355,7 +356,8 @@ impl NxrModel for FoundationModel {
         let augmented = augment_cipher_input(input)?;
         static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::cipher());
+        let foundation =
+            FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::cipher());
         foundation.infer_stream(&augmented, callback).await
     }
 

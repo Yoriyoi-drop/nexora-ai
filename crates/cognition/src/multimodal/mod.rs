@@ -67,7 +67,10 @@ impl CaffeineProcessor {
         } else {
             None
         };
-        Self { caffeine: None, cache }
+        Self {
+            caffeine: None,
+            cache,
+        }
     }
 
     pub fn with_caffeine(config: CaffeineConfig) -> crate::multimodal::error::Result<Self> {
@@ -101,11 +104,16 @@ impl CaffeineProcessor {
 
         let mut caffeine = Caffeine::new(config)?;
         caffeine.cache = cache.clone();
-        Ok(Self { caffeine: Some(caffeine), cache })
+        Ok(Self {
+            caffeine: Some(caffeine),
+            cache,
+        })
     }
 
     /// Get a reference to the cache for stats/external access.
-    pub fn cache(&self) -> Option<&std::sync::Arc<std::sync::Mutex<crate::multimodal::cache::MultiModalCache>>> {
+    pub fn cache(
+        &self,
+    ) -> Option<&std::sync::Arc<std::sync::Mutex<crate::multimodal::cache::MultiModalCache>>> {
         self.cache.as_ref()
     }
 
@@ -154,7 +162,10 @@ impl CaffeineProcessor {
     }
 
     /// Save all trainable weights to safetensors checkpoint
-    pub fn save_checkpoint(&self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn save_checkpoint(
+        &self,
+        path: &str,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let caffeine = self.caffeine.as_ref().ok_or("Caffeine not initialized")?;
         let weights = caffeine.collect_weights();
 
@@ -191,12 +202,20 @@ impl CaffeineProcessor {
         out.extend_from_slice(&data_bytes);
 
         std::fs::write(path, &out)?;
-        tracing::info!("Checkpoint saved to {} ({} bytes, {} tensors)", path, out.len(), weights.len());
+        tracing::info!(
+            "Checkpoint saved to {} ({} bytes, {} tensors)",
+            path,
+            out.len(),
+            weights.len()
+        );
         Ok(())
     }
 
     /// Load weights from safetensors checkpoint into all sub-components
-    pub fn load_checkpoint(&mut self, path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn load_checkpoint(
+        &mut self,
+        path: &str,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let raw = std::fs::read(path)?;
         if raw.len() < 8 {
             return Err("File too small for safetensors".into());
@@ -210,17 +229,22 @@ impl CaffeineProcessor {
 
         let header_json = std::str::from_utf8(&raw[8..header_end])?;
         let header: serde_json::Value = serde_json::from_str(header_json)?;
-        let tensors = header["tensors"].as_object().ok_or("Invalid safetensors header")?;
+        let tensors = header["tensors"]
+            .as_object()
+            .ok_or("Invalid safetensors header")?;
 
-        let mut weights: std::collections::HashMap<String, ndarray::ArrayD<f32>> = std::collections::HashMap::new();
+        let mut weights: std::collections::HashMap<String, ndarray::ArrayD<f32>> =
+            std::collections::HashMap::new();
 
         for (name, entry) in tensors {
-            let shape: Vec<usize> = entry["shape"].as_array()
+            let shape: Vec<usize> = entry["shape"]
+                .as_array()
                 .ok_or("Missing shape")?
                 .iter()
                 .map(|v| v.as_u64().ok_or("Invalid shape value").map(|v| v as usize))
                 .collect::<std::result::Result<Vec<_>, _>>()?;
-            let offsets: Vec<usize> = entry["data_offsets"].as_array()
+            let offsets: Vec<usize> = entry["data_offsets"]
+                .as_array()
                 .ok_or("Missing data_offsets")?
                 .iter()
                 .map(|v| v.as_u64().ok_or("Invalid offset").map(|v| v as usize))
@@ -229,7 +253,8 @@ impl CaffeineProcessor {
             let start = 8 + header_len + offsets[0];
             let end = 8 + header_len + offsets[1];
             let bytes = &raw[start..end];
-            let floats: Vec<f32> = bytes.chunks_exact(4)
+            let floats: Vec<f32> = bytes
+                .chunks_exact(4)
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect();
 
@@ -241,7 +266,11 @@ impl CaffeineProcessor {
             caffeine.load_weights(&weights);
         }
 
-        tracing::info!("Checkpoint loaded from {} ({} tensors)", path, weights.len());
+        tracing::info!(
+            "Checkpoint loaded from {} ({} tensors)",
+            path,
+            weights.len()
+        );
         Ok(())
     }
 }
@@ -251,7 +280,8 @@ impl Caffeine {
     pub fn new(config: CaffeineConfig) -> crate::multimodal::error::Result<Self> {
         let encoders =
             crate::multimodal::encoders::MultiModalEncoders::new(config.encoders_config.clone())?;
-        let qformer = crate::multimodal::qformer::TriQueryFormer::new(config.qformer_config.clone())?;
+        let qformer =
+            crate::multimodal::qformer::TriQueryFormer::new(config.qformer_config.clone())?;
         let tokenizer =
             crate::multimodal::tokenizer::UnifiedTokenizer::new(config.tokenizer_config.clone())?;
         let action_head =
@@ -326,7 +356,9 @@ impl Caffeine {
         };
 
         let _streaming_video = if config.enable_cache {
-            Some(crate::multimodal::cache::StreamingVideoProcessor::new(cache_config.clone()))
+            Some(crate::multimodal::cache::StreamingVideoProcessor::new(
+                cache_config.clone(),
+            ))
         } else {
             None
         };
@@ -352,7 +384,9 @@ impl Caffeine {
         inputs: &crate::multimodal::types::MultiModalInputs,
     ) -> crate::multimodal::error::Result<crate::multimodal::types::MultiModalOutputs> {
         // Stage 1: Multi-modal encoding (with cache — #4 FIX 1,2,8)
-        let encoded_features = self.encoders.encode_with_cache(inputs, &self.cache, &self.cache_config)?;
+        let encoded_features =
+            self.encoders
+                .encode_with_cache(inputs, &self.cache, &self.cache_config)?;
 
         // Stage 2: Tri-query transformation
         let query_features = self.qformer.transform(&encoded_features)?;
@@ -379,20 +413,21 @@ impl Caffeine {
             let tensor_input = self.tokens_to_tensor(&compressed_tokens)?;
             if let Some(ref mut router) = self.has_moe_router {
                 // Use real MoE softmax confidence scores instead of fake 1/(i+1)
-                let routing_with_weights = router.route_with_weights(&tensor_input).map_err(|e| {
-                    crate::multimodal::error::CaffeineError::HasMoeRouting(format!("{}", e))
-                })?;
+                let routing_with_weights =
+                    router.route_with_weights(&tensor_input).map_err(|e| {
+                        crate::multimodal::error::CaffeineError::HasMoeRouting(format!("{}", e))
+                    })?;
                 let routing_decisions: Vec<nexora_has_moe_ffn::types::RoutingDecision> =
                     routing_with_weights
                         .into_iter()
                         .flatten()
-                        .map(|(expert_id, confidence)| {
-                            nexora_has_moe_ffn::types::RoutingDecision {
+                        .map(
+                            |(expert_id, confidence)| nexora_has_moe_ffn::types::RoutingDecision {
                                 expert_id,
                                 confidence,
                                 domain: None,
-                            }
-                        })
+                            },
+                        )
                         .collect();
                 self.apply_routing(compressed_tokens, routing_decisions)?
             } else {
@@ -600,11 +635,13 @@ impl Caffeine {
         });
 
         for (_token_idx, _token) in tokens {
-            let best = sorted_decisions.first().cloned().unwrap_or(nexora_has_moe_ffn::types::RoutingDecision {
-                expert_id: 0,
-                confidence: 1.0,
-                domain: None,
-            });
+            let best = sorted_decisions.first().cloned().unwrap_or(
+                nexora_has_moe_ffn::types::RoutingDecision {
+                    expert_id: 0,
+                    confidence: 1.0,
+                    domain: None,
+                },
+            );
             expert_assignments.push((best.expert_id, best.confidence));
         }
 
@@ -696,19 +733,23 @@ impl Caffeine {
         if let Some(ref experts) = self.has_moe_experts {
             for (i, expert) in experts.iter().enumerate() {
                 if let Some((data, shape)) = expert.get_fc1() {
-                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    let arr =
+                        ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
                     all.insert(format!("moe.expert_{}.fc1.weight", i), arr);
                 }
                 if let Some((data, shape)) = expert.fc1_bias_params() {
-                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    let arr =
+                        ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
                     all.insert(format!("moe.expert_{}.fc1.bias", i), arr);
                 }
                 if let Some((data, shape)) = expert.get_fc2() {
-                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    let arr =
+                        ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
                     all.insert(format!("moe.expert_{}.fc2.weight", i), arr);
                 }
                 if let Some((data, shape)) = expert.fc2_bias_params() {
-                    let arr = ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
+                    let arr =
+                        ndarray::ArrayD::from_shape_vec(shape.clone(), data).unwrap_or_default();
                     all.insert(format!("moe.expert_{}.fc2.bias", i), arr);
                 }
             }
@@ -726,7 +767,10 @@ impl Caffeine {
     }
 
     /// Apply loaded weights back to sub-components
-    pub fn load_weights(&mut self, weights: &std::collections::HashMap<String, ndarray::ArrayD<f32>>) {
+    pub fn load_weights(
+        &mut self,
+        weights: &std::collections::HashMap<String, ndarray::ArrayD<f32>>,
+    ) {
         // MoE expert weights
         if let Some(ref mut experts) = self.has_moe_experts {
             for (i, expert) in experts.iter_mut().enumerate() {

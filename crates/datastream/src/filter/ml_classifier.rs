@@ -92,7 +92,9 @@ impl MLClassifier {
     }
 
     fn init_weights(rng: &mut Lcg) -> Vec<f32> {
-        (0..FEATURE_DIM).map(|_| rng.next_f32() * 0.1 - 0.05).collect()
+        (0..FEATURE_DIM)
+            .map(|_| rng.next_f32() * 0.1 - 0.05)
+            .collect()
     }
 
     pub fn classify_toxicity(&self, text: &str) -> f32 {
@@ -179,11 +181,17 @@ impl MLClassifier {
     }
 
     pub fn load_weights(&mut self, task: TrainingTask, weights: Vec<f32>, bias: f32) {
-        assert_eq!(weights.len(), FEATURE_DIM, "weight vector must have size {FEATURE_DIM}");
+        assert_eq!(
+            weights.len(),
+            FEATURE_DIM,
+            "weight vector must have size {FEATURE_DIM}"
+        );
         let (target_w, target_b) = match task {
             TrainingTask::Toxicity => (&mut self.toxicity_weights, &mut self.toxicity_bias),
             TrainingTask::Quality => (&mut self.quality_weights, &mut self.quality_bias),
-            TrainingTask::PromptInjection => (&mut self.injection_weights, &mut self.injection_bias),
+            TrainingTask::PromptInjection => {
+                (&mut self.injection_weights, &mut self.injection_bias)
+            }
         };
         *target_w = weights;
         *target_b = bias;

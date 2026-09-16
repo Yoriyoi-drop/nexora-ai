@@ -16,7 +16,10 @@ pub fn cat(tensors: &[&Tensor], axis: usize) -> Tensor {
         return cat_gpu(tensors, axis);
     }
     #[cfg(feature = "device-cuda")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(..))) {
+    if tensors
+        .iter()
+        .all(|t| matches!(t.storage(), Storage::Cuda(..)))
+    {
         return cat_cuda(tensors, axis);
     }
 
@@ -72,7 +75,10 @@ pub fn stack(tensors: &[&Tensor], axis: usize) -> Tensor {
         return stack_gpu(tensors, axis);
     }
     #[cfg(feature = "device-cuda")]
-    if tensors.iter().all(|t| matches!(t.storage(), Storage::Cuda(..))) {
+    if tensors
+        .iter()
+        .all(|t| matches!(t.storage(), Storage::Cuda(..)))
+    {
         return stack_cuda(tensors, axis);
     }
 
@@ -149,7 +155,8 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
             let arrays: Vec<ArrayD<f32>> = tensors.iter().map(|t| t.data()).collect();
             let views: Vec<ndarray::ArrayViewD<f32>> = arrays.iter().map(|a| a.view()).collect();
             let result = ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e2| {
-                debug!("cat concatenate failed: {e2}"); ArrayD::zeros(vec![0])
+                debug!("cat concatenate failed: {e2}");
+                ArrayD::zeros(vec![0])
             });
             return Tensor::new(result);
         }
@@ -189,7 +196,8 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
         } else {
             for b in 0..outer_batches {
                 let src_off = (b * input_axis_dim * stride_axis * 4) as u64;
-                let dst_off = (b * out_shape[axis] * stride_axis * 4 + axis_offset * elem_size) as u64;
+                let dst_off =
+                    (b * out_shape[axis] * stride_axis * 4 + axis_offset * elem_size) as u64;
                 copies.push(GpuCopyOp {
                     src_buffer: buf.clone(),
                     src_offset: src_off,
@@ -203,7 +211,13 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
 
     ctx.with_encoder(|enc| {
         for op in &copies {
-            enc.copy_buffer_to_buffer(&op.src_buffer, op.src_offset, &out_buffer, op.dst_offset, op.size);
+            enc.copy_buffer_to_buffer(
+                &op.src_buffer,
+                op.src_offset,
+                &out_buffer,
+                op.dst_offset,
+                op.size,
+            );
         }
     });
 
@@ -224,13 +238,17 @@ fn cat_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
     let saved_sizes = ArrayD::from_shape_vec(
         vec![dim_sizes.len()],
         dim_sizes.iter().map(|&x| x as f32).collect(),
-    ).unwrap_or_else(|e| {
+    )
+    .unwrap_or_else(|e| {
         debug!("cat_gpu shape encoding failed (infallible): {e}");
         ArrayD::zeros(vec![0])
     });
 
     Tensor::from_gpu_with_grad_fn(
-        gpu_result, input_tensors, vec![saved_sizes], vec![],
+        gpu_result,
+        input_tensors,
+        vec![saved_sizes],
+        vec![],
         Box::new(move |grad, saved| {
             let sizes: Vec<usize> = saved[0].iter().map(|&x| x as usize).collect();
             let mut offset = 0usize;
@@ -261,13 +279,15 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
                 let mut shape = t.shape().to_vec();
                 shape.insert(axis.min(shape.len()), 1);
                 let arr = t.data().into_shape_with_order(shape).unwrap_or_else(|e2| {
-                    debug!("stack reshape failed: {e2}"); t.data()
+                    debug!("stack reshape failed: {e2}");
+                    t.data()
                 });
                 expanded.push(arr);
             }
             let views: Vec<ndarray::ArrayViewD<f32>> = expanded.iter().map(|a| a.view()).collect();
             let result = ndarray::concatenate(Axis(axis), &views).unwrap_or_else(|e2| {
-                debug!("stack concatenate failed: {e2}"); ArrayD::zeros(vec![0])
+                debug!("stack concatenate failed: {e2}");
+                ArrayD::zeros(vec![0])
             });
             return Tensor::new(result);
         }
@@ -307,7 +327,13 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
 
     ctx.with_encoder(|enc| {
         for op in &copies {
-            enc.copy_buffer_to_buffer(&op.src_buffer, op.src_offset, &out_buffer, op.dst_offset, op.size);
+            enc.copy_buffer_to_buffer(
+                &op.src_buffer,
+                op.src_offset,
+                &out_buffer,
+                op.dst_offset,
+                op.size,
+            );
         }
     });
 
@@ -332,7 +358,10 @@ fn stack_gpu(tensors: &[&Tensor], axis: usize) -> Tensor {
     });
 
     Tensor::from_gpu_with_grad_fn(
-        gpu_result, input_tensors, vec![saved_n], vec![],
+        gpu_result,
+        input_tensors,
+        vec![saved_n],
+        vec![],
         Box::new(move |grad, saved| {
             let count = saved[0][0] as usize;
             let mut grads = Vec::with_capacity(count);

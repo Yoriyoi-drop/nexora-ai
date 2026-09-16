@@ -8,8 +8,6 @@ use memmap2::Mmap;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
-
-
 /// Metadata weight Oracle yang di-mmap
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MmapWeightInfo {
@@ -68,13 +66,13 @@ impl MemoryMappedOracle {
             return Err(MmapError::FileNotFound(path.to_string_lossy().to_string()));
         }
 
-        let file = File::open(path).map_err(|e| {
-            MmapError::IoError(format!("Failed to open {}: {}", path.display(), e))
-        })?;
+        let file = File::open(path)
+            .map_err(|e| MmapError::IoError(format!("Failed to open {}: {}", path.display(), e)))?;
 
-        let _file_size = file.metadata().map_err(|e| {
-            MmapError::IoError(format!("Failed to get metadata: {}", e))
-        })?.len();
+        let _file_size = file
+            .metadata()
+            .map_err(|e| MmapError::IoError(format!("Failed to get metadata: {}", e)))?
+            .len();
 
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| {
@@ -113,9 +111,10 @@ impl MemoryMappedOracle {
 
         // Check cache
         if self.config.enable_cache {
-            let cache = self.cache.lock().map_err(|e| {
-                MmapError::CacheError(e.to_string())
-            })?;
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|e| MmapError::CacheError(e.to_string()))?;
             if let Some(cached) = cache.get(name) {
                 self.cache_hits += 1;
                 return Ok(cached.clone());
@@ -124,9 +123,10 @@ impl MemoryMappedOracle {
         self.cache_misses += 1;
 
         // Get weight info
-        let info = self.weight_index.get(name).ok_or_else(|| {
-            MmapError::WeightNotFound(name.to_string())
-        })?;
+        let info = self
+            .weight_index
+            .get(name)
+            .ok_or_else(|| MmapError::WeightNotFound(name.to_string()))?;
 
         // Read from mmap
         let start = info.offset as usize;
@@ -145,9 +145,10 @@ impl MemoryMappedOracle {
 
         // Cache if enabled
         if self.config.enable_cache {
-            let mut cache = self.cache.lock().map_err(|e| {
-                MmapError::CacheError(e.to_string())
-            })?;
+            let mut cache = self
+                .cache
+                .lock()
+                .map_err(|e| MmapError::CacheError(e.to_string()))?;
             if cache.len() >= self.config.max_cache_entries {
                 cache.clear();
             }
@@ -158,28 +159,34 @@ impl MemoryMappedOracle {
     }
 
     /// Decode bytes → Array2<f32> (little-endian f32)
-    fn bytes_to_array(&self, bytes: &[u8], rows: usize, cols: usize) -> Result<Array2<f32>, MmapError> {
+    fn bytes_to_array(
+        &self,
+        bytes: &[u8],
+        rows: usize,
+        cols: usize,
+    ) -> Result<Array2<f32>, MmapError> {
         let expected = rows * cols * 4;
         if bytes.len() < expected {
             return Err(MmapError::FormatError(format!(
                 "Expected {} bytes for {}x{} weight, got {}",
-                expected, rows, cols, bytes.len()
+                expected,
+                rows,
+                cols,
+                bytes.len()
             )));
         }
 
         let mut data = Vec::with_capacity(rows * cols);
         for chunk in bytes.chunks_exact(4).take(rows * cols) {
-            let val = f32::from_le_bytes(
-                chunk.try_into().map_err(|_| {
+            let val =
+                f32::from_le_bytes(chunk.try_into().map_err(|_| {
                     MmapError::FormatError("Failed to parse f32 from bytes".into())
-                })?,
-            );
+                })?);
             data.push(val);
         }
 
-        Array2::from_shape_vec((rows, cols), data).map_err(|e| {
-            MmapError::FormatError(format!("Shape error: {}", e))
-        })
+        Array2::from_shape_vec((rows, cols), data)
+            .map_err(|e| MmapError::FormatError(format!("Shape error: {}", e)))
     }
 
     /// Pre-decode semua weight ke cache
@@ -259,7 +266,11 @@ pub enum MmapError {
     IoError(String),
     NotLoaded,
     WeightNotFound(String),
-    OutOfBounds { name: String, requested: usize, available: usize },
+    OutOfBounds {
+        name: String,
+        requested: usize,
+        available: usize,
+    },
     FormatError(String),
     CacheError(String),
 }
@@ -271,8 +282,16 @@ impl std::fmt::Display for MmapError {
             MmapError::IoError(e) => write!(f, "IO error: {}", e),
             MmapError::NotLoaded => write!(f, "Weight index not loaded"),
             MmapError::WeightNotFound(n) => write!(f, "Weight not found: {}", n),
-            MmapError::OutOfBounds { name, requested, available } => {
-                write!(f, "Weight {} out of bounds: requested {} bytes, available {}", name, requested, available)
+            MmapError::OutOfBounds {
+                name,
+                requested,
+                available,
+            } => {
+                write!(
+                    f,
+                    "Weight {} out of bounds: requested {} bytes, available {}",
+                    name, requested, available
+                )
             }
             MmapError::FormatError(e) => write!(f, "Format error: {}", e),
             MmapError::CacheError(e) => write!(f, "Cache error: {}", e),

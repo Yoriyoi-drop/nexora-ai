@@ -119,11 +119,7 @@ impl BlockData {
                 }
                 for (i, &v) in values.iter().enumerate() {
                     let h = i / head_dim;
-                    let scale = if h < num_kv_heads {
-                        scales[h]
-                    } else {
-                        1.0
-                    };
+                    let scale = if h < num_kv_heads { scales[h] } else { 1.0 };
                     let q = ((v / scale).round().clamp(-8.0, 7.0) as i8 + 8) as u8;
                     let byte_idx = (row * kv_dim + i) / 2;
                     if (row * kv_dim + i) % 2 == 0 {
@@ -158,7 +154,11 @@ impl BlockData {
             BlockData::Q4(packed, scales, _bs, cols) => {
                 let kv_dim = *cols;
                 let num_kv_heads = scales.len();
-                let head_dim = if num_kv_heads > 0 { kv_dim / num_kv_heads } else { 1 };
+                let head_dim = if num_kv_heads > 0 {
+                    kv_dim / num_kv_heads
+                } else {
+                    1
+                };
                 out.reserve(count * kv_dim);
                 for r in row_start..row_start + count {
                     for i in 0..kv_dim {
@@ -176,10 +176,15 @@ impl BlockData {
                 }
             }
         }
-        debug_assert_eq!(out.len(), start_len + count * match self {
-            BlockData::F32(a) => a.shape()[1],
-            BlockData::F16(_, _, cols) | BlockData::Q4(_, _, _, cols) => *cols,
-        });
+        debug_assert_eq!(
+            out.len(),
+            start_len
+                + count
+                    * match self {
+                        BlockData::F32(a) => a.shape()[1],
+                        BlockData::F16(_, _, cols) | BlockData::Q4(_, _, _, cols) => *cols,
+                    }
+        );
     }
 
     pub(crate) fn slice_rows(&self, row_start: usize, count: usize) -> Vec<f32> {
@@ -220,11 +225,7 @@ impl BlockData {
                         };
                         let q_val = nibble as i8 - 8;
                         let h = i / head_dim;
-                        let scale = if h < num_kv_heads {
-                            scales[h]
-                        } else {
-                            1.0
-                        };
+                        let scale = if h < num_kv_heads { scales[h] } else { 1.0 };
                         out.push(q_val as f32 * scale);
                     }
                 }
@@ -291,9 +292,7 @@ impl BlockData {
     pub(crate) fn to_f16(&self) -> Self {
         let bs = self.block_size();
         let cols = self.cols();
-        let flat: Vec<f32> = (0..bs)
-            .flat_map(|r| self.read_row(r))
-            .collect();
+        let flat: Vec<f32> = (0..bs).flat_map(|r| self.read_row(r)).collect();
         BlockData::F16(
             flat.iter().map(|&v| crate::f32_to_f16_bits(v)).collect(),
             bs,
@@ -304,19 +303,24 @@ impl BlockData {
     pub(crate) fn to_q4(&self, num_kv_heads: usize) -> Self {
         let bs = self.block_size();
         let cols = self.cols();
-        let flat: Vec<f32> = (0..bs)
-            .flat_map(|r| self.read_row(r))
-            .collect();
+        let flat: Vec<f32> = (0..bs).flat_map(|r| self.read_row(r)).collect();
         let num_vals = flat.len();
         let mut max_abs = vec![0.0f32; num_kv_heads];
-        let head_dim = if num_kv_heads > 0 { cols / num_kv_heads } else { 1 };
+        let head_dim = if num_kv_heads > 0 {
+            cols / num_kv_heads
+        } else {
+            1
+        };
         for (i, &v) in flat.iter().enumerate() {
             let h = i / head_dim;
             if h < num_kv_heads && v.abs() > max_abs[h] {
                 max_abs[h] = v.abs();
             }
         }
-        let scales: Vec<f32> = max_abs.iter().map(|&m| if m > 0.0 { m / 7.0 } else { 1.0 }).collect();
+        let scales: Vec<f32> = max_abs
+            .iter()
+            .map(|&m| if m > 0.0 { m / 7.0 } else { 1.0 })
+            .collect();
         let packed_len = (num_vals + 1) / 2;
         let mut packed = vec![0u8; packed_len];
         for (i, &v) in flat.iter().enumerate() {
@@ -339,10 +343,11 @@ impl BlockData {
             BlockData::F16(..) | BlockData::Q4(..) => {
                 let bs = self.block_size();
                 let cols = self.cols();
-                let data: Vec<f32> = (0..bs)
-                    .flat_map(|r| self.read_row(r))
-                    .collect();
-                BlockData::F32(Array2::from_shape_vec((bs, cols), data).expect("read_row returns cols elements per block row, total == bs*cols"))
+                let data: Vec<f32> = (0..bs).flat_map(|r| self.read_row(r)).collect();
+                BlockData::F32(
+                    Array2::from_shape_vec((bs, cols), data)
+                        .expect("read_row returns cols elements per block row, total == bs*cols"),
+                )
             }
         }
     }
@@ -395,11 +400,15 @@ impl SeqAccess {
     }
 
     pub(crate) fn idle_secs(&self) -> f64 {
-        Instant::now().duration_since(self.last_access).as_secs_f64()
+        Instant::now()
+            .duration_since(self.last_access)
+            .as_secs_f64()
     }
 
     pub(crate) fn since_tier_change_secs(&self) -> f64 {
-        Instant::now().duration_since(self.tier_changed_at).as_secs_f64()
+        Instant::now()
+            .duration_since(self.tier_changed_at)
+            .as_secs_f64()
     }
 
     pub(crate) fn promote(&mut self) {

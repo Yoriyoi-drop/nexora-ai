@@ -29,9 +29,8 @@ impl FramePatchMLP {
 
     fn forward(&self, x: &Array1<f32>) -> Array1<f32> {
         let hidden = x.dot(&self.w1) + &self.b1;
-        let gelu = hidden.mapv(|v| {
-            v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh())
-        });
+        let gelu =
+            hidden.mapv(|v| v * 0.5 * (1.0 + (v * 0.7978845608 * (1.0 + 0.044715 * v * v)).tanh()));
         gelu.dot(&self.w2) + &self.b2
     }
 
@@ -39,7 +38,9 @@ impl FramePatchMLP {
     fn forward_batched_gpu(&self, inputs: &[Array1<f32>]) -> Option<Vec<Array1<f32>>> {
         use crate::multimodal::gpu_compute;
         let batch = inputs.len();
-        if batch == 0 { return None; }
+        if batch == 0 {
+            return None;
+        }
         let input_dim = inputs[0].len();
         let hidden_dim = self.w1.shape()[1];
         let output_dim = self.w2.shape()[1];
@@ -49,10 +50,22 @@ impl FramePatchMLP {
         let w2_slice: Vec<f32> = self.w2.iter().copied().collect();
         let b2_slice: Vec<f32> = self.b2.iter().copied().collect();
         let result = gpu_compute::try_gpu_mlp_forward(
-            &flat_input, &w1_slice, &b1_slice, &w2_slice, &b2_slice,
-            batch, input_dim, hidden_dim, output_dim,
+            &flat_input,
+            &w1_slice,
+            &b1_slice,
+            &w2_slice,
+            &b2_slice,
+            batch,
+            input_dim,
+            hidden_dim,
+            output_dim,
         )?;
-        Some(result.chunks(output_dim).map(|c| Array1::from_vec(c.to_vec())).collect())
+        Some(
+            result
+                .chunks(output_dim)
+                .map(|c| Array1::from_vec(c.to_vec()))
+                .collect(),
+        )
     }
 }
 
@@ -120,7 +133,11 @@ impl TemporalAttention {
                         }
                         sum_exp += (s * scale).exp();
                     }
-                    let attn = if sum_exp > 0.0 { exp_score / sum_exp } else { 0.0 };
+                    let attn = if sum_exp > 0.0 {
+                        exp_score / sum_exp
+                    } else {
+                        0.0
+                    };
                     for d in 0..head_dim {
                         output[i * embed_dim + hd + d] += attn * v[j * embed_dim + hd + d];
                     }
@@ -142,9 +159,12 @@ impl TemporalAttention {
         let wo_slice: Vec<f32> = self.wo.iter().copied().collect();
 
         // QKV projections via GPU matmul — submit all 3 asynchronously
-        let q_async = gpu_compute::try_gpu_matmul_async(x, &wq_slice, 1, seq_len, embed_dim, embed_dim)?;
-        let k_async = gpu_compute::try_gpu_matmul_async(x, &wk_slice, 1, seq_len, embed_dim, embed_dim)?;
-        let v_async = gpu_compute::try_gpu_matmul_async(x, &wv_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let q_async =
+            gpu_compute::try_gpu_matmul_async(x, &wq_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let k_async =
+            gpu_compute::try_gpu_matmul_async(x, &wk_slice, 1, seq_len, embed_dim, embed_dim)?;
+        let v_async =
+            gpu_compute::try_gpu_matmul_async(x, &wv_slice, 1, seq_len, embed_dim, embed_dim)?;
         let q = q_async.recv().ok()?;
         let k = k_async.recv().ok()?;
         let v = v_async.recv().ok()?;
@@ -166,7 +186,8 @@ impl TemporalAttention {
         }
 
         // Fused attention
-        let attended = gpu_compute::try_gpu_attention(&q_4d, &k_4d, &v_4d, 1, seq_len, nh, dh, false)?;
+        let attended =
+            gpu_compute::try_gpu_attention(&q_4d, &k_4d, &v_4d, 1, seq_len, nh, dh, false)?;
 
         // attended: [1, nh, S, dh] -> concat heads: [S, d]
         let mut concat = vec![0.0f32; seq_len * embed_dim];
@@ -288,9 +309,15 @@ impl VideoEncoder {
         let pixels: Vec<f32> = raw
             .chunks(frame.data.len() / (frame.width * frame.height).max(1) * channels)
             .flat_map(|pixel| {
-                pixel.iter().enumerate().map(|(c, &v)| {
-                    if c < 3 { (v - mean[c]) / std[c] } else { v }
-                })
+                pixel.iter().enumerate().map(
+                    |(c, &v)| {
+                        if c < 3 {
+                            (v - mean[c]) / std[c]
+                        } else {
+                            v
+                        }
+                    },
+                )
             })
             .collect();
 
@@ -382,8 +409,10 @@ impl VideoEncoder {
             for i in 0..seq_len {
                 for d in 0..embed_dim {
                     if let Some(&val) = frame_feature.get([i, d]) {
-                        let pos_enc_sin = (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).sin();
-                        let pos_enc_cos = (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).cos();
+                        let pos_enc_sin =
+                            (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).sin();
+                        let pos_enc_cos =
+                            (t as f32 / 10000.0_f32.powf(d as f32 / embed_dim as f32)).cos();
                         let temporal_encoding = if d % 2 == 0 { pos_enc_sin } else { pos_enc_cos };
                         let output_idx = t * seq_len * embed_dim + i * embed_dim + d;
                         temporal_data[output_idx] = val + temporal_encoding;
@@ -392,7 +421,9 @@ impl VideoEncoder {
             }
         }
 
-        let attended = self.temporal_attention.forward(&temporal_data, num_frames * seq_len, embed_dim);
+        let attended =
+            self.temporal_attention
+                .forward(&temporal_data, num_frames * seq_len, embed_dim);
 
         let shape = vec![1, num_frames * seq_len, embed_dim];
         Ok(ArrayD::from_shape_vec(shape, attended)?)
@@ -409,14 +440,38 @@ impl VideoEncoder {
     /// Collect all trainable weights for checkpoint
     pub(crate) fn collect_weights(&self) -> Vec<(String, ndarray::ArrayD<f32>)> {
         let mut weights = Vec::new();
-        weights.push(("video_encoder.patch_proj.w1".to_string(), self.patch_projection.w1.clone().into_dyn()));
-        weights.push(("video_encoder.patch_proj.b1".to_string(), self.patch_projection.b1.clone().into_dyn()));
-        weights.push(("video_encoder.patch_proj.w2".to_string(), self.patch_projection.w2.clone().into_dyn()));
-        weights.push(("video_encoder.patch_proj.b2".to_string(), self.patch_projection.b2.clone().into_dyn()));
-        weights.push(("video_encoder.temporal_attn.wq".to_string(), self.temporal_attention.wq.clone().into_dyn()));
-        weights.push(("video_encoder.temporal_attn.wk".to_string(), self.temporal_attention.wk.clone().into_dyn()));
-        weights.push(("video_encoder.temporal_attn.wv".to_string(), self.temporal_attention.wv.clone().into_dyn()));
-        weights.push(("video_encoder.temporal_attn.wo".to_string(), self.temporal_attention.wo.clone().into_dyn()));
+        weights.push((
+            "video_encoder.patch_proj.w1".to_string(),
+            self.patch_projection.w1.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.patch_proj.b1".to_string(),
+            self.patch_projection.b1.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.patch_proj.w2".to_string(),
+            self.patch_projection.w2.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.patch_proj.b2".to_string(),
+            self.patch_projection.b2.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.temporal_attn.wq".to_string(),
+            self.temporal_attention.wq.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.temporal_attn.wk".to_string(),
+            self.temporal_attention.wk.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.temporal_attn.wv".to_string(),
+            self.temporal_attention.wv.clone().into_dyn(),
+        ));
+        weights.push((
+            "video_encoder.temporal_attn.wo".to_string(),
+            self.temporal_attention.wo.clone().into_dyn(),
+        ));
         weights
     }
 }

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::linters::ast_analyzer;
 use crate::linters::{CodeIssue, IssueSeverity};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct JavaFindings {
@@ -19,11 +19,15 @@ pub fn analyze_java(code: &str) -> JavaFindings {
 
     for (i, raw_line) in code.lines().enumerate() {
         let line_num = i + 1;
-        if is_comment_or_empty(raw_line) { continue; }
+        if is_comment_or_empty(raw_line) {
+            continue;
+        }
         let trimmed = raw_line.trim();
 
         // ── Runtime.exec() / ProcessBuilder command injection ──────
-        if trimmed.contains("Runtime.getRuntime().exec(") || trimmed.contains("Runtime.getRuntime().exec(") {
+        if trimmed.contains("Runtime.getRuntime().exec(")
+            || trimmed.contains("Runtime.getRuntime().exec(")
+        {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Critical,
                 category: "Security".to_string(),
@@ -37,7 +41,9 @@ pub fn analyze_java(code: &str) -> JavaFindings {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Warning,
                 category: "Security".to_string(),
-                message: "ProcessBuilder with potential shell injection — validate all input arguments.".to_string(),
+                message:
+                    "ProcessBuilder with potential shell injection — validate all input arguments."
+                        .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "JAVA-PROCESSBUILDER".to_string(),
@@ -51,7 +57,9 @@ pub fn analyze_java(code: &str) -> JavaFindings {
             || trimmed.to_uppercase().contains("UPDATE ")
             || trimmed.to_uppercase().contains("DROP ");
         if has_sql_kw {
-            let has_concat = trimmed.contains(" + ") || trimmed.contains("concat(") || trimmed.contains("String.format(");
+            let has_concat = trimmed.contains(" + ")
+                || trimmed.contains("concat(")
+                || trimmed.contains("String.format(");
             if has_concat {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
@@ -106,7 +114,8 @@ pub fn analyze_java(code: &str) -> JavaFindings {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Error,
                 category: "Security".to_string(),
-                message: "Weak cipher algorithm (DES/RC4/Blowfish) — use AES/GCM or ChaCha20.".to_string(),
+                message: "Weak cipher algorithm (DES/RC4/Blowfish) — use AES/GCM or ChaCha20."
+                    .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "JAVA-WEAK-CRYPTO".to_string(),
@@ -115,9 +124,14 @@ pub fn analyze_java(code: &str) -> JavaFindings {
 
         // ── Hardcoded secrets ──────────────────────────────────────
         let lower = trimmed.to_lowercase();
-        if (lower.contains("password") || lower.contains("secret") || lower.contains("api_key")
-            || lower.contains("apikey") || lower.contains("jwt_secret") || lower.contains("token"))
-            && !lower.contains("system.getenv") && !lower.contains("env(")
+        if (lower.contains("password")
+            || lower.contains("secret")
+            || lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("jwt_secret")
+            || lower.contains("token"))
+            && !lower.contains("system.getenv")
+            && !lower.contains("env(")
         {
             let has_str = trimmed.contains('"') || trimmed.contains('\'');
             if has_str {
@@ -149,8 +163,12 @@ pub fn analyze_java(code: &str) -> JavaFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("java_issues".to_string(), issues.len() as f32);
-    metrics.insert("java_high_severity".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error)).count() as f32,
+    metrics.insert(
+        "java_high_severity".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error))
+            .count() as f32,
     );
 
     JavaFindings { issues, metrics }
@@ -163,36 +181,54 @@ mod tests {
     #[test]
     fn test_java_cmd_injection() {
         let findings = analyze_java(r#"Runtime.getRuntime().exec("rm -rf /");"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-CMD-INJECTION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JAVA-CMD-INJECTION"));
     }
 
     #[test]
     fn test_java_sql_injection() {
         let findings = analyze_java(r#"String q = "SELECT * FROM users WHERE id = " + userId;"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-SQL-INJECTION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JAVA-SQL-INJECTION"));
     }
 
     #[test]
     fn test_java_deserialization() {
         let findings = analyze_java(r#"ObjectInputStream ois = new ObjectInputStream(input);"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-DESERIALIZATION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JAVA-DESERIALIZATION"));
     }
 
     #[test]
     fn test_java_xxe() {
-        let findings = analyze_java(r#"DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();"#);
+        let findings = analyze_java(
+            r#"DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();"#,
+        );
         assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-XXE"));
     }
 
     #[test]
     fn test_java_weak_crypto() {
-        let findings = analyze_java(r#"Cipher cipher = Cipher.getInstance("DES/ECB/PKCS5Padding");"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-WEAK-CRYPTO"));
+        let findings =
+            analyze_java(r#"Cipher cipher = Cipher.getInstance("DES/ECB/PKCS5Padding");"#);
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JAVA-WEAK-CRYPTO"));
     }
 
     #[test]
     fn test_java_hardcoded_secret() {
         let findings = analyze_java(r#"String jwtSecret = "my-super-secret-key";"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "JAVA-HARDCODED-SECRET"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "JAVA-HARDCODED-SECRET"));
     }
 }

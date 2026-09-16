@@ -296,12 +296,16 @@ fn set_storage_grad(p: &Tensor, g: &Storage) {
         Storage::Cpu(arr) => p.set_grad(arr.as_ref().clone()),
         #[cfg(feature = "device-gpu")]
         Storage::Gpu(_, _) => {
-            tracing::warn!("set_storage_grad on GPU tensor - not supported, falling back to CPU zeros");
+            tracing::warn!(
+                "set_storage_grad on GPU tensor - not supported, falling back to CPU zeros"
+            );
             p.set_grad(ArrayD::zeros(vec![0]));
         }
         #[cfg(feature = "device-cuda")]
         Storage::Cuda(_, _) => {
-            tracing::warn!("set_storage_grad on CUDA tensor - not supported, falling back to CPU zeros");
+            tracing::warn!(
+                "set_storage_grad on CUDA tensor - not supported, falling back to CPU zeros"
+            );
             p.set_grad(ArrayD::zeros(vec![0]));
         }
     }

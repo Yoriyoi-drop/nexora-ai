@@ -294,19 +294,13 @@ impl KVCache {
 
     fn select_victim(&self, store: &CacheShard) -> Option<u64> {
         match self.eviction_policy {
-            EvictionPolicy::LRU => {
-                store.lru_order.iter().next().copied().map(|(_, h)| h)
-            }
-            EvictionPolicy::LFU => {
-                store.lru_order.iter().next().copied().map(|(_, h)| h)
-            }
-            EvictionPolicy::FIFO => {
-                store
-                    .entries
-                    .iter()
-                    .min_by_key(|(_, e)| e.created_at)
-                    .map(|(h, _)| *h)
-            }
+            EvictionPolicy::LRU => store.lru_order.iter().next().copied().map(|(_, h)| h),
+            EvictionPolicy::LFU => store.lru_order.iter().next().copied().map(|(_, h)| h),
+            EvictionPolicy::FIFO => store
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.created_at)
+                .map(|(h, _)| *h),
             EvictionPolicy::Random => {
                 let keys: Vec<u64> = store.entries.keys().copied().collect();
                 if keys.is_empty() {
@@ -372,7 +366,8 @@ impl KVCache {
                         .lru_order
                         .remove(&(removed.last_access.load(Ordering::Relaxed), *k));
                     store.size_count -= 1;
-                    let freed = removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
+                    let freed =
+                        removed.value.len() * std::mem::size_of::<f32>() + removed.key.len();
                     self.total_memory_used.fetch_sub(freed, Ordering::Relaxed);
                     self.estimated_memory.fetch_sub(freed, Ordering::Relaxed);
                 }

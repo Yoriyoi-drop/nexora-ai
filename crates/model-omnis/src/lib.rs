@@ -332,10 +332,7 @@ impl FoundationModel {
             .await?;
 
         // Step 3: World modeling
-        self.agents
-            .world_model_x()
-            .update_context(input)
-            .await?;
+        self.agents.world_model_x().update_context(input).await?;
 
         // Step 4: Chain execution
         let chain_result = self
@@ -477,9 +474,11 @@ impl NxrModel for FoundationModel {
 
         let text = match &input.data {
             nexora_shared::base_model::InputData::Text(t) => t.clone(),
-            _ => return Err(nexora_shared::base_model::NxrModelError::Inference(
-                "Text input required".to_string(),
-            )),
+            _ => {
+                return Err(nexora_shared::base_model::NxrModelError::Inference(
+                    "Text input required".to_string(),
+                ))
+            }
         };
         let result = if self.config.reasoning.use_deep_reasoning {
             self.deep_reasoning(&text).await?
@@ -523,7 +522,8 @@ impl NxrModel for FoundationModel {
         let augmented = augment_omnis_input(input)?;
         static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::omnis());
+        let foundation =
+            FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::omnis());
         foundation.infer_stream(&augmented, callback).await
     }
 

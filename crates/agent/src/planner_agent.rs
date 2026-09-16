@@ -174,7 +174,10 @@ impl PlannerAgent {
     }
 
     /// Attach memory store for plan persistence
-    pub fn with_memory_store(mut self, store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>) -> Self {
+    pub fn with_memory_store(
+        mut self,
+        store: Arc<tokio::sync::Mutex<nexora_memory::MemoryLayers>>,
+    ) -> Self {
         self.memory_store = Some(store);
         self
     }
@@ -233,10 +236,7 @@ impl PlannerAgent {
             plans.insert(plan_id, plan);
         }
 
-        info!(
-            "Plan {} created for task: {}",
-            plan_id, task_description
-        );
+        info!("Plan {} created for task: {}", plan_id, task_description);
         Ok(plan_id)
     }
 
@@ -913,16 +913,19 @@ impl Agent for PlannerAgent {
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown error");
 
-                let plan_id = Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid plan_id".to_string(),
-                })?;
-                let step_id = Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
-                    operation: "parse".to_string(),
-                    reason: "Invalid step_id".to_string(),
-                })?;
+                let plan_id =
+                    Uuid::parse_str(plan_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid plan_id".to_string(),
+                    })?;
+                let step_id =
+                    Uuid::parse_str(step_id_str).map_err(|_| AgentError::ProcessingError {
+                        operation: "parse".to_string(),
+                        reason: "Invalid step_id".to_string(),
+                    })?;
 
-                self.fail_step(plan_id, step_id, error_msg.to_string()).await?;
+                self.fail_step(plan_id, step_id, error_msg.to_string())
+                    .await?;
 
                 json!({
                     "action": "fail_step",

@@ -130,8 +130,7 @@ pub enum GpuErrorKind {
 // ─── GPU Backend Selection ─────────────────────────────────────────────────
 
 /// The active GPU compute backend.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum GpuBackend {
     /// WebGPU (wgpu) — default on all platforms.
     #[default]
@@ -140,7 +139,6 @@ pub enum GpuBackend {
     #[cfg(feature = "cuda")]
     Cuda,
 }
-
 
 /// Counting semaphore for limiting concurrent GPU readback operations.
 /// Prevents OOM when CPU submits readbacks faster than GPU processes them.
@@ -262,8 +260,7 @@ pub struct GpuContext {
     /// Entries are invalidated when the wgpu buffer handle is dropped
     /// (wgpu::Id is globally unique per device lifetime).
     #[cfg(feature = "cuda")]
-    pub(crate) cuda_cache:
-        Mutex<HashMap<wgpu::Buffer, crate::autograd::gpu::cuda::CudaTensor>>,
+    pub(crate) cuda_cache: Mutex<HashMap<wgpu::Buffer, crate::autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl GpuContext {

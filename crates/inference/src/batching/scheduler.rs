@@ -13,9 +13,9 @@ use crate::paged_provider::PagedKVCacheProvider;
 use crate::sampler::{Sampler, SamplingConfig};
 use crate::sequence_state::{SeqState, Sequence};
 use crate::{FinishReason, GeneratedToken, InferenceRequest, InferenceResponse};
+use nexora_transformer::{CpuKVCache, KVCacheProvider};
 #[cfg(feature = "gpu")]
 use nexora_transformer::{GpuKVCache, GpuKVCacheEntry};
-use nexora_transformer::{CpuKVCache, KVCacheProvider};
 
 pub struct ContinuousBatchingEngine<M> {
     sequences: HashMap<u64, Sequence>,
@@ -194,9 +194,7 @@ where
             return true;
         }
         // Hard queue depth limit
-        if self.config.max_queue_depth > 0
-            && self.sequences.len() >= self.config.max_queue_depth
-        {
+        if self.config.max_queue_depth > 0 && self.sequences.len() >= self.config.max_queue_depth {
             return true;
         }
         // Throughput collapse detection: if EWMA drops below 10% of target
@@ -260,18 +258,15 @@ where
 
         let current = self.adaptive_batch_size as f64;
         let new_size = (current * ratio).round() as usize;
-        let clamped = new_size
-            .clamp(self.config.min_adaptive_batch_size, self.config.max_batch_size);
+        let clamped = new_size.clamp(
+            self.config.min_adaptive_batch_size,
+            self.config.max_batch_size,
+        );
 
         if clamped != self.adaptive_batch_size {
             debug!(
                 "Adaptive batch: {} → {} (tps={:.0}, ewma={:.0}, target={:.0}, ratio={:.2})",
-                self.adaptive_batch_size,
-                clamped,
-                instant_tps,
-                self.throughput_ewma,
-                target,
-                ratio
+                self.adaptive_batch_size, clamped, instant_tps, self.throughput_ewma, target, ratio
             );
             self.adaptive_batch_size = clamped;
             self.max_batch_size = clamped;
@@ -362,16 +357,15 @@ where
                         continue;
                     }
                 };
-                let dst_entries: &mut Vec<
-                    nexora_transformer::GpuKVCacheEntry,
-                > = match dst_dyn.as_gpu_entries() {
-                    Some(e) if !e.is_empty() => e,
-                    _ => {
-                        self.kv_caches.insert(src_id, src_dyn);
-                        self.kv_caches.insert(sid, dst_dyn);
-                        continue;
-                    }
-                };
+                let dst_entries: &mut Vec<nexora_transformer::GpuKVCacheEntry> =
+                    match dst_dyn.as_gpu_entries() {
+                        Some(e) if !e.is_empty() => e,
+                        _ => {
+                            self.kv_caches.insert(src_id, src_dyn);
+                            self.kv_caches.insert(sid, dst_dyn);
+                            continue;
+                        }
+                    };
 
                 // Copy prefix K/V per layer
                 let mut ok = true;
@@ -445,9 +439,7 @@ where
             };
 
             // Check source has enough KV data
-            let src_ok = guard
-                .num_tokens(src_id)
-                .map_or(false, |n| n >= prefix_len);
+            let src_ok = guard.num_tokens(src_id).map_or(false, |n| n >= prefix_len);
             if !src_ok {
                 continue;
             }
@@ -599,7 +591,8 @@ where
                         base + age_boost
                     }
                     SchedulingPolicy::ShortestRemaining => {
-                        let remaining = s.max_tokens.saturating_sub(s.generated.len() as u32) as f64;
+                        let remaining =
+                            s.max_tokens.saturating_sub(s.generated.len() as u32) as f64;
                         // Negative so smaller remaining = higher priority
                         -remaining
                     }
@@ -682,9 +675,14 @@ where
         let phase1_start = Instant::now();
         if !prefill_ids.is_empty() {
             // Count remaining prompt tokens for prefill tracking
-            let prefill_tokens_before: usize = prefill_ids.iter().filter_map(|sid| {
-                self.sequences.get(sid).map(|seq| seq.prompt.len().saturating_sub(seq.prompt_pos))
-            }).sum();
+            let prefill_tokens_before: usize = prefill_ids
+                .iter()
+                .filter_map(|sid| {
+                    self.sequences
+                        .get(sid)
+                        .map(|seq| seq.prompt.len().saturating_sub(seq.prompt_pos))
+                })
+                .sum();
 
             // Extract KV caches for prefill sequences
             let mut prefill_caches: Vec<(u64, Box<dyn KVCacheProvider>)> = prefill_ids
@@ -735,7 +733,10 @@ where
             // Count tokens processed in prefill
             for sid in &prefill_ids {
                 if let Some(seq) = self.sequences.get(sid) {
-                    prefill_tokens += seq.prompt.len().saturating_sub(seq.prompt_pos - seq.prompt.len().min(seq.prompt_pos));
+                    prefill_tokens += seq
+                        .prompt
+                        .len()
+                        .saturating_sub(seq.prompt_pos - seq.prompt.len().min(seq.prompt_pos));
                 }
             }
 
@@ -847,9 +848,7 @@ where
                     }
                     #[cfg(feature = "gpu")]
                     if self.config.use_paged_cache {
-                        PagedKVCacheProvider::sync_all_gpu_to_paged_slice(
-                            &mut gen_boxed_caches,
-                        );
+                        PagedKVCacheProvider::sync_all_gpu_to_paged_slice(&mut gen_boxed_caches);
                     }
                     vec![Array1::zeros(gen_ids.len())]
                 } else {
@@ -921,7 +920,10 @@ where
                 let logits_slice = match logits_arr.as_slice() {
                     Some(s) => s,
                     None => {
-                        warn!("Non-contiguous logits array for sequence {}, skipping", seq_id);
+                        warn!(
+                            "Non-contiguous logits array for sequence {}, skipping",
+                            seq_id
+                        );
                         continue;
                     }
                 };
@@ -1011,7 +1013,9 @@ where
                 if let Some(seq) = self.sequences.get(sid) {
                     // Prefill: all remaining prompt tokens were processed.
                     // Generation: 1 new token was generated.
-                    count += seq.total_tokens().saturating_sub(seq.prompt.len().max(seq.prompt_pos));
+                    count += seq
+                        .total_tokens()
+                        .saturating_sub(seq.prompt.len().max(seq.prompt_pos));
                 }
             }
             count.max(1)
@@ -1035,15 +1039,18 @@ where
         // Update global observability atomics
         crate::inference_trait::SCHEDULER_QUEUE_DEPTH
             .store(waiting_count as i64, std::sync::atomic::Ordering::Relaxed);
-        crate::inference_trait::BATCHING_PADDING_WASTE_SUM
-            .fetch_add((padding_waste * 100.0) as u64, std::sync::atomic::Ordering::Relaxed);
-        crate::inference_trait::BATCHING_COUNT
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::inference_trait::BATCHING_PADDING_WASTE_SUM.fetch_add(
+            (padding_waste * 100.0) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        crate::inference_trait::BATCHING_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         // Track load shedding metrics
         if self.shed_load {
-            crate::inference_trait::SCHEDULER_QUEUE_DEPTH
-                .store(-(self.rejected_count as i64).max(1), std::sync::atomic::Ordering::Relaxed);
+            crate::inference_trait::SCHEDULER_QUEUE_DEPTH.store(
+                -(self.rejected_count as i64).max(1),
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
 
         StepResult {

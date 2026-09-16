@@ -1,8 +1,8 @@
+use parking_lot::Mutex as ParkingMutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::Mutex as ParkingMutex;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn};
 use uuid::Uuid;

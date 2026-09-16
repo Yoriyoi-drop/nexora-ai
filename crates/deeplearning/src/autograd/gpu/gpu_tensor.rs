@@ -2,9 +2,9 @@ use ndarray::ArrayD;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use super::gpu_types::{GpuContext, GpuError};
 #[cfg(feature = "cuda")]
 use super::cuda::CudaTensor;
+use super::gpu_types::{GpuContext, GpuError};
 
 /// Zero-overhead placeholder — `cuda_tensor: None` compiles regardless of feature.
 #[cfg(not(feature = "cuda"))]
@@ -110,9 +110,7 @@ impl GpuTensor {
 
         #[cfg(feature = "cuda")]
         let cuda_tensor: CudaTensorRef = if let Some(cuda) = ctx.cuda {
-            match CudaTensor::from_cpu(
-                &cuda.stream, shape.clone(), data_slice, cuda.device_id,
-            ) {
+            match CudaTensor::from_cpu(&cuda.stream, shape.clone(), data_slice, cuda.device_id) {
                 Ok(ct) => {
                     ctx.cache_cuda(&buffer, ct.clone());
                     Some(ct)
@@ -255,15 +253,15 @@ impl GpuTensor {
             | wgpu::BufferUsages::COPY_DST
             | wgpu::BufferUsages::COPY_SRC;
         let buffer = ctx.alloc_or_create_buffer(byte_len, usage);
-        ctx.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&data[..numel]));
+        ctx.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(&data[..numel]));
         crate::autograd::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_len, std::sync::atomic::Ordering::Relaxed);
 
         #[cfg(feature = "cuda")]
         let cuda_tensor: CudaTensorRef = if let Some(cuda) = ctx.cuda {
-            match CudaTensor::from_cpu(
-                &cuda.stream, shape.clone(), &data[..numel], cuda.device_id,
-            ) {
+            match CudaTensor::from_cpu(&cuda.stream, shape.clone(), &data[..numel], cuda.device_id)
+            {
                 Ok(ct) => {
                     ctx.cache_cuda(&buffer, ct.clone());
                     Some(ct)
@@ -628,9 +626,13 @@ impl GpuTensor {
     /// Element count must match this tensor's current shape.
     #[cfg(feature = "cuda")]
     pub fn set_cuda_tensor(&mut self, ct: CudaTensor) {
-        debug_assert_eq!(self.numel(), ct.numel(),
+        debug_assert_eq!(
+            self.numel(),
+            ct.numel(),
             "set_cuda_tensor: element count mismatch (tensor {} vs ct {})",
-            self.numel(), ct.numel());
+            self.numel(),
+            ct.numel()
+        );
         self.cuda_tensor = Some(ct);
     }
 

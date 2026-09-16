@@ -12,11 +12,11 @@
 //!
 //! Kompleksitas: O(BKd) dengan B ≪ T
 
+use crate::autograd::Tensor;
 use crate::echo_net::utils::Complex;
 use crate::echo_net::{ComplexTensor, HolographicWave};
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array1, Array2, ArrayD};
-use crate::autograd::Tensor;
 use std::f32::consts::PI;
 
 /// Frequency band configuration

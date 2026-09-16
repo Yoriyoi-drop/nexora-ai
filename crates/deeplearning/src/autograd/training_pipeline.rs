@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 #[cfg(feature = "serde")]
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;

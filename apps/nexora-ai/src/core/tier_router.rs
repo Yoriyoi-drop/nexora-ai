@@ -31,7 +31,9 @@ impl IntentKind {
             || lower.contains("syntax")
             || lower.contains("code")
         {
-            return if lower.contains("generate") || lower.contains("tulis") || lower.contains("buat")
+            return if lower.contains("generate")
+                || lower.contains("tulis")
+                || lower.contains("buat")
             {
                 IntentKind::CodeGenerate
             } else {
@@ -179,8 +181,13 @@ impl IntentRouter {
 
         // Explicit debate keywords — selalu trigger debate
         let debate_keywords = [
-            "debat", "diskusi", "musyawarah", "forum",
-            "berunding", "brainstorm", "berdiskusi",
+            "debat",
+            "diskusi",
+            "musyawarah",
+            "forum",
+            "berunding",
+            "brainstorm",
+            "berdiskusi",
         ];
         if debate_keywords.iter().any(|k| lower.contains(k)) {
             return true;
@@ -188,10 +195,21 @@ impl IntentRouter {
 
         // Comparison & evaluation keywords
         let compare_keywords = [
-            "bandingkan", "perbedaan", "persamaan", "vs ",
-            "versus", "kelebihan", "kekurangan", "pro kontra",
-            "compare", "contrast", "difference", "similarity",
-            "pro and cons", "trade-off", "alternatif",
+            "bandingkan",
+            "perbedaan",
+            "persamaan",
+            "vs ",
+            "versus",
+            "kelebihan",
+            "kekurangan",
+            "pro kontra",
+            "compare",
+            "contrast",
+            "difference",
+            "similarity",
+            "pro and cons",
+            "trade-off",
+            "alternatif",
         ];
         if compare_keywords.iter().any(|k| lower.contains(k)) {
             return true;
@@ -199,11 +217,19 @@ impl IntentRouter {
 
         // Complex analysis keywords
         let analysis_keywords = [
-            "analisis", "evaluasi", "kaji", "telaah",
-            "review mendalam", "komprehensif",
-            "multi-perspektif", "berbagai sudut pandang",
-            "menurut para ahli", "expert opinion",
-            "dampak", "implikasi", "rekomendasi",
+            "analisis",
+            "evaluasi",
+            "kaji",
+            "telaah",
+            "review mendalam",
+            "komprehensif",
+            "multi-perspektif",
+            "berbagai sudut pandang",
+            "menurut para ahli",
+            "expert opinion",
+            "dampak",
+            "implikasi",
+            "rekomendasi",
         ];
         if analysis_keywords.iter().any(|k| lower.contains(k)) {
             return true;
@@ -211,9 +237,15 @@ impl IntentRouter {
 
         // Decision-making keywords
         let decision_keywords = [
-            "keputusan", "decision", "strategi", "strategy",
-            "rencana", "planning", "solusi terbaik",
-            "best approach", "recommendation",
+            "keputusan",
+            "decision",
+            "strategi",
+            "strategy",
+            "rencana",
+            "planning",
+            "solusi terbaik",
+            "best approach",
+            "recommendation",
         ];
         if decision_keywords.iter().any(|k| lower.contains(k)) {
             return true;
@@ -221,10 +253,21 @@ impl IntentRouter {
 
         // Uncertainty markers — prompt butuh multiple perspectives
         let uncertainty_keywords = [
-            "mungkin", "maybe", "perhaps", "tidak yakin",
-            "uncertain", "ambiguous", "kompleks", "complex",
-            "sulit", "difficult", "challenging", "kontroversial",
-            "controversial", "berpotensi", "potential risk",
+            "mungkin",
+            "maybe",
+            "perhaps",
+            "tidak yakin",
+            "uncertain",
+            "ambiguous",
+            "kompleks",
+            "complex",
+            "sulit",
+            "difficult",
+            "challenging",
+            "kontroversial",
+            "controversial",
+            "berpotensi",
+            "potential risk",
         ];
         if uncertainty_keywords.iter().any(|k| lower.contains(k)) {
             return true;
@@ -233,55 +276,76 @@ impl IntentRouter {
         // Intent-based: Strategy, Reasoning, Security selalu butuh debate
         matches!(
             intent,
-            IntentKind::Strategy
-                | IntentKind::Reasoning
-                | IntentKind::Security
+            IntentKind::Strategy | IntentKind::Reasoning | IntentKind::Security
         )
     }
 
     /// Suggest model participants for debate berdasarkan intent
-    pub fn suggest_participants(&self, prompt: &str, primary: NxrModelId, intent: IntentKind) -> Vec<NxrModelId> {
+    pub fn suggest_participants(
+        &self,
+        prompt: &str,
+        primary: NxrModelId,
+        intent: IntentKind,
+    ) -> Vec<NxrModelId> {
         let lower = prompt.to_lowercase();
         let mut extra: Vec<NxrModelId> = Vec::new();
 
         // Code review + security overlap
-        if lower.contains("security") || lower.contains("vulnerability")
-            || lower.contains("xss") || lower.contains("injection")
+        if lower.contains("security")
+            || lower.contains("vulnerability")
+            || lower.contains("xss")
+            || lower.contains("injection")
         {
             extra.push(NxrModelId::Cipher);
         }
 
         // Code + creative overlap
-        if lower.contains("ui") || lower.contains("design") || lower.contains("frontend")
-            || lower.contains("interface") || lower.contains("ux")
+        if lower.contains("ui")
+            || lower.contains("design")
+            || lower.contains("frontend")
+            || lower.contains("interface")
+            || lower.contains("ux")
         {
             extra.push(NxrModelId::Spectra);
         }
 
         // Complex reasoning + knowledge
-        if lower.contains("sejarah") || lower.contains("data") || lower.contains("penelitian")
-            || lower.contains("research") || lower.contains("historical")
+        if lower.contains("sejarah")
+            || lower.contains("data")
+            || lower.contains("penelitian")
+            || lower.contains("research")
+            || lower.contains("historical")
         {
             extra.push(NxrModelId::Kronos);
         }
 
         // Human-centric + emotion
-        if lower.contains("orang") || lower.contains("masyarakat") || lower.contains("social")
-            || lower.contains("people") || lower.contains("human") || lower.contains("etika")
+        if lower.contains("orang")
+            || lower.contains("masyarakat")
+            || lower.contains("social")
+            || lower.contains("people")
+            || lower.contains("human")
+            || lower.contains("etika")
         {
             extra.push(NxrModelId::Aether);
         }
 
         // Self-improvement / iterative
-        if lower.contains("improve") || lower.contains("optimasi") || lower.contains("refactor")
-            || lower.contains("iteration") || lower.contains("iterasi")
+        if lower.contains("improve")
+            || lower.contains("optimasi")
+            || lower.contains("refactor")
+            || lower.contains("iteration")
+            || lower.contains("iterasi")
         {
             extra.push(NxrModelId::Genesis);
         }
 
         // Multi-agent coordination
-        if lower.contains("orchestrasi") || lower.contains("workflow") || lower.contains("pipeline")
-            || lower.contains("multi-step") || lower.contains("complex task")
+        if lower.contains("orchestrasi")
+            || lower.contains("workflow")
+            || lower.contains("pipeline")
+            || lower.contains("multi-step")
+            || lower.contains("complex task")
         {
             extra.push(NxrModelId::Nexum);
         }

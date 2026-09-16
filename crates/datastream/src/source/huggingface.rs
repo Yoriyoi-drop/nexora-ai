@@ -68,10 +68,7 @@ async fn fetch_json(client: &reqwest::Client, url: &str) -> Result<serde_json::V
 /// Auto-detect available configs untuk dataset dari HF Datasets Server API.
 /// Contoh: wikitext → ["wikitext-2-raw-v1", "wikitext-103-raw-v1"]
 async fn resolve_config_names(client: &reqwest::Client, dataset: &str) -> Vec<String> {
-    let url = format!(
-        "https://datasets-server.huggingface.co/{}",
-        dataset
-    );
+    let url = format!("https://datasets-server.huggingface.co/{}", dataset);
     match fetch_json(client, &url).await {
         Ok(json) => json["configs"]
             .as_array()
@@ -258,7 +255,9 @@ impl SourceProvider for HuggingFaceDatasetProvider {
                         obj.iter()
                             .filter(|(k, _)| !features.contains(k))
                             .map(|(k, v)| {
-                                let val = v.as_str().map(|s| s.to_string())
+                                let val = v
+                                    .as_str()
+                                    .map(|s| s.to_string())
                                     .or_else(|| v.as_i64().map(|i| i.to_string()))
                                     .or_else(|| v.as_f64().map(|f| f.to_string()))
                                     .unwrap_or_default();

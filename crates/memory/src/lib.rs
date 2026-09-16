@@ -11,25 +11,25 @@ pub mod compression;
 pub mod config;
 pub mod core;
 pub mod episodic;
+pub mod hybrid_cache;
 pub mod layers;
 pub mod memory_model;
-pub mod types;
 pub mod pool;
+pub mod types;
 pub mod zero_copy;
-pub mod hybrid_cache;
 
 pub use cache::{LRUCache, MemoryCache};
 pub use compression::{CompressedContext, ContextCompressor};
 pub use config::{EvictionStrategy, MemoryConfig};
 pub use episodic::{EpisodicMemory, MemoryEpisode};
+pub use hybrid_cache::*;
 pub use layers::{MemoryLayer, MemoryLayers};
 pub use memory_model::{
     HebbianMemory, HebbianMemoryConfig, MemoryEntry, MemoryType, NeuralAttentionMemory,
     NeuralAttentionMemoryConfig, NeuralMemoryEntry,
 };
-pub use types::*;
 pub use pool::*;
-pub use hybrid_cache::*;
+pub use types::*;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -75,7 +75,9 @@ impl MemoryManager {
         Self {
             layers: Arc::new(RwLock::new(layers)),
             episodic: Arc::new(RwLock::new(EpisodicMemory::new(cfg.session_capacity))),
-            cache: Arc::new(RwLock::new(LRUCache::new(cfg.short_term_capacity.min(1000)))),
+            cache: Arc::new(RwLock::new(LRUCache::new(
+                cfg.short_term_capacity.min(1000),
+            ))),
             compressor: Arc::new(RwLock::new(ContextCompressor::new())),
         }
     }
@@ -787,4 +789,3 @@ mod tests {
         assert!(state.emergence > 0.0);
     }
 }
-

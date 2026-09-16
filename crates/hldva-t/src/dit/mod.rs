@@ -113,10 +113,16 @@ impl DiTModel {
     }
 
     fn process_conditioning(&self, clip_embedding: &ClipEmbedding) -> HLDVAResult<Tensor> {
-        self.conditioning_projection.forward(&clip_embedding.text_features)
+        self.conditioning_projection
+            .forward(&clip_embedding.text_features)
     }
 
-    fn apply_guidance(&self, cond_noise: &Tensor, uncond_noise: &Tensor, guidance_scale: f32) -> HLDVAResult<Tensor> {
+    fn apply_guidance(
+        &self,
+        cond_noise: &Tensor,
+        uncond_noise: &Tensor,
+        guidance_scale: f32,
+    ) -> HLDVAResult<Tensor> {
         if gpu_ops::gpu_available() {
             // guided = uncond + scale * (cond - uncond)
             let diff = gpu_ops::gpu_sub(cond_noise, uncond_noise)?;
@@ -132,7 +138,11 @@ impl DiTModel {
         Ok(Tensor::new(guided, cond_noise.shape().to_vec()))
     }
 
-    fn reshape_to_latent(&self, noise_pred: &Tensor, latent_shape: &[usize]) -> HLDVAResult<Tensor> {
+    fn reshape_to_latent(
+        &self,
+        noise_pred: &Tensor,
+        latent_shape: &[usize],
+    ) -> HLDVAResult<Tensor> {
         let pred_data = noise_pred.data();
         let total_elements = latent_shape.iter().product::<usize>();
         let mut reshaped = Vec::with_capacity(total_elements);
@@ -142,7 +152,9 @@ impl DiTModel {
         Ok(Tensor::new(reshaped, latent_shape.to_vec()))
     }
 
-    pub fn parameters(&self) -> &HashMap<String, Tensor> { &self.parameters }
+    pub fn parameters(&self) -> &HashMap<String, Tensor> {
+        &self.parameters
+    }
 
     pub fn collect_parameters(&self) -> Vec<Tensor> {
         let mut params = Vec::new();
@@ -161,7 +173,9 @@ impl DiTModel {
         params
     }
 
-    pub fn config(&self) -> &DiTConfig { &self.config }
+    pub fn config(&self) -> &DiTConfig {
+        &self.config
+    }
 }
 
 /// Transformer Block with residual connections — GPU accelerated
@@ -217,7 +231,9 @@ impl TransformerBlock {
         let added = self.add_tensors(hidden, &self_attn_out)?;
         let self_attn_norm = self.self_attention_norm.forward(&added)?;
 
-        let cross_attn_out = self.cross_attention.forward(&self_attn_norm, conditioning, conditioning)?;
+        let cross_attn_out =
+            self.cross_attention
+                .forward(&self_attn_norm, conditioning, conditioning)?;
         let added2 = self.add_tensors(&self_attn_norm, &cross_attn_out)?;
         let cross_attn_norm = self.cross_attention_norm.forward(&added2)?;
 

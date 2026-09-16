@@ -156,10 +156,8 @@ impl ResonanceMapper {
         let mut resonance_pairs = Vec::new();
 
         // Stage 1: Fast similarity menggunakan cosine similarity
-        let projections: Vec<Array1<f32>> = signatures
-            .iter()
-            .map(|s| s.projection.clone())
-            .collect();
+        let projections: Vec<Array1<f32>> =
+            signatures.iter().map(|s| s.projection.clone()).collect();
 
         let mut candidates = Vec::new();
 

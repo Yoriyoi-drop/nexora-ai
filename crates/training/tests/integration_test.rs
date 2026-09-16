@@ -195,7 +195,13 @@ fn test_adam_converges_on_quadratic() {
 
         let g = x.grad().map(|g| g[0]);
         if step < 5 || step % 20 == 0 {
-            eprintln!("step={}: x={:.6}, loss={:.6}, grad={:?}", step, x.data()[0], loss.data()[0], g);
+            eprintln!(
+                "step={}: x={:.6}, loss={:.6}, grad={:?}",
+                step,
+                x.data()[0],
+                loss.data()[0],
+                g
+            );
         }
 
         opt.step().expect("Adam step should succeed");

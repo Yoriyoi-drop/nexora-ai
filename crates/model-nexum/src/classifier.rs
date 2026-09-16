@@ -1,16 +1,16 @@
-use nexora_model_core::classifier_util::GenericClassifier;
 use ndarray::Array2;
+use nexora_model_core::classifier_util::GenericClassifier;
 use std::sync::OnceLock;
 
-pub const COMPLEXITY_LEVELS: [&str; 4] = [
-    "simple", "moderate", "complex", "multi_domain",
-];
+pub const COMPLEXITY_LEVELS: [&str; 4] = ["simple", "moderate", "complex", "multi_domain"];
 const HIDDEN: usize = 32;
 
-static CLASSIFIER: OnceLock<GenericClassifier<{COMPLEXITY_LEVELS.len()}>> = OnceLock::new();
+static CLASSIFIER: OnceLock<GenericClassifier<{ COMPLEXITY_LEVELS.len() }>> = OnceLock::new();
 
 pub fn init_classifier(embed_table: Array2<f32>) {
-    CLASSIFIER.set(GenericClassifier::new(embed_table, HIDDEN)).ok();
+    CLASSIFIER
+        .set(GenericClassifier::new(embed_table, HIDDEN))
+        .ok();
 }
 
 pub fn decomposition_strategy(level: &str) -> &'static str {

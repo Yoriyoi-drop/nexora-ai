@@ -17,7 +17,10 @@ pub struct WeightNotifier {
 impl fmt::Debug for WeightNotifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WeightNotifier")
-            .field("observer_count", &self.observers.lock().map(|o| o.len()).unwrap_or(0))
+            .field(
+                "observer_count",
+                &self.observers.lock().map(|o| o.len()).unwrap_or(0),
+            )
             .finish()
     }
 }

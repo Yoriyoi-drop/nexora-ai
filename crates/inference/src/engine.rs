@@ -12,26 +12,31 @@ use crate::distributed::DistributedRouter;
 use crate::dynamic_quant::DynamicQuantManager;
 use crate::inference_trait::ModelForward;
 use crate::kv_cache::KVCache;
-use crate::paged_cache::{EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK, DEFAULT_MAX_CACHE_MEMORY_BYTES};
+use crate::paged_cache::{
+    EvictionPolicy, PagedCacheConfig, PagedKVCache, DEFAULT_EVICTION_WATERMARK,
+    DEFAULT_MAX_CACHE_MEMORY_BYTES,
+};
 use crate::paged_provider::PagedKVCacheProvider;
-use crate::speculative::{SpeculativeDecodingConfig, SpeculativeEngine};
-use std::sync::RwLock as StdRwLock;
 use crate::prefix_cache::PrefixCache;
 use crate::runtime::InferenceRuntime;
 use crate::scheduler::RequestScheduler;
 use crate::session::InferenceSession;
+use crate::speculative::{SpeculativeDecodingConfig, SpeculativeEngine};
 use crate::streaming::StreamingEngine;
 use crate::{
     FinishReason, GeneratedToken, InferenceError, InferenceRequest, InferenceResponse, Result,
     SessionEntry,
 };
 use nexora_common::retry::RetryConfig;
-use nexora_runtime::cluster::{ClusterConfig, NodeRegistry};
 use nexora_memory::MemoryManager;
+use nexora_runtime::cluster::{ClusterConfig, NodeRegistry};
 use nexora_tokenizer::BpeTokenizer;
 #[cfg(feature = "gpu")]
 use nexora_transformer::GpuKVCache;
-use nexora_transformer::{CausalLM, KVCacheEntry, KVCacheProvider, PagedCacheReader, TransformerConfig};
+use nexora_transformer::{
+    CausalLM, KVCacheEntry, KVCacheProvider, PagedCacheReader, TransformerConfig,
+};
+use std::sync::RwLock as StdRwLock;
 
 #[derive(Debug, Clone)]
 pub struct InferenceConfig {
@@ -297,18 +302,23 @@ impl InferenceEngine {
         self
     }
 
-    pub fn with_distributed(
-        mut self,
-        registry: Arc<NodeRegistry>,
-        node_id: Uuid,
-    ) -> Self {
-        let shared_secret = self.config.cluster_config.as_ref()
+    pub fn with_distributed(mut self, registry: Arc<NodeRegistry>, node_id: Uuid) -> Self {
+        let shared_secret = self
+            .config
+            .cluster_config
+            .as_ref()
             .and_then(|c| c.shared_secret.clone());
-        let tls_enabled = self.config.cluster_config.as_ref()
+        let tls_enabled = self
+            .config
+            .cluster_config
+            .as_ref()
             .map(|c| c.tls_enabled)
             .unwrap_or(false);
         self.distributed = Some(Arc::new(DistributedRouter::new_with_auth(
-            registry, node_id, shared_secret, tls_enabled,
+            registry,
+            node_id,
+            shared_secret,
+            tls_enabled,
         )));
         self
     }
@@ -356,25 +366,29 @@ impl InferenceEngine {
             );
             Some(Arc::new(StdRwLock::new(PagedKVCache::new(pc_config))))
         } else {
-            warn!("Paged cache requested but model not loaded yet — deferred to first cache creation");
-            Some(Arc::new(StdRwLock::new(PagedKVCache::new(PagedCacheConfig {
-                block_size: 16,
-                max_blocks: 64,
-                max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
-                eviction_policy: EvictionPolicy::LRU,
-                eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
-                eviction_min_age_secs: 1.0,
-                eviction_batch_size: 4,
-                num_layers: 1,
-                num_kv_heads: 1,
-                head_dim: 64,
-                max_seq_len: 2048,
-                f16_storage: config.paged_cache_f16,
-                q4_storage: config.paged_cache_q4,
-                enable_memory_tiering: true,
-                enable_cold_disk_offload: true,
-                ..Default::default()
-            }))))
+            warn!(
+                "Paged cache requested but model not loaded yet — deferred to first cache creation"
+            );
+            Some(Arc::new(StdRwLock::new(PagedKVCache::new(
+                PagedCacheConfig {
+                    block_size: 16,
+                    max_blocks: 64,
+                    max_memory_bytes: DEFAULT_MAX_CACHE_MEMORY_BYTES,
+                    eviction_policy: EvictionPolicy::LRU,
+                    eviction_watermark_ratio: DEFAULT_EVICTION_WATERMARK,
+                    eviction_min_age_secs: 1.0,
+                    eviction_batch_size: 4,
+                    num_layers: 1,
+                    num_kv_heads: 1,
+                    head_dim: 64,
+                    max_seq_len: 2048,
+                    f16_storage: config.paged_cache_f16,
+                    q4_storage: config.paged_cache_q4,
+                    enable_memory_tiering: true,
+                    enable_cold_disk_offload: true,
+                    ..Default::default()
+                },
+            ))))
         }
     }
 
@@ -439,7 +453,8 @@ impl InferenceEngine {
         self.monitoring = crate::init_inference_monitoring();
         self.text_utils = crate::inference_text_utils();
         self.reasoning = crate::inference_reasoning();
-        self.quant = crate::check_quantized(nexora_deeplearning::quantization::QuantizedDtype::Int8);
+        self.quant =
+            crate::check_quantized(nexora_deeplearning::quantization::QuantizedDtype::Int8);
         if self.erp.is_none() {
             self.erp = Some(crate::inference_erp());
         }
@@ -603,7 +618,9 @@ impl InferenceEngine {
                             context.push('\n');
                         }
                         // Sanitize RAG values to prevent prompt injection via stored memory
-                        let sanitized: String = r.value.chars()
+                        let sanitized: String = r
+                            .value
+                            .chars()
                             .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
                             .collect();
                         let sanitized = sanitized
@@ -777,7 +794,8 @@ impl InferenceEngine {
         if requests.is_empty() {
             return Vec::new();
         }
-        let _span = info_span!("generate_continuous_batched", batch_size = requests.len()).entered();
+        let _span =
+            info_span!("generate_continuous_batched", batch_size = requests.len()).entered();
         if requests.len() == 1 || !self.config.use_continuous_batching {
             return match requests.into_iter().next() {
                 Some(req) => {
@@ -986,7 +1004,11 @@ impl InferenceEngine {
                         .collect();
                     (text, tokens)
                 } else {
-                    let text: String = seq.generated.iter().map(|&id| format!("[{}]", id)).collect();
+                    let text: String = seq
+                        .generated
+                        .iter()
+                        .map(|&id| format!("[{}]", id))
+                        .collect();
                     let tokens: Vec<GeneratedToken> = seq
                         .generated
                         .iter()
@@ -1109,11 +1131,8 @@ impl InferenceEngine {
         }
 
         // Use paged/GPU/CPU KV cache based on config
-        let mut kv_state = Self::make_kv_provider(
-            &self.model,
-            self.config.use_gpu_cache,
-            &self.shared_paged,
-        );
+        let mut kv_state =
+            Self::make_kv_provider(&self.model, self.config.use_gpu_cache, &self.shared_paged);
 
         // Extract paged cache info BEFORE moving kv_state into the spawn_blocking closure.
         // For paged providers, this gives us direct block access that avoids the 2GB
@@ -1180,9 +1199,9 @@ impl InferenceEngine {
                     let mut finish_reason = FinishReason::Unknown;
                     for (i, &token_id) in out_tokens.iter().enumerate() {
                         let token_text: String = match &self.tokenizer {
-                        Some(tok) => tok.lock().await.decode(&[token_id]),
-                        None => token_id_to_text_fallback(token_id),
-                    };
+                            Some(tok) => tok.lock().await.decode(&[token_id]),
+                            None => token_id_to_text_fallback(token_id),
+                        };
                         let log_prob = 0.0;
                         response.add_token(GeneratedToken::new(token_id, token_text, log_prob, i));
                         if token_id == 0 || token_id == 2 {
@@ -1363,7 +1382,8 @@ impl InferenceEngine {
         // Evict stale entries when approaching capacity or opportunistically
         if sessions.len() >= max_sessions / 2 {
             let now = chrono::Utc::now();
-            let timeout = chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
+            let timeout =
+                chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
             sessions.retain(|_, s| (now - s.created_at()) < timeout);
         }
 
@@ -1378,7 +1398,10 @@ impl InferenceEngine {
             for (id, _) in session_list.iter().take(to_remove) {
                 sessions.remove(id);
             }
-            warn!("Evicted {} oldest sessions to stay under hard cap", to_remove);
+            warn!(
+                "Evicted {} oldest sessions to stay under hard cap",
+                to_remove
+            );
         }
 
         if let Some(session) = sessions.get(&session_id) {
@@ -1396,7 +1419,8 @@ impl InferenceEngine {
             let mut sessions = self.session_manager.write().await;
             let before = sessions.len();
             let now = chrono::Utc::now();
-            let timeout = chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
+            let timeout =
+                chrono::Duration::seconds(InferenceSession::default_timeout_seconds() as i64);
             sessions.retain(|_, s| (now - s.created_at()) < timeout);
             let evicted = before - sessions.len();
             if evicted > 0 {
@@ -1439,7 +1463,10 @@ impl InferenceEngine {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        info!("Shutting down inference engine (drain timeout: {}s)", self.config.drain_timeout_seconds);
+        info!(
+            "Shutting down inference engine (drain timeout: {}s)",
+            self.config.drain_timeout_seconds
+        );
         *self.state.write().await = EngineState::ShuttingDown;
 
         let drain_duration = Duration::from_secs(self.config.drain_timeout_seconds);
@@ -1455,7 +1482,10 @@ impl InferenceEngine {
             active.retain(|_, h| !h.is_finished());
             let in_flight = active.len();
             if in_flight > 0 {
-                info!("Draining {} in-flight requests (timeout: {}s)", in_flight, self.config.drain_timeout_seconds);
+                info!(
+                    "Draining {} in-flight requests (timeout: {}s)",
+                    in_flight, self.config.drain_timeout_seconds
+                );
                 let remaining = drain_duration.saturating_sub(drain_start.elapsed());
                 let handles: Vec<_> = active.drain().map(|(_, h)| h).collect();
                 drop(active);
@@ -1474,7 +1504,11 @@ impl InferenceEngine {
             se.write().await.shutdown().await?;
         }
         *self.state.write().await = EngineState::Shutdown;
-        info!("Inference engine shutdown complete (drained {}/{} active)", total_active - self.active_requests.read().await.len(), total_active);
+        info!(
+            "Inference engine shutdown complete (drained {}/{} active)",
+            total_active - self.active_requests.read().await.len(),
+            total_active
+        );
         Ok(())
     }
 
@@ -1506,12 +1540,11 @@ impl InferenceEngine {
     /// This does NOT block — the infinite loop runs in a spawned tokio task.
     async fn start_request_loop(&self) -> Result<()> {
         info!("Starting request processing loop");
-        let mut rx =
-            self.request_rx.lock().await.take().ok_or_else(|| {
-                InferenceError::EngineNotInitialized(
-                    "Request receiver already consumed — engine already initialized".to_string(),
-                )
-            })?;
+        let mut rx = self.request_rx.lock().await.take().ok_or_else(|| {
+            InferenceError::EngineNotInitialized(
+                "Request receiver already consumed — engine already initialized".to_string(),
+            )
+        })?;
 
         let state = self.state.clone();
         let scheduler = self.scheduler.clone();
@@ -1805,7 +1838,13 @@ fn run_generation_loop(
                     log_prob = 0.0;
                     used_gpu = true;
                 } else {
-                    let arr = forward_paged_or_fallback(model, input, kv_state, paged_cache, paged_seq_id);
+                    let arr = forward_paged_or_fallback(
+                        model,
+                        input,
+                        kv_state,
+                        paged_cache,
+                        paged_seq_id,
+                    );
                     let logits_slice = arr.as_slice().unwrap_or(&[]);
                     let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
                     let lp = logits_slice
@@ -1841,7 +1880,8 @@ fn run_generation_loop(
                 log_prob = 0.0;
                 used_gpu = true;
             } else {
-                let arr = forward_paged_or_fallback(model, input, kv_state, paged_cache, paged_seq_id);
+                let arr =
+                    forward_paged_or_fallback(model, input, kv_state, paged_cache, paged_seq_id);
                 let logits_slice = arr.as_slice().unwrap_or(&[]);
                 let tok = sampler.sample(logits_slice).unwrap_or(0) as u32;
                 let lp = logits_slice
@@ -1995,7 +2035,8 @@ impl InferenceEngineHandle {
                     Ok(ids) => ids,
                     Err(msg) => {
                         warn!("{} for batch request {}", msg, breq.request_id);
-                        let err_resp = response.clone()
+                        let err_resp = response
+                            .clone()
                             .with_finish_reason(FinishReason::Error(msg.to_string()))
                             .with_inference_time(start.elapsed().as_millis() as u64);
                         if let Err(e) = scheduler
@@ -2004,7 +2045,10 @@ impl InferenceEngineHandle {
                             .send_response(breq.request_id, err_resp)
                             .await
                         {
-                            warn!("Failed to send tokenizer error to {}: {}", breq.request_id, e);
+                            warn!(
+                                "Failed to send tokenizer error to {}: {}",
+                                breq.request_id, e
+                            );
                         }
                         return;
                     }
@@ -2023,7 +2067,8 @@ impl InferenceEngineHandle {
                     );
                 }
 
-                let mut kv_state = InferenceEngine::make_kv_provider(&model, use_gpu_cache, &shared_paged);
+                let mut kv_state =
+                    InferenceEngine::make_kv_provider(&model, use_gpu_cache, &shared_paged);
 
                 // Extract paged cache info for direct block-based forward
                 let batch_paged_arc = shared_paged.clone();
@@ -2035,9 +2080,14 @@ impl InferenceEngineHandle {
                 // Restore KV cache from prefix match if available
                 // For paged providers, import directly into blocks (avoids to_flat_cache()).
                 if !prefix_kv_cache.is_empty() {
-                    if let Some(paged) = kv_state.as_any_mut().downcast_mut::<PagedKVCacheProvider>() {
+                    if let Some(paged) =
+                        kv_state.as_any_mut().downcast_mut::<PagedKVCacheProvider>()
+                    {
                         paged.import_prefix_kv_cache(&prefix_kv_cache);
-                        debug!("Imported KV cache for {} matched prefix tokens into paged blocks", prefix_len);
+                        debug!(
+                            "Imported KV cache for {} matched prefix tokens into paged blocks",
+                            prefix_len
+                        );
                     } else if let Some(cpu_entries) = kv_state.as_cpu_entries() {
                         *cpu_entries = prefix_kv_cache;
                         debug!("Restored KV cache for {} matched prefix tokens", prefix_len);

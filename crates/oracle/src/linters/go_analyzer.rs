@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::linters::ast_analyzer;
 use crate::linters::{CodeIssue, IssueSeverity};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct GoFindings {
@@ -19,7 +19,9 @@ pub fn analyze_go(code: &str) -> GoFindings {
 
     for (i, raw_line) in code.lines().enumerate() {
         let line_num = i + 1;
-        if is_comment_or_empty(raw_line) { continue; }
+        if is_comment_or_empty(raw_line) {
+            continue;
+        }
         let trimmed = raw_line.trim();
 
         // ── os/exec command injection ──────────────────────────────
@@ -44,8 +46,10 @@ pub fn analyze_go(code: &str) -> GoFindings {
             || trimmed.to_uppercase().contains("UPDATE ")
             || trimmed.to_uppercase().contains("DROP ");
         if has_sql_kw {
-            let has_concat = trimmed.contains(" + ") || trimmed.contains("fmt.Sprintf(")
-                || trimmed.contains("fmt.Sprintf(") || trimmed.contains("strings.Join(");
+            let has_concat = trimmed.contains(" + ")
+                || trimmed.contains("fmt.Sprintf(")
+                || trimmed.contains("fmt.Sprintf(")
+                || trimmed.contains("strings.Join(");
             if has_concat {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Critical,
@@ -59,7 +63,8 @@ pub fn analyze_go(code: &str) -> GoFindings {
         }
 
         // ── HTTP without TLS ───────────────────────────────────────
-        if trimmed.contains("http.ListenAndServe(") && !trimmed.contains("http.ListenAndServeTLS(") {
+        if trimmed.contains("http.ListenAndServe(") && !trimmed.contains("http.ListenAndServeTLS(")
+        {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Warning,
                 category: "Security".to_string(),
@@ -83,10 +88,20 @@ pub fn analyze_go(code: &str) -> GoFindings {
         }
 
         // ── math/rand used for security ────────────────────────────
-        if trimmed.contains("math/rand") || trimmed.contains("rand.Int") || trimmed.contains("rand.Float64") {
-            let context_lines: String = code.lines().skip(i.saturating_sub(2)).take(5).collect::<Vec<_>>().join(" ");
-            let is_security_context = context_lines.contains("password") || context_lines.contains("token")
-                || context_lines.contains("secret") || context_lines.contains("key");
+        if trimmed.contains("math/rand")
+            || trimmed.contains("rand.Int")
+            || trimmed.contains("rand.Float64")
+        {
+            let context_lines: String = code
+                .lines()
+                .skip(i.saturating_sub(2))
+                .take(5)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let is_security_context = context_lines.contains("password")
+                || context_lines.contains("token")
+                || context_lines.contains("secret")
+                || context_lines.contains("key");
             if is_security_context {
                 issues.push(CodeIssue {
                     severity: IssueSeverity::Error,
@@ -101,9 +116,14 @@ pub fn analyze_go(code: &str) -> GoFindings {
 
         // ── Hardcoded secrets ──────────────────────────────────────
         let lower = trimmed.to_lowercase();
-        if (lower.contains("password") || lower.contains("secret") || lower.contains("api_key")
-            || lower.contains("apikey") || lower.contains("auth_token") || lower.contains("token"))
-            && !lower.contains("os.getenv") && !lower.contains("os.Environ")
+        if (lower.contains("password")
+            || lower.contains("secret")
+            || lower.contains("api_key")
+            || lower.contains("apikey")
+            || lower.contains("auth_token")
+            || lower.contains("token"))
+            && !lower.contains("os.getenv")
+            && !lower.contains("os.Environ")
             && !lower.contains("viper.Get")
         {
             let has_str = trimmed.contains('"') || trimmed.contains('`');
@@ -124,7 +144,9 @@ pub fn analyze_go(code: &str) -> GoFindings {
             issues.push(CodeIssue {
                 severity: IssueSeverity::Warning,
                 category: "Security".to_string(),
-                message: "unsafe.Pointer detected — memory safety risk. Minimize unsafe pointer usage.".to_string(),
+                message:
+                    "unsafe.Pointer detected — memory safety risk. Minimize unsafe pointer usage."
+                        .to_string(),
                 line_number: Some(line_num),
                 column_number: None,
                 rule_id: "GO-UNSAFE-POINTER".to_string(),
@@ -134,8 +156,12 @@ pub fn analyze_go(code: &str) -> GoFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("go_issues".to_string(), issues.len() as f32);
-    metrics.insert("go_high_severity".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error)).count() as f32,
+    metrics.insert(
+        "go_high_severity".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical | IssueSeverity::Error))
+            .count() as f32,
     );
 
     GoFindings { issues, metrics }
@@ -148,13 +174,20 @@ mod tests {
     #[test]
     fn test_go_cmd_injection() {
         let findings = analyze_go(r#"cmd := exec.Command("bash", "-c", userInput)"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "GO-CMD-INJECTION"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "GO-CMD-INJECTION"));
     }
 
     #[test]
     fn test_go_sql_injection() {
-        let findings = analyze_go(r#"q := fmt.Sprintf("SELECT * FROM users WHERE id = %s", userId)"#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "GO-SQL-INJECTION"));
+        let findings =
+            analyze_go(r#"q := fmt.Sprintf("SELECT * FROM users WHERE id = %s", userId)"#);
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "GO-SQL-INJECTION"));
     }
 
     #[test]
@@ -166,12 +199,18 @@ mod tests {
     #[test]
     fn test_go_weak_crypto() {
         let findings = analyze_go(r#"import "crypto/md5""#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "GO-WEAK-CRYPTO"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "GO-WEAK-CRYPTO"));
     }
 
     #[test]
     fn test_go_hardcoded_secret() {
         let findings = analyze_go(r#"apiKey := "sk-abc123xyz""#);
-        assert!(findings.issues.iter().any(|i| i.rule_id == "GO-HARDCODED-SECRET"));
+        assert!(findings
+            .issues
+            .iter()
+            .any(|i| i.rule_id == "GO-HARDCODED-SECRET"));
     }
 }

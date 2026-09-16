@@ -1,10 +1,8 @@
-
-
+#[cfg(feature = "cuda")]
+use super::cuda::CudaTensor;
 use super::gpu_tensor::{GpuDtype, GpuTensor};
 use super::gpu_types::*;
 use super::wgsl::*;
-#[cfg(feature = "cuda")]
-use super::cuda::CudaTensor;
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).
 /// Any dispatch exceeding this must be chunked across multiple dispatches
@@ -59,20 +57,25 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         self.flush();
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("cuda_read_packed_encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("cuda_read_packed_encoder"),
+            });
         encoder.copy_buffer_to_buffer(tensor.buffer(), 0, &staging, 0, byte_size);
         self.queue.submit(Some(encoder.finish()));
 
         let raw_bytes: Vec<u8> = {
-            let _limiter_token = self.readback_limiter
+            let _limiter_token = self
+                .readback_limiter
                 .acquire(std::time::Duration::from_secs(30))
                 .then_some(())
                 .ok_or_else(|| GpuError::Timeout("CUDA read packed limiter".into()))?;
             let slice = staging.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            slice.map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             let result = loop {
                 self.device.poll(wgpu::PollType::Wait {
@@ -107,14 +110,20 @@ impl GpuContext {
         let num_u32s = num_bytes.div_ceil(4);
         let mut padded = vec![0u8; num_u32s * 4];
         padded[..num_bytes].copy_from_slice(&raw_bytes);
-        let data_f32: Vec<f32> = padded.chunks_exact(4).map(|c| {
-            f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        }).collect();
+        let data_f32: Vec<f32> = padded
+            .chunks_exact(4)
+            .map(|c| f32::from_bits(u32::from_le_bytes([c[0], c[1], c[2], c[3]])))
+            .collect();
         drop(padded);
         let t = crate::autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.transfer_stream, vec![num_u32s], &data_f32, cuda.device_id
-        ).map_err(|e| GpuError::Transfer(format!("CUDA htod packed: {e}")))?;
-        cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+            &cuda.transfer_stream,
+            vec![num_u32s],
+            &data_f32,
+            cuda.device_id,
+        )
+        .map_err(|e| GpuError::Transfer(format!("CUDA htod packed: {e}")))?;
+        cuda.sync_transfer()
+            .map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
         Ok(t)
     }
 
@@ -134,20 +143,25 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         self.flush();
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("cuda_read_encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("cuda_read_encoder"),
+            });
         encoder.copy_buffer_to_buffer(tensor.buffer(), 0, &staging, 0, byte_size);
         self.queue.submit(Some(encoder.finish()));
 
         let data: Vec<f32> = {
-            let _limiter_token = self.readback_limiter
+            let _limiter_token = self
+                .readback_limiter
                 .acquire(std::time::Duration::from_secs(30))
                 .then_some(())
                 .ok_or_else(|| GpuError::Timeout("CUDA read tensor limiter".into()))?;
             let slice = staging.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            slice.map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             let result = loop {
                 self.device.poll(wgpu::PollType::Wait {
@@ -179,9 +193,15 @@ impl GpuContext {
             result?
         };
 
-        let t = CudaTensor::from_cpu(&cuda.transfer_stream, tensor.shape().clone(), &data, cuda.device_id)
-            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
-        cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+        let t = CudaTensor::from_cpu(
+            &cuda.transfer_stream,
+            tensor.shape().clone(),
+            &data,
+            cuda.device_id,
+        )
+        .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+        cuda.sync_transfer()
+            .map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
         Ok(t)
     }
 
@@ -192,15 +212,21 @@ impl GpuContext {
         cuda: &crate::autograd::gpu::cuda::CudaRuntime,
         tensors: &[&GpuTensor],
     ) -> Result<Vec<CudaTensor>, GpuError> {
-        let offsets: Vec<u64> = tensors.iter().scan(0u64, |offset, t| {
-            let o = *offset;
-            *offset += (t.numel() * 4) as u64;
-            Some(o)
-        }).collect();
-        let total_bytes = offsets.last().map(|&o| {
-            let last_idx = tensors.len() - 1;
-            o + (tensors[last_idx].numel() * 4) as u64
-        }).unwrap_or(0);
+        let offsets: Vec<u64> = tensors
+            .iter()
+            .scan(0u64, |offset, t| {
+                let o = *offset;
+                *offset += (t.numel() * 4) as u64;
+                Some(o)
+            })
+            .collect();
+        let total_bytes = offsets
+            .last()
+            .map(|&o| {
+                let last_idx = tensors.len() - 1;
+                o + (tensors[last_idx].numel() * 4) as u64
+            })
+            .unwrap_or(0);
 
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cuda_read_tensors_staging"),
@@ -209,22 +235,33 @@ impl GpuContext {
             mapped_at_creation: false,
         });
         self.flush();
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("cuda_read_tensors_encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("cuda_read_tensors_encoder"),
+            });
         for (i, t) in tensors.iter().enumerate() {
-            encoder.copy_buffer_to_buffer(t.buffer(), 0, &staging, offsets[i], (t.numel() * 4) as u64);
+            encoder.copy_buffer_to_buffer(
+                t.buffer(),
+                0,
+                &staging,
+                offsets[i],
+                (t.numel() * 4) as u64,
+            );
         }
         self.queue.submit(Some(encoder.finish()));
 
         let flat_data: Vec<f32> = {
-            let _limiter_token = self.readback_limiter
+            let _limiter_token = self
+                .readback_limiter
                 .acquire(std::time::Duration::from_secs(30))
                 .then_some(())
                 .ok_or_else(|| GpuError::Timeout("CUDA read tensors limiter".into()))?;
             let slice = staging.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
+            slice.map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             let result = loop {
                 self.device.poll(wgpu::PollType::Wait {
@@ -256,14 +293,24 @@ impl GpuContext {
             result?
         };
 
-        tensors.iter().enumerate().map(|(i, t)| {
-            let start = (offsets[i] / 4) as usize;
-            let end = start + t.numel();
-            let ct = CudaTensor::from_cpu(&cuda.transfer_stream, t.shape().clone(), &flat_data[start..end], cuda.device_id)
+        tensors
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let start = (offsets[i] / 4) as usize;
+                let end = start + t.numel();
+                let ct = CudaTensor::from_cpu(
+                    &cuda.transfer_stream,
+                    t.shape().clone(),
+                    &flat_data[start..end],
+                    cuda.device_id,
+                )
                 .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
-            cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
-            Ok(ct)
-        }).collect()
+                cuda.sync_transfer()
+                    .map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+                Ok(ct)
+            })
+            .collect()
     }
 
     /// Write a CudaTensor result back to a wgpu GpuTensor, caching for future access.
@@ -290,7 +337,8 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
+        self.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
         crate::autograd::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
         let result = GpuTensor {
@@ -329,7 +377,8 @@ impl GpuContext {
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
+        self.queue
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(&cpu_buf));
         crate::autograd::gpu::gpu_observability::PCIE_WRITE_BYTES
             .fetch_add(byte_size, std::sync::atomic::Ordering::Relaxed);
         let result = GpuTensor {
@@ -367,9 +416,7 @@ impl GpuContext {
             return Ok(ct.clone());
         }
         // ── SLOW PATH: wgpu→CPU→CUDA bridge (one-time cost) ──
-        let cuda = self.cuda.ok_or_else(|| {
-            GpuError::NotInitialized
-        })?;
+        let cuda = self.cuda.ok_or_else(|| GpuError::NotInitialized)?;
         let ct = self.cuda_read_tensor(cuda, tensor)?;
         self.cuda_cache
             .lock()
@@ -432,7 +479,9 @@ impl GpuContext {
             pipeline,
             &[(0, grad_buffers.buffer()), (1, out.buffer())],
             &[(2, &cfg_buf)],
-            numel, 256, 4,
+            numel,
+            256,
+            4,
         );
         Ok(())
     }
@@ -477,7 +526,9 @@ impl GpuContext {
                 (3, output.buffer()),
             ],
             &[(4, &cfg_buf)],
-            total, 256, 4,
+            total,
+            256,
+            4,
         );
         Ok(())
     }
@@ -487,35 +538,92 @@ impl GpuContext {
     // ====================================================================
 
     pub(crate) fn compile_causal_softmax(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("causal_softmax", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], CAUSAL_SOFTMAX_WGSL, "causal_softmax_main")
+        self.compile_shader(
+            "causal_softmax",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            CAUSAL_SOFTMAX_WGSL,
+            "causal_softmax_main",
+        )
     }
 
     pub(crate) fn compile_l2_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("l2_norm", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], L2_NORM_WGSL, "l2_norm_main")
+        self.compile_shader(
+            "l2_norm",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            L2_NORM_WGSL,
+            "l2_norm_main",
+        )
     }
 
     pub(crate) fn compile_gradient_clip(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("gradient_clip", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], GRADIENT_CLIP_WGSL, "main")
+        self.compile_shader(
+            "gradient_clip",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            GRADIENT_CLIP_WGSL,
+            "main",
+        )
     }
 
     pub(crate) fn compile_temperature_scale(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("temperature_scale", &[storage_binding(0, false), uniform_binding(1)], TEMPERATURE_SCALE_WGSL, "temperature_scale_main")
+        self.compile_shader(
+            "temperature_scale",
+            &[storage_binding(0, false), uniform_binding(1)],
+            TEMPERATURE_SCALE_WGSL,
+            "temperature_scale_main",
+        )
     }
 
     pub(crate) fn compile_top_k_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("top_k_mask", &[storage_binding(0, false), uniform_binding(1)], TOP_K_MASK_WGSL, "top_k_mask_main")
+        self.compile_shader(
+            "top_k_mask",
+            &[storage_binding(0, false), uniform_binding(1)],
+            TOP_K_MASK_WGSL,
+            "top_k_mask_main",
+        )
     }
 
     pub(crate) fn compile_top_p_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("top_p_mask", &[storage_binding(0, false), uniform_binding(1)], TOP_P_MASK_WGSL, "top_p_mask_main")
+        self.compile_shader(
+            "top_p_mask",
+            &[storage_binding(0, false), uniform_binding(1)],
+            TOP_P_MASK_WGSL,
+            "top_p_mask_main",
+        )
     }
 
     pub(crate) fn compile_multinomial_sample(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("multinomial_sample", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], MULTINOMIAL_SAMPLE_WGSL, "multinomial_main")
+        self.compile_shader(
+            "multinomial_sample",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            MULTINOMIAL_SAMPLE_WGSL,
+            "multinomial_main",
+        )
     }
 
     pub(crate) fn compile_dropout_mask(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("dropout_mask", &[storage_binding(0, false), uniform_binding(1)], DROPOUT_MASK_WGSL, "dropout_mask_main")
+        self.compile_shader(
+            "dropout_mask",
+            &[storage_binding(0, false), uniform_binding(1)],
+            DROPOUT_MASK_WGSL,
+            "dropout_mask_main",
+        )
     }
 
     // ====================================================================
@@ -549,15 +657,17 @@ impl GpuContext {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let cfg: [u32; 4] = [
-            numel,
-            f32::to_bits(rate),
-            f32::to_bits(scale),
-            seed,
-        ];
+        let cfg: [u32; 4] = [numel, f32::to_bits(rate), f32::to_bits(scale), seed];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        self.dispatch_1d_chunked(pipeline, &[(0, mask.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, mask.buffer())],
+            &[(1, &cfg_buf)],
+            numel,
+            256,
+            4,
+        );
         Ok(())
     }
 
@@ -615,7 +725,14 @@ impl GpuContext {
         let cfg: [u32; 2] = [numel, f32::to_bits(value)];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, t.buffer())],
+            &[(1, &cfg_buf)],
+            numel,
+            256,
+            4,
+        );
         Ok(())
     }
 
@@ -642,7 +759,14 @@ impl GpuContext {
         let cfg: [u32; 2] = [numel, f32::to_bits(scale)];
         self.queue
             .write_buffer(&cfg_buf, 0, bytemuck::cast_slice(&cfg));
-        self.dispatch_1d_chunked(pipeline, &[(0, t.buffer())], &[(1, &cfg_buf)], numel, 256, 4);
+        self.dispatch_1d_chunked(
+            pipeline,
+            &[(0, t.buffer())],
+            &[(1, &cfg_buf)],
+            numel,
+            256,
+            4,
+        );
         Ok(())
     }
 
@@ -651,7 +775,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let t_cuda = self.get_or_cache_cuda(t)?;
-            let result_cuda = cuda.l2_norm(&t_cuda)
+            let result_cuda = cuda
+                .l2_norm(&t_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA l2_norm: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -708,7 +833,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.causal_softmax(&input_cuda)
+            let result_cuda = cuda
+                .causal_softmax(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA causal_softmax: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -784,20 +910,25 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let mut current = self.get_or_cache_cuda(logits)?;
             if (temperature - 1.0).abs() > 1e-6 && temperature > 0.0 {
-                current = cuda.temperature_scale(&current, temperature)
+                current = cuda
+                    .temperature_scale(&current, temperature)
                     .map_err(|e| GpuError::Compute(format!("CUDA temperature_scale: {e}")))?;
             }
-            current = cuda.softmax(&current)
+            current = cuda
+                .softmax(&current)
                 .map_err(|e| GpuError::Compute(format!("CUDA softmax: {e}")))?;
             if top_k > 0 && top_k < vocab {
-                current = cuda.top_k_mask(&current, top_k)
+                current = cuda
+                    .top_k_mask(&current, top_k)
                     .map_err(|e| GpuError::Compute(format!("CUDA top_k_mask: {e}")))?;
             }
             if top_p > 0.0 && top_p < 1.0 {
-                current = cuda.top_p_mask(&current, top_p)
+                current = cuda
+                    .top_p_mask(&current, top_p)
                     .map_err(|e| GpuError::Compute(format!("CUDA top_p_mask: {e}")))?;
             }
-            let result_cuda = cuda.multinomial_sample(&current, seed)
+            let result_cuda = cuda
+                .multinomial_sample(&current, seed)
                 .map_err(|e| GpuError::Compute(format!("CUDA multinomial_sample: {e}")))?;
             return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![batch]);
         }
@@ -845,7 +976,9 @@ impl GpuContext {
                 pipeline,
                 &[(0, &work_buf)],
                 &[(1, &temp_buf.buffer)],
-                workgroups, 256, 4,
+                workgroups,
+                256,
+                4,
             );
         }
 
@@ -1070,7 +1203,6 @@ impl GpuContext {
 
     // ── Singleton access ──────────────────────────────────────────────────────
 
-
     pub fn matmul_dynamic(
         &self,
         a: &GpuTensor,
@@ -1139,15 +1271,45 @@ impl GpuContext {
         )
     }
     pub(crate) fn compile_rotary_embedding(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("rotary_embedding", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, true), uniform_binding(3)], ROTARY_EMBEDDING_WGSL, "rotary_main")
+        self.compile_shader(
+            "rotary_embedding",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                uniform_binding(3),
+            ],
+            ROTARY_EMBEDDING_WGSL,
+            "rotary_main",
+        )
     }
 
     pub(crate) fn compile_adam_step(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("adam_step", &[storage_binding(0, false), storage_binding(1, true), storage_binding(2, false), storage_binding(3, false), uniform_binding(4)], ADAM_WGSL, "main")
+        self.compile_shader(
+            "adam_step",
+            &[
+                storage_binding(0, false),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            ADAM_WGSL,
+            "main",
+        )
     }
 
     pub(crate) fn compile_repeat_heads(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("repeat_heads", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], REPEAT_HEADS_WGSL, "repeat_heads_main")
+        self.compile_shader(
+            "repeat_heads",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            REPEAT_HEADS_WGSL,
+            "repeat_heads_main",
+        )
     }
 
     pub fn matmul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
@@ -1177,9 +1339,14 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let a_cuda = self.get_or_cache_cuda(a)?;
             let b_cuda = self.get_or_cache_cuda(b)?;
-            let result_cuda = cuda.matmul(&a_cuda, &b_cuda)
+            let result_cuda = cuda
+                .matmul(&a_cuda, &b_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA matmul: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![a_shape[0], b_shape[1]],
+            );
         }
 
         let m = a_shape[0];
@@ -1306,9 +1473,14 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let a_cuda = self.get_or_cache_cuda(a)?;
             let b_cuda = self.get_or_cache_cuda(b_packed)?;
-            let result_cuda = cuda.matmul_f16(&a_cuda, &b_cuda)
+            let result_cuda = cuda
+                .matmul_f16(&a_cuda, &b_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA matmul_f16: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![a_shape[0], b_shape[1]],
+            );
         }
         let m_u32 = u32::try_from(m)
             .map_err(|_| GpuError::MatMulShape(a_shape.clone(), b_shape.clone()))?;
@@ -1372,7 +1544,9 @@ impl GpuContext {
 
         // 🟠 HIGH #4: vec4<f32> vectorized pipeline when all dims are 4-aligned
         // Provides up to 4× global memory bandwidth improvement on tiled matmul.
-        let use_vec4 = m % 4 == 0 && n % 4 == 0 && k % 4 == 0
+        let use_vec4 = m % 4 == 0
+            && n % 4 == 0
+            && k % 4 == 0
             && self.pipelines.contains_key("matmul_tiled_vec4");
         let selected = if use_vec4 {
             self.pipelines
@@ -1448,9 +1622,14 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let a_cuda = self.get_or_cache_cuda(a)?;
             let b_cuda = self.get_or_cache_cuda(b)?;
-            let result_cuda = cuda.matmul_int8(&a_cuda, &b_cuda, scale)
+            let result_cuda = cuda
+                .matmul_int8(&a_cuda, &b_cuda, scale)
                 .map_err(|e| GpuError::Compute(format!("CUDA matmul_int8: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![a_shape[0], b_shape[1]],
+            );
         }
 
         let m = a_shape[0];
@@ -1546,11 +1725,11 @@ impl GpuContext {
         self.compile_pipeline(
             "matmul_int4_weight",
             &[
-                storage_binding(0, true),   // binding 0: A (f32 activations)
-                storage_binding(1, true),   // binding 1: B (packed u32 Q4 weights)
-                storage_binding(2, false),  // binding 2: C (f32 output, read_write)
-                uniform_binding(3),         // binding 3: Uniforms { M, K, N, GroupSize, Tile }
-                storage_binding(4, true),   // binding 4: scales (f32 per-group per-column)
+                storage_binding(0, true),  // binding 0: A (f32 activations)
+                storage_binding(1, true),  // binding 1: B (packed u32 Q4 weights)
+                storage_binding(2, false), // binding 2: C (f32 output, read_write)
+                uniform_binding(3),        // binding 3: Uniforms { M, K, N, GroupSize, Tile }
+                storage_binding(4, true),  // binding 4: scales (f32 per-group per-column)
             ],
             wgsl,
             "matmul_int4_weight_main",
@@ -1567,11 +1746,11 @@ impl GpuContext {
         self.compile_pipeline(
             "matmul_int2_weight",
             &[
-                storage_binding(0, true),   // binding 0: A (f32 activations)
-                storage_binding(1, true),   // binding 1: B (packed u32 Q2 weights)
-                storage_binding(2, false),  // binding 2: C (f32 output, read_write)
-                uniform_binding(3),         // binding 3: Uniforms { M, K, N, GroupSize, Tile }
-                storage_binding(4, true),   // binding 4: scales (f32 per-group per-column)
+                storage_binding(0, true),  // binding 0: A (f32 activations)
+                storage_binding(1, true),  // binding 1: B (packed u32 Q2 weights)
+                storage_binding(2, false), // binding 2: C (f32 output, read_write)
+                uniform_binding(3),        // binding 3: Uniforms { M, K, N, GroupSize, Tile }
+                storage_binding(4, true),  // binding 4: scales (f32 per-group per-column)
             ],
             wgsl,
             "matmul_int2_weight_main",
@@ -1637,9 +1816,14 @@ impl GpuContext {
             let b_cuda = self.get_or_cache_cuda(b)?;
             let scales_cuda = self.get_or_cache_cuda(scales)?;
             let zp_cuda = self.get_or_cache_cuda(zero_points)?;
-            let result_cuda = cuda.matmul_int8_weight(&a_cuda, &b_cuda, &scales_cuda, &zp_cuda)
+            let result_cuda = cuda
+                .matmul_int8_weight(&a_cuda, &b_cuda, &scales_cuda, &zp_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA matmul_int8_weight: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[0]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![a_shape[0], b_shape[0]],
+            );
         }
 
         let m = a_shape[0];
@@ -1675,7 +1859,8 @@ impl GpuContext {
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let dims_data: [u32; 4] = [m_u32, k_u32, n_u32, tile_u32];
-        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+        self.queue
+            .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
         let pipeline = self
             .pipelines
@@ -1792,7 +1977,8 @@ impl GpuContext {
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let dims_data: [u32; 5] = [m_u32, k_u32, n_u32, gs_u32, tile_u32];
-        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+        self.queue
+            .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
         let pipeline = self
             .pipelines
@@ -1878,9 +2064,14 @@ impl GpuContext {
             let a_cuda = self.get_or_cache_cuda(a)?;
             let b_cuda = self.cuda_read_packed_i8(cuda, b_packed)?;
             let scales_cuda = self.get_or_cache_cuda(scales)?;
-            let result_cuda = cuda.matmul_int2_weight(&a_cuda, &b_cuda, &scales_cuda, m, n, k, group_size)
+            let result_cuda = cuda
+                .matmul_int2_weight(&a_cuda, &b_cuda, &scales_cuda, m, n, k, group_size)
                 .map_err(|e| GpuError::Compute(format!("CUDA matmul_int2_weight: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![a_shape[0], b_shape[1]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![a_shape[0], b_shape[1]],
+            );
         }
 
         let _groups = k.div_ceil(group_size);
@@ -1917,7 +2108,8 @@ impl GpuContext {
             wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let dims_data: [u32; 5] = [m_u32, k_u32, n_u32, gs_u32, tile_u32];
-        self.queue.write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
+        self.queue
+            .write_buffer(&dims_buf, 0, bytemuck::cast_slice(&dims_data));
 
         let pipeline = self
             .pipelines
@@ -1970,7 +2162,6 @@ impl GpuContext {
 
     /// Convert f32 tensor to packed F16 (2 f16 per u32). Returns tensor with GpuDtype::F16.
     pub fn f32_to_f16_packed(&self, input: &GpuTensor) -> Result<GpuTensor, GpuError> {
-
         use crate::autograd::gpu_mixed::dispatch_f32_to_f16_packed;
         let pipeline = self
             .pipelines
@@ -1996,11 +2187,26 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_elementwise(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("elementwise", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], ELEMENTWISE_WGSL, "elementwise_main")
+        self.compile_shader(
+            "elementwise",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            ELEMENTWISE_WGSL,
+            "elementwise_main",
+        )
     }
 
     pub(crate) fn compile_elementwise_inplace(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("elementwise_inplace", &[storage_binding(0, false), uniform_binding(1)], ELEMENTWISE_INPLACE_WGSL, "elementwise_inplace_main")
+        self.compile_shader(
+            "elementwise_inplace",
+            &[storage_binding(0, false), uniform_binding(1)],
+            ELEMENTWISE_INPLACE_WGSL,
+            "elementwise_inplace_main",
+        )
     }
 
     pub(crate) fn compile_fused_elementwise(&mut self) -> Result<(), GpuError> {
@@ -2023,9 +2229,19 @@ impl GpuContext {
     pub fn elementwise_unary(&self, a: &GpuTensor, op: ElemOp) -> Result<GpuTensor, GpuError> {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
-            if matches!(op, ElemOp::Neg | ElemOp::Exp | ElemOp::Sqrt | ElemOp::Relu
-                | ElemOp::Gelu | ElemOp::Sigmoid | ElemOp::Tanh | ElemOp::Silu
-                | ElemOp::Ln | ElemOp::Powf) {
+            if matches!(
+                op,
+                ElemOp::Neg
+                    | ElemOp::Exp
+                    | ElemOp::Sqrt
+                    | ElemOp::Relu
+                    | ElemOp::Gelu
+                    | ElemOp::Sigmoid
+                    | ElemOp::Tanh
+                    | ElemOp::Silu
+                    | ElemOp::Ln
+                    | ElemOp::Powf
+            ) {
                 let input_cuda = self.get_or_cache_cuda(a)?;
                 let result_cuda = match op {
                     ElemOp::Neg => cuda.neg(&input_cuda),
@@ -2038,7 +2254,11 @@ impl GpuContext {
                     ElemOp::Silu => cuda.silu(&input_cuda),
                     ElemOp::Ln => cuda.ln(&input_cuda),
                     ElemOp::Powf => cuda.powf(&input_cuda, 2.0),
-                    _ => return Err(GpuError::Compute(format!("CUDA unary op not supported: {op:?}"))),
+                    _ => {
+                        return Err(GpuError::Compute(format!(
+                            "CUDA unary op not supported: {op:?}"
+                        )))
+                    }
                 };
                 let result_cuda = result_cuda
                     .map_err(|e| GpuError::Compute(format!("CUDA elementwise_unary: {e}")))?;
@@ -2072,7 +2292,9 @@ impl GpuContext {
             pipeline,
             &[(0, a.buffer()), (1, a.buffer()), (2, &out_buffer)],
             &[(3, &cfg_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -2091,9 +2313,19 @@ impl GpuContext {
     ) -> Result<(), GpuError> {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
-            if matches!(op, ElemOp::Neg | ElemOp::Exp | ElemOp::Sqrt | ElemOp::Relu
-                | ElemOp::Sigmoid | ElemOp::Tanh | ElemOp::Silu | ElemOp::Ln
-                | ElemOp::Step | ElemOp::Gelu) {
+            if matches!(
+                op,
+                ElemOp::Neg
+                    | ElemOp::Exp
+                    | ElemOp::Sqrt
+                    | ElemOp::Relu
+                    | ElemOp::Sigmoid
+                    | ElemOp::Tanh
+                    | ElemOp::Silu
+                    | ElemOp::Ln
+                    | ElemOp::Step
+                    | ElemOp::Gelu
+            ) {
                 let mut tensor_cuda = self.get_or_cache_cuda(tensor)?;
                 let result = match op {
                     ElemOp::Neg => cuda.neg_inplace(&mut tensor_cuda),
@@ -2134,7 +2366,9 @@ impl GpuContext {
             pipeline,
             &[(0, tensor.buffer())],
             &[(1, &cfg_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
         Ok(())
     }
@@ -2233,7 +2467,11 @@ impl GpuContext {
                     ElemOp::Sub => cuda.sub(&a_cuda, &b_cuda),
                     ElemOp::Mul => cuda.mul(&a_cuda, &b_cuda),
                     ElemOp::Div => cuda.div(&a_cuda, &b_cuda),
-                    _ => return Err(GpuError::Compute(format!("CUDA binary op not supported: {op:?}"))),
+                    _ => {
+                        return Err(GpuError::Compute(format!(
+                            "CUDA binary op not supported: {op:?}"
+                        )))
+                    }
                 };
                 let result_cuda = result_cuda
                     .map_err(|e| GpuError::Compute(format!("CUDA elementwise_binary: {e}")))?;
@@ -2267,7 +2505,9 @@ impl GpuContext {
             pipeline,
             &[(0, a.buffer()), (1, b.buffer()), (2, &out_buffer)],
             &[(3, &cfg_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -2288,7 +2528,9 @@ impl GpuContext {
         ops: &[ElemOp],
     ) -> Result<GpuTensor, GpuError> {
         if ops.is_empty() {
-            return Err(GpuError::Unsupported("fused_elementwise: empty ops list".into()));
+            return Err(GpuError::Unsupported(
+                "fused_elementwise: empty ops list".into(),
+            ));
         }
 
         let a_shape = a.shape();
@@ -2312,10 +2554,23 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let can_fuse = ops.iter().all(|op| {
-                matches!(op, ElemOp::Add | ElemOp::Sub | ElemOp::Mul | ElemOp::Div
-                    | ElemOp::Neg | ElemOp::Exp | ElemOp::Sqrt | ElemOp::Relu
-                    | ElemOp::Gelu | ElemOp::Sigmoid | ElemOp::Tanh | ElemOp::Silu
-                    | ElemOp::Ln | ElemOp::Powf)
+                matches!(
+                    op,
+                    ElemOp::Add
+                        | ElemOp::Sub
+                        | ElemOp::Mul
+                        | ElemOp::Div
+                        | ElemOp::Neg
+                        | ElemOp::Exp
+                        | ElemOp::Sqrt
+                        | ElemOp::Relu
+                        | ElemOp::Gelu
+                        | ElemOp::Sigmoid
+                        | ElemOp::Tanh
+                        | ElemOp::Silu
+                        | ElemOp::Ln
+                        | ElemOp::Powf
+                )
             });
             if can_fuse {
                 let a_cuda = self.get_or_cache_cuda(a)?;
@@ -2323,21 +2578,53 @@ impl GpuContext {
                 let mut x = a_cuda;
                 for op in ops {
                     x = match op {
-                        ElemOp::Add => cuda.add(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused add: {e}")))?,
-                        ElemOp::Sub => cuda.sub(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused sub: {e}")))?,
-                        ElemOp::Mul => cuda.mul(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused mul: {e}")))?,
-                        ElemOp::Div => cuda.div(&x, &b_cuda).map_err(|e| GpuError::Compute(format!("CUDA fused div: {e}")))?,
-                        ElemOp::Neg => cuda.neg(&x).map_err(|e| GpuError::Compute(format!("CUDA fused neg: {e}")))?,
-                        ElemOp::Exp => cuda.exp(&x).map_err(|e| GpuError::Compute(format!("CUDA fused exp: {e}")))?,
-                        ElemOp::Sqrt => cuda.sqrt(&x).map_err(|e| GpuError::Compute(format!("CUDA fused sqrt: {e}")))?,
-                        ElemOp::Relu => cuda.relu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused relu: {e}")))?,
-                        ElemOp::Gelu => cuda.gelu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused gelu: {e}")))?,
-                        ElemOp::Sigmoid => cuda.sigmoid(&x).map_err(|e| GpuError::Compute(format!("CUDA fused sigmoid: {e}")))?,
-                        ElemOp::Tanh => cuda.tanh(&x).map_err(|e| GpuError::Compute(format!("CUDA fused tanh: {e}")))?,
-                        ElemOp::Silu => cuda.silu(&x).map_err(|e| GpuError::Compute(format!("CUDA fused silu: {e}")))?,
-                        ElemOp::Ln => cuda.ln(&x).map_err(|e| GpuError::Compute(format!("CUDA fused ln: {e}")))?,
-                        ElemOp::Powf => cuda.powf(&x, 2.0).map_err(|e| GpuError::Compute(format!("CUDA fused powf: {e}")))?,
-                        other => return Err(GpuError::Compute(format!("CUDA fused unary op not supported: {other:?}"))),
+                        ElemOp::Add => cuda
+                            .add(&x, &b_cuda)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused add: {e}")))?,
+                        ElemOp::Sub => cuda
+                            .sub(&x, &b_cuda)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused sub: {e}")))?,
+                        ElemOp::Mul => cuda
+                            .mul(&x, &b_cuda)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused mul: {e}")))?,
+                        ElemOp::Div => cuda
+                            .div(&x, &b_cuda)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused div: {e}")))?,
+                        ElemOp::Neg => cuda
+                            .neg(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused neg: {e}")))?,
+                        ElemOp::Exp => cuda
+                            .exp(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused exp: {e}")))?,
+                        ElemOp::Sqrt => cuda
+                            .sqrt(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused sqrt: {e}")))?,
+                        ElemOp::Relu => cuda
+                            .relu(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused relu: {e}")))?,
+                        ElemOp::Gelu => cuda
+                            .gelu(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused gelu: {e}")))?,
+                        ElemOp::Sigmoid => cuda
+                            .sigmoid(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused sigmoid: {e}")))?,
+                        ElemOp::Tanh => cuda
+                            .tanh(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused tanh: {e}")))?,
+                        ElemOp::Silu => cuda
+                            .silu(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused silu: {e}")))?,
+                        ElemOp::Ln => cuda
+                            .ln(&x)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused ln: {e}")))?,
+                        ElemOp::Powf => cuda
+                            .powf(&x, 2.0)
+                            .map_err(|e| GpuError::Compute(format!("CUDA fused powf: {e}")))?,
+                        other => {
+                            return Err(GpuError::Compute(format!(
+                                "CUDA fused unary op not supported: {other:?}"
+                            )))
+                        }
                     };
                 }
                 return self.cuda_write_tensor(cuda, &x);
@@ -2380,7 +2667,9 @@ impl GpuContext {
             pipeline,
             &[(0, a.buffer()), (1, b.buffer()), (2, &out_buffer)],
             &[(3, &cfg_buf), (4, &ops_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -2402,16 +2691,36 @@ impl GpuContext {
         Ok(())
     }
 
-    pub fn sub(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Sub) }
-    pub fn mul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Mul) }
-    pub fn div(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_binary(a, b, ElemOp::Div) }
-    pub fn sqrt(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Sqrt) }
-    pub fn exp(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Exp) }
-    pub fn relu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Relu) }
-    pub fn sigmoid(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Sigmoid) }
-    pub fn silu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Silu) }
-    pub fn gelu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Gelu) }
-    pub fn tanh(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> { self.elementwise_unary(a, ElemOp::Tanh) }
+    pub fn sub(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_binary(a, b, ElemOp::Sub)
+    }
+    pub fn mul(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_binary(a, b, ElemOp::Mul)
+    }
+    pub fn div(&self, a: &GpuTensor, b: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_binary(a, b, ElemOp::Div)
+    }
+    pub fn sqrt(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Sqrt)
+    }
+    pub fn exp(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Exp)
+    }
+    pub fn relu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Relu)
+    }
+    pub fn sigmoid(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Sigmoid)
+    }
+    pub fn silu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Silu)
+    }
+    pub fn gelu(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Gelu)
+    }
+    pub fn tanh(&self, a: &GpuTensor) -> Result<GpuTensor, GpuError> {
+        self.elementwise_unary(a, ElemOp::Tanh)
+    }
 
     // ── LeakyReLU (needs custom cfg, not plain elementwise_unary) ──
     pub fn leaky_relu_inplace(
@@ -2444,7 +2753,9 @@ impl GpuContext {
             pipeline,
             &[(0, tensor.buffer())],
             &[(1, &cfg_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
         Ok(())
     }
@@ -2458,7 +2769,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.leaky_relu(&input_cuda, negative_slope)
+            let result_cuda = cuda
+                .leaky_relu(&input_cuda, negative_slope)
                 .map_err(|e| GpuError::Compute(format!("CUDA leaky_relu: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2481,7 +2793,8 @@ impl GpuContext {
             let x_cuda = self.get_or_cache_cuda(x)?;
             let cos_cuda = self.get_or_cache_cuda(cos)?;
             let sin_cuda = self.get_or_cache_cuda(sin)?;
-            let result_cuda = cuda.rotary_embedding(&x_cuda, &cos_cuda, &sin_cuda, head_dim)
+            let result_cuda = cuda
+                .rotary_embedding(&x_cuda, &cos_cuda, &sin_cuda, head_dim)
                 .map_err(|e| GpuError::Compute(format!("CUDA rotary_embedding: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2494,9 +2807,10 @@ impl GpuContext {
         let total_rows = shape[0] as u32;
         let dim = shape[1] as u32;
         if dim != head_dim {
-            return Err(GpuError::ShapeMismatch(
-                format!("RoPE GPU: dim {} != head_dim {}", dim, head_dim),
-            ));
+            return Err(GpuError::ShapeMismatch(format!(
+                "RoPE GPU: dim {} != head_dim {}",
+                dim, head_dim
+            )));
         }
         let half = head_dim / 2;
 
@@ -2541,7 +2855,9 @@ impl GpuContext {
             pipeline,
             &[(0, &out_buffer), (1, cos.buffer()), (2, sin.buffer())],
             &[(3, &cfg_buf)],
-            num_pairs, 256, 4,
+            num_pairs,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -2567,10 +2883,15 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let src_cuda = self.get_or_cache_cuda(src)?;
-            let result_cuda = cuda.repeat_heads(&src_cuda, kv_heads, q_heads, dim)
+            let result_cuda = cuda
+                .repeat_heads(&src_cuda, kv_heads, q_heads, dim)
                 .map_err(|e| GpuError::Compute(format!("CUDA repeat_heads: {e}")))?;
             let seq = src.shape()[0];
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![q_heads as usize, seq, dim as usize]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![q_heads as usize, seq, dim as usize],
+            );
         }
         let shape = src.shape();
         if shape.len() != 3 {
@@ -2609,7 +2930,9 @@ impl GpuContext {
             pipeline,
             &[(0, src.buffer()), (1, &dst_buffer)],
             &[(2, &cfg_buf)],
-            numel_dst as u32, 256, 4,
+            numel_dst as u32,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -2728,31 +3051,27 @@ impl GpuContext {
                     let bind_group = self.get_or_create_bind_group_shared(
                         &pipeline.bind_group_layout,
                         &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::Buffer(
-                                        wgpu::BufferBinding {
-                                            buffer: &current_buffer,
-                                            offset: input_offset,
-                                            size: wgpu::BufferSize::new(chunk_bytes),
-                                        },
-                                    ),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::Buffer(
-                                        wgpu::BufferBinding {
-                                            buffer: &out_buffer,
-                                            offset: output_offset,
-                                            size: wgpu::BufferSize::new(chunk_out_bytes),
-                                        },
-                                    ),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 2,
-                                    resource: cfg_buf.as_entire_binding(),
-                                },
-                            ],
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: &current_buffer,
+                                    offset: input_offset,
+                                    size: wgpu::BufferSize::new(chunk_bytes),
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: &out_buffer,
+                                    offset: output_offset,
+                                    size: wgpu::BufferSize::new(chunk_out_bytes),
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: cfg_buf.as_entire_binding(),
+                            },
+                        ],
                         &bg_label,
                     );
 
@@ -2777,19 +3096,19 @@ impl GpuContext {
                 let bind_group = self.get_or_create_bind_group_shared(
                     &pipeline.bind_group_layout,
                     &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: current_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: out_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: cfg_buf.as_entire_binding(),
-                            },
-                        ],
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: current_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: out_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: cfg_buf.as_entire_binding(),
+                        },
+                    ],
                     &bg_label,
                 );
 
@@ -2816,7 +3135,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.sum(&input_cuda)
+            let result_cuda = cuda
+                .sum(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA sum: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2828,7 +3148,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.max_val(&input_cuda)
+            let result_cuda = cuda
+                .max_val(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA max: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2840,7 +3161,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.min_val(&input_cuda)
+            let result_cuda = cuda
+                .min_val(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA min: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2852,7 +3174,16 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_softmax(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("softmax", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], SOFTMAX_WGSL, "softmax_main")
+        self.compile_shader(
+            "softmax",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            SOFTMAX_WGSL,
+            "softmax_main",
+        )
     }
 
     /// Softmax along last axis. Input shape: [rows, dim].
@@ -2860,7 +3191,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.softmax(&input_cuda)
+            let result_cuda = cuda
+                .softmax(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA softmax: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -2933,7 +3265,17 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_rms_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("rms_norm", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], RMSNORM_WGSL, "rms_norm_main")
+        self.compile_shader(
+            "rms_norm",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            RMSNORM_WGSL,
+            "rms_norm_main",
+        )
     }
 
     /// RMSNorm: out = x / rms(x) * weight. Shapes: x[batch, dim], weight[dim].
@@ -2947,7 +3289,8 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let x_cuda = self.get_or_cache_cuda(x)?;
             let weight_cuda = self.get_or_cache_cuda(weight)?;
-            let result_cuda = cuda.rms_norm(&x_cuda, &weight_cuda, eps)
+            let result_cuda = cuda
+                .rms_norm(&x_cuda, &weight_cuda, eps)
                 .map_err(|e| GpuError::Compute(format!("CUDA rms_norm: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3018,7 +3361,19 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_rms_norm_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("rms_norm_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), storage_binding(4, false), uniform_binding(5)], RMSNORM_BACKWARD_WGSL, "rms_norm_bwd_main")
+        self.compile_shader(
+            "rms_norm_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                storage_binding(4, false),
+                uniform_binding(5),
+            ],
+            RMSNORM_BACKWARD_WGSL,
+            "rms_norm_bwd_main",
+        )
     }
 
     pub fn rms_norm_backward(
@@ -3033,7 +3388,8 @@ impl GpuContext {
             let input_cuda = self.get_or_cache_cuda(input)?;
             let weight_cuda = self.get_or_cache_cuda(weight)?;
             let grad_cuda = self.get_or_cache_cuda(grad)?;
-            let (dx_cuda, dw_cuda) = cuda.rms_norm_backward(&input_cuda, &weight_cuda, &grad_cuda, eps)
+            let (dx_cuda, dw_cuda) = cuda
+                .rms_norm_backward(&input_cuda, &weight_cuda, &grad_cuda, eps)
                 .map_err(|e| GpuError::Compute(format!("CUDA rms_norm_backward: {e}")))?;
             let dim = input.shape()[1];
             let dx = self.cuda_write_tensor(cuda, &dx_cuda)?;
@@ -3139,7 +3495,21 @@ impl GpuContext {
     // ── LayerNorm Backward ──────────────────────────────────────────────
 
     pub(crate) fn compile_layer_norm_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("layer_norm_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, true), storage_binding(4, false), storage_binding(5, false), storage_binding(6, false), uniform_binding(7)], LAYERNORM_BACKWARD_WGSL, "layer_norm_bwd_main")
+        self.compile_shader(
+            "layer_norm_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, true),
+                storage_binding(4, false),
+                storage_binding(5, false),
+                storage_binding(6, false),
+                uniform_binding(7),
+            ],
+            LAYERNORM_BACKWARD_WGSL,
+            "layer_norm_bwd_main",
+        )
     }
 
     pub fn layer_norm_backward(
@@ -3156,7 +3526,8 @@ impl GpuContext {
             let weight_cuda = self.get_or_cache_cuda(weight)?;
             let bias_cuda = self.get_or_cache_cuda(bias)?;
             let grad_cuda = self.get_or_cache_cuda(grad)?;
-            let (dx_cuda, dw_cuda, db_cuda) = cuda.layer_norm_backward(&input_cuda, &weight_cuda, &bias_cuda, &grad_cuda, eps)
+            let (dx_cuda, dw_cuda, db_cuda) = cuda
+                .layer_norm_backward(&input_cuda, &weight_cuda, &bias_cuda, &grad_cuda, eps)
                 .map_err(|e| GpuError::Compute(format!("CUDA layer_norm_backward: {e}")))?;
             let dim = input.shape()[1];
             let dx = self.cuda_write_tensor(cuda, &dx_cuda)?;
@@ -3295,7 +3666,17 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_cross_entropy(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("cross_entropy", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], CROSS_ENTROPY_WGSL, "cross_entropy_main")
+        self.compile_shader(
+            "cross_entropy",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            CROSS_ENTROPY_WGSL,
+            "cross_entropy_main",
+        )
     }
 
     /// Cross-entropy loss. logits: [batch, classes], targets: [batch] (u32 as f32).
@@ -3310,7 +3691,8 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let logits_cuda = self.get_or_cache_cuda(logits)?;
             let targets_cuda = self.get_or_cache_cuda(targets)?;
-            let result_cuda = cuda.cross_entropy(&logits_cuda, &targets_cuda)
+            let result_cuda = cuda
+                .cross_entropy(&logits_cuda, &targets_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA cross_entropy: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3382,7 +3764,18 @@ impl GpuContext {
     }
 
     pub(crate) fn compile_cross_entropy_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("cross_entropy_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4)], CROSS_ENTROPY_BACKWARD_WGSL, "cross_entropy_bwd_main")
+        self.compile_shader(
+            "cross_entropy_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            CROSS_ENTROPY_BACKWARD_WGSL,
+            "cross_entropy_bwd_main",
+        )
     }
 
     /// Cross-entropy backward: d_logits = grad * (softmax - one_hot(targets)).
@@ -3398,7 +3791,8 @@ impl GpuContext {
             let softmax_cuda = self.get_or_cache_cuda(softmax)?;
             let grad_cuda = self.get_or_cache_cuda(grad)?;
             let targets_cuda = self.get_or_cache_cuda(targets)?;
-            let result_cuda = cuda.cross_entropy_backward(&softmax_cuda, &grad_cuda, &targets_cuda)
+            let result_cuda = cuda
+                .cross_entropy_backward(&softmax_cuda, &grad_cuda, &targets_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA cross_entropy_backward: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3431,9 +3825,16 @@ impl GpuContext {
 
         self.dispatch_1d_chunked(
             pipeline,
-            &[(0, softmax.buffer()), (1, grad.buffer()), (2, targets.buffer()), (3, &out_buffer)],
+            &[
+                (0, softmax.buffer()),
+                (1, grad.buffer()),
+                (2, targets.buffer()),
+                (3, &out_buffer),
+            ],
             &[(4, &cfg_buf)],
-            total, 256, 4,
+            total,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -3450,11 +3851,31 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_embedding(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("embedding", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], EMBEDDING_WGSL, "embedding_main")
+        self.compile_shader(
+            "embedding",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            EMBEDDING_WGSL,
+            "embedding_main",
+        )
     }
 
     pub(crate) fn compile_embedding_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("embedding_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, false), uniform_binding(3)], EMBEDDING_BACKWARD_WGSL, "embedding_backward_main")
+        self.compile_shader(
+            "embedding_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, false),
+                uniform_binding(3),
+            ],
+            EMBEDDING_BACKWARD_WGSL,
+            "embedding_backward_main",
+        )
     }
 
     /// Embedding backward: scatter-add grad into d_weight.
@@ -3469,9 +3890,14 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let ids_cuda = self.get_or_cache_cuda(ids)?;
             let grad_cuda = self.get_or_cache_cuda(grad)?;
-            let result_cuda = cuda.embedding_backward(&ids_cuda, &grad_cuda, vocab_size)
+            let result_cuda = cuda
+                .embedding_backward(&ids_cuda, &grad_cuda, vocab_size)
                 .map_err(|e| GpuError::Compute(format!("CUDA embedding_backward: {e}")))?;
-            return self.cuda_write_tensor_with_shape(cuda, &result_cuda, vec![vocab_size, grad.shape()[grad.shape().len() - 1]]);
+            return self.cuda_write_tensor_with_shape(
+                cuda,
+                &result_cuda,
+                vec![vocab_size, grad.shape()[grad.shape().len() - 1]],
+            );
         }
         let grad_shape = grad.shape();
         let dim = grad_shape[grad_shape.len() - 1];
@@ -3515,7 +3941,9 @@ impl GpuContext {
             pipeline,
             &[(0, ids.buffer()), (1, grad.buffer()), (2, &d_weight_buf)],
             &[(3, &cfg_buf)],
-            total_threads, 256, 4,
+            total_threads,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -3541,7 +3969,8 @@ impl GpuContext {
         if let Some(cuda) = self.cuda {
             let ids_cuda = self.get_or_cache_cuda(ids)?;
             let weight_cuda = self.get_or_cache_cuda(weight)?;
-            let result_cuda = cuda.embedding(&ids_cuda, &weight_cuda)
+            let result_cuda = cuda
+                .embedding(&ids_cuda, &weight_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA embedding: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3577,7 +4006,9 @@ impl GpuContext {
             pipeline,
             &[(0, ids.buffer()), (1, weight.buffer()), (2, &out_buffer)],
             &[(3, &cfg_buf)],
-            seq_len * dim, 256, 4,
+            seq_len * dim,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -3594,7 +4025,18 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_layer_norm(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("layer_norm", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4)], LAYERNORM_WGSL, "layer_norm_main")
+        self.compile_shader(
+            "layer_norm",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                uniform_binding(4),
+            ],
+            LAYERNORM_WGSL,
+            "layer_norm_main",
+        )
     }
 
     /// LayerNorm: out = (x - mean) / sqrt(var + eps) * weight + bias
@@ -3617,7 +4059,8 @@ impl GpuContext {
             let x_cuda = self.get_or_cache_cuda(x)?;
             let weight_cuda = self.get_or_cache_cuda(weight)?;
             let bias_cuda = self.get_or_cache_cuda(bias)?;
-            let result_cuda = cuda.layer_norm(&x_cuda, &weight_cuda, &bias_cuda, eps)
+            let result_cuda = cuda
+                .layer_norm(&x_cuda, &weight_cuda, &bias_cuda, eps)
                 .map_err(|e| GpuError::Compute(format!("CUDA layer_norm: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3692,7 +4135,16 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_transpose(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("transpose", &[storage_binding(0, true), storage_binding(1, false), uniform_binding(2)], TRANSPOSE_WGSL, "transpose_main")
+        self.compile_shader(
+            "transpose",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, false),
+                uniform_binding(2),
+            ],
+            TRANSPOSE_WGSL,
+            "transpose_main",
+        )
     }
 
     /// Transpose a 2D tensor [rows, cols] → [cols, rows]
@@ -3701,7 +4153,8 @@ impl GpuContext {
         #[cfg(feature = "cuda")]
         if let Some(cuda) = self.cuda {
             let input_cuda = self.get_or_cache_cuda(input)?;
-            let result_cuda = cuda.transpose(&input_cuda)
+            let result_cuda = cuda
+                .transpose(&input_cuda)
                 .map_err(|e| GpuError::Compute(format!("CUDA transpose: {e}")))?;
             return self.cuda_write_tensor(cuda, &result_cuda);
         }
@@ -3743,7 +4196,9 @@ impl GpuContext {
             pipeline,
             &[(0, input.buffer()), (1, &out_buffer)],
             &[(2, &cfg_buf)],
-            numel as u32, 256, 4,
+            numel as u32,
+            256,
+            4,
         );
 
         Ok(GpuTensor {
@@ -3776,7 +4231,19 @@ impl GpuContext {
     // ═══════════════════════════════════════════════════════════════════════════
 
     pub(crate) fn compile_fused_attention(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("fused_attention", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, false), uniform_binding(4), uniform_binding(5)], FUSED_ATTENTION_WGSL, "fused_attention_main")
+        self.compile_shader(
+            "fused_attention",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, false),
+                uniform_binding(4),
+                uniform_binding(5),
+            ],
+            FUSED_ATTENTION_WGSL,
+            "fused_attention_main",
+        )
     }
 
     /// Fused attention: O = softmax(Q @ K^T / scale) @ V
@@ -3808,7 +4275,8 @@ impl GpuContext {
             // ── FAST PATH: inline CUDA tensor cache (zero-copy, no PCIe) ──
             // Ketika Q/K/V dibuat via from_cpu(), mereka sudah punya CudaTensor inline.
             // Lewati wgpu→CPU→CUDA bridge — langsung compute di CUDA.
-            if let (Some(q_ct), Some(k_ct), Some(v_ct)) = (q.get_cuda(), k.get_cuda(), v.get_cuda()) {
+            if let (Some(q_ct), Some(k_ct), Some(v_ct)) = (q.get_cuda(), k.get_cuda(), v.get_cuda())
+            {
                 let result_cuda = if q_shape[2] == 1 || q_shape[2] > 4096 {
                     cuda.flash_decoding(q_ct, k_ct, v_ct, scale, causal)
                         .map_err(|e| GpuError::Compute(format!("CUDA flash_decoding: {e}")))?
@@ -3825,14 +4293,12 @@ impl GpuContext {
             let k_size = (k.numel() * 4) as u64;
             let v_size = (v.numel() * 4) as u64;
             let total_bytes = q_size + k_size + v_size;
-            let staging = self
-                .device
-                .create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("fused_attn_qkv_staging"),
-                    size: total_bytes,
-                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                    mapped_at_creation: false,
-                });
+            let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fused_attn_qkv_staging"),
+                size: total_bytes,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
             let mut encoder = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -3848,7 +4314,8 @@ impl GpuContext {
             let k_len = k.numel();
             let v_len = v.numel();
             let (q_cuda, k_cuda, v_cuda) = {
-                let _limiter_token = self.readback_limiter
+                let _limiter_token = self
+                    .readback_limiter
                     .acquire(std::time::Duration::from_secs(30))
                     .then_some(())
                     .ok_or_else(|| GpuError::Timeout("GPU readback limiter".into()))?;
@@ -3857,8 +4324,7 @@ impl GpuContext {
                 slice.map_async(wgpu::MapMode::Read, move |r| {
                     let _ = tx.send(r);
                 });
-                let deadline = std::time::Instant::now()
-                    + std::time::Duration::from_secs(30);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
                 let result = loop {
                     self.device.poll(wgpu::PollType::Wait {
                         submission_index: None,
@@ -3869,18 +4335,34 @@ impl GpuContext {
                             let mapped = slice.get_mapped_range();
                             let qkv_f32: &[f32] = bytemuck::cast_slice(&mapped);
 
-                            let q_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, q.shape().clone(), &qkv_f32[..q_len], cuda.device_id)
-                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
-                            let k_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, k.shape().clone(), &qkv_f32[q_len..q_len + k_len], cuda.device_id)
-                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
-                            let v_cuda = CudaTensor::from_cpu(&cuda.transfer_stream, v.shape().clone(), &qkv_f32[q_len + k_len..q_len + k_len + v_len], cuda.device_id)
-                                .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
-                            cuda.sync_transfer().map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
+                            let q_cuda = CudaTensor::from_cpu(
+                                &cuda.transfer_stream,
+                                q.shape().clone(),
+                                &qkv_f32[..q_len],
+                                cuda.device_id,
+                            )
+                            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            let k_cuda = CudaTensor::from_cpu(
+                                &cuda.transfer_stream,
+                                k.shape().clone(),
+                                &qkv_f32[q_len..q_len + k_len],
+                                cuda.device_id,
+                            )
+                            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            let v_cuda = CudaTensor::from_cpu(
+                                &cuda.transfer_stream,
+                                v.shape().clone(),
+                                &qkv_f32[q_len + k_len..q_len + k_len + v_len],
+                                cuda.device_id,
+                            )
+                            .map_err(|e| GpuError::Transfer(format!("CUDA htod: {e}")))?;
+                            cuda.sync_transfer()
+                                .map_err(|e| GpuError::Compute(format!("sync_transfer: {e}")))?;
 
                             drop(mapped);
                             staging.unmap();
 
-                            break Ok((q_cuda, k_cuda, v_cuda))
+                            break Ok((q_cuda, k_cuda, v_cuda));
                         }
                         Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                             break Err(GpuError::Timeout("fused_attn QKV readback".into()));
@@ -3900,14 +4382,10 @@ impl GpuContext {
 
             let result_cuda = if q_shape[2] == 1 || q_shape[2] > 4096 {
                 cuda.flash_decoding(&q_cuda, &k_cuda, &v_cuda, scale, causal)
-                    .map_err(|e| {
-                        GpuError::Compute(format!("CUDA flash_decoding: {e}"))
-                    })?
+                    .map_err(|e| GpuError::Compute(format!("CUDA flash_decoding: {e}")))?
             } else {
                 cuda.fused_attention(&q_cuda, &k_cuda, &v_cuda, scale, causal)
-                    .map_err(|e| {
-                        GpuError::Compute(format!("CUDA fused_attention: {e}"))
-                    })?
+                    .map_err(|e| GpuError::Compute(format!("CUDA fused_attention: {e}")))?
             };
 
             // Write result to wgpu buffer + attach cuda_tensor untuk future zero-copy
@@ -4013,7 +4491,22 @@ impl GpuContext {
     // Allocates dQ/dK/dV internally (caller must ensure zero-init if needed).
 
     pub(crate) fn compile_fused_attention_backward(&mut self) -> Result<(), GpuError> {
-        self.compile_shader("fused_attention_backward", &[storage_binding(0, true), storage_binding(1, true), storage_binding(2, true), storage_binding(3, true), storage_binding(4, false), storage_binding(5, false), storage_binding(6, false), uniform_binding(7), uniform_binding(8)], FUSED_ATTENTION_BACKWARD_WGSL, "fused_attn_backward_main")
+        self.compile_shader(
+            "fused_attention_backward",
+            &[
+                storage_binding(0, true),
+                storage_binding(1, true),
+                storage_binding(2, true),
+                storage_binding(3, true),
+                storage_binding(4, false),
+                storage_binding(5, false),
+                storage_binding(6, false),
+                uniform_binding(7),
+                uniform_binding(8),
+            ],
+            FUSED_ATTENTION_BACKWARD_WGSL,
+            "fused_attn_backward_main",
+        )
     }
 
     /// Fused attention backward: compute dQ, dK, dV from Q, K, V, dO.
@@ -4041,9 +4534,9 @@ impl GpuContext {
             let k_cuda = self.get_or_cache_cuda(k)?;
             let v_cuda = self.get_or_cache_cuda(v)?;
             let grad_cuda = self.get_or_cache_cuda(grad)?;
-            let (dq_cuda, dk_cuda, dv_cuda) = cuda.fused_attention_backward(
-                &q_cuda, &k_cuda, &v_cuda, &grad_cuda, scale, causal,
-            ).map_err(|e| GpuError::Compute(format!("CUDA fused_attention_backward: {e}")))?;
+            let (dq_cuda, dk_cuda, dv_cuda) = cuda
+                .fused_attention_backward(&q_cuda, &k_cuda, &v_cuda, &grad_cuda, scale, causal)
+                .map_err(|e| GpuError::Compute(format!("CUDA fused_attention_backward: {e}")))?;
             let dq = self.cuda_write_tensor_with_shape(cuda, &dq_cuda, shape.clone())?;
             let dk = self.cuda_write_tensor_with_shape(cuda, &dk_cuda, shape.clone())?;
             let dv = self.cuda_write_tensor_with_shape(cuda, &dv_cuda, shape.clone())?;
@@ -4212,5 +4705,4 @@ impl GpuContext {
 
         Ok((dq, dk, dv))
     }
-
 }

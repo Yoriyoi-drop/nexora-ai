@@ -38,7 +38,12 @@ impl WorkerAgent {
     }
 
     /// Persist a completed work item to long-term memory.
-    pub(crate) async fn persist_work_completed(&self, work_id: &Uuid, output: &serde_json::Value, elapsed: u64) {
+    pub(crate) async fn persist_work_completed(
+        &self,
+        work_id: &Uuid,
+        output: &serde_json::Value,
+        elapsed: u64,
+    ) {
         let store = match &self.memory_store {
             Some(s) => s,
             None => return,
@@ -117,7 +122,8 @@ impl WorkerAgent {
                             .retrieve(nexora_memory::MemoryLayer::Session, &key)
                             .await
                         {
-                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&entry) {
+                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&entry)
+                            {
                                 if let Some(step_id) = json_val
                                     .get("step_id")
                                     .and_then(|v| v.as_str())

@@ -18,7 +18,7 @@ pub struct WatchdogConfig {
 impl Default for WatchdogConfig {
     fn default() -> Self {
         Self {
-            timeout_ms: 30_000,  // 30s per operation
+            timeout_ms: 30_000,       // 30s per operation
             check_interval_ms: 5_000, // check every 5s
             max_hangs_before_reset: 3,
         }

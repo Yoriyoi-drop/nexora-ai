@@ -56,13 +56,11 @@ impl ModelsConfig {
     pub fn resolved_checkpoints(&self) -> HashMap<NxrModelId, String> {
         self.model_checkpoints
             .iter()
-            .filter_map(|(k, v)| {
-                match parse_model_id(k) {
-                    Some(id) => Some((id, v.clone())),
-                    None => {
-                        tracing::warn!("Unknown model ID in checkpoints: {}", k);
-                        None
-                    }
+            .filter_map(|(k, v)| match parse_model_id(k) {
+                Some(id) => Some((id, v.clone())),
+                None => {
+                    tracing::warn!("Unknown model ID in checkpoints: {}", k);
+                    None
                 }
             })
             .collect()

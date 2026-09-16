@@ -1,5 +1,3 @@
-
-
 use super::gpu_types::*;
 
 /// Maximum workgroups per dimension for wgpu/WebGPU (65535).

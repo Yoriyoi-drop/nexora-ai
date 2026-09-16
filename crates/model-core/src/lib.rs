@@ -4,5 +4,5 @@
 //! used by all NXR model crates (omnis, aether, vortex, etc.).
 
 pub mod classifier_util;
-pub mod foundation;
 pub mod delegation_base;
+pub mod foundation;

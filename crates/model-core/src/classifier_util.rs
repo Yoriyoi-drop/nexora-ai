@@ -17,9 +17,7 @@ pub fn xavier_init_seeded(rows: usize, cols: usize, seed: u64) -> Array2<f32> {
 }
 
 pub fn gelu(x: &Array1<f32>) -> Array1<f32> {
-    x.mapv(|v| {
-        0.5 * v * (1.0 + (v * 0.7978845608028654 * (1.0 + 0.044715 * v * v)).tanh())
-    })
+    x.mapv(|v| 0.5 * v * (1.0 + (v * 0.7978845608028654 * (1.0 + 0.044715 * v * v)).tanh()))
 }
 
 pub fn softmax(x: &Array1<f32>) -> Array1<f32> {
@@ -36,7 +34,10 @@ pub fn validate_embedding_dim(embed_table: &Array2<f32>, expected_hidden: usize,
     if actual_hidden != expected_hidden {
         tracing::warn!(
             "{}: embedding dim mismatch — config says {}, CausalLM has {}. Using runtime dim {}.",
-            model_name, expected_hidden, actual_hidden, actual_hidden
+            model_name,
+            expected_hidden,
+            actual_hidden,
+            actual_hidden
         );
     }
 }
@@ -49,7 +50,8 @@ pub fn validate_embedding_dim(embed_table: &Array2<f32>, expected_hidden: usize,
 pub fn sanitize_prompt(prompt: &str) -> String {
     const MAX_LEN: usize = 2000;
     // 1. Replace newlines with spaces
-    let s: String = prompt.chars()
+    let s: String = prompt
+        .chars()
         .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
         .collect();
     // 2. Strip HTML tags
@@ -138,7 +140,12 @@ pub struct ClassifierWeights {
 }
 
 impl ClassifierWeights {
-    pub fn from_arrays(w1: &Array2<f32>, b1: &Array1<f32>, w2: &Array2<f32>, b2: &Array1<f32>) -> Self {
+    pub fn from_arrays(
+        w1: &Array2<f32>,
+        b1: &Array1<f32>,
+        w2: &Array2<f32>,
+        b2: &Array1<f32>,
+    ) -> Self {
         Self {
             w1_rows: w1.shape()[0],
             w1_cols: w1.shape()[1],
@@ -152,21 +159,23 @@ impl ClassifierWeights {
     }
 
     pub fn to_w1(&self) -> Array2<f32> {
-        Array2::from_shape_vec((self.w1_rows, self.w1_cols), self.w1_data.clone())
-            .unwrap_or_else(|e| {
+        Array2::from_shape_vec((self.w1_rows, self.w1_cols), self.w1_data.clone()).unwrap_or_else(
+            |e| {
                 tracing::error!("ClassifierWeights::to_w1: {e}. Returning zeros.");
                 Array2::zeros((self.w1_rows, self.w1_cols))
-            })
+            },
+        )
     }
     pub fn to_b1(&self) -> Array1<f32> {
         Array1::from_vec(self.b1_data.clone())
     }
     pub fn to_w2(&self) -> Array2<f32> {
-        Array2::from_shape_vec((self.w2_rows, self.w2_cols), self.w2_data.clone())
-            .unwrap_or_else(|e| {
+        Array2::from_shape_vec((self.w2_rows, self.w2_cols), self.w2_data.clone()).unwrap_or_else(
+            |e| {
                 tracing::error!("ClassifierWeights::to_w2: {e}. Returning zeros.");
                 Array2::zeros((self.w2_rows, self.w2_cols))
-            })
+            },
+        )
     }
     pub fn to_b2(&self) -> Array1<f32> {
         Array1::from_vec(self.b2_data.clone())
@@ -174,7 +183,13 @@ impl ClassifierWeights {
 }
 
 /// Save classifier weights to a JSON file.
-pub fn save_classifier_weights(path: &str, w1: &Array2<f32>, b1: &Array1<f32>, w2: &Array2<f32>, b2: &Array1<f32>) -> std::io::Result<()> {
+pub fn save_classifier_weights(
+    path: &str,
+    w1: &Array2<f32>,
+    b1: &Array1<f32>,
+    w2: &Array2<f32>,
+    b2: &Array1<f32>,
+) -> std::io::Result<()> {
     let cw = ClassifierWeights::from_arrays(w1, b1, w2, b2);
     let json = serde_json::to_string(&cw)?;
     std::fs::write(path, json)
@@ -233,7 +248,9 @@ pub fn train_classifier_sgd(
 
             // Softmax + cross-entropy loss
             let probs = softmax(&logits);
-            let loss: f32 = target.iter().zip(probs.iter())
+            let loss: f32 = target
+                .iter()
+                .zip(probs.iter())
                 .map(|(t, p)| if *t > 0.5 { -p.ln().max(-20.0) } else { 0.0 })
                 .sum();
             epoch_loss += loss;
@@ -283,7 +300,11 @@ pub fn train_classifier_sgd(
         total_loss = avg_loss;
 
         if epoch % 10 == 0 && epoch > 0 {
-            tracing::info!("Classifier train epoch {}: avg loss = {:.6}", epoch, avg_loss);
+            tracing::info!(
+                "Classifier train epoch {}: avg loss = {:.6}",
+                epoch,
+                avg_loss
+            );
         }
     }
 
@@ -324,7 +345,12 @@ impl<const N: usize> GenericClassifier<N> {
     }
 
     /// Predict labels in original order (no sorting). Returns default if token_ids empty.
-    pub fn predict(&self, token_ids: &[u32], labels: &[&str; N], default: &str) -> Vec<(String, f32)> {
+    pub fn predict(
+        &self,
+        token_ids: &[u32],
+        labels: &[&str; N],
+        default: &str,
+    ) -> Vec<(String, f32)> {
         if token_ids.is_empty() {
             return vec![(default.to_string(), 1.0)];
         }
@@ -332,11 +358,20 @@ impl<const N: usize> GenericClassifier<N> {
         let h = gelu(&(avg.dot(&self.w1) + &self.b1));
         let logits = h.dot(&self.w2) + &self.b2;
         let probs = softmax(&logits);
-        labels.iter().zip(probs.iter()).map(|(l, &p)| (l.to_string(), p)).collect()
+        labels
+            .iter()
+            .zip(probs.iter())
+            .map(|(l, &p)| (l.to_string(), p))
+            .collect()
     }
 
     /// Predict labels sorted by probability descending.
-    pub fn predict_sorted(&self, token_ids: &[u32], labels: &[&str; N], default: &str) -> Vec<(String, f32)> {
+    pub fn predict_sorted(
+        &self,
+        token_ids: &[u32],
+        labels: &[&str; N],
+        default: &str,
+    ) -> Vec<(String, f32)> {
         let mut results = self.predict(token_ids, labels, default);
         results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         results

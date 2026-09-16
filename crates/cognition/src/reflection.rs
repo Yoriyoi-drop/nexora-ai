@@ -9,8 +9,8 @@
 //! - suggest_improvements(): merges heuristic rules with stored insights.
 //! - stats(): returns live statistics from the history store.
 
-use async_trait::async_trait;
 use crate::FoundationResult;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

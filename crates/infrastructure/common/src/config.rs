@@ -5,8 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Global configuration for the application
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlobalConfig {
     /// Task classification keywords
     pub task_keywords: TaskKeywords,
@@ -116,7 +115,6 @@ impl Default for TaskAnalysisConfig {
         }
     }
 }
-
 
 impl GlobalConfig {
     /// Get global configuration instance

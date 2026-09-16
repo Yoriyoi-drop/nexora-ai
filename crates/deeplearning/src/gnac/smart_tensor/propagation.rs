@@ -62,14 +62,18 @@ impl ShapePropagator {
             NodeType::Linear => {
                 let input = &inputs[0];
                 if input.len() != 2 {
-                    return Err(crate::gnac::DeepLearningError::InvalidDimension { dim: input.len() });
+                    return Err(crate::gnac::DeepLearningError::InvalidDimension {
+                        dim: input.len(),
+                    });
                 }
                 Ok(vec![vec![input[0], 3072]])
             }
             NodeType::Conv2D => {
                 let input = &inputs[0];
                 if input.len() != 4 {
-                    return Err(crate::gnac::DeepLearningError::InvalidDimension { dim: input.len() });
+                    return Err(crate::gnac::DeepLearningError::InvalidDimension {
+                        dim: input.len(),
+                    });
                 }
                 let (n, _c, h, w) = (input[0], input[1], input[2], input[3]);
                 // stride=1, padding=same, 64 filters
@@ -78,7 +82,9 @@ impl ShapePropagator {
             NodeType::SelfAttention | NodeType::MultiHeadAttention => {
                 let input = &inputs[0];
                 if input.len() != 3 {
-                    return Err(crate::gnac::DeepLearningError::InvalidDimension { dim: input.len() });
+                    return Err(crate::gnac::DeepLearningError::InvalidDimension {
+                        dim: input.len(),
+                    });
                 }
                 Ok(vec![
                     vec![input[0], input[1], input[2]],

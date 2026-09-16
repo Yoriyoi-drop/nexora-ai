@@ -270,8 +270,7 @@ impl CalibrationBatch {
 }
 
 /// Recovery method enumeration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum RecoveryMethod {
     #[default]
     KnowledgeDistillation,
@@ -280,7 +279,6 @@ pub enum RecoveryMethod {
     AdaptiveCalibration,
     Hybrid,
 }
-
 
 /// Accuracy recovery configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,8 +435,7 @@ pub trait ModelLayer: Send + Sync {
 }
 
 /// Error severity enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum ErrorSeverity {
     Info = 0,
     #[default]
@@ -446,7 +443,6 @@ pub enum ErrorSeverity {
     Error = 2,
     Critical = 3,
 }
-
 
 /// Layer sensitivity information
 #[derive(Debug, Clone, Serialize, Deserialize)]

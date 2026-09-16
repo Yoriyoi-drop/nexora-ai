@@ -449,16 +449,20 @@ impl KVCache {
         info!("Clearing all cache entries");
 
         // Concurrent clear across shards
-        let handles: Vec<_> = self.shards.iter().map(|shard| {
-            let s = Arc::clone(shard);
-            tokio::spawn(async move {
-                let mut shard_guard = s.write().await;
-                shard_guard.entries.clear();
-                shard_guard.lru_order.clear();
-                shard_guard.current_size_bytes = 0;
-                shard_guard.stats = ShardStats::default();
+        let handles: Vec<_> = self
+            .shards
+            .iter()
+            .map(|shard| {
+                let s = Arc::clone(shard);
+                tokio::spawn(async move {
+                    let mut shard_guard = s.write().await;
+                    shard_guard.entries.clear();
+                    shard_guard.lru_order.clear();
+                    shard_guard.current_size_bytes = 0;
+                    shard_guard.stats = ShardStats::default();
+                })
             })
-        }).collect();
+            .collect();
         for handle in handles {
             let _ = handle.await;
         }

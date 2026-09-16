@@ -275,8 +275,16 @@ impl BpeTokenizer {
             let new_id = self.next_id;
             self.next_id += 1;
 
-            let s1 = self.reverse_vocab.get(&id1).cloned().unwrap_or_else(|| "?".to_string());
-            let s2 = self.reverse_vocab.get(&id2).cloned().unwrap_or_else(|| "?".to_string());
+            let s1 = self
+                .reverse_vocab
+                .get(&id1)
+                .cloned()
+                .unwrap_or_else(|| "?".to_string());
+            let s2 = self
+                .reverse_vocab
+                .get(&id2)
+                .cloned()
+                .unwrap_or_else(|| "?".to_string());
             let merged_str = format!("{}{}", s1, s2);
 
             self.vocab.insert(merged_str.clone(), new_id);
@@ -333,10 +341,7 @@ impl BpeTokenizer {
                 for &p in &new_pairs {
                     if !pushed.contains_key(&p) {
                         if let Some(&f) = pair_freqs.get(&p) {
-                            heap.push(PairFreq {
-                                pair: p,
-                                freq: f,
-                            });
+                            heap.push(PairFreq { pair: p, freq: f });
                             pushed.insert(p, ());
                         }
                     }
@@ -373,7 +378,10 @@ impl BpeTokenizer {
         Ok(())
     }
 
-    pub fn train_from_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn train_from_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let file = fs::File::open(path.as_ref())?;
         let mmap = unsafe { Mmap::map(&file)? };
         let corpus = std::str::from_utf8(&mmap)?;
@@ -492,8 +500,16 @@ impl BpeTokenizer {
 
         let mut merges_file = fs::File::create(path.join("merges.txt"))?;
         for &(id1, id2) in &self.merges {
-            let s1 = self.reverse_vocab.get(&id1).map(|s| s.as_str()).unwrap_or("?");
-            let s2 = self.reverse_vocab.get(&id2).map(|s| s.as_str()).unwrap_or("?");
+            let s1 = self
+                .reverse_vocab
+                .get(&id1)
+                .map(|s| s.as_str())
+                .unwrap_or("?");
+            let s2 = self
+                .reverse_vocab
+                .get(&id2)
+                .map(|s| s.as_str())
+                .unwrap_or("?");
             writeln!(merges_file, "{} {}", s1, s2)?;
         }
 
@@ -559,7 +575,11 @@ impl BpeTokenizer {
         }
     }
 
-    pub fn add_word(&mut self, word: &str, _frequency: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn add_word(
+        &mut self,
+        word: &str,
+        _frequency: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.vocab.len() >= self.config.vocab_size {
             return Err("Vocabulary size limit reached".into());
         }
@@ -572,13 +592,27 @@ impl BpeTokenizer {
         Ok(())
     }
 
-    pub fn unknown_token(&self) -> &str { &self.config.unknown_token }
-    pub fn pad_token(&self) -> &str { &self.config.pad_token }
-    pub fn bos_token(&self) -> &str { &self.config.bos_token }
-    pub fn eos_token(&self) -> &str { &self.config.eos_token }
-    pub fn space_sentinel(&self) -> &str { &self.config.space_sentinel }
-    pub fn merges(&self) -> &[Pair] { &self.merges }
-    pub fn merge_ranks(&self) -> &FxHashMap<Pair, u32> { &self.merge_ranks }
+    pub fn unknown_token(&self) -> &str {
+        &self.config.unknown_token
+    }
+    pub fn pad_token(&self) -> &str {
+        &self.config.pad_token
+    }
+    pub fn bos_token(&self) -> &str {
+        &self.config.bos_token
+    }
+    pub fn eos_token(&self) -> &str {
+        &self.config.eos_token
+    }
+    pub fn space_sentinel(&self) -> &str {
+        &self.config.space_sentinel
+    }
+    pub fn merges(&self) -> &[Pair] {
+        &self.merges
+    }
+    pub fn merge_ranks(&self) -> &FxHashMap<Pair, u32> {
+        &self.merge_ranks
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -717,7 +751,8 @@ mod tests {
     #[test]
     fn test_roundtrip() {
         let mut t = BpeTokenizer::new(test_config());
-        t.train("the quick brown fox jumps over the lazy dog").unwrap();
+        t.train("the quick brown fox jumps over the lazy dog")
+            .unwrap();
         let cases = vec![
             "the quick brown fox",
             "hello world",
@@ -772,9 +807,18 @@ mod tests {
     #[test]
     fn test_priority_queue() {
         let mut heap: BinaryHeap<PairFreq> = BinaryHeap::new();
-        heap.push(PairFreq { pair: (1, 2), freq: 5 });
-        heap.push(PairFreq { pair: (3, 4), freq: 10 });
-        heap.push(PairFreq { pair: (5, 6), freq: 3 });
+        heap.push(PairFreq {
+            pair: (1, 2),
+            freq: 5,
+        });
+        heap.push(PairFreq {
+            pair: (3, 4),
+            freq: 10,
+        });
+        heap.push(PairFreq {
+            pair: (5, 6),
+            freq: 3,
+        });
         assert_eq!(heap.pop().unwrap().freq, 10);
         assert_eq!(heap.pop().unwrap().freq, 5);
         assert_eq!(heap.pop().unwrap().freq, 3);

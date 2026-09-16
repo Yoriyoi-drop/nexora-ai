@@ -83,7 +83,9 @@ impl GpuContext {
             wgpu::DeviceType::IntegratedGpu => 16_000_000_000,
             _ => 8_000_000_000,
         };
-        let memory_coordinator = Mutex::new(crate::autograd::gpu_memory::MemoryCoordinator::new(vram_total));
+        let memory_coordinator = Mutex::new(crate::autograd::gpu_memory::MemoryCoordinator::new(
+            vram_total,
+        ));
         // Include driver version in cache key so driver updates invalidate the cache
         let driver_version = &adapter_info.driver_info;
         let cache_key = {
@@ -274,7 +276,6 @@ impl GpuContext {
         Ok(())
     }
 
-
     pub fn init() -> Result<&'static Self, GpuError> {
         GPU_CTX.get_or_try_init(Self::new_blocking)
     }
@@ -314,5 +315,4 @@ impl GpuContext {
         self.ops_since_flush
             .store(0, std::sync::atomic::Ordering::Release);
     }
-
 }

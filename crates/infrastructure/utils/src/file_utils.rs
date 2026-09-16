@@ -572,10 +572,7 @@ impl FileUtils {
 
         for file in files {
             if let Ok(checksum) = Self::calculate_checksum(&file) {
-                checksum_map
-                    .entry(checksum)
-                    .or_default()
-                    .push(file);
+                checksum_map.entry(checksum).or_default().push(file);
             }
         }
 

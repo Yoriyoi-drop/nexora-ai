@@ -26,10 +26,10 @@ use nexora_foundation::shared::model_identity::{ModelTier, NxrModelId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DebateDepth {
-    SingleModel,  // 0-30: langsung, tanpa debat
-    DualModel,    // 30-60: 2 model, 1 round
-    ThreeModel,   // 60-80: 3 model, 2 round
-    FullDebate,   // 80-100: 4+ model, 3 round
+    SingleModel, // 0-30: langsung, tanpa debat
+    DualModel,   // 30-60: 2 model, 1 round
+    ThreeModel,  // 60-80: 3 model, 2 round
+    FullDebate,  // 80-100: 4+ model, 3 round
 }
 
 impl DebateDepth {
@@ -81,14 +81,32 @@ impl ComplexityScorer {
 
         // Complexity keywords
         let complex_keywords = [
-            "analisis", "evaluasi", "implications", "dampak", "komparasi",
-            "bandingkan", "trade-off", "synthesis", "rekomendasi",
-            "strategi", "keputusan", "decision", "framework",
-            "arsitektur", "architecture", "design pattern",
-            "optimasi", "optimization", "scalability",
-            "multi-", "cross-", "inter-", "meta-",
+            "analisis",
+            "evaluasi",
+            "implications",
+            "dampak",
+            "komparasi",
+            "bandingkan",
+            "trade-off",
+            "synthesis",
+            "rekomendasi",
+            "strategi",
+            "keputusan",
+            "decision",
+            "framework",
+            "arsitektur",
+            "architecture",
+            "design pattern",
+            "optimasi",
+            "optimization",
+            "scalability",
+            "multi-",
+            "cross-",
+            "inter-",
+            "meta-",
         ];
-        let complex_count = complex_keywords.iter()
+        let complex_count = complex_keywords
+            .iter()
             .filter(|k| lower.contains(*k))
             .count() as f32;
         score += (complex_count / 5.0).min(1.0) * 0.25;
@@ -96,13 +114,26 @@ impl ComplexityScorer {
 
         // Domain breadth: jumlah domain berbeda
         let domain_keywords: &[(&str, &[&str])] = &[
-            ("tech", &["code", "server", "api", "database", "cloud", "microservice"]),
-            ("business", &["bisnis", "startup", "market", "revenue", "cost"]),
-            ("science", &["penelitian", "research", "data", "experiment", "theory"]),
-            ("human", &["orang", "masyarakat", "social", "etika", "culture"]),
+            (
+                "tech",
+                &["code", "server", "api", "database", "cloud", "microservice"],
+            ),
+            (
+                "business",
+                &["bisnis", "startup", "market", "revenue", "cost"],
+            ),
+            (
+                "science",
+                &["penelitian", "research", "data", "experiment", "theory"],
+            ),
+            (
+                "human",
+                &["orang", "masyarakat", "social", "etika", "culture"],
+            ),
             ("creative", &["design", "ui", "ux", "creative", "artistic"]),
         ];
-        let domain_count = domain_keywords.iter()
+        let domain_count = domain_keywords
+            .iter()
             .filter(|(_, keywords)| keywords.iter().any(|k| lower.contains(k)))
             .count() as f32;
         score += (domain_count / 5.0) * 0.2;
@@ -110,12 +141,24 @@ impl ComplexityScorer {
 
         // Uncertainty markers: prompt dengan ambiguity
         let uncertainty_keywords = [
-            "mungkin", "maybe", "perhaps", "tidak yakin", "uncertain",
-            "ambiguous", "kontroversial", "controversial",
-            "debatable", "arguably", "depends", "tergantung",
-            "konteks", "context", "situasional",
+            "mungkin",
+            "maybe",
+            "perhaps",
+            "tidak yakin",
+            "uncertain",
+            "ambiguous",
+            "kontroversial",
+            "controversial",
+            "debatable",
+            "arguably",
+            "depends",
+            "tergantung",
+            "konteks",
+            "context",
+            "situasional",
         ];
-        let uncertainty_count = uncertainty_keywords.iter()
+        let uncertainty_count = uncertainty_keywords
+            .iter()
             .filter(|k| lower.contains(*k))
             .count() as f32;
         score += (uncertainty_count / 3.0).min(1.0) * 0.15;
@@ -123,13 +166,20 @@ impl ComplexityScorer {
 
         // Stake: prompt tentang keputusan penting
         let stake_keywords = [
-            "kritis", "critical", "urgent", "vital", "penting",
-            "berisiko", "risky", "high-stakes", "konsekuensi",
-            "consequences", "irreversible", "fatal",
+            "kritis",
+            "critical",
+            "urgent",
+            "vital",
+            "penting",
+            "berisiko",
+            "risky",
+            "high-stakes",
+            "konsekuensi",
+            "consequences",
+            "irreversible",
+            "fatal",
         ];
-        let stake_count = stake_keywords.iter()
-            .filter(|k| lower.contains(*k))
-            .count() as f32;
+        let stake_count = stake_keywords.iter().filter(|k| lower.contains(*k)).count() as f32;
         score += (stake_count / 3.0).min(1.0) * 0.1;
         factors += 0.1;
 
@@ -159,14 +209,14 @@ impl ComplexityScorer {
 #[derive(Debug, Clone)]
 pub struct CapabilityProfile {
     pub model_id: NxrModelId,
-    pub reasoning: f32,      // Penalaran logis
-    pub code: f32,           // Coding & debugging
-    pub security: f32,       // Keamanan & threat
-    pub creative: f32,       // Kreativitas & gaya
-    pub emotional: f32,      // Emosi & empati
-    pub knowledge: f32,      // Pengetahuan & data
-    pub strategy: f32,       // Strategi & keputusan
-    pub orchestration: f32,  // Orchestrasi & koordinasi
+    pub reasoning: f32,     // Penalaran logis
+    pub code: f32,          // Coding & debugging
+    pub security: f32,      // Keamanan & threat
+    pub creative: f32,      // Kreativitas & gaya
+    pub emotional: f32,     // Emosi & empati
+    pub knowledge: f32,     // Pengetahuan & data
+    pub strategy: f32,      // Strategi & keputusan
+    pub orchestration: f32, // Orchestrasi & koordinasi
 }
 
 impl CapabilityProfile {
@@ -174,63 +224,113 @@ impl CapabilityProfile {
         match model_id {
             NxrModelId::Omnis => Self {
                 model_id,
-                reasoning: 0.95, code: 0.80, security: 0.70,
-                creative: 0.75, emotional: 0.70, knowledge: 0.90,
-                strategy: 0.85, orchestration: 0.80,
+                reasoning: 0.95,
+                code: 0.80,
+                security: 0.70,
+                creative: 0.75,
+                emotional: 0.70,
+                knowledge: 0.90,
+                strategy: 0.85,
+                orchestration: 0.80,
             },
             NxrModelId::Vortex => Self {
                 model_id,
-                reasoning: 0.60, code: 0.95, security: 0.65,
-                creative: 0.30, emotional: 0.20, knowledge: 0.50,
-                strategy: 0.45, orchestration: 0.40,
+                reasoning: 0.60,
+                code: 0.95,
+                security: 0.65,
+                creative: 0.30,
+                emotional: 0.20,
+                knowledge: 0.50,
+                strategy: 0.45,
+                orchestration: 0.40,
             },
             NxrModelId::Aether => Self {
                 model_id,
-                reasoning: 0.50, code: 0.20, security: 0.25,
-                creative: 0.70, emotional: 0.95, knowledge: 0.45,
-                strategy: 0.50, orchestration: 0.40,
+                reasoning: 0.50,
+                code: 0.20,
+                security: 0.25,
+                creative: 0.70,
+                emotional: 0.95,
+                knowledge: 0.45,
+                strategy: 0.50,
+                orchestration: 0.40,
             },
             NxrModelId::Spectra => Self {
                 model_id,
-                reasoning: 0.55, code: 0.35, security: 0.25,
-                creative: 0.95, emotional: 0.75, knowledge: 0.50,
-                strategy: 0.45, orchestration: 0.50,
+                reasoning: 0.55,
+                code: 0.35,
+                security: 0.25,
+                creative: 0.95,
+                emotional: 0.75,
+                knowledge: 0.50,
+                strategy: 0.45,
+                orchestration: 0.50,
             },
             NxrModelId::Nexum => Self {
                 model_id,
-                reasoning: 0.70, code: 0.55, security: 0.45,
-                creative: 0.50, emotional: 0.50, knowledge: 0.65,
-                strategy: 0.80, orchestration: 0.95,
+                reasoning: 0.70,
+                code: 0.55,
+                security: 0.45,
+                creative: 0.50,
+                emotional: 0.50,
+                knowledge: 0.65,
+                strategy: 0.80,
+                orchestration: 0.95,
             },
             NxrModelId::Axiom => Self {
                 model_id,
-                reasoning: 0.95, code: 0.60, security: 0.50,
-                creative: 0.40, emotional: 0.40, knowledge: 0.75,
-                strategy: 0.95, orchestration: 0.70,
+                reasoning: 0.95,
+                code: 0.60,
+                security: 0.50,
+                creative: 0.40,
+                emotional: 0.40,
+                knowledge: 0.75,
+                strategy: 0.95,
+                orchestration: 0.70,
             },
             NxrModelId::Cipher => Self {
                 model_id,
-                reasoning: 0.55, code: 0.70, security: 0.95,
-                creative: 0.25, emotional: 0.25, knowledge: 0.50,
-                strategy: 0.55, orchestration: 0.45,
+                reasoning: 0.55,
+                code: 0.70,
+                security: 0.95,
+                creative: 0.25,
+                emotional: 0.25,
+                knowledge: 0.50,
+                strategy: 0.55,
+                orchestration: 0.45,
             },
             NxrModelId::Swift => Self {
                 model_id,
-                reasoning: 0.35, code: 0.40, security: 0.30,
-                creative: 0.25, emotional: 0.25, knowledge: 0.30,
-                strategy: 0.30, orchestration: 0.30,
+                reasoning: 0.35,
+                code: 0.40,
+                security: 0.30,
+                creative: 0.25,
+                emotional: 0.25,
+                knowledge: 0.30,
+                strategy: 0.30,
+                orchestration: 0.30,
             },
             NxrModelId::Kronos => Self {
                 model_id,
-                reasoning: 0.65, code: 0.40, security: 0.35,
-                creative: 0.40, emotional: 0.40, knowledge: 0.95,
-                strategy: 0.60, orchestration: 0.50,
+                reasoning: 0.65,
+                code: 0.40,
+                security: 0.35,
+                creative: 0.40,
+                emotional: 0.40,
+                knowledge: 0.95,
+                strategy: 0.60,
+                orchestration: 0.50,
             },
             NxrModelId::Genesis => Self {
                 model_id,
-                reasoning: 0.80, code: 0.55, security: 0.40,
-                creative: 0.70, emotional: 0.60, knowledge: 0.65,
-                strategy: 0.70, orchestration: 0.65,
+                reasoning: 0.80,
+                code: 0.55,
+                security: 0.40,
+                creative: 0.70,
+                emotional: 0.60,
+                knowledge: 0.65,
+                strategy: 0.70,
+                orchestration: 0.65,
             },
         }
     }
@@ -252,7 +352,8 @@ impl CapabilityProfile {
         if requirements.is_empty() {
             return self.reasoning * 0.5; // default: general reasoning
         }
-        let total: f32 = requirements.iter()
+        let total: f32 = requirements
+            .iter()
             .map(|req| {
                 let cap_score = match req.capability {
                     CapabilityType::Reasoning => self.reasoning,
@@ -297,9 +398,25 @@ impl CapabilityScorer {
         let lower = prompt.to_lowercase();
         let mut requirements = Vec::new();
 
-        let reasoning_words = ["jelaskan", "bagaimana", "mengapa", "kenapa", "explain",
-            "why", "how", "what is", "teori", "konsep", "reasoning", "logika",
-            "analisa", "analisis", "korelasi", "causal", "sebab"];
+        let reasoning_words = [
+            "jelaskan",
+            "bagaimana",
+            "mengapa",
+            "kenapa",
+            "explain",
+            "why",
+            "how",
+            "what is",
+            "teori",
+            "konsep",
+            "reasoning",
+            "logika",
+            "analisa",
+            "analisis",
+            "korelasi",
+            "causal",
+            "sebab",
+        ];
         let reasoning_score = Self::keyword_score(&lower, &reasoning_words);
         if reasoning_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -308,9 +425,25 @@ impl CapabilityScorer {
             });
         }
 
-        let code_words = ["code", "rust", "python", "debug", "compile", "syntax",
-            "bug", "refactor", "programming", "algorithm", "function",
-            "implementasi", "kode", "coding", "api", "database", "sql"];
+        let code_words = [
+            "code",
+            "rust",
+            "python",
+            "debug",
+            "compile",
+            "syntax",
+            "bug",
+            "refactor",
+            "programming",
+            "algorithm",
+            "function",
+            "implementasi",
+            "kode",
+            "coding",
+            "api",
+            "database",
+            "sql",
+        ];
         let code_score = Self::keyword_score(&lower, &code_words);
         if code_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -319,9 +452,22 @@ impl CapabilityScorer {
             });
         }
 
-        let security_words = ["security", "xss", "injection", "sql", "hack",
-            "vulnerability", "threat", "crack", "malware", "encrypt",
-            "decrypt", "authentication", "authorization", "firewall"];
+        let security_words = [
+            "security",
+            "xss",
+            "injection",
+            "sql",
+            "hack",
+            "vulnerability",
+            "threat",
+            "crack",
+            "malware",
+            "encrypt",
+            "decrypt",
+            "authentication",
+            "authorization",
+            "firewall",
+        ];
         let security_score = Self::keyword_score(&lower, &security_words);
         if security_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -330,9 +476,24 @@ impl CapabilityScorer {
             });
         }
 
-        let creative_words = ["puisi", "cerita", "gambar", "creative", "story",
-            "poem", "narrative", "tulisan", "creative writing", "imajinasi",
-            "imagination", "art", "seni", "musik", "music", "visual"];
+        let creative_words = [
+            "puisi",
+            "cerita",
+            "gambar",
+            "creative",
+            "story",
+            "poem",
+            "narrative",
+            "tulisan",
+            "creative writing",
+            "imajinasi",
+            "imagination",
+            "art",
+            "seni",
+            "musik",
+            "music",
+            "visual",
+        ];
         let creative_score = Self::keyword_score(&lower, &creative_words);
         if creative_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -341,9 +502,10 @@ impl CapabilityScorer {
             });
         }
 
-        let emotional_words = ["sedih", "senang", "marah", "emosi", "feeling",
-            "sad", "happy", "angry", "takut", "cemas", "anxiety", "depresi",
-            "love", "cinta", "benci", "fear", "stress"];
+        let emotional_words = [
+            "sedih", "senang", "marah", "emosi", "feeling", "sad", "happy", "angry", "takut",
+            "cemas", "anxiety", "depresi", "love", "cinta", "benci", "fear", "stress",
+        ];
         let emotional_score = Self::keyword_score(&lower, &emotional_words);
         if emotional_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -352,10 +514,25 @@ impl CapabilityScorer {
             });
         }
 
-        let knowledge_words = ["sejarah", "data", "fakta", "informasi",
-            "knowledge", "archive", "penelitian", "research", "historical",
-            "statistics", "statistik", "referensi", "sumber", "source",
-            "dokumen", "document", "literature"];
+        let knowledge_words = [
+            "sejarah",
+            "data",
+            "fakta",
+            "informasi",
+            "knowledge",
+            "archive",
+            "penelitian",
+            "research",
+            "historical",
+            "statistics",
+            "statistik",
+            "referensi",
+            "sumber",
+            "source",
+            "dokumen",
+            "document",
+            "literature",
+        ];
         let knowledge_score = Self::keyword_score(&lower, &knowledge_words);
         if knowledge_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -364,10 +541,25 @@ impl CapabilityScorer {
             });
         }
 
-        let strategy_words = ["strategi", "keputusan", "decision", "plan",
-            "rencana", "analisis", "bisnis", "business", "strategy",
-            "planning", "roadmap", "recommendation", "rekomendasi",
-            "optimasi", "optimization", "efisiensi", "efficiency"];
+        let strategy_words = [
+            "strategi",
+            "keputusan",
+            "decision",
+            "plan",
+            "rencana",
+            "analisis",
+            "bisnis",
+            "business",
+            "strategy",
+            "planning",
+            "roadmap",
+            "recommendation",
+            "rekomendasi",
+            "optimasi",
+            "optimization",
+            "efisiensi",
+            "efficiency",
+        ];
         let strategy_score = Self::keyword_score(&lower, &strategy_words);
         if strategy_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -376,10 +568,22 @@ impl CapabilityScorer {
             });
         }
 
-        let orchestration_words = ["orchestrasi", "workflow", "pipeline",
-            "multi-step", "complex task", "koordinasi", "coordination",
-            "integration", "integrasi", "deployment", "ci/cd",
-            "automation", "otomatis", "scheduling"];
+        let orchestration_words = [
+            "orchestrasi",
+            "workflow",
+            "pipeline",
+            "multi-step",
+            "complex task",
+            "koordinasi",
+            "coordination",
+            "integration",
+            "integrasi",
+            "deployment",
+            "ci/cd",
+            "automation",
+            "otomatis",
+            "scheduling",
+        ];
         let orchestration_score = Self::keyword_score(&lower, &orchestration_words);
         if orchestration_score > 0.0 {
             requirements.push(CapabilityRequirement {
@@ -471,39 +675,59 @@ impl CompressedContext {
         let mut parts = Vec::new();
 
         if !self.key_claims.is_empty() {
-            parts.push(format!("Key claims:\n{}", self.key_claims.iter()
-                .enumerate()
-                .map(|(i, c)| format!("  {}. {}", i + 1, c))
-                .collect::<Vec<_>>()
-                .join("\n")));
+            parts.push(format!(
+                "Key claims:\n{}",
+                self.key_claims
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| format!("  {}. {}", i + 1, c))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         if !self.agreements.is_empty() {
-            parts.push(format!("Agreements:\n{}", self.agreements.iter()
-                .map(|a| format!("  • {}", a))
-                .collect::<Vec<_>>()
-                .join("\n")));
+            parts.push(format!(
+                "Agreements:\n{}",
+                self.agreements
+                    .iter()
+                    .map(|a| format!("  • {}", a))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         if !self.disagreements.is_empty() {
-            parts.push(format!("Disagreements:\n{}", self.disagreements.iter()
-                .map(|d| format!("  • {}", d))
-                .collect::<Vec<_>>()
-                .join("\n")));
+            parts.push(format!(
+                "Disagreements:\n{}",
+                self.disagreements
+                    .iter()
+                    .map(|d| format!("  • {}", d))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         if !self.evidence.is_empty() {
-            parts.push(format!("Evidence:\n{}", self.evidence.iter()
-                .map(|e| format!("  • {}", e))
-                .collect::<Vec<_>>()
-                .join("\n")));
+            parts.push(format!(
+                "Evidence:\n{}",
+                self.evidence
+                    .iter()
+                    .map(|e| format!("  • {}", e))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         if !self.open_questions.is_empty() {
-            parts.push(format!("Open questions:\n{}", self.open_questions.iter()
-                .map(|q| format!("  • {}", q))
-                .collect::<Vec<_>>()
-                .join("\n")));
+            parts.push(format!(
+                "Open questions:\n{}",
+                self.open_questions
+                    .iter()
+                    .map(|q| format!("  • {}", q))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         parts.join("\n\n")
@@ -538,25 +762,35 @@ impl ContextCompressor {
                 }
 
                 // Deteksi agreement
-                if trimmed.starts_with("saya setuju") || trimmed.starts_with("i agree")
-                    || trimmed.starts_with("setuju dengan") || trimmed.starts_with("agree with")
+                if trimmed.starts_with("saya setuju")
+                    || trimmed.starts_with("i agree")
+                    || trimmed.starts_with("setuju dengan")
+                    || trimmed.starts_with("agree with")
                     || trimmed.contains("saya sepakat")
                 {
                     agreements.push(format!("[{}] {}", msg.model_id, trimmed));
                 }
                 // Deteksi disagreement
-                else if trimmed.starts_with("saya tidak setuju") || trimmed.starts_with("i disagree")
-                    || trimmed.starts_with("tidak setuju") || trimmed.starts_with("disagree")
-                    || trimmed.contains("sayangnya") || trimmed.contains("however")
-                    || trimmed.contains("tapi") || trimmed.contains("but")
+                else if trimmed.starts_with("saya tidak setuju")
+                    || trimmed.starts_with("i disagree")
+                    || trimmed.starts_with("tidak setuju")
+                    || trimmed.starts_with("disagree")
+                    || trimmed.contains("sayangnya")
+                    || trimmed.contains("however")
+                    || trimmed.contains("tapi")
+                    || trimmed.contains("but")
                 {
                     disagreements.push(format!("[{}] {}", msg.model_id, trimmed));
                 }
                 // Deteksi evidence
-                else if trimmed.starts_with("data") || trimmed.starts_with("menurut")
-                    || trimmed.starts_with("berdasarkan") || trimmed.starts_with("based on")
-                    || trimmed.starts_with("penelitian") || trimmed.starts_with("research")
-                    || trimmed.starts_with("fakta") || trimmed.starts_with("fact")
+                else if trimmed.starts_with("data")
+                    || trimmed.starts_with("menurut")
+                    || trimmed.starts_with("berdasarkan")
+                    || trimmed.starts_with("based on")
+                    || trimmed.starts_with("penelitian")
+                    || trimmed.starts_with("research")
+                    || trimmed.starts_with("fakta")
+                    || trimmed.starts_with("fact")
                 {
                     evidence.push(format!("[{}] {}", msg.model_id, trimmed));
                 }
@@ -604,8 +838,8 @@ impl ContextCompressor {
 /// Riwayat model untuk kalibrasi confidence
 pub struct ModelHistory {
     pub model_id: NxrModelId,
-    pub accuracy: f32,          // 0.0 - 1.0, moving average
-    pub total_calls: u64,        // Total panggilan
+    pub accuracy: f32,    // 0.0 - 1.0, moving average
+    pub total_calls: u64, // Total panggilan
     pub avg_response_time_ms: f64,
     pub last_failure: Option<Instant>,
 }
@@ -640,9 +874,9 @@ pub struct ConfidenceEngine;
 impl ConfidenceEngine {
     /// Kalibrasi confidence dari berbagai sinyal
     pub fn calibrate(
-        classifier_score: f32,     // dari MLP classifier (0.0 - 1.0)
-        verifier_score: Option<f32>, // dari verifier check (0.0 - 1.0)
-        consensus_score: Option<f32>, // kesepakatan dengan model lain (0.0 - 1.0)
+        classifier_score: f32,             // dari MLP classifier (0.0 - 1.0)
+        verifier_score: Option<f32>,       // dari verifier check (0.0 - 1.0)
+        consensus_score: Option<f32>,      // kesepakatan dengan model lain (0.0 - 1.0)
         historical: Option<&ModelHistory>, // riwayat akurasi
     ) -> f32 {
         let mut score = classifier_score; // baseline
@@ -722,20 +956,24 @@ impl DebateVerifier {
 
                 // Deteksi kontradiksi langsung: "X benar" vs "X salah"
                 let contradiction_pairs = [
-                    ("ya", "tidak"), ("yes", "no"), ("benar", "salah"),
-                    ("true", "false"), ("setuju", "tidak setuju"),
-                    ("agree", "disagree"), ("baik", "buruk"),
-                    ("good", "bad"), ("aman", "berbahaya"),
-                    ("safe", "dangerous"), ("mungkin", "mustahil"),
+                    ("ya", "tidak"),
+                    ("yes", "no"),
+                    ("benar", "salah"),
+                    ("true", "false"),
+                    ("setuju", "tidak setuju"),
+                    ("agree", "disagree"),
+                    ("baik", "buruk"),
+                    ("good", "bad"),
+                    ("aman", "berbahaya"),
+                    ("safe", "dangerous"),
+                    ("mungkin", "mustahil"),
                     ("possible", "impossible"),
                 ];
 
                 for (pos, neg) in &contradiction_pairs {
                     if a_lower.contains(pos) && b_lower.contains(neg) {
-                        contradictions.push(format!(
-                            "[{} vs {}] {} vs {}",
-                            model_a, model_b, pos, neg
-                        ));
+                        contradictions
+                            .push(format!("[{} vs {}] {} vs {}", model_a, model_b, pos, neg));
                     }
                 }
             }
@@ -745,9 +983,17 @@ impl DebateVerifier {
         if let Some(winner_text) = result.all_responses.get(&result.winner) {
             let lower = winner_text.to_lowercase();
             let logical_flags = [
-                "karena", "sehingga", "maka", "oleh karena itu",
-                "therefore", "thus", "consequently",
-                "if", "then", "implies", "berarti",
+                "karena",
+                "sehingga",
+                "maka",
+                "oleh karena itu",
+                "therefore",
+                "thus",
+                "consequently",
+                "if",
+                "then",
+                "implies",
+                "berarti",
             ];
             let has_logic = logical_flags.iter().any(|f| lower.contains(f));
             if !has_logic {
@@ -756,16 +1002,15 @@ impl DebateVerifier {
         }
 
         // Cek apakah voting menunjukkan echo chamber (semua vote sama)
-        let unique_votes: std::collections::HashSet<NxrModelId> = result.votes
-            .iter()
-            .map(|v| v.vote_for)
-            .collect();
+        let unique_votes: std::collections::HashSet<NxrModelId> =
+            result.votes.iter().map(|v| v.vote_for).collect();
 
         let consensus_risk = if unique_votes.len() == 1 && result.votes.len() > 2 {
             // Semua vote ke model yang sama — potensi echo chamber
             logical_issues.push(format!(
                 "Potential echo chamber: all {} votes went to {}",
-                result.votes.len(), result.winner
+                result.votes.len(),
+                result.winner
             ));
             true
         } else {
@@ -895,11 +1140,7 @@ impl DebateOrchestrator {
     }
 
     /// Jalankan sesi debat penuh dengan semua improvement
-    pub async fn orchestrate(
-        &self,
-        prompt: &str,
-        primary_model: NxrModelId,
-    ) -> DebateResult {
+    pub async fn orchestrate(&self, prompt: &str, primary_model: NxrModelId) -> DebateResult {
         // ── Phase 0: Cost Controller ──
         let complexity = ComplexityScorer::score(prompt);
         let depth = ComplexityScorer::debate_depth(prompt);
@@ -932,7 +1173,8 @@ impl DebateOrchestrator {
         if participants.len() < self.config.min_participants {
             warn!(
                 "Not enough participants ({} < {}), falling back to single model",
-                participants.len(), self.config.min_participants
+                participants.len(),
+                self.config.min_participants
             );
             let response = delegate_for_model(primary_model, prompt).await;
             let mut all_responses = HashMap::new();
@@ -953,7 +1195,11 @@ impl DebateOrchestrator {
 
         info!(
             "Participants selected: {}",
-            participants.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", ")
+            participants
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         let mut all_responses: HashMap<NxrModelId, String> = HashMap::new();
@@ -973,14 +1219,15 @@ impl DebateOrchestrator {
             let mut new_messages: Vec<DebateMessage> = Vec::new();
 
             for &model_id in &participants {
-                let response = self.call_model_with_timeout(
-                    prompt, model_id, &round_messages, round, hub_model,
-                ).await;
+                let response = self
+                    .call_model_with_timeout(prompt, model_id, &round_messages, round, hub_model)
+                    .await;
 
                 match response {
                     Ok(text) => {
                         all_responses.insert(model_id, text.clone());
-                        let confidence = self.calculate_confidence(model_id, &round_messages, &all_responses);
+                        let confidence =
+                            self.calculate_confidence(model_id, &round_messages, &all_responses);
                         new_messages.push(DebateMessage {
                             model_id,
                             content: text,
@@ -988,16 +1235,21 @@ impl DebateOrchestrator {
                             confidence,
                         });
                         // Record success
-                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock()) {
+                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock())
+                        {
                             hist.entry(model_id)
                                 .or_insert_with(|| ModelHistory::new(model_id))
                                 .record_success(100.0);
                         }
                     }
                     Err(e) => {
-                        warn!("{} failed in round {}: {} — removing from debate", model_id, round, e);
+                        warn!(
+                            "{} failed in round {}: {} — removing from debate",
+                            model_id, round, e
+                        );
                         // Record failure
-                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock()) {
+                        if let Ok(mut hist) = tokio::task::block_in_place(|| self.historical.lock())
+                        {
                             hist.entry(model_id)
                                 .or_insert_with(|| ModelHistory::new(model_id))
                                 .record_failure();
@@ -1007,13 +1259,17 @@ impl DebateOrchestrator {
             }
 
             // Failure mode: jika terlalu sedikit peserta, fallback
-            let active: Vec<NxrModelId> = participants.iter()
+            let active: Vec<NxrModelId> = participants
+                .iter()
                 .filter(|m| all_responses.contains_key(m))
                 .copied()
                 .collect();
 
             if active.len() < 2 && round > 1 {
-                warn!("Too many failures ({} active < 2), falling back to single model", active.len());
+                warn!(
+                    "Too many failures ({} active < 2), falling back to single model",
+                    active.len()
+                );
                 let fallback = active.first().copied().unwrap_or(primary_model);
                 let response = delegate_for_model(fallback, prompt).await;
                 all_responses.insert(fallback, response.clone());
@@ -1032,15 +1288,22 @@ impl DebateOrchestrator {
             }
 
             // Compression: simpan ringkasan, bukan full text
-            let compressed = ContextCompressor::compress(&new_messages, self.config.compression_target_tokens);
-            info!("  Compressed {} messages → ~{} tokens", new_messages.len(), compressed.token_estimate);
+            let compressed =
+                ContextCompressor::compress(&new_messages, self.config.compression_target_tokens);
+            info!(
+                "  Compressed {} messages → ~{} tokens",
+                new_messages.len(),
+                compressed.token_estimate
+            );
 
             round_messages.extend(new_messages);
         }
 
         // ── Phase 3: Weighted Voting ──
         info!("🗳️ Weighted Voting — {} participants", participants.len());
-        let votes = self.run_weighted_voting(prompt, &participants, &all_responses).await;
+        let votes = self
+            .run_weighted_voting(prompt, &participants, &all_responses)
+            .await;
 
         // ── Phase 4: Determine Winner (weighted) ──
         let (winner, consensus) = self.determine_weighted_winner(&votes, &all_responses);
@@ -1061,18 +1324,24 @@ impl DebateOrchestrator {
                 complexity_score: complexity,
             };
             let report = DebateVerifier::verify(&result_stub);
-            info!("Verification: passed={} score={:.2}", report.passed, report.overall_score);
+            info!(
+                "Verification: passed={} score={:.2}",
+                report.passed, report.overall_score
+            );
             if report.contradictions.len() > 2 {
-                warn!("High contradiction count ({}), triggering re-synthesis", report.contradictions.len());
+                warn!(
+                    "High contradiction count ({}), triggering re-synthesis",
+                    report.contradictions.len()
+                );
             }
             verification = Some(report);
         }
 
         // ── Phase 6: Top-K Synthesis ──
         let k = self.config.top_k_synthesis.min(participants.len());
-        let final_response = self.top_k_synthesis(
-            prompt, &winner, &votes, &all_responses, &participants, k,
-        ).await;
+        let final_response = self
+            .top_k_synthesis(prompt, &winner, &votes, &all_responses, &participants, k)
+            .await;
 
         DebateResult {
             winner,
@@ -1104,7 +1373,8 @@ impl DebateOrchestrator {
             delegate_for_model(model_id, prompt).await
         } else if let Some(hub) = hub_model {
             // Hub-and-Spoke: model lihat ringkasan dari moderator
-            let compressed = ContextCompressor::compress(messages, self.config.compression_target_tokens);
+            let compressed =
+                ContextCompressor::compress(messages, self.config.compression_target_tokens);
             let context = compressed.to_prompt();
 
             if model_id == hub {
@@ -1139,7 +1409,8 @@ impl DebateOrchestrator {
             }
         } else {
             // All-to-all: model lihat full context (compressed)
-            let compressed = ContextCompressor::compress(messages, self.config.compression_target_tokens);
+            let compressed =
+                ContextCompressor::compress(messages, self.config.compression_target_tokens);
             let context = compressed.to_prompt();
 
             let debate_prompt = format!(
@@ -1168,15 +1439,16 @@ impl DebateOrchestrator {
         all_responses: &HashMap<NxrModelId, String>,
     ) -> f32 {
         let profile = CapabilityProfile::for_model(model_id);
-        let classifier_score = profile.reasoning * 0.5 + profile.knowledge * 0.3 + profile.strategy * 0.2;
+        let classifier_score =
+            profile.reasoning * 0.5 + profile.knowledge * 0.3 + profile.strategy * 0.2;
 
         // Consensus score: seberapa setuju dengan model lain
         let consensus_score: Option<f32> = if messages.len() > 1 && all_responses.len() > 1 {
-            let agreement_count = messages.iter()
+            let agreement_count = messages
+                .iter()
                 .filter(|m| {
                     let lower = m.content.to_lowercase();
-                    lower.contains("setuju") || lower.contains("agree")
-                        || lower.contains("sepakat")
+                    lower.contains("setuju") || lower.contains("agree") || lower.contains("sepakat")
                 })
                 .count() as f32;
             Some((agreement_count / messages.len() as f32).min(1.0))
@@ -1184,16 +1456,17 @@ impl DebateOrchestrator {
             None
         };
 
-        let historical = tokio::task::block_in_place(|| self.historical.lock()).ok()
-            .and_then(|h| h.get(&model_id).map(|h| {
-                ModelHistory {
+        let historical = tokio::task::block_in_place(|| self.historical.lock())
+            .ok()
+            .and_then(|h| {
+                h.get(&model_id).map(|h| ModelHistory {
                     model_id: h.model_id,
                     accuracy: h.accuracy,
                     total_calls: h.total_calls,
                     avg_response_time_ms: h.avg_response_time_ms,
                     last_failure: h.last_failure,
-                }
-            }));
+                })
+            });
 
         ConfidenceEngine::calibrate(
             classifier_score,
@@ -1215,7 +1488,9 @@ impl DebateOrchestrator {
         for &voter_id in participants {
             let weight = CapabilityProfile::for_model(voter_id).tier_weight();
 
-            let vote = self.cast_weighted_vote(prompt, voter_id, participants, all_responses).await;
+            let vote = self
+                .cast_weighted_vote(prompt, voter_id, participants, all_responses)
+                .await;
 
             votes.push(WeightedVote {
                 weighted_confidence: vote.raw_confidence * weight,
@@ -1263,7 +1538,8 @@ impl DebateOrchestrator {
 
         let vote_result = delegate_for_model(voter, &vote_prompt).await;
 
-        let vote_target = participants.iter()
+        let vote_target = participants
+            .iter()
             .find(|&&m| {
                 let name_upper = m.to_string().to_uppercase();
                 vote_result.to_uppercase().contains(&name_upper)
@@ -1271,17 +1547,24 @@ impl DebateOrchestrator {
             .copied()
             .unwrap_or(voter);
 
-        let confidence = if vote_result.contains("CONFIDENCE: 1") || vote_result.contains("CONFIDENCE:1") {
+        let confidence = if vote_result.contains("CONFIDENCE: 1")
+            || vote_result.contains("CONFIDENCE:1")
+        {
             1.0
-        } else if vote_result.contains("CONFIDENCE: 0.9") || vote_result.contains("CONFIDENCE:0.9") {
+        } else if vote_result.contains("CONFIDENCE: 0.9") || vote_result.contains("CONFIDENCE:0.9")
+        {
             0.9
-        } else if vote_result.contains("CONFIDENCE: 0.8") || vote_result.contains("CONFIDENCE:0.8") {
+        } else if vote_result.contains("CONFIDENCE: 0.8") || vote_result.contains("CONFIDENCE:0.8")
+        {
             0.8
-        } else if vote_result.contains("CONFIDENCE: 0.7") || vote_result.contains("CONFIDENCE:0.7") {
+        } else if vote_result.contains("CONFIDENCE: 0.7") || vote_result.contains("CONFIDENCE:0.7")
+        {
             0.7
-        } else if vote_result.contains("CONFIDENCE: 0.6") || vote_result.contains("CONFIDENCE:0.6") {
+        } else if vote_result.contains("CONFIDENCE: 0.6") || vote_result.contains("CONFIDENCE:0.6")
+        {
             0.6
-        } else if vote_result.contains("CONFIDENCE: 0.5") || vote_result.contains("CONFIDENCE:0.5") {
+        } else if vote_result.contains("CONFIDENCE: 0.5") || vote_result.contains("CONFIDENCE:0.5")
+        {
             0.5
         } else {
             0.7
@@ -1291,7 +1574,9 @@ impl DebateOrchestrator {
             .lines()
             .find(|l| l.starts_with("REASON:") || l.starts_with("REASON :"))
             .map(|l| {
-                let r = l.trim_start_matches("REASON:").trim_start_matches("REASON :");
+                let r = l
+                    .trim_start_matches("REASON:")
+                    .trim_start_matches("REASON :");
                 r.trim().to_string()
             })
             .unwrap_or_else(|| "No explicit reason given".to_string());
@@ -1318,14 +1603,16 @@ impl DebateOrchestrator {
             *vote_tally.entry(vote.vote_for).or_insert(0.0) += vote.weighted_confidence;
         }
 
-        let winner = vote_tally.into_iter()
+        let winner = vote_tally
+            .into_iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(id, _)| id);
 
         match winner {
             Some(w) => {
                 let total_weight: f32 = votes.iter().map(|v| v.weight).sum();
-                let winner_weight: f32 = votes.iter()
+                let winner_weight: f32 = votes
+                    .iter()
                     .filter(|v| v.vote_for == w)
                     .map(|v| v.weighted_confidence)
                     .sum();
@@ -1333,7 +1620,11 @@ impl DebateOrchestrator {
                 (w, consensus)
             }
             None => {
-                let fallback = all_responses.keys().next().copied().unwrap_or(NxrModelId::Omnis);
+                let fallback = all_responses
+                    .keys()
+                    .next()
+                    .copied()
+                    .unwrap_or(NxrModelId::Omnis);
                 (fallback, false)
             }
         }
@@ -1358,20 +1649,15 @@ impl DebateOrchestrator {
         let mut ranked: Vec<(NxrModelId, f32)> = model_scores.into_iter().collect();
         ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let top_k: Vec<NxrModelId> = ranked.iter()
-            .take(k)
-            .map(|(id, _)| *id)
-            .collect();
+        let top_k: Vec<NxrModelId> = ranked.iter().take(k).map(|(id, _)| *id).collect();
 
         // Kumpulkan insight dari top-K models
-        let top_insights: Vec<String> = top_k.iter()
+        let top_insights: Vec<String> = top_k
+            .iter()
             .enumerate()
             .filter_map(|(i, m)| all_responses.get(m).map(|text| (i, m, text)))
             .map(|(i, model, text)| {
-                let insight: String = text.split('.')
-                    .take(2)
-                    .collect::<Vec<_>>()
-                    .join(".");
+                let insight: String = text.split('.').take(2).collect::<Vec<_>>().join(".");
                 format!("=== {}. {} ===\n{}", i + 1, model, insight)
             })
             .collect();
@@ -1390,7 +1676,12 @@ impl DebateOrchestrator {
         );
 
         let synthesis = delegate_for_model(*winner, &synth_prompt).await;
-        info!("  Top-{} synthesis by {} ({} chars)", k, winner, synthesis.len());
+        info!(
+            "  Top-{} synthesis by {} ({} chars)",
+            k,
+            winner,
+            synthesis.len()
+        );
         synthesis
     }
 }

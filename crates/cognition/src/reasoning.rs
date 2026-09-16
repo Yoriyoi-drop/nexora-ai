@@ -6,8 +6,8 @@
 //! - Multi-path alternative reasoning (deductive / inductive / abductive)
 //! - Step explanation via inference tracing
 
-use async_trait::async_trait;
 use crate::{FoundationError, FoundationResult};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

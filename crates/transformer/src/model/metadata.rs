@@ -1,7 +1,7 @@
+use crate::model::builder::CausalLM;
+use crate::{TransformerError, TransformerResult};
 use ndarray::Array2;
 use tracing::info;
-use crate::model::builder::CausalLM;
-use crate::{TransformerResult, TransformerError};
 
 impl CausalLM {
     pub fn parameter_count(&self) -> usize {
@@ -30,7 +30,11 @@ impl CausalLM {
         let mut weights: Vec<Array2<f32>> = Vec::new();
         let mut names: Vec<String> = Vec::new();
 
-        weights.push(self.token_embedding.clone().unwrap_or(Array2::zeros((0, 0))));
+        weights.push(
+            self.token_embedding
+                .clone()
+                .unwrap_or(Array2::zeros((0, 0))),
+        );
         names.push("token_embedding".to_string());
 
         if self.weight_tied {
@@ -149,5 +153,4 @@ impl CausalLM {
             "layers": layers_json,
         })))
     }
-
 }

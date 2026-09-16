@@ -7,9 +7,8 @@ use tracing::error;
 
 /// Global monitor shared across all HallucinationGuard instances.
 /// Provides aggregated stats to the telemetry endpoint.
-pub static GLOBAL_HALLUCINATION_MONITOR: LazyLock<Monitor> = LazyLock::new(|| {
-    Monitor::new(MonitorConfig::default())
-});
+pub static GLOBAL_HALLUCINATION_MONITOR: LazyLock<Monitor> =
+    LazyLock::new(|| Monitor::new(MonitorConfig::default()));
 
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {

@@ -319,7 +319,9 @@ mod tests {
         assert_eq!(saca_models.len(), 1);
         let atqs_models = reg.list_models_by_framework(&ModelFramework::ATQS).await;
         assert_eq!(atqs_models.len(), 1);
-        let caffeine_models = reg.list_models_by_framework(&ModelFramework::CAFFEINE).await;
+        let caffeine_models = reg
+            .list_models_by_framework(&ModelFramework::CAFFEINE)
+            .await;
         assert!(caffeine_models.is_empty());
     }
 
@@ -360,7 +362,10 @@ mod tests {
         reg.register_model(sample_metadata("stat-1")).await.unwrap();
         let stats = reg.get_statistics().await;
         assert_eq!(stats.total_models, 1);
-        assert_eq!(*stats.framework_counts.get(&ModelFramework::SACA).unwrap(), 1);
+        assert_eq!(
+            *stats.framework_counts.get(&ModelFramework::SACA).unwrap(),
+            1
+        );
         assert!(stats.last_registration.is_some());
     }
 

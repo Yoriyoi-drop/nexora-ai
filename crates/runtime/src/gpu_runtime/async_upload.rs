@@ -28,8 +28,7 @@ impl AsyncGpuUpload {
     pub fn enqueue(&self, request: UploadRequest) {
         let size = request.data.len();
         self.upload_queue.lock().push_back(request);
-        self.total_bytes
-            .fetch_add(size as u64, Ordering::Relaxed);
+        self.total_bytes.fetch_add(size as u64, Ordering::Relaxed);
     }
 
     pub fn dequeue(&self) -> Option<UploadRequest> {
@@ -47,8 +46,7 @@ impl AsyncGpuUpload {
     }
 
     pub fn pending_bytes(&self) -> u64 {
-        self.total_bytes
-            .fetch_sub(0, Ordering::Relaxed)
+        self.total_bytes.fetch_sub(0, Ordering::Relaxed)
     }
 }
 

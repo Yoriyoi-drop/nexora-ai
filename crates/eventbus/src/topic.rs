@@ -68,9 +68,6 @@ impl Topic {
     }
 
     pub fn subscriber_ids(&self) -> Vec<SubscriberId> {
-        self.subscribers
-            .iter()
-            .map(|entry| entry.0)
-            .collect()
+        self.subscribers.iter().map(|entry| entry.0).collect()
     }
 }

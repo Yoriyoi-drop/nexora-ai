@@ -71,9 +71,15 @@ impl ActionPlanningModule {
 
     fn infer_task_type(&self, text: &str) -> Result<TaskType> {
         let text_lower = text.to_lowercase();
-        if text_lower.contains("click") || text_lower.contains("tap") || text_lower.contains("press") {
+        if text_lower.contains("click")
+            || text_lower.contains("tap")
+            || text_lower.contains("press")
+        {
             Ok(TaskType::Planning)
-        } else if text_lower.contains("extract") || text_lower.contains("get") || text_lower.contains("find") {
+        } else if text_lower.contains("extract")
+            || text_lower.contains("get")
+            || text_lower.contains("find")
+        {
             Ok(TaskType::Retrieval)
         } else if text_lower.contains("classify") || text_lower.contains("categorize") {
             Ok(TaskType::Classification)
@@ -81,7 +87,10 @@ impl ActionPlanningModule {
             Ok(TaskType::Summarization)
         } else if text_lower.contains("translate") {
             Ok(TaskType::Translation)
-        } else if text_lower.contains("reason") || text_lower.contains("think") || text_lower.contains("analyze") {
+        } else if text_lower.contains("reason")
+            || text_lower.contains("think")
+            || text_lower.contains("analyze")
+        {
             Ok(TaskType::Reasoning)
         } else {
             Ok(TaskType::Generation)
@@ -119,17 +128,32 @@ impl ActionPlanningModule {
         let mut candidates = Vec::new();
         match context.task_type {
             TaskType::Planning => {
-                candidates.push(self.create_action(ActionType::Click, self.create_click_parameters(tokens, context)?)?);
-                candidates.push(self.create_action(ActionType::Type, self.create_type_parameters(tokens, context)?)?);
+                candidates.push(self.create_action(
+                    ActionType::Click,
+                    self.create_click_parameters(tokens, context)?,
+                )?);
+                candidates.push(self.create_action(
+                    ActionType::Type,
+                    self.create_type_parameters(tokens, context)?,
+                )?);
             }
             TaskType::Retrieval => {
-                candidates.push(self.create_action(ActionType::Extract, self.create_extract_parameters(tokens, context)?)?);
+                candidates.push(self.create_action(
+                    ActionType::Extract,
+                    self.create_extract_parameters(tokens, context)?,
+                )?);
             }
             TaskType::Classification => {
-                candidates.push(self.create_action(ActionType::Analyze, self.create_analyze_parameters(tokens, context)?)?);
+                candidates.push(self.create_action(
+                    ActionType::Analyze,
+                    self.create_analyze_parameters(tokens, context)?,
+                )?);
             }
             _ => {
-                candidates.push(self.create_action(ActionType::Navigate, self.create_navigate_parameters(tokens, context)?)?);
+                candidates.push(self.create_action(
+                    ActionType::Navigate,
+                    self.create_navigate_parameters(tokens, context)?,
+                )?);
             }
         }
         Ok(candidates)
@@ -147,7 +171,8 @@ impl ActionPlanningModule {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|e| {
                     crate::multimodal::error::CaffeineError::output_generation(&format!(
-                        "Failed to get timestamp: {}", e
+                        "Failed to get timestamp: {}",
+                        e
                     ))
                 })?
                 .as_secs_f32(),
@@ -163,8 +188,20 @@ impl ActionPlanningModule {
         let mut params = HashMap::with_capacity(3);
         if let Some(spatial_token) = tokens.iter().find(|t| t.modality == ModalityType::Image) {
             if let Some((x, y, _w, _h)) = spatial_token.spatial_coords {
-                params.insert("x".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(x as f64).unwrap_or(serde_json::Number::from(0))));
-                params.insert("y".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(y as f64).unwrap_or(serde_json::Number::from(0))));
+                params.insert(
+                    "x".to_string(),
+                    serde_json::Value::Number(
+                        serde_json::Number::from_f64(x as f64)
+                            .unwrap_or(serde_json::Number::from(0)),
+                    ),
+                );
+                params.insert(
+                    "y".to_string(),
+                    serde_json::Value::Number(
+                        serde_json::Number::from_f64(y as f64)
+                            .unwrap_or(serde_json::Number::from(0)),
+                    ),
+                );
             }
         }
         if let Some(ref instruction) = context.instruction {
@@ -181,7 +218,10 @@ impl ActionPlanningModule {
         _context: &TaskContext,
     ) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(1);
-        let text_tokens: Vec<_> = tokens.iter().filter(|t| t.modality == ModalityType::Text).collect();
+        let text_tokens: Vec<_> = tokens
+            .iter()
+            .filter(|t| t.modality == ModalityType::Text)
+            .collect();
         if !text_tokens.is_empty() {
             let text_to_type = self.tokens_to_text(&text_tokens)?;
             params.insert("text".to_string(), serde_json::Value::String(text_to_type));
@@ -200,7 +240,10 @@ impl ActionPlanningModule {
                 params.insert("target".to_string(), serde_json::Value::String(target));
             }
         }
-        params.insert("method".to_string(), serde_json::Value::String("semantic".to_string()));
+        params.insert(
+            "method".to_string(),
+            serde_json::Value::String("semantic".to_string()),
+        );
         Ok(params)
     }
 
@@ -210,9 +253,15 @@ impl ActionPlanningModule {
         context: &TaskContext,
     ) -> Result<HashMap<String, serde_json::Value>> {
         let mut params = HashMap::with_capacity(2);
-        params.insert("analysis_type".to_string(), serde_json::Value::String("classification".to_string()));
+        params.insert(
+            "analysis_type".to_string(),
+            serde_json::Value::String("classification".to_string()),
+        );
         if let Some(ref instruction) = context.instruction {
-            params.insert("context".to_string(), serde_json::Value::String(instruction.clone()));
+            params.insert(
+                "context".to_string(),
+                serde_json::Value::String(instruction.clone()),
+            );
         }
         Ok(params)
     }
@@ -225,10 +274,16 @@ impl ActionPlanningModule {
         let mut params = HashMap::with_capacity(2);
         if let Some(ref instruction) = context.instruction {
             if let Some(destination) = self.extract_destination_from_instruction(instruction) {
-                params.insert("destination".to_string(), serde_json::Value::String(destination));
+                params.insert(
+                    "destination".to_string(),
+                    serde_json::Value::String(destination),
+                );
             }
         }
-        params.insert("method".to_string(), serde_json::Value::String("direct".to_string()));
+        params.insert(
+            "method".to_string(),
+            serde_json::Value::String("direct".to_string()),
+        );
         Ok(params)
     }
 
@@ -254,11 +309,11 @@ impl ActionPlanningModule {
 
     fn tokens_to_text(&self, tokens: &[&UnifiedToken]) -> Result<String> {
         let common_words = [
-            "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "can", "could",
-            "shall", "should", "may", "might", "must", "i", "you", "he", "she", "it",
-            "we", "they", "me", "him", "her", "us", "them", "my", "your", "his",
-            "its", "our", "their", "this", "that", "these", "those", "some", "any", "no",
+            "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+            "had", "do", "does", "did", "will", "would", "can", "could", "shall", "should", "may",
+            "might", "must", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us",
+            "them", "my", "your", "his", "its", "our", "their", "this", "that", "these", "those",
+            "some", "any", "no",
         ];
 
         let mut text = String::new();
@@ -351,7 +406,10 @@ impl ActionPlanner {
                     action_type: ActionType::Wait,
                     parameters: {
                         let mut p = HashMap::new();
-                        p.insert("duration_ms".to_string(), serde_json::Value::Number(serde_json::Number::from(100)));
+                        p.insert(
+                            "duration_ms".to_string(),
+                            serde_json::Value::Number(serde_json::Number::from(100)),
+                        );
                         p
                     },
                     timestamp: 0.0,
@@ -376,7 +434,10 @@ impl ActionPlanner {
                     parameters: {
                         let mut p = HashMap::new();
                         if let Some(ref instruction) = context.instruction {
-                            p.insert("text".to_string(), serde_json::Value::String(instruction.clone()));
+                            p.insert(
+                                "text".to_string(),
+                                serde_json::Value::String(instruction.clone()),
+                            );
                         }
                         p
                     },
@@ -389,7 +450,10 @@ impl ActionPlanner {
                     action_type: ActionType::Extract,
                     parameters: {
                         let mut p = HashMap::new();
-                        p.insert("method".to_string(), serde_json::Value::String("all".to_string()));
+                        p.insert(
+                            "method".to_string(),
+                            serde_json::Value::String("all".to_string()),
+                        );
                         p
                     },
                     timestamp: 0.0,
@@ -401,7 +465,10 @@ impl ActionPlanner {
                     action_type: ActionType::Analyze,
                     parameters: {
                         let mut p = HashMap::new();
-                        p.insert("depth".to_string(), serde_json::Value::String("full".to_string()));
+                        p.insert(
+                            "depth".to_string(),
+                            serde_json::Value::String("full".to_string()),
+                        );
                         p
                     },
                     timestamp: 0.0,
@@ -415,7 +482,10 @@ impl ActionPlanner {
                         let mut p = HashMap::new();
                         if let Some(ref instruction) = context.instruction {
                             if let Some(dest) = self.extract_destination(instruction) {
-                                p.insert("destination".to_string(), serde_json::Value::String(dest));
+                                p.insert(
+                                    "destination".to_string(),
+                                    serde_json::Value::String(dest),
+                                );
                             }
                         }
                         p

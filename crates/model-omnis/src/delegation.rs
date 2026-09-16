@@ -1,11 +1,11 @@
+use crate::router;
+use ndarray::{s, Array2};
 use nexora_model_core::delegation_base;
 use nexora_model_core::foundation::FoundationModel;
-use crate::router;
-use ndarray::{Array2, s};
-use std::sync::Arc;
-use std::sync::OnceLock;
 use nexora_oracle::{OracleBackboneConfig, OraclePool};
 use nexora_transformer::CausalLM;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 static INITIALIZED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 static ORACLE_POOL: OnceLock<Arc<OraclePool>> = OnceLock::new();
@@ -116,10 +116,16 @@ pub async fn delegate(prompt: &str) -> String {
     init_oracle_pool();
     let domains = classify_domains(prompt);
 
-    let primary = domains.first().map(|(d, _)| d.as_str()).unwrap_or("general");
+    let primary = domains
+        .first()
+        .map(|(d, _)| d.as_str())
+        .unwrap_or("general");
     let system = router::domain_system_prompt(primary);
 
-    let secondary = domains.get(1).filter(|(_, p)| *p > 0.3).map(|(d, _)| d.as_str());
+    let secondary = domains
+        .get(1)
+        .filter(|(_, p)| *p > 0.3)
+        .map(|(d, _)| d.as_str());
 
     let sanitized_prompt = delegation_base::sanitize_prompt(prompt);
     let oracle_insight = oracle_reasoning_insight(prompt, primary);
@@ -140,10 +146,12 @@ pub async fn delegate(prompt: &str) -> String {
         )
     };
 
-    let primary_result = delegation_base::call_model(foundation(), &framed, 512, 0.7).await.unwrap_or_else(|e| {
-        tracing::warn!("omnis delegation call failed: {}", e);
-        format!("[omnis inference error: {}]", e)
-    });
+    let primary_result = delegation_base::call_model(foundation(), &framed, 512, 0.7)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("omnis delegation call failed: {}", e);
+            format!("[omnis inference error: {}]", e)
+        });
 
     if let Some(sec_domain) = secondary {
         let sec_system = router::domain_system_prompt(sec_domain);
@@ -164,10 +172,12 @@ pub async fn delegate(prompt: &str) -> String {
                  Response:"
             )
         };
-        let sec_result = delegation_base::call_model(foundation(), &sec_framed, 512, 0.7).await.unwrap_or_else(|e| {
-            tracing::warn!("omnis delegation call failed: {}", e);
-            format!("[omnis inference error: {}]", e)
-        });
+        let sec_result = delegation_base::call_model(foundation(), &sec_framed, 512, 0.7)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("omnis delegation call failed: {}", e);
+                format!("[omnis inference error: {}]", e)
+            });
         let synthesis = delegation_base::call_model(
             foundation(),
             &format!(

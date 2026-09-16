@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::linters::{CodeIssue, IssueSeverity};
+use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct DepFindings {
@@ -113,7 +113,9 @@ pub fn scan_dependencies(code: &str) -> DepFindings {
 
     for (keyword, rule_id) in DEP_KEYWORDS {
         let rid: &str = rule_id;
-        if matched.contains(rid) { continue; }
+        if matched.contains(rid) {
+            continue;
+        }
         let mut found = false;
         let mut line_num = None;
         for (i, line) in lines.iter().enumerate() {
@@ -143,8 +145,12 @@ pub fn scan_dependencies(code: &str) -> DepFindings {
 
     let mut metrics = HashMap::new();
     metrics.insert("dep_issues".to_string(), issues.len() as f32);
-    metrics.insert("dep_critical".to_string(),
-        issues.iter().filter(|i| matches!(i.severity, IssueSeverity::Critical)).count() as f32,
+    metrics.insert(
+        "dep_critical".to_string(),
+        issues
+            .iter()
+            .filter(|i| matches!(i.severity, IssueSeverity::Critical))
+            .count() as f32,
     );
 
     DepFindings { issues, metrics }

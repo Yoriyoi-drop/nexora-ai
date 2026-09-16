@@ -9,8 +9,8 @@ pub use vq_vae::*;
 use crate::multimodal::error::Result;
 use crate::multimodal::types::*;
 use ndarray::ArrayD;
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 use rand::SeedableRng;
 
 struct NgramModel {
@@ -71,7 +71,8 @@ impl UnifiedTokenizer {
             config.commitment_weight,
         )?;
         let vocabulary = MultimodalVocabulary::new(config.vocab_size, config.token_dim)?;
-        let sequence_processor = TokenSequenceProcessor::new(config.vocab_size, config.max_sequence_length)?;
+        let sequence_processor =
+            TokenSequenceProcessor::new(config.vocab_size, config.max_sequence_length)?;
 
         Ok(Self {
             vq_vae,
@@ -171,7 +172,10 @@ impl UnifiedTokenizer {
 
     fn tokens_to_features(&mut self, tokens: &[UnifiedToken]) -> Result<ArrayD<f32>> {
         if tokens.is_empty() {
-            return Ok(ArrayD::from_shape_vec(vec![1, 0, self.config.token_dim], vec![])?);
+            return Ok(ArrayD::from_shape_vec(
+                vec![1, 0, self.config.token_dim],
+                vec![],
+            )?);
         }
 
         let num_tokens = tokens.len();
@@ -245,14 +249,21 @@ impl UnifiedTokenizer {
         let predicted = self.ngram.predict(&context_ids).unwrap_or_else(|| {
             let last_id = last.token_id;
             let mut hash = last_id as u64;
-            hash = hash.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            hash = hash
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((hash % self.config.vocab_size as u64) as usize).max(1)
         });
 
         let next_modality = self.predict_next_modality(context_tokens)?;
 
-        let quantized = self.vq_vae.quantize(&vec![predicted as f32; self.config.token_dim]).ok();
-        let embedding = quantized.map(|(q, _, _)| q).unwrap_or_else(|| vec![0.0; self.config.token_dim]);
+        let quantized = self
+            .vq_vae
+            .quantize(&vec![predicted as f32; self.config.token_dim])
+            .ok();
+        let embedding = quantized
+            .map(|(q, _, _)| q)
+            .unwrap_or_else(|| vec![0.0; self.config.token_dim]);
 
         Ok(UnifiedToken {
             token_id: predicted,
@@ -273,8 +284,9 @@ impl UnifiedTokenizer {
             crate::multimodal::error::CaffeineError::tokenizer("No context tokens available")
         })?;
 
-        let modality_counts: std::collections::HashMap<ModalityType, usize> =
-            context_tokens.iter().fold(std::collections::HashMap::new(), |mut acc, t| {
+        let modality_counts: std::collections::HashMap<ModalityType, usize> = context_tokens
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut acc, t| {
                 *acc.entry(t.modality).or_insert(0) += 1;
                 acc
             });

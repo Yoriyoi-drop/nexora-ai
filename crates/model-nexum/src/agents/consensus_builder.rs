@@ -1094,15 +1094,13 @@ mod tests {
             reasoning_traces: vec![
                 ReasoningTrace {
                     agent_id: "agent1".to_string(),
-                    steps: vec![
-                        ReasoningStep {
-                            step_id: "s1".to_string(),
-                            description: "Evaluate both solutions".to_string(),
-                            step_type: "analysis".to_string(),
-                            evidence: vec![],
-                            logic: "comparison".to_string(),
-                        },
-                    ],
+                    steps: vec![ReasoningStep {
+                        step_id: "s1".to_string(),
+                        description: "Evaluate both solutions".to_string(),
+                        step_type: "analysis".to_string(),
+                        evidence: vec![],
+                        logic: "comparison".to_string(),
+                    }],
                     conclusion: "Solution A is best".to_string(),
                     confidence: 0.8,
                 },

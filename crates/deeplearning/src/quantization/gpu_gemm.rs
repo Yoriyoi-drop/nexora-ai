@@ -20,7 +20,10 @@ pub fn try_matmul_int2(
     group_size: usize,
 ) -> Option<Vec<f32>> {
     #[cfg(not(feature = "gpu"))]
-    { let _ = (a, b_packed, scales, m, n, k, group_size); None }
+    {
+        let _ = (a, b_packed, scales, m, n, k, group_size);
+        None
+    }
 
     #[cfg(feature = "gpu")]
     {
@@ -55,7 +58,10 @@ pub fn try_matmul_int4(
     group_size: usize,
 ) -> Option<Vec<f32>> {
     #[cfg(not(feature = "gpu"))]
-    { let _ = (a, b_packed, scales, m, n, k, group_size); None }
+    {
+        let _ = (a, b_packed, scales, m, n, k, group_size);
+        None
+    }
 
     #[cfg(feature = "gpu")]
     {
@@ -85,7 +91,10 @@ pub fn try_matmul_int8(
     group_size: usize,
 ) -> Option<Vec<f32>> {
     #[cfg(not(feature = "gpu"))]
-    { let _ = (a, b, scales, m, n, k, group_size); None }
+    {
+        let _ = (a, b, scales, m, n, k, group_size);
+        None
+    }
 
     #[cfg(feature = "gpu")]
     {
@@ -105,7 +114,13 @@ pub fn try_matmul_int8(
 }
 
 // --- Helper: Dequantize Q2 packed → FP32 flat matrix ---
-fn dequant_q2_to_fp32(packed: &[u8], scales: &[f32], n: usize, k: usize, group_size: usize) -> Vec<f32> {
+fn dequant_q2_to_fp32(
+    packed: &[u8],
+    scales: &[f32],
+    n: usize,
+    k: usize,
+    group_size: usize,
+) -> Vec<f32> {
     let num_groups = k.div_ceil(group_size);
     let groups = num_groups.max(1);
     let mut out = vec![0.0f32; k * n];
@@ -138,7 +153,13 @@ fn dequant_q2_to_fp32(packed: &[u8], scales: &[f32], n: usize, k: usize, group_s
 }
 
 // --- Helper: Dequantize Q4 packed → FP32 flat matrix ---
-fn dequant_q4_to_fp32(packed: &[u8], scales: &[f32], n: usize, k: usize, group_size: usize) -> Vec<f32> {
+fn dequant_q4_to_fp32(
+    packed: &[u8],
+    scales: &[f32],
+    n: usize,
+    k: usize,
+    group_size: usize,
+) -> Vec<f32> {
     let num_groups = k.div_ceil(group_size);
     let groups = num_groups.max(1);
     let mut out = vec![0.0f32; k * n];
@@ -165,7 +186,13 @@ fn dequant_q4_to_fp32(packed: &[u8], scales: &[f32], n: usize, k: usize, group_s
 }
 
 // --- Helper: Dequantize INT8 → FP32 flat matrix ---
-fn dequant_int8_to_fp32(b: &[i8], scales: &[f32], n: usize, k: usize, group_size: usize) -> Vec<f32> {
+fn dequant_int8_to_fp32(
+    b: &[i8],
+    scales: &[f32],
+    n: usize,
+    k: usize,
+    group_size: usize,
+) -> Vec<f32> {
     let num_groups = k.div_ceil(group_size);
     let groups = num_groups.max(1);
     let mut out = vec![0.0f32; k * n];
@@ -176,7 +203,11 @@ fn dequant_int8_to_fp32(b: &[i8], scales: &[f32], n: usize, k: usize, group_size
             let scale = scales[g * n + col];
             for kk in g_start..g_end {
                 let idx = kk * n + col;
-                out[idx] = if idx < b.len() { b[idx] as f32 * scale } else { 0.0 };
+                out[idx] = if idx < b.len() {
+                    b[idx] as f32 * scale
+                } else {
+                    0.0
+                };
             }
         }
     }

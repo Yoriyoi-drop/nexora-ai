@@ -9,12 +9,12 @@ use tracing::{info, warn};
 use super::commands::{Cli, Commands, ConfigAction, MemoryAction, TokenizerAction};
 use crate::{NexoraAI, NexoraConfig};
 
+use nexora_datastream::source::SourceProvider;
 use nexora_datastream::{
     filter::{DedupFilter, LengthFilter, QualityFilter},
     source::huggingface::HuggingFaceDatasetProvider,
     DataSample, ExecutionResult, SourceCategory, SourceInfo,
 };
-use nexora_datastream::source::SourceProvider;
 
 /// Supported extensions for auto-detection.
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -238,11 +238,12 @@ impl Cli {
                         self.run_collect_data(sources, *max_samples, *max_shard_size_mb, output)
                             .await
                     }
-                    Commands::LoadCheckpoint { model, path, gpu } => {
-                        self.run_load_checkpoint(model, path, *gpu).await.map_err(|e| {
+                    Commands::LoadCheckpoint { model, path, gpu } => self
+                        .run_load_checkpoint(model, path, *gpu)
+                        .await
+                        .map_err(|e| {
                             NexoraError::processing(format!("LoadCheckpoint command failed: {}", e))
-                        })
-                    }
+                        }),
                     Commands::Generate {
                         prompt,
                         max_tokens,
@@ -348,9 +349,10 @@ impl Cli {
                         samples,
                         train_steps,
                         no_gpu,
-                    } => self
-                        .run_baseline(&nexora, output, *warmup, *samples, *train_steps, *no_gpu)
-                        .await,
+                    } => {
+                        self.run_baseline(&nexora, output, *warmup, *samples, *train_steps, *no_gpu)
+                            .await
+                    }
                     Commands::Benchmark {
                         model: _model,
                         warmup,
@@ -358,9 +360,10 @@ impl Cli {
                         output,
                         format,
                         no_gpu,
-                    } => self
-                        .run_benchmark(&nexora, *warmup, *samples, output, format, *no_gpu)
-                        .await,
+                    } => {
+                        self.run_benchmark(&nexora, *warmup, *samples, output, format, *no_gpu)
+                            .await
+                    }
                     other => {
                         warn!("Unexpected command variant in inner handler: {:?}", other);
                         return Err(NexoraError::processing(format!(
@@ -501,12 +504,15 @@ impl Cli {
         num_replicas: usize,
     ) -> NexoraResult<()> {
         info!("=== FOUNDATION TRAINING ===");
-        info!("Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}", model_id, steps, batch_size, learning_rate, seq_length, output, parallel);
+        info!(
+            "Model: {}, Steps: {}, Batch: {}, LR: {}, SeqLen: {}, Output: {:?}, Parallel: {}",
+            model_id, steps, batch_size, learning_rate, seq_length, output, parallel
+        );
 
         let lines = if let Some(hf) = hf_dataset {
             info!("[1/2] Fetching dataset '{}' from HuggingFace live...", hf);
-            let mut provider = HuggingFaceDatasetProvider::new(hf, hf_max_samples.max(1))
-                .with_split(hf_split);
+            let mut provider =
+                HuggingFaceDatasetProvider::new(hf, hf_max_samples.max(1)).with_split(hf_split);
             provider.resolve_config().await;
             let samples = provider.fetch_samples().await;
             info!("  Fetched {} raw samples from HuggingFace", samples.len());
@@ -515,7 +521,10 @@ impl Cli {
             lines
         } else {
             let data = data.as_ref().ok_or_else(|| {
-                NexoraError::validation("data", "Either --data or --hf-dataset is required".to_string())
+                NexoraError::validation(
+                    "data",
+                    "Either --data or --hf-dataset is required".to_string(),
+                )
             })?;
             if !data.exists() {
                 return Err(NexoraError::Io {
@@ -623,7 +632,10 @@ impl Cli {
                     }
                     if hp {
                         model.set_use_half_precision(true);
-                        model.load_model().await.map_err(|e| format!("Half-precision reload failed: {}", e))?;
+                        model
+                            .load_model()
+                            .await
+                            .map_err(|e| format!("Half-precision reload failed: {}", e))?;
                     }
                     let val_opt: Option<&[String]> = if vr.is_empty() { None } else { Some(&vr) };
                     let report = model
@@ -679,7 +691,9 @@ impl Cli {
 
                 if half_precision {
                     model.set_use_half_precision(true);
-                    model.load_model().await.map_err(|e| NexoraError::model(format!("Half-precision reload failed: {}", e)))?;
+                    model.load_model().await.map_err(|e| {
+                        NexoraError::model(format!("Half-precision reload failed: {}", e))
+                    })?;
                 }
 
                 let report = model
@@ -1381,7 +1395,10 @@ impl Cli {
         no_gpu: bool,
     ) -> NexoraResult<()> {
         info!("=== FASE 0: BASELINE STABIL ===");
-        info!("Warmup: {}, Samples: {}, Train steps: {}", warmup, samples, train_steps);
+        info!(
+            "Warmup: {}, Samples: {}, Train steps: {}",
+            warmup, samples, train_steps
+        );
 
         let runner = super::benchmark::BaselineRunner::new(std::sync::Arc::new(nexora.clone()))
             .with_warmup(warmup)
@@ -1391,8 +1408,7 @@ impl Cli {
         let report = runner.run_baseline(no_gpu).await?;
 
         let json_str = report.to_json_string()?;
-        std::fs::write(output, &json_str)
-            .map_err(|e| NexoraError::Io { source: e })?;
+        std::fs::write(output, &json_str).map_err(|e| NexoraError::Io { source: e })?;
 
         info!("Fase 0 baseline written to: {:?}", output);
 
@@ -1423,7 +1439,10 @@ impl Cli {
         format: &str,
         _no_gpu: bool,
     ) -> NexoraResult<()> {
-        info!("Starting benchmark with warmup={}, samples={}", warmup, samples);
+        info!(
+            "Starting benchmark with warmup={}, samples={}",
+            warmup, samples
+        );
 
         let runner = super::benchmark::BenchmarkRunner::new(std::sync::Arc::new(nexora.clone()))
             .with_warmup(warmup)
@@ -1441,13 +1460,15 @@ impl Cli {
                 // Intentional CLI stdout output for benchmark results
                 println!("{}", formatted);
                 if let Some(path) = output {
-                    std::fs::write(path, &formatted)
-                        .map_err(|e| NexoraError::Io { source: e })?;
+                    std::fs::write(path, &formatted).map_err(|e| NexoraError::Io { source: e })?;
                     info!("Benchmark report written to {:?}", path);
                 }
             }
             _ => {
-                return Err(NexoraError::validation("format", "Unsupported format. Use text or json."))
+                return Err(NexoraError::validation(
+                    "format",
+                    "Unsupported format. Use text or json.",
+                ))
             }
         }
 

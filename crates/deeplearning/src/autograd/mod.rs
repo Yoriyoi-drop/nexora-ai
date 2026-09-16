@@ -51,7 +51,7 @@ pub use device::{Device, Storage};
 pub use mixed_precision::{DType, LossScaler};
 pub use ops::*;
 pub use tape::clear_tape;
-pub use tensor::{set_gpu_auto_create, is_gpu_auto_create, next_tensor_id, DataRef, Tensor};
+pub use tensor::{is_gpu_auto_create, next_tensor_id, set_gpu_auto_create, DataRef, Tensor};
 
 use ndarray::ArrayD;
 
@@ -138,34 +138,80 @@ pub trait TensorOps {
 }
 
 impl TensorOps for Tensor {
-    fn add(&self, other: &Self) -> Tensor { ops::math::add(self, other) }
-    fn sub(&self, other: &Self) -> Tensor { ops::math::sub(self, other) }
-    fn mul(&self, other: &Self) -> Tensor { ops::math::mul(self, other) }
-    fn div(&self, other: &Self) -> Tensor { ops::math::div(self, other) }
-    fn exp(&self) -> Tensor { ops::math::exp(self) }
-    fn ln(&self) -> Tensor { ops::math::ln(self) }
-    fn powf(&self, exponent: f32) -> Tensor { ops::math::powf(self, exponent) }
-    fn sqrt(&self) -> Tensor { ops::math::sqrt(self) }
-    fn matmul(&self, other: &Self) -> Tensor { ops::matmul::matmul(self, other) }
-    fn sum(&self) -> Tensor { ops::reduce::sum(self) }
-    fn mean(&self) -> Tensor { ops::reduce::mean(self) }
-    fn reshape(&self, shape: &[usize]) -> Tensor { ops::shape::reshape(self, shape) }
-    fn transpose(&self) -> Tensor { ops::shape::transpose(self) }
-    fn relu(&self) -> Tensor { ops::activation::relu(self) }
-    fn gelu(&self) -> Tensor { ops::activation::gelu(self) }
-    fn sigmoid(&self) -> Tensor { ops::activation::sigmoid(self) }
-    fn tanh(&self) -> Tensor { ops::activation::tanh(self) }
-    fn leaky_relu(&self, negative_slope: f32) -> Tensor { ops::activation::leaky_relu(self, negative_slope) }
-    fn silu(&self) -> Tensor { ops::activation::silu(self) }
-    fn softmax(&self, axis: usize) -> Tensor { ops::nn::softmax(self, axis) }
-    fn log_softmax(&self, axis: usize) -> Tensor { ops::nn::log_softmax(self, axis) }
-    fn dropout(&self, rate: f32, training: bool) -> Tensor { ops::nn::dropout(self, rate, training) }
+    fn add(&self, other: &Self) -> Tensor {
+        ops::math::add(self, other)
+    }
+    fn sub(&self, other: &Self) -> Tensor {
+        ops::math::sub(self, other)
+    }
+    fn mul(&self, other: &Self) -> Tensor {
+        ops::math::mul(self, other)
+    }
+    fn div(&self, other: &Self) -> Tensor {
+        ops::math::div(self, other)
+    }
+    fn exp(&self) -> Tensor {
+        ops::math::exp(self)
+    }
+    fn ln(&self) -> Tensor {
+        ops::math::ln(self)
+    }
+    fn powf(&self, exponent: f32) -> Tensor {
+        ops::math::powf(self, exponent)
+    }
+    fn sqrt(&self) -> Tensor {
+        ops::math::sqrt(self)
+    }
+    fn matmul(&self, other: &Self) -> Tensor {
+        ops::matmul::matmul(self, other)
+    }
+    fn sum(&self) -> Tensor {
+        ops::reduce::sum(self)
+    }
+    fn mean(&self) -> Tensor {
+        ops::reduce::mean(self)
+    }
+    fn reshape(&self, shape: &[usize]) -> Tensor {
+        ops::shape::reshape(self, shape)
+    }
+    fn transpose(&self) -> Tensor {
+        ops::shape::transpose(self)
+    }
+    fn relu(&self) -> Tensor {
+        ops::activation::relu(self)
+    }
+    fn gelu(&self) -> Tensor {
+        ops::activation::gelu(self)
+    }
+    fn sigmoid(&self) -> Tensor {
+        ops::activation::sigmoid(self)
+    }
+    fn tanh(&self) -> Tensor {
+        ops::activation::tanh(self)
+    }
+    fn leaky_relu(&self, negative_slope: f32) -> Tensor {
+        ops::activation::leaky_relu(self, negative_slope)
+    }
+    fn silu(&self) -> Tensor {
+        ops::activation::silu(self)
+    }
+    fn softmax(&self, axis: usize) -> Tensor {
+        ops::nn::softmax(self, axis)
+    }
+    fn log_softmax(&self, axis: usize) -> Tensor {
+        ops::nn::log_softmax(self, axis)
+    }
+    fn dropout(&self, rate: f32, training: bool) -> Tensor {
+        ops::nn::dropout(self, rate, training)
+    }
 }
 
 pub trait Module {
     fn parameters(&self) -> Vec<Tensor>;
     fn forward(&self, input: &Tensor) -> Tensor;
-    fn name(&self) -> &str { "Module" }
+    fn name(&self) -> &str {
+        "Module"
+    }
 }
 
 pub struct Linear {
@@ -204,7 +250,9 @@ impl Module for Linear {
         out
     }
 
-    fn name(&self) -> &str { "Linear" }
+    fn name(&self) -> &str {
+        "Linear"
+    }
 }
 
 pub struct MLP {
@@ -215,7 +263,11 @@ impl MLP {
     pub fn new(layer_sizes: &[usize], _activation: &str) -> Self {
         let mut layers: Vec<Box<dyn Module>> = Vec::with_capacity(layer_sizes.len() - 1);
         for i in 0..layer_sizes.len() - 1 {
-            layers.push(Box::new(Linear::new(layer_sizes[i], layer_sizes[i + 1], true)));
+            layers.push(Box::new(Linear::new(
+                layer_sizes[i],
+                layer_sizes[i + 1],
+                true,
+            )));
         }
         Self { layers }
     }
@@ -237,7 +289,9 @@ impl Module for MLP {
         h
     }
 
-    fn name(&self) -> &str { "MLP" }
+    fn name(&self) -> &str {
+        "MLP"
+    }
 }
 
 pub struct Adam {
@@ -255,36 +309,63 @@ pub struct Adam {
 
 impl Adam {
     pub fn new(parameters: Vec<Tensor>, lr: f32) -> Self {
-        let m = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
-        let v = parameters.iter().map(|p| ArrayD::zeros(p.shape().to_vec())).collect();
+        let m = parameters
+            .iter()
+            .map(|p| ArrayD::zeros(p.shape().to_vec()))
+            .collect();
+        let v = parameters
+            .iter()
+            .map(|p| ArrayD::zeros(p.shape().to_vec()))
+            .collect();
         Self {
-            parameters, lr,
-            beta1: 0.9, beta2: 0.999, eps: 1e-8,
-            weight_decay: 0.0, max_grad_norm: None, step: 0, m, v,
+            parameters,
+            lr,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            weight_decay: 0.0,
+            max_grad_norm: None,
+            step: 0,
+            m,
+            v,
         }
     }
 
     pub fn zero_grad(&self) {
-        for p in &self.parameters { p.zero_grad(); }
+        for p in &self.parameters {
+            p.zero_grad();
+        }
     }
 
-    pub fn set_weight_decay(&mut self, wd: f32) { self.weight_decay = wd; }
-    pub fn set_max_grad_norm(&mut self, max_norm: Option<f32>) { self.max_grad_norm = max_norm; }
+    pub fn set_weight_decay(&mut self, wd: f32) {
+        self.weight_decay = wd;
+    }
+    pub fn set_max_grad_norm(&mut self, max_norm: Option<f32>) {
+        self.max_grad_norm = max_norm;
+    }
 
     fn clip_gradients(&self, max_norm: f32) {
         let mut total_norm_sq = 0.0f32;
         let mut has_nan = false;
-        let grads: Vec<(usize, ArrayD<f32>)> = self.parameters.iter().enumerate()
-            .filter_map(|(i, p)| p.grad().map(|g| (i, g))).collect();
+        let grads: Vec<(usize, ArrayD<f32>)> = self
+            .parameters
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| p.grad().map(|g| (i, g)))
+            .collect();
         for (_, ref g) in &grads {
             for &x in g.iter() {
-                if !x.is_finite() { has_nan = true; }
+                if !x.is_finite() {
+                    has_nan = true;
+                }
                 total_norm_sq += x * x;
             }
         }
         if has_nan {
             tracing::warn!("NaN/Inf detected in gradients — zeroing all gradients to prevent cascade corruption");
-            for (i, _) in &grads { self.parameters[*i].zero_grad(); }
+            for (i, _) in &grads {
+                self.parameters[*i].zero_grad();
+            }
             return;
         }
         let total_norm = total_norm_sq.sqrt();
@@ -301,7 +382,9 @@ impl Adam {
         self.step += 1;
         let bias_corr1 = 1.0 - self.beta1.powi(self.step as i32);
         let bias_corr2 = 1.0 - self.beta2.powi(self.step as i32);
-        if let Some(max_norm) = self.max_grad_norm { self.clip_gradients(max_norm); }
+        if let Some(max_norm) = self.max_grad_norm {
+            self.clip_gradients(max_norm);
+        }
         for (i, p) in self.parameters.iter().enumerate() {
             if let Some(g) = p.grad() {
                 self.m[i] = &self.m[i] * self.beta1 + &g * (1.0 - self.beta1);
@@ -338,32 +421,79 @@ impl Adam {
 
     pub fn collect_optimizer_tensors(&self) -> Vec<(String, ArrayD<f32>)> {
         let mut tensors: Vec<(String, ArrayD<f32>)> = Vec::with_capacity(self.m.len() * 2 + 6);
-        tensors.push(("opt.step".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.step as f32]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        tensors.push(("opt.lr".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.lr]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        tensors.push(("opt.beta1".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.beta1]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        tensors.push(("opt.beta2".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.beta2]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        tensors.push(("opt.eps".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.eps]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        tensors.push(("opt.weight_decay".to_string(), ArrayD::from_shape_vec(vec![1], vec![self.weight_decay]).unwrap_or_else(|_e| ArrayD::zeros(vec![1]))));
-        for (i, arr) in self.m.iter().enumerate() { tensors.push((format!("opt.m.{}", i), arr.clone())); }
-        for (i, arr) in self.v.iter().enumerate() { tensors.push((format!("opt.v.{}", i), arr.clone())); }
+        tensors.push((
+            "opt.step".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.step as f32])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        tensors.push((
+            "opt.lr".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.lr])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        tensors.push((
+            "opt.beta1".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.beta1])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        tensors.push((
+            "opt.beta2".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.beta2])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        tensors.push((
+            "opt.eps".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.eps])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        tensors.push((
+            "opt.weight_decay".to_string(),
+            ArrayD::from_shape_vec(vec![1], vec![self.weight_decay])
+                .unwrap_or_else(|_e| ArrayD::zeros(vec![1])),
+        ));
+        for (i, arr) in self.m.iter().enumerate() {
+            tensors.push((format!("opt.m.{}", i), arr.clone()));
+        }
+        for (i, arr) in self.v.iter().enumerate() {
+            tensors.push((format!("opt.v.{}", i), arr.clone()));
+        }
         tensors
     }
 
-    pub fn load_optimizer_state(&mut self, tensors: &std::collections::HashMap<String, ArrayD<f32>>) {
-        if let Some(arr) = tensors.get("opt.step") { self.step = arr.iter().next().copied().unwrap_or(0.0) as usize; }
-        if let Some(arr) = tensors.get("opt.lr") { self.lr = arr.iter().next().copied().unwrap_or(self.lr); }
-        if let Some(arr) = tensors.get("opt.beta1") { self.beta1 = arr.iter().next().copied().unwrap_or(self.beta1); }
-        if let Some(arr) = tensors.get("opt.beta2") { self.beta2 = arr.iter().next().copied().unwrap_or(self.beta2); }
-        if let Some(arr) = tensors.get("opt.eps") { self.eps = arr.iter().next().copied().unwrap_or(self.eps); }
-        if let Some(arr) = tensors.get("opt.weight_decay") { self.weight_decay = arr.iter().next().copied().unwrap_or(self.weight_decay); }
+    pub fn load_optimizer_state(
+        &mut self,
+        tensors: &std::collections::HashMap<String, ArrayD<f32>>,
+    ) {
+        if let Some(arr) = tensors.get("opt.step") {
+            self.step = arr.iter().next().copied().unwrap_or(0.0) as usize;
+        }
+        if let Some(arr) = tensors.get("opt.lr") {
+            self.lr = arr.iter().next().copied().unwrap_or(self.lr);
+        }
+        if let Some(arr) = tensors.get("opt.beta1") {
+            self.beta1 = arr.iter().next().copied().unwrap_or(self.beta1);
+        }
+        if let Some(arr) = tensors.get("opt.beta2") {
+            self.beta2 = arr.iter().next().copied().unwrap_or(self.beta2);
+        }
+        if let Some(arr) = tensors.get("opt.eps") {
+            self.eps = arr.iter().next().copied().unwrap_or(self.eps);
+        }
+        if let Some(arr) = tensors.get("opt.weight_decay") {
+            self.weight_decay = arr.iter().next().copied().unwrap_or(self.weight_decay);
+        }
         for i in 0..self.m.len() {
             let m_key = format!("opt.m.{}", i);
             let v_key = format!("opt.v.{}", i);
             if let Some(arr) = tensors.get(&m_key) {
-                if arr.shape() == self.m[i].shape() { self.m[i] = arr.clone(); }
+                if arr.shape() == self.m[i].shape() {
+                    self.m[i] = arr.clone();
+                }
             }
             if let Some(arr) = tensors.get(&v_key) {
-                if arr.shape() == self.v[i].shape() { self.v[i] = arr.clone(); }
+                if arr.shape() == self.v[i].shape() {
+                    self.v[i] = arr.clone();
+                }
             }
         }
     }
@@ -379,18 +509,26 @@ pub struct SGD {
 impl SGD {
     pub fn new(parameters: Vec<Tensor>, lr: f32, momentum: f32) -> Self {
         let velocities = parameters.iter().map(|_| None).collect();
-        Self { parameters, lr, momentum, velocities }
+        Self {
+            parameters,
+            lr,
+            momentum,
+            velocities,
+        }
     }
 
     pub fn zero_grad(&self) {
-        for p in &self.parameters { p.zero_grad(); }
+        for p in &self.parameters {
+            p.zero_grad();
+        }
     }
 
     pub fn step(&mut self) {
         for (i, p) in self.parameters.iter().enumerate() {
             if let Some(g) = p.grad() {
                 let update = if self.momentum > 0.0 {
-                    let vel = self.velocities[i].get_or_insert_with(|| ArrayD::zeros(g.shape().to_vec()));
+                    let vel =
+                        self.velocities[i].get_or_insert_with(|| ArrayD::zeros(g.shape().to_vec()));
                     let new_vel = &*vel * self.momentum + &g * self.lr;
                     *vel = new_vel.clone();
                     new_vel

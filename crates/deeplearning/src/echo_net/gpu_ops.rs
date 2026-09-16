@@ -1,7 +1,7 @@
+use crate::autograd::gpu::{GpuContext, GpuTensor};
 use crate::echo_net::utils::Complex;
 use crate::echo_net::{DLResult, DeepLearningError};
 use ndarray::{Array2, ArrayD};
-use crate::autograd::gpu::{GpuContext, GpuTensor};
 use std::collections::HashMap;
 use std::sync::Mutex;
 

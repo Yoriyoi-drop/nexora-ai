@@ -74,11 +74,13 @@ pub struct Expert {
     #[cfg(feature = "cuda")]
     fc1_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
-    fc1_bias_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
+    fc1_bias_cuda:
+        std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
     fc2_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
     #[cfg(feature = "cuda")]
-    fc2_bias_cuda: std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
+    fc2_bias_cuda:
+        std::sync::OnceLock<Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor>>,
 }
 
 impl Expert {
@@ -261,7 +263,9 @@ impl Expert {
                     flat_t.push(w1[j][k]);
                 }
             }
-            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(&flat_t, i, h, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(
+                &flat_t, i, h, group_size,
+            );
             self.fc1_q4 = Some((packed, scales));
         }
         if let Some(ref w2) = self.fc2_weights {
@@ -273,7 +277,9 @@ impl Expert {
                     flat_t.push(w2[j][k]);
                 }
             }
-            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(&flat_t, h, i, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q4(
+                &flat_t, h, i, group_size,
+            );
             self.fc2_q4 = Some((packed, scales));
         }
         self.fc1_weights = None;
@@ -294,7 +300,9 @@ impl Expert {
                     flat_t.push(w1[j][k]);
                 }
             }
-            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(&flat_t, i, h, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(
+                &flat_t, i, h, group_size,
+            );
             self.fc1_q2 = Some((packed, scales));
         }
         if let Some(ref w2) = self.fc2_weights {
@@ -304,7 +312,9 @@ impl Expert {
                     flat_t.push(w2[j][k]);
                 }
             }
-            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(&flat_t, h, i, group_size);
+            let (packed, scales) = nexora_deeplearning::quantization::gemm::quantize_fp32_to_q2(
+                &flat_t, h, i, group_size,
+            );
             self.fc2_q2 = Some((packed, scales));
         }
         self.fc1_weights = None;
@@ -427,38 +437,56 @@ impl Expert {
     /// Lazily upload and transpose expert weights to GPU — cached via OnceLock.
     /// Returns (fc1_w_t, fc1_bias, fc2_w_t, fc2_bias) as GpuTensors or None.
     #[cfg(feature = "gpu")]
-    fn ensure_weights_gpu(&self) -> Option<(&nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor, &nexora_deeplearning::autograd::gpu::GpuTensor)> {
+    fn ensure_weights_gpu(
+        &self,
+    ) -> Option<(
+        &nexora_deeplearning::autograd::gpu::GpuTensor,
+        &nexora_deeplearning::autograd::gpu::GpuTensor,
+        &nexora_deeplearning::autograd::gpu::GpuTensor,
+        &nexora_deeplearning::autograd::gpu::GpuTensor,
+    )> {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let fc1_w = self.fc1_weights.as_ref()?;
         let fc1_b = self.fc1_bias.as_ref()?;
         let fc2_w = self.fc2_weights.as_ref()?;
         let fc2_b = self.fc2_bias.as_ref()?;
-        let w1 = self.fc1_gpu.get_or_init(|| {
-            let shape = vec![fc1_w.len(), self.config.hidden_size];
-            let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
-            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
-            ctx.transpose(&gpu).ok()
-        }).as_ref()?;
-        let b1 = self.fc1_bias_gpu.get_or_init(|| {
-            GpuTensor::from_slice(vec![1, fc1_b.len()], fc1_b).ok()
-        }).as_ref()?;
-        let w2 = self.fc2_gpu.get_or_init(|| {
-            let shape = vec![fc2_w.len(), self.config.intermediate_size];
-            let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
-            let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
-            ctx.transpose(&gpu).ok()
-        }).as_ref()?;
-        let b2 = self.fc2_bias_gpu.get_or_init(|| {
-            GpuTensor::from_slice(vec![1, fc2_b.len()], fc2_b).ok()
-        }).as_ref()?;
+        let w1 = self
+            .fc1_gpu
+            .get_or_init(|| {
+                let shape = vec![fc1_w.len(), self.config.hidden_size];
+                let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
+                let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
+                ctx.transpose(&gpu).ok()
+            })
+            .as_ref()?;
+        let b1 = self
+            .fc1_bias_gpu
+            .get_or_init(|| GpuTensor::from_slice(vec![1, fc1_b.len()], fc1_b).ok())
+            .as_ref()?;
+        let w2 = self
+            .fc2_gpu
+            .get_or_init(|| {
+                let shape = vec![fc2_w.len(), self.config.intermediate_size];
+                let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
+                let gpu = GpuTensor::from_slice(shape, &flat).ok()?;
+                ctx.transpose(&gpu).ok()
+            })
+            .as_ref()?;
+        let b2 = self
+            .fc2_bias_gpu
+            .get_or_init(|| GpuTensor::from_slice(vec![1, fc2_b.len()], fc2_b).ok())
+            .as_ref()?;
         Some((w1, b1, w2, b2))
     }
 
     /// Batched GPU forward: processes N tokens in one GPU call.
     /// Returns None if GPU unavailable (CPU fallback handled by caller).
     #[cfg(feature = "gpu")]
-    pub fn forward_batched_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+    pub fn forward_batched_gpu(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<ndarray::Array2<f32>> {
         self.forward_batched_gpu_inner(inputs)
             .and_then(|t| t.to_cpu().ok())
             .and_then(|d| d.into_dimensionality::<ndarray::Ix2>().ok())
@@ -467,14 +495,20 @@ impl Expert {
     /// Batched GPU forward that keeps result on GPU (no readback).
     /// Returns the raw GPU tensor for deferred readback / fused scatter-add.
     #[cfg(feature = "gpu")]
-    pub fn forward_batched_gpu_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    pub fn forward_batched_gpu_keep_gpu(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         self.forward_batched_gpu_inner(inputs)
     }
 
     /// Internal batched wgpu forward — all GPU ops, no readback.
     /// Prefers Q2 (most compact) over Q4 over FP32 on GPU.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_inner(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    fn forward_batched_gpu_inner(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         if self.fc1_q2.is_some() {
             return self.forward_batched_gpu_q2(inputs);
         }
@@ -497,7 +531,10 @@ impl Expert {
     /// Batched wgpu forward via INT4 quantized weights.
     /// Uses `matmul_int4_weight` kernel for compute directly from Q4 packed data.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_q4(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    fn forward_batched_gpu_q4(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let (ref packed1, ref scales1) = self.fc1_q4.as_ref()?;
@@ -508,24 +545,36 @@ impl Expert {
         let (batch, dim) = inputs.dim();
 
         // Lazily upload Q4 packed + scales to GPU via OnceLock
-        let b_q4 = self.fc1_q4_gpu.get_or_init(|| {
-            let shape = vec![h, i]; // original [K, N] = [hidden, intermediate]
-            GpuTensor::from_cpu_q4_packed(shape, packed1).ok()
-        }).as_ref()?;
-        let b_scales = self.fc1_q4_scales_gpu.get_or_init(|| {
-            let groups = h.div_ceil(gs);
-            let shape = vec![groups, i];
-            GpuTensor::from_slice(shape, scales1).ok()
-        }).as_ref()?;
-        let w2_q4 = self.fc2_q4_gpu.get_or_init(|| {
-            let shape = vec![i, h]; // original [K, N] = [intermediate, hidden]
-            GpuTensor::from_cpu_q4_packed(shape, packed2).ok()
-        }).as_ref()?;
-        let w2_scales = self.fc2_q4_scales_gpu.get_or_init(|| {
-            let groups = i.div_ceil(gs);
-            let shape = vec![groups, h];
-            GpuTensor::from_slice(shape, scales2).ok()
-        }).as_ref()?;
+        let b_q4 = self
+            .fc1_q4_gpu
+            .get_or_init(|| {
+                let shape = vec![h, i]; // original [K, N] = [hidden, intermediate]
+                GpuTensor::from_cpu_q4_packed(shape, packed1).ok()
+            })
+            .as_ref()?;
+        let b_scales = self
+            .fc1_q4_scales_gpu
+            .get_or_init(|| {
+                let groups = h.div_ceil(gs);
+                let shape = vec![groups, i];
+                GpuTensor::from_slice(shape, scales1).ok()
+            })
+            .as_ref()?;
+        let w2_q4 = self
+            .fc2_q4_gpu
+            .get_or_init(|| {
+                let shape = vec![i, h]; // original [K, N] = [intermediate, hidden]
+                GpuTensor::from_cpu_q4_packed(shape, packed2).ok()
+            })
+            .as_ref()?;
+        let w2_scales = self
+            .fc2_q4_scales_gpu
+            .get_or_init(|| {
+                let groups = i.div_ceil(gs);
+                let shape = vec![groups, h];
+                GpuTensor::from_slice(shape, scales2).ok()
+            })
+            .as_ref()?;
 
         let input_data = inputs.as_slice()?;
         let input_gpu = GpuTensor::from_slice(vec![batch, dim], input_data).ok()?;
@@ -535,7 +584,9 @@ impl Expert {
         // A = input [batch, hidden] → K=hidden
         // B_packed = q4 with shape [hidden, intermediate] → [K/2, N]
         // Note: from_cpu_q4_packed stores byte layout as [K, N] but shader reads [K/2, N]*N bytes
-        let mut hidden = ctx.matmul_int4_weight(&input_gpu, b_q4, b_scales, gs).ok()?;
+        let mut hidden = ctx
+            .matmul_int4_weight(&input_gpu, b_q4, b_scales, gs)
+            .ok()?;
         // GELU activation — in-place
         ctx.gelu_inplace(&mut hidden).ok()?;
 
@@ -547,7 +598,10 @@ impl Expert {
     /// Batched wgpu forward via INT2 quantized weights.
     /// Uses `matmul_int2_weight` kernel for compute directly from Q2 packed data.
     #[cfg(feature = "gpu")]
-    fn forward_batched_gpu_q2(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
+    fn forward_batched_gpu_q2(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::GpuTensor> {
         use nexora_deeplearning::autograd::gpu::{GpuContext, GpuTensor};
         let ctx = GpuContext::global().ok()?;
         let (ref packed1, ref scales1) = self.fc1_q2.as_ref()?;
@@ -558,24 +612,36 @@ impl Expert {
         let (batch, dim) = inputs.dim();
 
         // Lazily upload Q2 packed + scales to GPU via OnceLock
-        let b_q2 = self.fc1_q2_gpu.get_or_init(|| {
-            let shape = vec![h, i]; // original [K, N] = [hidden, intermediate]
-            GpuTensor::from_cpu_q2_packed(shape, packed1).ok()
-        }).as_ref()?;
-        let b_scales = self.fc1_q2_scales_gpu.get_or_init(|| {
-            let groups = h.div_ceil(gs);
-            let shape = vec![groups, i];
-            GpuTensor::from_slice(shape, scales1).ok()
-        }).as_ref()?;
-        let w2_q2 = self.fc2_q2_gpu.get_or_init(|| {
-            let shape = vec![i, h]; // original [K, N] = [intermediate, hidden]
-            GpuTensor::from_cpu_q2_packed(shape, packed2).ok()
-        }).as_ref()?;
-        let w2_scales = self.fc2_q2_scales_gpu.get_or_init(|| {
-            let groups = i.div_ceil(gs);
-            let shape = vec![groups, h];
-            GpuTensor::from_slice(shape, scales2).ok()
-        }).as_ref()?;
+        let b_q2 = self
+            .fc1_q2_gpu
+            .get_or_init(|| {
+                let shape = vec![h, i]; // original [K, N] = [hidden, intermediate]
+                GpuTensor::from_cpu_q2_packed(shape, packed1).ok()
+            })
+            .as_ref()?;
+        let b_scales = self
+            .fc1_q2_scales_gpu
+            .get_or_init(|| {
+                let groups = h.div_ceil(gs);
+                let shape = vec![groups, i];
+                GpuTensor::from_slice(shape, scales1).ok()
+            })
+            .as_ref()?;
+        let w2_q2 = self
+            .fc2_q2_gpu
+            .get_or_init(|| {
+                let shape = vec![i, h]; // original [K, N] = [intermediate, hidden]
+                GpuTensor::from_cpu_q2_packed(shape, packed2).ok()
+            })
+            .as_ref()?;
+        let w2_scales = self
+            .fc2_q2_scales_gpu
+            .get_or_init(|| {
+                let groups = i.div_ceil(gs);
+                let shape = vec![groups, h];
+                GpuTensor::from_slice(shape, scales2).ok()
+            })
+            .as_ref()?;
 
         let input_data = inputs.as_slice()?;
         let input_gpu = GpuTensor::from_slice(vec![batch, dim], input_data).ok()?;
@@ -583,7 +649,9 @@ impl Expert {
         // fc1: [batch, hidden] @ Q2([hidden, intermediate]) → [batch, intermediate]
         // matmul_int2_weight: A[M,K] × B_packed[K/4,N] → C[M,N]
         // A = input [batch, hidden] → K=hidden
-        let mut hidden = ctx.matmul_int2_weight(&input_gpu, b_q2, b_scales, gs).ok()?;
+        let mut hidden = ctx
+            .matmul_int2_weight(&input_gpu, b_q2, b_scales, gs)
+            .ok()?;
         // GELU activation — in-place
         ctx.gelu_inplace(&mut hidden).ok()?;
 
@@ -595,28 +663,60 @@ impl Expert {
     /// Lazily upload expert weights to CUDA — cached via OnceLock.
     /// Returns (fc1, fc1_bias, fc2, fc2_bias) as CudaTensors or None.
     #[cfg(feature = "cuda")]
-    pub(crate) fn ensure_weights_cuda(&self, cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime) -> Option<(&nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor, &nexora_deeplearning::autograd::gpu::cuda::CudaTensor)> {
+    pub(crate) fn ensure_weights_cuda(
+        &self,
+        cuda: &nexora_deeplearning::autograd::gpu::cuda::CudaRuntime,
+    ) -> Option<(
+        &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+        &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+        &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+        &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
+    )> {
         use nexora_deeplearning::autograd::gpu::cuda::CudaTensor;
         let fc1_w = self.fc1_weights.as_ref()?;
         let fc1_b = self.fc1_bias.as_ref()?;
         let fc2_w = self.fc2_weights.as_ref()?;
         let fc2_b = self.fc2_bias.as_ref()?;
-        let w1 = self.fc1_cuda.get_or_init(|| {
-            let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
-            // Store transposed: [hidden_size, intermediate_size]
-            CudaTensor::from_cpu(&cuda.stream, vec![fc1_w.len(), self.config.hidden_size], &flat, cuda.device_id).ok()
-        }).as_ref()?;
-        let b1 = self.fc1_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.stream, vec![1, fc1_b.len()], fc1_b, cuda.device_id).ok()
-        }).as_ref()?;
-        let w2 = self.fc2_cuda.get_or_init(|| {
-            let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
-            // Store transposed: [intermediate_size, hidden_size]
-            CudaTensor::from_cpu(&cuda.stream, vec![fc2_w.len(), self.config.intermediate_size], &flat, cuda.device_id).ok()
-        }).as_ref()?;
-        let b2 = self.fc2_bias_cuda.get_or_init(|| {
-            CudaTensor::from_cpu(&cuda.stream, vec![1, fc2_b.len()], fc2_b, cuda.device_id).ok()
-        }).as_ref()?;
+        let w1 = self
+            .fc1_cuda
+            .get_or_init(|| {
+                let flat: Vec<f32> = fc1_w.iter().flatten().copied().collect();
+                // Store transposed: [hidden_size, intermediate_size]
+                CudaTensor::from_cpu(
+                    &cuda.stream,
+                    vec![fc1_w.len(), self.config.hidden_size],
+                    &flat,
+                    cuda.device_id,
+                )
+                .ok()
+            })
+            .as_ref()?;
+        let b1 = self
+            .fc1_bias_cuda
+            .get_or_init(|| {
+                CudaTensor::from_cpu(&cuda.stream, vec![1, fc1_b.len()], fc1_b, cuda.device_id).ok()
+            })
+            .as_ref()?;
+        let w2 = self
+            .fc2_cuda
+            .get_or_init(|| {
+                let flat: Vec<f32> = fc2_w.iter().flatten().copied().collect();
+                // Store transposed: [intermediate_size, hidden_size]
+                CudaTensor::from_cpu(
+                    &cuda.stream,
+                    vec![fc2_w.len(), self.config.intermediate_size],
+                    &flat,
+                    cuda.device_id,
+                )
+                .ok()
+            })
+            .as_ref()?;
+        let b2 = self
+            .fc2_bias_cuda
+            .get_or_init(|| {
+                CudaTensor::from_cpu(&cuda.stream, vec![1, fc2_b.len()], fc2_b, cuda.device_id).ok()
+            })
+            .as_ref()?;
         Some((w1, b1, w2, b2))
     }
 
@@ -635,8 +735,11 @@ impl Expert {
     /// single [total_tokens, hidden] matrix and use CublasLt strided-batched
     /// matmul with all expert weights packed into a 3D tensor [num_experts, inter, hidden].
     #[cfg(feature = "cuda")]
-    pub fn forward_batched_cuda(&self, inputs: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
-        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
+    pub fn forward_batched_cuda(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<ndarray::Array2<f32>> {
+        use nexora_deeplearning::autograd::gpu::{GpuBackend, GpuContext};
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
             return None;
@@ -650,9 +753,12 @@ impl Expert {
     /// Batched CUDA forward yang return CudaTensor tanpa readback.
     /// Untuk chaining ke GPU ops berikutnya.
     #[cfg(feature = "cuda")]
-    pub fn forward_batched_cuda_keep_gpu(&self, inputs: &ndarray::Array2<f32>) -> Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
-        use nexora_deeplearning::autograd::gpu::{GpuContext, GpuBackend};
-        use cudarc::cublaslt::safe::{Matmul, MatmulConfig, Activation};
+    pub fn forward_batched_cuda_keep_gpu(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Option<nexora_deeplearning::autograd::gpu::cuda::CudaTensor> {
+        use cudarc::cublaslt::safe::{Activation, Matmul, MatmulConfig};
+        use nexora_deeplearning::autograd::gpu::{GpuBackend, GpuContext};
 
         let ctx = GpuContext::global().ok()?;
         if ctx.backend() != GpuBackend::Cuda {
@@ -666,20 +772,24 @@ impl Expert {
         let inter = self.config.intermediate_size;
 
         // Upload input to GPU
-        let input_data: Vec<f32> = inputs.as_slice().map_or_else(
-            || inputs.iter().copied().collect(),
-            |s| s.to_vec(),
-        );
+        let input_data: Vec<f32> = inputs
+            .as_slice()
+            .map_or_else(|| inputs.iter().copied().collect(), |s| s.to_vec());
         let input_gpu = nexora_deeplearning::autograd::gpu::cuda::CudaTensor::from_cpu(
-            &cuda.stream, vec![n, dim], &input_data, cuda.device_id,
-        ).ok()?;
+            &cuda.stream,
+            vec![n, dim],
+            &input_data,
+            cuda.device_id,
+        )
+        .ok()?;
 
         // ── CublasLt fused path ────────────────────────────────
         let try_fused = |a: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
                          w: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
                          bias: &nexora_deeplearning::autograd::gpu::cuda::CudaTensor,
                          act: Option<Activation>,
-                         out_shape: Vec<usize>| -> Option<_> {
+                         out_shape: Vec<usize>|
+         -> Option<_> {
             let m_dim = w.shape[1] as u64;
             let n_dim = a.shape[0] as u64;
             let k_dim = a.shape[1] as u64;
@@ -689,20 +799,31 @@ impl Expert {
                 transa: true,
                 transb: true,
                 transc: false,
-                m: m_dim, n: n_dim, k: k_dim,
+                m: m_dim,
+                n: n_dim,
+                k: k_dim,
                 alpha: 1.0,
                 lda: m_dim as i64,
                 ldb: k_dim as i64,
                 beta: 0.0,
                 ldc: m_dim as i64,
-                stride_a: None, stride_b: None, stride_c: None,
-                stride_bias: None, batch_size: None,
+                stride_a: None,
+                stride_b: None,
+                stride_c: None,
+                stride_bias: None,
+                batch_size: None,
             };
             unsafe {
-                cuda.blas_lt.matmul(
-                    cfg, w.buffer(), a.buffer(), &mut result,
-                    Some(bias.buffer()), act.as_ref(),
-                ).ok()?;
+                cuda.blas_lt
+                    .matmul(
+                        cfg,
+                        w.buffer(),
+                        a.buffer(),
+                        &mut result,
+                        Some(bias.buffer()),
+                        act.as_ref(),
+                    )
+                    .ok()?;
             }
             Some(nexora_deeplearning::autograd::gpu::cuda::CudaTensor {
                 shape: out_shape,
@@ -716,36 +837,55 @@ impl Expert {
             .or_else(|| {
                 let h = cuda.matmul(&input_gpu, w1).ok()?;
                 let h = cuda.add(&h, b1).ok()?;
-                let mut h = h; cuda.gelu_inplace(&mut h).ok()?; Some(h)
+                let mut h = h;
+                cuda.gelu_inplace(&mut h).ok()?;
+                Some(h)
             })?;
 
         // fc2: [n, inter] @ [dim, inter] → [n, dim], bias only (no activation)
-        try_fused(&hidden, w2, b2, None, vec![n, dim])
-            .or_else(|| {
-                let o = cuda.matmul(&hidden, w2).ok()?;
-                cuda.add(&o, b2).ok()
-            })
+        try_fused(&hidden, w2, b2, None, vec![n, dim]).or_else(|| {
+            let o = cuda.matmul(&hidden, w2).ok()?;
+            cuda.add(&o, b2).ok()
+        })
     }
 
     /// CPU batched forward via Q4 quantized weights.
     /// Uses `matmul_int4` from `nexora_deeplearning::quantization::gemm` for compute directly from Q4.
-    fn forward_batched_q4_cpu(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
-        let (ref packed1, ref scales1) = self.fc1_q4.as_ref().ok_or_else(|| "fc1_q4 not available".to_string())?;
-        let (ref packed2, ref scales2) = self.fc2_q4.as_ref().ok_or_else(|| "fc2_q4 not available".to_string())?;
-        let gs = self.q4_group_size.ok_or_else(|| "q4_group_size not set".to_string())?;
+    fn forward_batched_q4_cpu(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Result<ndarray::Array2<f32>, String> {
+        let (ref packed1, ref scales1) = self
+            .fc1_q4
+            .as_ref()
+            .ok_or_else(|| "fc1_q4 not available".to_string())?;
+        let (ref packed2, ref scales2) = self
+            .fc2_q4
+            .as_ref()
+            .ok_or_else(|| "fc2_q4 not available".to_string())?;
+        let gs = self
+            .q4_group_size
+            .ok_or_else(|| "q4_group_size not set".to_string())?;
         let h = self.config.hidden_size;
         let i = self.config.intermediate_size;
         let n = inputs.shape()[0];
 
-        let input_flat = inputs.as_slice().ok_or_else(|| "input not contiguous".to_string())?;
+        let input_flat = inputs
+            .as_slice()
+            .ok_or_else(|| "input not contiguous".to_string())?;
 
         // fc1: [N × H] → [N × I]
         // A = inputs [N, H]; Q4 B has K=H, N=I
         let mut hidden = vec![0.0; n * i];
         nexora_deeplearning::quantization::gemm::matmul_int4(
-            input_flat, packed1, scales1,
+            input_flat,
+            packed1,
+            scales1,
             &mut hidden,
-            n, i, h, gs,
+            n,
+            i,
+            h,
+            gs,
         );
         // Add fc1 bias (not quantized)
         if let Some(ref b1) = self.fc1_bias {
@@ -762,9 +902,14 @@ impl Expert {
         // fc2: [N × I] → [N × H]
         let mut output = vec![0.0; n * h];
         nexora_deeplearning::quantization::gemm::matmul_int4(
-            &activated, packed2, scales2,
+            &activated,
+            packed2,
+            scales2,
             &mut output,
-            n, h, i, gs,
+            n,
+            h,
+            i,
+            gs,
         );
         // Add fc2 bias (not quantized)
         if let Some(ref b2) = self.fc2_bias {
@@ -781,22 +926,40 @@ impl Expert {
 
     /// CPU batched forward via Q2 quantized weights.
     /// Uses `matmul_int2` from `nexora_deeplearning::quantization::gemm` for compute directly from Q2.
-    fn forward_batched_q2_cpu(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
-        let (ref packed1, ref scales1) = self.fc1_q2.as_ref().ok_or_else(|| "fc1_q2 not available".to_string())?;
-        let (ref packed2, ref scales2) = self.fc2_q2.as_ref().ok_or_else(|| "fc2_q2 not available".to_string())?;
-        let gs = self.q2_group_size.ok_or_else(|| "q2_group_size not set".to_string())?;
+    fn forward_batched_q2_cpu(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Result<ndarray::Array2<f32>, String> {
+        let (ref packed1, ref scales1) = self
+            .fc1_q2
+            .as_ref()
+            .ok_or_else(|| "fc1_q2 not available".to_string())?;
+        let (ref packed2, ref scales2) = self
+            .fc2_q2
+            .as_ref()
+            .ok_or_else(|| "fc2_q2 not available".to_string())?;
+        let gs = self
+            .q2_group_size
+            .ok_or_else(|| "q2_group_size not set".to_string())?;
         let h = self.config.hidden_size;
         let i = self.config.intermediate_size;
         let n = inputs.shape()[0];
 
-        let input_flat = inputs.as_slice().ok_or_else(|| "input not contiguous".to_string())?;
+        let input_flat = inputs
+            .as_slice()
+            .ok_or_else(|| "input not contiguous".to_string())?;
 
         // fc1: [N × H] → [N × I]
         let mut hidden = vec![0.0; n * i];
         nexora_deeplearning::quantization::gemm::matmul_int2(
-            input_flat, packed1, scales1,
+            input_flat,
+            packed1,
+            scales1,
             &mut hidden,
-            n, i, h, gs,
+            n,
+            i,
+            h,
+            gs,
         );
         if let Some(ref b1) = self.fc1_bias {
             for row in 0..n {
@@ -811,9 +974,14 @@ impl Expert {
         // fc2: [N × I] → [N × H]
         let mut output = vec![0.0; n * h];
         nexora_deeplearning::quantization::gemm::matmul_int2(
-            &activated, packed2, scales2,
+            &activated,
+            packed2,
+            scales2,
             &mut output,
-            n, h, i, gs,
+            n,
+            h,
+            i,
+            gs,
         );
         if let Some(ref b2) = self.fc2_bias {
             for row in 0..n {
@@ -829,7 +997,10 @@ impl Expert {
 
     /// Batched forward: processes N tokens, tries CUDA → wgpu → Q2 CPU → Q4 CPU → FP32 CPU fallback.
     /// Returns `Err` if weights are not initialized.
-    pub fn forward_batched(&self, inputs: &ndarray::Array2<f32>) -> Result<ndarray::Array2<f32>, String> {
+    pub fn forward_batched(
+        &self,
+        inputs: &ndarray::Array2<f32>,
+    ) -> Result<ndarray::Array2<f32>, String> {
         #[cfg(feature = "cuda")]
         if let Some(result) = self.forward_batched_cuda(inputs) {
             return Ok(result);
@@ -849,16 +1020,30 @@ impl Expert {
         let (_n, h) = inputs.dim();
         let i_size = self.config.intermediate_size;
 
-        let fc1_w = self.fc1_weights.as_ref().ok_or_else(|| "fc1_weights not initialized".to_string())?;
-        let fc1_b = self.fc1_bias.as_ref().ok_or_else(|| "fc1_bias not initialized".to_string())?;
-        let fc2_w = self.fc2_weights.as_ref().ok_or_else(|| "fc2_weights not initialized".to_string())?;
-        let fc2_b = self.fc2_bias.as_ref().ok_or_else(|| "fc2_bias not initialized".to_string())?;
+        let fc1_w = self
+            .fc1_weights
+            .as_ref()
+            .ok_or_else(|| "fc1_weights not initialized".to_string())?;
+        let fc1_b = self
+            .fc1_bias
+            .as_ref()
+            .ok_or_else(|| "fc1_bias not initialized".to_string())?;
+        let fc2_w = self
+            .fc2_weights
+            .as_ref()
+            .ok_or_else(|| "fc2_weights not initialized".to_string())?;
+        let fc2_b = self
+            .fc2_bias
+            .as_ref()
+            .ok_or_else(|| "fc2_bias not initialized".to_string())?;
 
         // Build weight matrices for batched matmul
         let w1_flat: Vec<f32> = fc1_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w1 = ndarray::Array2::from_shape_vec((i_size, h), w1_flat).map_err(|e| format!("fc1 shape: {e}"))?;
+        let w1 = ndarray::Array2::from_shape_vec((i_size, h), w1_flat)
+            .map_err(|e| format!("fc1 shape: {e}"))?;
         let w2_flat: Vec<f32> = fc2_w.iter().flat_map(|r| r.iter()).copied().collect();
-        let w2 = ndarray::Array2::from_shape_vec((h, i_size), w2_flat).map_err(|e| format!("fc2 shape: {e}"))?;
+        let w2 = ndarray::Array2::from_shape_vec((h, i_size), w2_flat)
+            .map_err(|e| format!("fc2 shape: {e}"))?;
         let b1 = ndarray::Array1::from_vec(fc1_b.clone());
         let b2 = ndarray::Array1::from_vec(fc2_b.clone());
 
@@ -873,7 +1058,11 @@ impl Expert {
             let rate = self.config.dropout_rate;
             let scale = 1.0 / (1.0 - rate);
             activated.mapv(|x| {
-                if rand::random::<f32>() < rate { 0.0 } else { x * scale }
+                if rand::random::<f32>() < rate {
+                    0.0
+                } else {
+                    x * scale
+                }
             })
         } else {
             activated
@@ -1113,7 +1302,8 @@ mod tests {
     fn test_quantize_q4_forward_cpu_matches() {
         let mut e = Expert::new(8, 16, false, 0.0);
         e.init_random();
-        let input = ndarray::Array2::from_shape_vec((2, 8), (0..16).map(|v| v as f32).collect()).unwrap();
+        let input =
+            ndarray::Array2::from_shape_vec((2, 8), (0..16).map(|v| v as f32).collect()).unwrap();
         // Reference: CPU forward via FP32
         let fp32_out = e.forward_batched(&input).unwrap();
 
@@ -1125,7 +1315,8 @@ mod tests {
 
         // Q4 introduces quantization error (~1/16 of value range per group).
         // For small random weights range [-2,2], error up to ±1 per element is acceptable.
-        let max_err = fp32_out.iter()
+        let max_err = fp32_out
+            .iter()
             .zip(q4_out.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f32, f32::max);
@@ -1146,7 +1337,7 @@ mod tests {
         // Manual drop is idempotent
         e.drop_cpu_fp32_keep_q4();
         assert!(e.fc1_weights.is_none());
-        assert!(e.fc1_bias.is_some());  // biases retained for Q4 forward
+        assert!(e.fc1_bias.is_some()); // biases retained for Q4 forward
         assert!(e.fc2_weights.is_none());
         assert!(e.fc2_bias.is_some());
         assert!(e.fc1_q4.is_some());
