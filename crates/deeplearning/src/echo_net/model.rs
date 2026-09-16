@@ -38,12 +38,10 @@ pub struct EchoNetModel {
 
     // Tensor parameters (sync ke block internal ArrayD)
     sse_params: Vec<Tensor>,
-    apss_params: Vec<Tensor>,
     mbhw_params: Vec<Tensor>,
     rhc_params: Vec<Tensor>,
     prm_params: Vec<Tensor>,
     irr_params: Vec<Tensor>,
-    derr_params: Vec<Tensor>,
     tkrr_params: Vec<Tensor>,
     isc_params: Vec<Tensor>,
 }
@@ -142,16 +140,7 @@ impl EchoNetModel {
             })
             .collect();
 
-        // APSS params (block 2) — trainable weights
-        let apss_params = apss
-            .get_parameters()
-            .iter()
-            .map(|arr| {
-                let t = Tensor::new(arr.clone().into_dyn());
-                t.set_requires_grad(true);
-                t
-            })
-            .collect::<Vec<_>>();
+        // APSS (block 2) — scalar hyperparameters, not trainable weights
 
         // MBHW params (block 3) — frequency_filters registered as trainable
         let mbhw_params = mbhw
@@ -199,16 +188,7 @@ impl EchoNetModel {
         })
         .collect();
 
-        // DERR params (block 7) — trainable weights
-        let derr_params = derr
-            .get_parameters()
-            .iter()
-            .map(|arr| {
-                let t = Tensor::new(arr.clone().into_dyn());
-                t.set_requires_grad(true);
-                t
-            })
-            .collect::<Vec<_>>();
+        // DERR params (block 7) — scalar hyperparameters, not trainable weights
 
         // TKRR params (block 8) — relevance_weights wrapped as Tensor
         let tkrr_params = tkrr
@@ -242,12 +222,10 @@ impl EchoNetModel {
             tkrr,
             isc,
             sse_params,
-            apss_params,
             mbhw_params,
             rhc_params,
             prm_params,
             irr_params,
-            derr_params,
             tkrr_params,
             isc_params,
             config,
@@ -366,22 +344,18 @@ impl EchoNetModel {
 
     pub fn parameters(&self) -> Vec<Tensor> {
         let total = self.sse_params.len()
-            + self.apss_params.len()
             + self.mbhw_params.len()
             + self.rhc_params.len()
             + self.prm_params.len()
             + self.irr_params.len()
-            + self.derr_params.len()
             + self.tkrr_params.len()
             + self.isc_params.len();
         let mut params = Vec::with_capacity(total);
         params.extend(self.sse_params.iter().cloned());
-        params.extend(self.apss_params.iter().cloned());
         params.extend(self.mbhw_params.iter().cloned());
         params.extend(self.rhc_params.iter().cloned());
         params.extend(self.prm_params.iter().cloned());
         params.extend(self.irr_params.iter().cloned());
-        params.extend(self.derr_params.iter().cloned());
         params.extend(self.tkrr_params.iter().cloned());
         params.extend(self.isc_params.iter().cloned());
         params

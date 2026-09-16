@@ -8,12 +8,10 @@
 //! AgentAutoscaler → dynamic pool (3–49 agents)
 
 use nexora_cost_optimizer::CostOptimizer;
-use nexora_eventbus::{EventBus, Event};
+use nexora_eventbus::EventBus;
 use nexora_memory::pool::UnifiedMemoryManager;
 use nexora_memory::hybrid_cache::HybridCacheManager;
-use nexora_monitoring::observability::{
-    ObservabilityCollector, ObservabilityMetrics, MetricsReporter,
-};
+use nexora_monitoring::observability::{ObservabilityCollector, MetricsReporter};
 use nexora_runtime::scheduler_v2::DagScheduler;
 use nexora_agent::scaling::AgentAutoscaler;
 use nexora_runtime::gpu_runtime::scheduler::GpuScheduler;
@@ -132,16 +130,6 @@ impl NexoraSystem {
     /// Latency tracking
     pub fn record_latency(&self, ms: u64) {
         self.observability.record_latency(ms);
-    }
-
-    /// Get dashboard JSON
-    pub fn dashboard_json(&self) -> String {
-        let snapshot = self.observability.snapshot();
-        let uptime = std::time::Instant::now().elapsed().as_secs();
-        let data = nexora_monitoring::observability::DashboardData::from_metrics(
-            &snapshot, uptime,
-        );
-        data.to_json()
     }
 
     /// Get prometheus metrics

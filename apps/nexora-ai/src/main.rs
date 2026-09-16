@@ -63,7 +63,7 @@ mod tests {
         let test_commands = vec![
             vec!["nexora-cli", "health"],
             vec!["nexora-cli", "info"],
-            vec!["nexora-cli", "start"],
+            vec!["nexora-cli", "process", "--input", "test"],
         ];
 
         for args in &test_commands {

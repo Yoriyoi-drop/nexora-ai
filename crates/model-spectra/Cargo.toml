@@ -5,8 +5,8 @@ edition = "2021"
 description = "NXR-SPECTRA Model"
 
 [dependencies]
-nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
+nexora-model-core = { path = "../model-core" }
 nexora-transformer = { path = "../transformer" }
 nexora-cognition = { path = "../cognition" }
 nexora-alignment = { path = "../alignment" }
@@ -23,6 +23,6 @@ futures.workspace = true
 
 [features]
 default = []
-gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-cognition/gpu"]
-cuda = ["nexora-model-core/cuda", "nexora-shared/cuda"]
-
+gpu = ["nexora-shared/gpu", "nexora-cognition/gpu"]
+cuda = ["nexora-shared/cuda"
+]

@@ -186,23 +186,40 @@ impl PositionEmbedding {
 
     /// Add position embedding ke input — GPU accelerated
     pub fn add_to(&self, input: &Tensor) -> HLDVAResult<Tensor> {
-        if gpu_ops::gpu_available() {
-            return gpu_ops::gpu_add(input, &self.embeddings);
+        let input_shape = input.shape();
+        if input_shape.len() != 2 || input_shape[1] != self.hidden_dim {
+            return Err(HLDVAError::Model(format!(
+                "PositionEmbedding.add_to expects [seq, hidden] input, got {:?}",
+                input_shape
+            )));
         }
+
+        // Both input and embedding table are sliced to the overlapping length so
+        // GPU elementwise add works for any seq_len (CPU path used to truncate too).
+        let seq_len = input_shape[0];
+        let out_seq = seq_len.min(self.max_seq_len);
         let input_data = input.data();
-        let embedding_data = self.embeddings.data();
-        let seq_len = input_data.len() / self.hidden_dim;
-        let mut output = Vec::with_capacity(input_data.len());
-        for pos in 0..seq_len.min(self.max_seq_len) {
-            for dim in 0..self.hidden_dim {
-                let input_idx = pos * self.hidden_dim + dim;
-                let embedding_idx = pos * self.hidden_dim + dim;
-                let iv = if input_idx < input_data.len() { input_data[input_idx] } else { 0.0 };
-                let ev = if embedding_idx < embedding_data.len() { embedding_data[embedding_idx] } else { 0.0 };
-                output.push(iv + ev);
-            }
+        let emb_data = self.embeddings.data();
+        let slice_input = Tensor::new(
+            input_data[..out_seq * self.hidden_dim].to_vec(),
+            vec![out_seq, self.hidden_dim],
+        );
+        let slice_emb = Tensor::new(
+            emb_data[..out_seq * self.hidden_dim].to_vec(),
+            vec![out_seq, self.hidden_dim],
+        );
+
+        if gpu_ops::gpu_available() {
+            return gpu_ops::gpu_add(&slice_input, &slice_emb);
         }
-        Ok(Tensor::new(output, input.shape().to_vec()))
+
+        let a = slice_input.data();
+        let b = slice_emb.data();
+        let mut output = Vec::with_capacity(a.len());
+        for i in 0..a.len() {
+            output.push(a[i] + b[i]);
+        }
+        Ok(Tensor::new(output, vec![out_seq, self.hidden_dim]))
     }
 
     /// Get 2D sinusoidal position embedding

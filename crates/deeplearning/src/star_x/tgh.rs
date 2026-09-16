@@ -47,18 +47,22 @@ impl TemporalGatingHierarchy {
         chunk_size: usize,
     ) -> DLResult<Self> {
         // Initialize weights dengan Xavier initialization
-        // All gates expect concatenated input: [hidden_state + input] = [hidden_size + input_size]
-        // All gates output hidden_size for consistent fusion
-        let concat_input_size = hidden_size + input_size;
+        // Each gate expects concatenated input with its own context:
+        //   micro: [input + hidden_state] = [input_size + hidden_size]
+        //   meso:  [input + chunk_context] = [input_size + meso_size]
+        //   macro: [input + episodic_memory] = [input_size + macro_size]
+        let micro_concat = hidden_size + input_size;
+        let meso_concat = input_size + meso_size;
+        let macro_concat = input_size + macro_size;
 
-        let micro_weights = Self::xavier_init(concat_input_size, hidden_size);
-        let micro_bias = Array1::zeros(hidden_size);
+        let micro_weights = Self::xavier_init(micro_concat, micro_size);
+        let micro_bias = Array1::zeros(micro_size);
 
-        let meso_weights = Self::xavier_init(concat_input_size, hidden_size);
-        let meso_bias = Array1::zeros(hidden_size);
+        let meso_weights = Self::xavier_init(meso_concat, meso_size);
+        let meso_bias = Array1::zeros(meso_size);
 
-        let macro_weights = Self::xavier_init(concat_input_size, hidden_size);
-        let macro_bias = Array1::zeros(hidden_size);
+        let macro_weights = Self::xavier_init(macro_concat, macro_size);
+        let macro_bias = Array1::zeros(macro_size);
 
         // Fusion weights - initialize ke uniform distribution
         let fusion_weights = Array1::from_vec(vec![1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]);
@@ -357,7 +361,7 @@ impl crate::star_x::traits::Forward for TemporalGatingHierarchy {
     fn forward(&self, input: &Self::Input) -> DLResult<Self::Output> {
         // Inisialisasi state kosong untuk hierarchical processing
         let hidden_state = ArrayD::zeros(vec![self.hidden_size]);
-        let chunk_context = ArrayD::zeros(vec![self.hidden_size]);
+        let chunk_context = ArrayD::zeros(vec![self.meso_size]);
         let episodic_memory = ArrayD::zeros(vec![self.hidden_size]);
 
         self.process_hierarchical(input, &hidden_state, &chunk_context, &episodic_memory)

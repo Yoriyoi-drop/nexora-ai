@@ -4,13 +4,10 @@ use crate::error::{NexoraError, NexoraResult};
 use std::path::Path;
 use tracing::{debug, error, info, warn};
 
-use super::api::ApiConfig;
-use super::billing::BillingConfig;
 use super::core::CoreConfig;
 use super::logging::LoggingConfig;
 use super::memory::MemoryConfig;
 use super::models::ModelsConfig;
-use super::server::ServerConfig;
 use super::tokenizer::TokenizerConfig;
 use super::system::SystemConfig;
 use super::utils::UtilsConfig;
@@ -44,22 +41,12 @@ pub struct NexoraConfig {
     /// Utility functions configuration
     pub utils: UtilsConfig,
 
-    /// Server configuration
-    pub server: ServerConfig,
-
-    /// API configuration
-    pub api: ApiConfig,
-
     /// Logging configuration
     pub logging: LoggingConfig,
 
     /// Isolation configuration
     #[serde(default)]
     pub isolation: nexora_alignment::isolation::config::IsolationConfig,
-
-    /// Billing configuration
-    #[serde(default)]
-    pub billing: BillingConfig,
 
     /// New subsystems configuration
     #[serde(default)]
@@ -74,11 +61,8 @@ impl Default for NexoraConfig {
             models: ModelsConfig::default(),
             memory: MemoryConfig::default(),
             utils: UtilsConfig::default(),
-            server: ServerConfig::default(),
-            api: ApiConfig::default(),
             logging: LoggingConfig::default(),
             isolation: nexora_alignment::isolation::config::IsolationConfig::default(),
-            billing: BillingConfig::default(),
             system: SystemConfig::default(),
         }
     }
@@ -214,46 +198,12 @@ impl NexoraConfig {
             errors.push("memory.long_term_capacity must be greater than 0".to_string());
         }
 
-        // Validate server configuration
-        if self.server.port == 0 {
-            errors.push("server.port must be greater than 0".to_string());
-        } else if self.server.port < 1024 {
-            warn!(
-                "server.port {} is in privileged range, ensure proper permissions",
-                self.server.port
-            );
-        }
-
-        if self.server.max_connections == 0 {
-            errors.push("server.max_connections must be greater than 0".to_string());
-        } else if self.server.max_connections > 100000 {
-            warn!(
-                "server.max_connections is very high ({}), ensure system can handle this",
-                self.server.max_connections
-            );
-        }
-
-        // Validate API configuration
-        if self.api.timeout_seconds == 0 {
-            errors.push("api.timeout_seconds must be greater than 0".to_string());
-        }
-
-        if self.api.requests_per_minute == 0 {
-            errors.push("api.requests_per_minute must be greater than 0".to_string());
-        }
-
         // Validate logging configuration
         if !["trace", "debug", "info", "warn", "error"].contains(&self.logging.level.as_str()) {
             errors.push(format!(
                 "logging.level '{}' is invalid, must be one of: trace, debug, info, warn, error",
                 self.logging.level
             ));
-        }
-
-        // Check for logical consistency
-        if self.core.max_concurrent_requests > self.server.max_connections {
-            warn!("core.max_concurrent_requests ({}) exceeds server.max_connections ({}), this may cause request queuing", 
-                  self.core.max_concurrent_requests, self.server.max_connections);
         }
 
         // Report validation results
@@ -307,18 +257,6 @@ impl NexoraConfig {
              │   • Session Capacity: {}                                    │\n\
              │   • Long Term Capacity: {}                                  │\n\
              ├─────────────────────────────────────────────────────────────┤\n\
-             │ Server Configuration:                                       │\n\
-             │   • Host: {}                                                │\n\
-             │   • Port: {}                                                │\n\
-             │   • Max Connections: {}                                      │\n\
-             │   • TLS Enabled: {}                                         │\n\
-             ├─────────────────────────────────────────────────────────────┤\n\
-             │ API Configuration:                                          │\n\
-             │   • Base URL: {}                                            │\n\
-             │   • Timeout: {}s                                            │\n\
-             │   • Rate Limiting: {}                                       │\n\
-             │   • Requests per Minute: {}                                 │\n\
-             ├─────────────────────────────────────────────────────────────┤\n\
              │ Logging Configuration:                                      │\n\
              │   • Level: {}                                               │\n\
              │   • File Logging: {}                                        │\n\
@@ -350,24 +288,6 @@ impl NexoraConfig {
             self.memory.short_term_capacity,
             self.memory.session_capacity,
             self.memory.long_term_capacity,
-            // Server
-            self.server.host,
-            self.server.port,
-            self.server.max_connections,
-            if self.server.enable_tls {
-                "✅ Enabled"
-            } else {
-                "❌ Disabled"
-            },
-            // API
-            self.api.base_url,
-            self.api.timeout_seconds,
-            if self.api.enable_rate_limiting {
-                "✅ Enabled"
-            } else {
-                "❌ Disabled"
-            },
-            self.api.requests_per_minute,
             // Logging
             self.logging.level.to_uppercase(),
             if self.logging.enable_file_logging {
@@ -415,7 +335,7 @@ impl NexoraConfig {
 
         // Log additional metrics
         debug!("Configuration metrics:");
-        debug!("  - Total configuration sections: 7");
+        debug!("  - Total configuration sections: 8");
         debug!(
             "  - Estimated memory footprint: ~{}KB",
             self.estimate_memory_usage()
@@ -429,8 +349,7 @@ impl NexoraConfig {
     fn estimate_memory_usage(&self) -> usize {
         // Rough estimation of memory usage
         let base_size = std::mem::size_of::<Self>();
-        let string_overhead =
-            self.server.host.len() + self.api.base_url.len() + self.logging.level.len();
+        let string_overhead = self.logging.level.len();
         (base_size + string_overhead) / 1024
     }
 }

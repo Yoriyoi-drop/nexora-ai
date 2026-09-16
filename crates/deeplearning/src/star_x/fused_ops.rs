@@ -71,13 +71,20 @@ impl FusedLinearActivation {
         }
 
         // Use pooled tensor untuk output
-        let mut pooled_output = PooledTensor1D::new(self.weights.shape()[1])?;
-        let output = pooled_output.get_mut();
+        let out_dim = self.weights.shape()[1];
+        let mut pooled_output = PooledTensor1D::new(out_dim)?;
+        {
+            let output = pooled_output.get_mut();
 
-        // Perform fused operation
-        self.fused_linear_activation_impl(input_view, output.view_mut())?;
+            // Perform fused operation
+            self.fused_linear_activation_impl(input_view, output.view_mut())?;
+        }
 
-        Ok(std::mem::take(output).into_dyn())
+        // Pooled tensor may be larger than out_dim — trim to exact output size
+        Ok(Array1::from_vec(
+            pooled_output.get().slice(s![..out_dim]).to_vec(),
+        )
+        .into_dyn())
     }
 
     /// GPU-accelerated forward pass: upload → matmul → activation → download
@@ -520,100 +527,45 @@ impl FusedElementWise {
 
         for op in &self.operations {
             result = match op {
-                ElementWiseOp::Add(val) => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = inp + val);
-                    output.clone().into_dyn()
-                }
-                ElementWiseOp::Mul(val) => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = inp * val);
-                    output.clone().into_dyn()
-                }
+                ElementWiseOp::Add(val) => apply_elementwise(&result, |x| x + val)?,
+                ElementWiseOp::Mul(val) => apply_elementwise(&result, |x| x * val)?,
                 ElementWiseOp::Relu => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = if inp > 0.0 { inp } else { 0.0 });
-                    output.clone().into_dyn()
+                    apply_elementwise(&result, |x| if x > 0.0 { x } else { 0.0 })?
                 }
-                ElementWiseOp::Gelu => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| {
-                            let x = inp;
-                            let sqrt_2_over_pi = 0.7978845608_f32;
-                            let coeff = 0.044715_f32;
-                            *out =
-                                0.5 * x * (1.0 + (sqrt_2_over_pi * (x + coeff * x * x * x)).tanh());
-                        });
-                    output.clone().into_dyn()
-                }
+                ElementWiseOp::Gelu => apply_elementwise(&result, |x| {
+                    let sqrt_2_over_pi = 0.7978845608_f32;
+                    let coeff = 0.044715_f32;
+                    0.5 * x * (1.0 + (sqrt_2_over_pi * (x + coeff * x * x * x)).tanh())
+                })?,
                 ElementWiseOp::Sigmoid => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = 1.0 / (1.0 + (-inp).exp()));
-                    output.clone().into_dyn()
+                    apply_elementwise(&result, |x| 1.0 / (1.0 + (-x).exp()))?
                 }
-                ElementWiseOp::Tanh => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = inp.tanh());
-                    output.clone().into_dyn()
-                }
+                ElementWiseOp::Tanh => apply_elementwise(&result, |x| x.tanh())?,
                 ElementWiseOp::Swish => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| {
-                            let x = inp;
-                            *out = x * (1.0 / (1.0 + (-x).exp()));
-                        });
-                    output.clone().into_dyn()
+                    apply_elementwise(&result, |x| x * (1.0 / (1.0 + (-x).exp())))?
                 }
-                ElementWiseOp::Pow(exp) => {
-                    let mut pooled = PooledTensor1D::new(result.len())?;
-                    let output = pooled.get_mut();
-                    let result_flat = require_contiguous(result.as_slice())?;
-                    let result_array = Array1::from_vec(result_flat.to_vec());
-                    Zip::from(&mut output.view_mut())
-                        .and(&result_array.view())
-                        .for_each(|out, &inp| *out = inp.powf(*exp));
-                    output.clone().into_dyn()
-                }
+                ElementWiseOp::Pow(exp) => apply_elementwise(&result, |x| x.powf(*exp))?,
             };
         }
 
         Ok(result)
     }
+}
+
+/// Apply a single element-wise function to a dynamic array, keeping the
+/// exact input length (pooled buffers may be larger than requested).
+fn apply_elementwise(result: &ArrayD<f32>, f: impl Fn(f32) -> f32) -> DLResult<ArrayD<f32>> {
+    let n = result.len();
+    let mut pooled = PooledTensor1D::new(n)?;
+    {
+        let output = pooled.get_mut();
+        let result_flat = require_contiguous(result.as_slice())?;
+        let result_array = Array1::from_vec(result_flat.to_vec());
+        Zip::from(output.slice_mut(s![..n]))
+            .and(&result_array)
+            .for_each(|out, &inp| *out = f(inp));
+    }
+    Ok(Array1::from_vec(pooled.get().slice(s![..n]).to_vec()).into_dyn())
 }
 
 // Helper function for AVX2 horizontal sum

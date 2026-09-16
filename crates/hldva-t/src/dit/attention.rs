@@ -84,10 +84,23 @@ impl MultiHeadAttention {
             return Ok(q.clone());
         }
 
+        // K/V may carry fewer tokens than Q (cross-attention: single conditioning
+        // token attended by every query position). Replicate K/V across Q positions
+        // so all four tensors share [1, H, S, D].
+        let per_token = self.num_heads * self.head_dim;
+        let k_data = k.data();
+        let v_data = v.data();
+        let k_expanded: Vec<f32> = (0..seq_len * per_token)
+            .map(|i| k_data[i % k_data.len()])
+            .collect();
+        let v_expanded: Vec<f32> = (0..seq_len * per_token)
+            .map(|i| v_data[i % v_data.len()])
+            .collect();
+
         // Reshape to [B=1, H, S, D]
         let q_4d = Tensor::new(q_data.to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
-        let k_4d = Tensor::new(k.data().to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
-        let v_4d = Tensor::new(v.data().to_vec(), vec![1, self.num_heads, seq_len, self.head_dim]);
+        let k_4d = Tensor::new(k_expanded, vec![1, self.num_heads, seq_len, self.head_dim]);
+        let v_4d = Tensor::new(v_expanded, vec![1, self.num_heads, seq_len, self.head_dim]);
 
         let out = gpu_ops::gpu_fused_attention(&q_4d, &k_4d, &v_4d, 1.0 / scale, false)?;
 
@@ -287,7 +300,15 @@ impl Linear {
                     result_data[i] += bias_data[b_idx];
                 }
             }
-            Ok(Tensor::new(result_data, vec![self.out_features]))
+            // Preserve the matmul output shape: [B, out] for batched inputs,
+            // collapse to [out] only for the single-vector case.
+            let result_shape = result.shape();
+            let out_shape = if result_shape == vec![1, self.out_features] {
+                vec![self.out_features]
+            } else {
+                result_shape.to_vec()
+            };
+            Ok(Tensor::new(result_data, out_shape))
         } else {
             Ok(result)
         }

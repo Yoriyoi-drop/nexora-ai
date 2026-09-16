@@ -1,5 +1,5 @@
-use nexora_foundation::model_core::delegation_base;
-use nexora_foundation::model_core::foundation::FoundationModel;
+use nexora_model_core::delegation_base;
+use nexora_model_core::foundation::FoundationModel;
 use crate::classifier;
 use nexora_oracle::linters::CodeLinterManager;
 use nexora_cognition::saca::SacaEngine;

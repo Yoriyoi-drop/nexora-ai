@@ -59,7 +59,7 @@ pub type DLResult<T> = std::result::Result<T, DeepLearningError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeepLearningError {
-    #[error("Tensor shape mismatch: expected {expected:?}, got {actual:?}")]
+    #[error("Shape mismatch: expected {expected:?}, got {actual:?}")]
     ShapeMismatch {
         expected: Vec<usize>,
         actual: Vec<usize>,

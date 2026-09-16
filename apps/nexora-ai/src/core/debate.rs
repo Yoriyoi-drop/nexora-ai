@@ -13,7 +13,6 @@
 //! - Cost Controller (complexity score → debate depth)
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};

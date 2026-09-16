@@ -11,61 +11,19 @@ description = "BLAA (Black Language Model API) integration for Nexora AI"
 tokio = { workspace = true, features = ["net", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+futures = { workspace = true }
 
 # BLAA-specific dependencies
 base64 = "0.22"
 hmac = "0.13"
 sha2.workspace = true
 url = "2.4"
-futures = { workspace = true }
 bytes = "1"
-
-# API module dependencies (merged from nexora-api crate)
-axum = { workspace = true }
-tower.workspace = true
-tower-http = { workspace = true, features = ["cors", "trace"] }
-hyper = "1.0"
-rustc_version_runtime = "0.2"
-regex.workspace = true
-rand.workspace = true
-async-trait = { workspace = true }
-flate2 = { workspace = true }
-sysinfo = { workspace = true }
-nexora-infrastructure = { path = "../infrastructure" }
-nexora-common = { path = "../infrastructure/common" }
-nexora-validation = { path = "../validation" }
-nexora-database = { path = "../database" }
-nexora-alignment = { path = "../alignment" }
-nexora-monitoring = { path = "../monitoring" }
-rustls-pemfile = { workspace = true, optional = true }
-
-[features]
-default = []
-tls = ["tokio-rustls", "axum-server", "rustls-pemfile", "rcgen", "time"]
-rustls = ["tokio-rustls"]
-
-[dependencies.tokio-rustls]
-version = "0.26"
-optional = true
-
-[dependencies.axum-server]
-version = "0.6"
-optional = true
-features = ["tls-rustls"]
-
-[dependencies.rcgen]
-version = "0.12"
-optional = true
-
-[dependencies.time]
-version = "0.3"
-optional = true
 
 [dev-dependencies]
 tokio-test = "0.4"

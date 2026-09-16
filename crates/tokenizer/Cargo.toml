@@ -1,0 +1,21 @@
+[package]
+name = "nexora-tokenizer"
+version.workspace = true
+edition.workspace = true
+description = "NXR Tokenizer — BPE tokenization with Unicode support, special tokens, trie-based lookup"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+rand.workspace = true
+rayon.workspace = true
+rustc-hash = "2.0"
+memmap2.workspace = true
+smallvec.workspace = true
+unicode-normalization = "0.1"
+
+[features]
+default = []
+gpu = []

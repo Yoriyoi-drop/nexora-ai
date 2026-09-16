@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ndarray::Array1;
-use nexora_foundation::tokenizer::BpeTokenizer;
+use nexora_tokenizer::BpeTokenizer;
 use tracing::{debug, warn};
 
 use super::admission::SchedulingPolicy;

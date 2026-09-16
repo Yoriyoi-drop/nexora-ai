@@ -35,14 +35,6 @@ md5 = "0.7"  # For model fingerprinting
 tempfile = { workspace = true }  # For testing
 futures = { workspace = true }  # For async utilities
 
-# System monitoring dependencies
-sysinfo = { workspace = true }  # For system information
-# psutil removed — use sysinfo for system stats
-
-# HTTP server
-axum.workspace = true
-tower.workspace = true
-
 # TOML parsing
 toml = "0.8"
 
@@ -54,7 +46,6 @@ serde_yaml = { package = "yaml_serde", version = "0.10" }
 nexora-deeplearning = { path = "../deeplearning" }
 nexora-cognition = { path = "../cognition" }
 nexora-memory = { path = "../memory" }
-nexora-database = { path = "../database" }
 nexora-monitoring = { path = "../monitoring" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-validation = { path = "../validation" }

@@ -23,6 +23,7 @@ ordered-float = "3.9"
 
 # Internal dependencies
 nexora-core = { path = "../core" }
+nexora-tokenizer = { path = "../tokenizer" }
 nexora-intelligence = { path = "../intelligence" }
 nexora-foundation = { path = "../foundation" }
 nexora-transformer = { path = "../transformer" }
@@ -60,7 +61,6 @@ nexora-alignment = { path = "../alignment" }
 nexora-validation = { path = "../validation" }
 nexora-utils = { path = "../infrastructure/utils" }
 nexora-cognition = { path = "../cognition" }
-nexora-database = { path = "../database" }
 nexora-erp = { path = "../erp" }
 
 [features]

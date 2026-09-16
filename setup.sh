@@ -186,24 +186,7 @@ crypto_algorithm = "aes-256-gcm"
 text_processing_language = "en"
 file_operations_max_size_mb = 100
 
-[server]
-host = "0.0.0.0"
-port = 8080
-enable_tls = false
-max_connections = 10000
-request_timeout_seconds = 120
-enable_cors = true
-cors_origins = ["*"]
-api_keys = []
-enable_auth = false
-rate_limit_rpm = 1000
 
-[api]
-base_url = "http://0.0.0.0:8080"
-timeout_seconds = 120
-max_retries = 3
-enable_rate_limiting = true
-requests_per_minute = 1000
 
 [logging]
 level = "info"
@@ -350,24 +333,7 @@ crypto_algorithm = "aes-256-gcm"
 text_processing_language = "en"
 file_operations_max_size_mb = 100
 
-[server]
-host = "127.0.0.1"
-port = 8080
-enable_tls = false
-max_connections = 100
-request_timeout_seconds = 30
-enable_cors = true
-cors_origins = ["*"]
-api_keys = []
-enable_auth = false
-rate_limit_rpm = 60
 
-[api]
-base_url = "http://127.0.0.1:8080"
-timeout_seconds = 30
-max_retries = 3
-enable_rate_limiting = true
-requests_per_minute = 100
 
 [logging]
 level = "info"

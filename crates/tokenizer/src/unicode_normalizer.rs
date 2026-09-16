@@ -1,0 +1,441 @@
+//! Unicode Normalizer - Rust implementation
+//!
+//! Unicode normalization and text preprocessing
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use unicode_normalization::UnicodeNormalization;
+
+/// Unicode normalization forms
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NormalizationForm {
+    NFC,  // Normalization Form C (canonical composition)
+    NFD,  // Normalization Form D (canonical decomposition)
+    NFKC, // Normalization Form KC (compatibility composition)
+    NFKD, // Normalization Form KD (compatibility decomposition)
+}
+
+/// Normalization configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizationConfig {
+    pub form: NormalizationForm,
+    pub preserve_case: bool,
+    pub preserve_whitespace: bool,
+    pub preserve_indent: bool,
+    pub normalize_line_endings: bool,
+    pub remove_control_chars: bool,
+    pub custom_replacements: HashMap<char, String>,
+}
+
+impl Default for NormalizationConfig {
+    fn default() -> Self {
+        let mut custom_replacements = HashMap::new();
+        custom_replacements.insert('"', "\"".to_string());
+        custom_replacements.insert('\'', "'".to_string());
+
+        Self {
+            form: NormalizationForm::NFC,
+            preserve_case: true,
+            preserve_whitespace: true,
+            preserve_indent: false,
+            normalize_line_endings: false,
+            remove_control_chars: false,
+            custom_replacements,
+        }
+    }
+}
+
+/// Unicode normalizer
+pub struct UnicodeNormalizer {
+    config: NormalizationConfig,
+}
+
+impl UnicodeNormalizer {
+    /// Create a new normalizer with default config
+    pub fn new() -> Self {
+        Self::with_config(NormalizationConfig::default())
+    }
+
+    /// Create a new normalizer with custom config
+    pub fn with_config(config: NormalizationConfig) -> Self {
+        Self { config }
+    }
+
+    /// Normalize text according to configuration
+    pub fn normalize(&self, text: &str) -> Result<String> {
+        let mut result = text.to_string();
+
+        // Apply Unicode normalization
+        result = self.apply_unicode_normalization(&result)?;
+
+        // Apply custom replacements
+        result = self.apply_custom_replacements(&result);
+
+        // Normalize whitespace
+        if !self.config.preserve_whitespace {
+            result = self.normalize_whitespace(&result);
+        }
+
+        // Normalize line endings
+        if self.config.normalize_line_endings {
+            result = self.normalize_line_endings(&result);
+        }
+
+        // Remove control characters
+        if self.config.remove_control_chars {
+            result = self.remove_control_characters(&result);
+        }
+
+        // Apply case transformation
+        if !self.config.preserve_case {
+            result = result.to_lowercase();
+        }
+
+        Ok(result)
+    }
+
+    /// Apply Unicode normalization using built-in Unicode tables
+    fn apply_unicode_normalization(&self, text: &str) -> Result<String> {
+        match self.config.form {
+            NormalizationForm::NFC => Ok(text.nfc().collect::<String>()),
+            NormalizationForm::NFD => Ok(text.nfd().collect::<String>()),
+            NormalizationForm::NFKC => Ok(text.nfkc().collect::<String>()),
+            NormalizationForm::NFKD => Ok(text.nfkd().collect::<String>()),
+        }
+    }
+
+    /// Apply custom character replacements
+    fn apply_custom_replacements(&self, text: &str) -> String {
+        let mut result = String::new();
+
+        for ch in text.chars() {
+            if let Some(replacement) = self.config.custom_replacements.get(&ch) {
+                result.push_str(replacement);
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
+    /// Normalize whitespace
+    fn normalize_whitespace(&self, text: &str) -> String {
+        let mut result = String::new();
+        let mut prev_was_space = false;
+        let mut in_indent = true;
+        let mut leading = true;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                result.push('\n');
+                prev_was_space = false;
+                in_indent = true;
+                leading = false;
+            } else if ch.is_whitespace() {
+                if self.config.preserve_indent && in_indent {
+                    result.push(ch);
+                    leading = false;
+                } else if !prev_was_space && !leading {
+                    result.push(' ');
+                    prev_was_space = true;
+                }
+            } else {
+                result.push(ch);
+                prev_was_space = false;
+                in_indent = false;
+                leading = false;
+            }
+        }
+
+        if result.ends_with(' ') {
+            result.pop();
+        }
+
+        result
+    }
+
+    /// Normalize line endings
+    fn normalize_line_endings(&self, text: &str) -> String {
+        // Convert all line endings to \n
+        text.replace("\r\n", "\n").replace('\r', "\n")
+    }
+
+    /// Remove control characters (except common ones)
+    fn remove_control_characters(&self, text: &str) -> String {
+        let mut result = String::new();
+
+        for ch in text.chars() {
+            if ch.is_control() {
+                // Keep common control characters
+                match ch {
+                    '\n' | '\r' | '\t' => result.push(ch),
+                    _ => {} // Skip other control characters
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
+    /// Get configuration
+    pub fn config(&self) -> &NormalizationConfig {
+        &self.config
+    }
+
+    /// Update configuration
+    pub fn update_config(&mut self, config: NormalizationConfig) {
+        self.config = config;
+    }
+
+    /// Add custom replacement
+    pub fn add_custom_replacement(&mut self, from: char, to: String) {
+        self.config.custom_replacements.insert(from, to);
+    }
+
+    /// Remove custom replacement
+    pub fn remove_custom_replacement(&mut self, from: char) -> Option<String> {
+        self.config.custom_replacements.remove(&from)
+    }
+}
+
+/// Convenience functions
+pub fn normalize_text(text: &str) -> Result<String> {
+    let normalizer = UnicodeNormalizer::new();
+    normalizer.normalize(text)
+}
+
+pub fn normalize_text_with_config(text: &str, config: NormalizationConfig) -> Result<String> {
+    let normalizer = UnicodeNormalizer::with_config(config);
+    normalizer.normalize(text)
+}
+
+pub fn normalize_nfc(text: &str) -> Result<String> {
+    let config = NormalizationConfig {
+        form: NormalizationForm::NFC,
+        ..Default::default()
+    };
+    normalize_text_with_config(text, config)
+}
+
+pub fn normalize_nfd(text: &str) -> Result<String> {
+    let config = NormalizationConfig {
+        form: NormalizationForm::NFD,
+        ..Default::default()
+    };
+    normalize_text_with_config(text, config)
+}
+
+pub fn normalize_nfkc(text: &str) -> Result<String> {
+    let config = NormalizationConfig {
+        form: NormalizationForm::NFKC,
+        ..Default::default()
+    };
+    normalize_text_with_config(text, config)
+}
+
+pub fn normalize_nfkd(text: &str) -> Result<String> {
+    let config = NormalizationConfig {
+        form: NormalizationForm::NFKD,
+        ..Default::default()
+    };
+    normalize_text_with_config(text, config)
+}
+
+/// Statistics about normalization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizationStats {
+    pub original_length: usize,
+    pub normalized_length: usize,
+    pub characters_normalized: usize,
+    pub whitespace_normalized: bool,
+    pub line_endings_normalized: bool,
+    pub control_chars_removed: usize,
+}
+
+impl UnicodeNormalizer {
+    /// Normalize text with statistics
+    pub fn normalize_with_stats(&self, text: &str) -> Result<(String, NormalizationStats)> {
+        let original_length = text.len();
+        let normalized = self.normalize(text)?;
+        let normalized_length = normalized.len();
+
+        let stats = NormalizationStats {
+            original_length,
+            normalized_length,
+            characters_normalized: if original_length != normalized_length {
+                1
+            } else {
+                0
+            },
+            whitespace_normalized: !self.config.preserve_whitespace,
+            line_endings_normalized: self.config.normalize_line_endings,
+            control_chars_removed: if self.config.remove_control_chars {
+                text.chars()
+                    .filter(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                    .count()
+            } else {
+                0
+            },
+        };
+
+        Ok((normalized, stats))
+    }
+}
+
+impl Default for UnicodeNormalizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_normalization() {
+        let normalizer = UnicodeNormalizer::new();
+        let result = normalizer.normalize("Hello, World!").unwrap();
+        assert_eq!(result, "Hello, World!");
+    }
+
+    #[test]
+    fn test_whitespace_normalization() {
+        let config = NormalizationConfig {
+            preserve_whitespace: false,
+            preserve_indent: false,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("  Hello   World  ").unwrap();
+        assert_eq!(result, "Hello World");
+    }
+
+    #[test]
+    fn test_indent_preservation() {
+        let config = NormalizationConfig {
+            preserve_whitespace: false,
+            preserve_indent: true,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("    Hello\n        World").unwrap();
+        assert_eq!(result, "    Hello\n        World");
+    }
+
+    #[test]
+    fn test_case_normalization() {
+        let config = NormalizationConfig {
+            preserve_case: false,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("HELLO WORLD").unwrap();
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_custom_replacements() {
+        let mut config = NormalizationConfig::default();
+        config.custom_replacements.insert('@', "[at]".to_string());
+        config.custom_replacements.insert('.', "[dot]".to_string());
+
+        let normalizer = UnicodeNormalizer::with_config(config);
+        let result = normalizer.normalize("user@example.com").unwrap();
+        assert_eq!(result, "user[at]example[dot]com");
+    }
+
+    #[test]
+    fn test_line_ending_normalization() {
+        let config = NormalizationConfig {
+            normalize_line_endings: true,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("Line1\r\nLine2\rLine3\n").unwrap();
+        assert_eq!(result, "Line1\nLine2\nLine3\n");
+    }
+
+    #[test]
+    fn test_control_character_removal() {
+        let config = NormalizationConfig {
+            remove_control_chars: true,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer
+            .normalize("Hello\u{0001}World\u{0002}Test")
+            .unwrap();
+        assert_eq!(result, "HelloWorldTest");
+    }
+
+    #[test]
+    fn test_compatibility_normalization() {
+        let config = NormalizationConfig {
+            form: NormalizationForm::NFKC,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("Hello—World").unwrap();
+        // NFKC normalization preserves em dash (U+2014), only converts compatibility chars
+        assert_eq!(result, "Hello—World");
+    }
+
+    #[test]
+    fn test_decomposition_normalization() {
+        let config = NormalizationConfig {
+            form: NormalizationForm::NFKD,
+            ..Default::default()
+        };
+        let normalizer = UnicodeNormalizer::with_config(config);
+
+        let result = normalizer.normalize("café").unwrap();
+        // Should decompose é to e + ´
+        assert!(result.contains("e"));
+    }
+
+    #[test]
+    fn test_convenience_functions() {
+        let result = normalize_text("Hello, World!").unwrap();
+        assert_eq!(result, "Hello, World!");
+
+        let result = normalize_nfc("Hello, World!").unwrap();
+        assert_eq!(result, "Hello, World!");
+    }
+
+    #[test]
+    fn test_normalization_stats() {
+        let normalizer = UnicodeNormalizer::new();
+        let (result, stats) = normalizer.normalize_with_stats("Hello, World!").unwrap();
+
+        assert_eq!(result, "Hello, World!");
+        assert_eq!(stats.original_length, 13);
+        assert_eq!(stats.normalized_length, 13);
+        assert_eq!(stats.characters_normalized, 0);
+    }
+
+    #[test]
+    fn test_custom_replacement_management() {
+        let mut normalizer = UnicodeNormalizer::new();
+
+        normalizer.add_custom_replacement('x', "y".to_string());
+        let result = normalizer.normalize("text").unwrap();
+        assert_eq!(result, "teyt");
+
+        let removed = normalizer.remove_custom_replacement('x');
+        assert_eq!(removed, Some("y".to_string()));
+
+        let result = normalizer.normalize("text").unwrap();
+        assert_eq!(result, "text");
+    }
+}

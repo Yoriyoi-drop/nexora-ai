@@ -26,7 +26,18 @@ mod tests {
     use super::*;
     use crate::saca::prelude::*;
     use tracing::{info, debug};
-    
+
+    /// Test-only: repo path yang tidak ada agar ContextEngine tidak
+    /// men-scan seluruh repository (jauh lebih cepat).
+    fn test_context() -> TaskContext {
+        TaskContext {
+            repository_path: Some("__nexora_test_nonexistent__".to_string()),
+            existing_files: vec![],
+            dependencies: vec![],
+            coding_standards: std::collections::HashMap::new(),
+        }
+    }
+
     #[tokio::test]
     async fn test_saca_full_pipeline() -> anyhow::Result<()> {
         init_logger();
@@ -44,7 +55,7 @@ mod tests {
                 "Time complexity O(n log n)".to_string(),
                 "Space complexity O(1)".to_string(),
             ],
-            context: None,
+            context: Some(test_context()),
         };
         
         let solution = saca.solve(task).await.unwrap();
@@ -81,7 +92,7 @@ mod tests {
                 "O(1) access time".to_string(),
                 "Minimal memory overhead".to_string(),
             ],
-            context: None,
+            context: Some(test_context()),
         };
         
         let solution = saca.solve(task).await.unwrap();
@@ -106,7 +117,7 @@ mod tests {
             description: "Test task for CoT".to_string(),
             requirements: vec!["Basic requirement".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         let cot_result = cot_engine.reason(&task).await.unwrap();
@@ -163,7 +174,7 @@ mod tests {
             description: "Test integration task".to_string(),
             requirements: vec!["Integration test requirement".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         let stats = integration.get_integration_stats();
@@ -184,7 +195,7 @@ mod tests {
             description: "".to_string(), // Empty description
             requirements: vec![],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         // Should handle gracefully
@@ -214,7 +225,7 @@ mod tests {
             description: "Performance test task".to_string(),
             requirements: vec!["Fast execution".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         let start_time = std::time::Instant::now();
@@ -246,7 +257,7 @@ mod tests {
             description: "Caching test task".to_string(),
             requirements: vec!["Test caching".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         // First execution
@@ -277,7 +288,18 @@ mod benchmarks {
     use crate::saca::prelude::*;
     use std::time::Instant;
     use tracing::info;
-    
+
+    /// Test-only: repo path yang tidak ada agar ContextEngine tidak
+    /// men-scan seluruh repository (jauh lebih cepat).
+    fn test_context() -> TaskContext {
+        TaskContext {
+            repository_path: Some("__nexora_test_nonexistent__".to_string()),
+            existing_files: vec![],
+            dependencies: vec![],
+            coding_standards: std::collections::HashMap::new(),
+        }
+    }
+
     #[tokio::test]
     async fn benchmark_saca_throughput() -> anyhow::Result<()> {
         super::init_logger();
@@ -289,31 +311,31 @@ mod benchmarks {
                 description: "Sort array implementation".to_string(),
                 requirements: vec!["Efficient algorithm".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Search algorithm implementation".to_string(),
                 requirements: vec!["Binary search".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Data structure implementation".to_string(),
                 requirements: vec!["Tree structure".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "String processing function".to_string(),
                 requirements: vec!["Efficient parsing".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Math utility functions".to_string(),
                 requirements: vec!["Basic operations".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
         ];
         
@@ -352,7 +374,7 @@ mod benchmarks {
             description: "Phase performance benchmark".to_string(),
             requirements: vec!["Test all phases".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
         
         let solution = pipeline.execute(task).await.unwrap();
@@ -389,19 +411,19 @@ mod benchmarks {
                 description: "Memory test task 1".to_string(),
                 requirements: vec!["Test memory".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Memory test task 2".to_string(),
                 requirements: vec!["Test memory".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Memory test task 3".to_string(),
                 requirements: vec!["Test memory".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
         ];
         
@@ -437,7 +459,18 @@ mod integration_tests {
     use super::*;
     use crate::saca::prelude::*;
     use tracing::info;
-    
+
+    /// Test-only: repo path yang tidak ada agar ContextEngine tidak
+    /// men-scan seluruh repository (jauh lebih cepat).
+    fn test_context() -> TaskContext {
+        TaskContext {
+            repository_path: Some("__nexora_test_nonexistent__".to_string()),
+            existing_files: vec![],
+            dependencies: vec![],
+            coding_standards: std::collections::HashMap::new(),
+        }
+    }
+
     #[tokio::test]
     async fn test_saca_factory() -> anyhow::Result<()> {
         super::init_logger();
@@ -479,7 +512,7 @@ mod integration_tests {
                 "Thread-safe operations".to_string(),
             ],
             context: Some(TaskContext {
-                repository_path: Some(".".to_string()),
+                repository_path: Some("__nexora_test_nonexistent__".to_string()),
                 existing_files: vec!["utils.rs".to_string(), "node.rs".to_string()],
                 dependencies: vec!["serde".to_string(), "tokio".to_string()],
                 coding_standards: std::collections::HashMap::new(),
@@ -524,19 +557,19 @@ mod integration_tests {
                 description: "Concurrent task 1".to_string(),
                 requirements: vec!["Test concurrent".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Concurrent task 2".to_string(),
                 requirements: vec!["Test concurrent".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
             CodingTask {
                 description: "Concurrent task 3".to_string(),
                 requirements: vec!["Test concurrent".to_string()],
                 constraints: vec![],
-                context: None,
+                context: Some(test_context()),
             },
         ];
         

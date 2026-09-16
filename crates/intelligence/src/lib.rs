@@ -53,11 +53,6 @@ pub fn intel_memory(cfg: &nexora_memory::MemoryConfig) -> nexora_memory::MemoryM
     nexora_memory::MemoryManager::from_config(cfg)
 }
 
-// Nyata: database untuk model registry persistence
-pub fn intel_db() -> nexora_database::DatabaseManager {
-    nexora_database::DatabaseManager::new()
-}
-
 // Nyata: monitoring untuk model serving observability
 pub fn intel_monitoring() -> nexora_monitoring::MonitoringSystem {
     nexora_monitoring::MonitoringSystem::new(nexora_monitoring::MonitoringConfig::default())

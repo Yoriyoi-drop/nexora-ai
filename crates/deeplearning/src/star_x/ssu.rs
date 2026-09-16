@@ -539,6 +539,9 @@ impl SelectiveStateUpdate {
 
     /// Compute computational savings
     pub fn compute_savings(&self) -> (f32, f32) {
+        if self.total_steps == 0 {
+            return (0.0, 0.0);
+        }
         let skip_ratio = self.skipped_updates as f32 / self.total_steps as f32;
         let theoretical_savings = skip_ratio * 100.0; // Percentage
         let actual_savings = theoretical_savings * 0.8; // Account for overhead

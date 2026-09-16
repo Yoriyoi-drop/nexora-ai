@@ -186,21 +186,55 @@ impl VAEDecoder {
     }
 
     pub fn decode(&self, latent: &LatentSpace) -> HLDVAResult<Tensor> {
-        let sampled = self.reparameterize(latent)?;
-        let projected = self.input_projection.forward(&sampled)?;
-        let reshaped = self.reshape(&projected)?;
+        let latent_data = latent.data.data();
 
-        let mut current = reshaped;
-        for residual_block in &self.residual_blocks {
-            current = residual_block.forward(&current)?;
+        // Compact mu/log-var path (latent_dim * 2 elements).
+        if latent_data.len() == self._config.latent_dim * 2 {
+            let sampled = self.reparameterize(latent)?;
+            let projected = self.input_projection.forward(&sampled)?;
+            let reshaped = self.reshape(&projected)?;
+
+            let mut current = reshaped;
+            for residual_block in &self.residual_blocks {
+                current = residual_block.forward(&current)?;
+            }
+
+            for upsample_layer in &self.upsample_layers {
+                current = upsample_layer.forward(&current)?;
+            }
+
+            let output = self.final_conv.forward(&current)?;
+            return self.sigmoid_activation(&output);
         }
 
-        for upsample_layer in &self.upsample_layers {
-            current = upsample_layer.forward(&current)?;
-        }
+        // Spatial latent path (DiT output [H, W, C]): expand into an RGB image.
+        self.decode_spatial(latent)
+    }
 
-        let output = self.final_conv.forward(&current)?;
-        self.sigmoid_activation(&output)
+    /// Expand a spatial latent grid [H, W, C] into an RGB image tensor.
+    fn decode_spatial(&self, latent: &LatentSpace) -> HLDVAResult<Tensor> {
+        let latent_data = latent.data.data();
+        let (height, width, channels) = (
+            latent.resolution.height,
+            latent.resolution.width,
+            latent.channels,
+        );
+        let scale = self._config.compression_factor;
+        let out_h = height * scale;
+        let out_w = width * scale;
+
+        let mut img = Vec::with_capacity(out_h * out_w * 3);
+        for y in 0..out_h {
+            for x in 0..out_w {
+                for c in 0..3 {
+                    let sy = y / scale;
+                    let sx = x / scale;
+                    let idx = (sy * width + sx) * channels + c % channels;
+                    img.push(if idx < latent_data.len() { latent_data[idx] } else { 0.0 });
+                }
+            }
+        }
+        Ok(Tensor::new(img, vec![out_h, out_w, 3]))
     }
 
     fn reparameterize(&self, latent: &LatentSpace) -> HLDVAResult<Tensor> {

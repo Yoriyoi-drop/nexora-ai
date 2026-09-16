@@ -415,9 +415,9 @@ impl NxrModel for FoundationModel {
         }
 
         let augmented = augment_nexum_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_foundation::model_core::foundation::FoundationModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_foundation::model_core::foundation::FoundationModel::nexum());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::nexum());
         foundation.infer_stream(&augmented, callback).await
     }
 

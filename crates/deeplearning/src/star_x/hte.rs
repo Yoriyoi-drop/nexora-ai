@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_harmonic_temporal_encoding_invalid_encoding_dim() {
-        let result = HarmonicTemporalEncoding::new(10, 3, 128);
+        let result = HarmonicTemporalEncoding::new(5, 3, 128);
         assert!(result.is_err());
     }
 

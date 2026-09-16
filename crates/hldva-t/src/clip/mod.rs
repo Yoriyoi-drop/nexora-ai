@@ -246,7 +246,9 @@ impl ImageEncoder {
         with_class.extend_from_slice(class_data);
         with_class.extend_from_slice(patches_data);
 
-        Ok(Tensor::new(with_class.clone(), vec![with_class.len()]))
+        // [num_patches + 1, embedding_dim] — class token first, then patches
+        let num_patches = patches_data.len() / self.config.embedding_dim;
+        Ok(Tensor::new(with_class, vec![num_patches + 1, self.config.embedding_dim]))
     }
 
     /// Extract class token embedding

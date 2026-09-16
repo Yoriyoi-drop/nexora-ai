@@ -6,6 +6,7 @@ description = "Shared model components for Nexora Foundation - base model types,
 
 [dependencies]
 nexora-erp = { path = "../erp" }
+nexora-tokenizer = { path = "../tokenizer" }
 nexora-vogp = { path = "../vogp" }
 nexora-atqs = { path = "../atqs" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
@@ -30,7 +31,6 @@ gpu = [
     "nexora-erp/gpu",
     "nexora-vogp/gpu",
     "nexora-atqs/gpu",
-    "nexora-tokenizer/gpu",
     "nexora-deeplearning/gpu",
 ]
 cuda = [

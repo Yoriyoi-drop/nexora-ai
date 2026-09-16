@@ -5,7 +5,6 @@ edition = "2021"
 description = "NXR Model Series — re-export crate for all 10 model types"
 
 [dependencies]
-nexora-model-core = { path = "../model-core" }
 nexora-model-omnis = { path = "../model-omnis" }
 nexora-model-vortex = { path = "../model-vortex" }
 nexora-model-aether = { path = "../model-aether" }
@@ -18,6 +17,7 @@ nexora-model-spectra = { path = "../model-spectra" }
 nexora-model-swift = { path = "../model-swift" }
 nexora-shared = { path = "../shared" }
 nexora-transformer = { path = "../transformer" }
+nexora-model-core = { path = "../model-core" }
 nexora-core = { path = "../core" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

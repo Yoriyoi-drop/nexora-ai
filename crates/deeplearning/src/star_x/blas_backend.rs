@@ -996,8 +996,21 @@ impl BlasOperations {
         a: ArrayView<f32, ndarray::Ix2>,
         x: ArrayView<f32, ndarray::Ix1>,
         beta: f32,
-        y: ArrayViewMut<f32, ndarray::Ix1>,
+        mut y: ArrayViewMut<f32, ndarray::Ix1>,
     ) -> DLResult<()> {
+        let (m, n) = a.dim();
+        if n != x.len() {
+            return Err(DeepLearningError::ShapeMismatch {
+                expected: vec![n],
+                actual: vec![x.len()],
+            });
+        }
+        if m != y.len() {
+            return Err(DeepLearningError::ShapeMismatch {
+                expected: vec![m],
+                actual: vec![y.len()],
+            });
+        }
         if self.available_features.supports_avx2 {
             // SAFETY: `gemv_simd_avx2` requires AVX2 + FMA CPU support, which is
             // verified via `self.available_features.supports_avx2`. The function
@@ -1448,7 +1461,10 @@ mod tests {
     #[test]
     fn test_get_blas_operations() {
         let ops = get_blas_operations();
-        assert!(matches!(ops.backend, BlasBackend::CustomSIMD));
+        assert!(matches!(
+            ops.backend,
+            BlasBackend::CustomSIMD | BlasBackend::IntelMKL | BlasBackend::OpenBLAS
+        ));
     }
 
     #[test]

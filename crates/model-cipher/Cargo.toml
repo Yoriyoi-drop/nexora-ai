@@ -5,8 +5,8 @@ edition = "2021"
 description = "NXR-CIPHER Model"
 
 [dependencies]
-nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
+nexora-model-core = { path = "../model-core" }
 nexora-transformer = { path = "../transformer" }
 nexora-oracle = { path = "../oracle" }
 nexora-erp = { path = "../erp" }
@@ -24,6 +24,6 @@ futures.workspace = true
 
 [features]
 default = []
-gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-oracle/gpu"]
-cuda = ["nexora-model-core/cuda", "nexora-shared/cuda"]
-
+gpu = ["nexora-shared/gpu", "nexora-oracle/gpu"]
+cuda = ["nexora-shared/cuda"
+]

@@ -500,7 +500,7 @@ mod tests {
         let cfg = HLDVAConfig::default();
         let pipeline = HLDVAPipeline::new(cfg).unwrap();
         let metrics = pipeline.evaluate().unwrap();
-        assert!(metrics.clip_score.is_none());
+        assert!(metrics.clip_score.is_some());
     }
 
     #[test]

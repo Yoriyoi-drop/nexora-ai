@@ -1,5 +1,5 @@
 .PHONY: all build check clippy fmt test test-fast clean \
-        run dev debug \
+        run debug \
         train train-resume train-foundation evaluate load-checkpoint \
         collect-data collect-train-foundation \
         health info perf mem \
@@ -76,11 +76,8 @@ clean:
 	cargo clean
 
 # ============================================================================
-# SERVER
+# RUN
 # ============================================================================
-
-dev:
-	cargo run --bin $(BIN) -- start --host $(HOST) --port $(PORT)
 
 run:
 	cargo run --bin $(BIN) $(CMD)
@@ -201,9 +198,6 @@ help:
 	@echo '   make test                cargo nextest run'
 	@echo '   make clean               cargo clean'
 	@echo ''
-	@echo ' SERVER'
-	@echo '   make dev                 nexora start (HOST=127.0.0.1 PORT=8080)'
-	@echo ''
 	@echo ' DATA COLLECTION'
 	@echo '   make collect-data        nexora collect-data (fetch web→.arrow)'
 	@echo '   make collect-train-foundation  collect-data + train-foundation'
@@ -254,7 +248,6 @@ help:
 	@echo '   make collect-data SOURCES=hackernews MAX_SAMPLES=200'
 	@echo '   make collect-train-foundation PARALLEL=1 MODEL_ID=all STEPS=500'
 	@echo '   make load-checkpoint CKPT_MODEL=omnis CKPT_PATH=./omnis.final.safetensors'
-	@echo '   make dev PORT=3000'
 	@echo '   make docker-up SERVICES="postgres redis"'
 	@echo '   make chat CHAT_FLAGS="--message hello"'
 	@echo '   CARGO_FLAGS="--features foo" make build'

@@ -8,8 +8,7 @@
 
 | Binary | Crate | Command |
 |---|---|---|
-| `nexora` | `apps/nexora-ai` | `cargo run --bin nexora -- [health\|info\|start]` |
-| `dashboard` | `apps/dashboard` | `cargo run --bin dashboard` |
+| `nexora` | `apps/nexora-ai` | `cargo run --bin nexora -- [health\|info\|generate\|chat\|train\|train-foundation\|process]` |
 
 ## Key crates
 
@@ -24,7 +23,6 @@
 | `crates/blaa` | `nexora-blaa` | External "Black Language Model API" bridge |
 | `crates/infrastructure` | `nexora-infrastructure` | Re-exports sub-crates `common` (`nexora-common`) and `utils` (`nexora-utils`) |
 | `crates/datastream` | `nexora-datastream` | DAG-based streaming data pipeline; features: `toxicity`, `prompt-injection`, `candle`, `arrow` |
-| `crates/database` | `nexora-database` | Features: `postgres`, `sqlite`, `sqlx`, `mysql`, `all` |
 | `crates/api` | `nexora-api` | Features: `cors`, `metrics`, `tls` |
 | `crates/isolation` | `nexora-isolation` | Multi-layered isolation architecture (L0-L6, Firewall, Kill Switch, Multi-Cluster) |
 | `crates/eventbus` | `nexora-eventbus` | Event-driven pub/sub backbone. Topics, subscribers, message queues, broadcast channel |
@@ -44,12 +42,10 @@ cargo test -p <package>              # single package
 cargo nextest run -p <package>       # single package via nextest
 cargo test --test <test_name>        # single integration test
 cargo run --bin nexora               # run CLI
-cargo run --bin nexora -- start      # start API server (http://localhost:8080)
 cargo run --bin nexora -- health     # health check
 cargo run --bin nexora -- load-checkpoint --model <id> --path <file>  # restore checkpoint
 cargo run --bin nexora -- train-foundation --data <file> --output <dir>  # in-place training
 cargo run --bin nexora -- collect-data --sources hackernews,wikipedia,reddit --max-samples 1000 --output ./data/  # collect dataset from web → .arrow
-cargo run --bin dashboard            # TUI dashboard
 ```
 
 ## Nextest specifics
@@ -94,7 +90,6 @@ nexora-eventbus      # standalone — no internal deps
 nexora-cost-optimizer # standalone — regex + routing logic
 nexora-scheduler-v2  # depends on core, eventbus; DAG scheduling, GPU/NUMA-aware, work-stealing
 nexora-ai (app)      # depends on core, runtime, foundation, tokenizer, intelligence, memory, inference, blaa, infrastructure, eventbus, cost-optimizer, scheduler-v2
-nexora-dashboard     # standalone TUI (ratatui)
 ```
 
 ## Training

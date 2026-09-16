@@ -9,7 +9,7 @@
 use crate::star_x::blas_backend::BlasOperations;
 use crate::star_x::tensor_pool::PooledTensor2D;
 use crate::star_x::{DLResult, DeepLearningError};
-use ndarray::{s, Array2, ArrayD, ArrayView};
+use ndarray::{s, Array1, Array2, ArrayD, ArrayView};
 
 /// Sliding Window Attention implementation
 #[derive(Debug, Clone)]
@@ -122,7 +122,9 @@ impl SlidingWindowAttention {
         // Final projection
         let output = self.final_projection(&attention_output)?;
 
-        Ok(output.into_dyn())
+        // Flatten back to 1D [seq_len * hidden_dim] to match input contract
+        let output_len = output.len();
+        Ok(output.into_shape(output_len)?.into_dyn())
     }
 
     /// Compute Q, K, V projections dengan BLAS optimization
@@ -506,7 +508,8 @@ impl HierarchicalSlidingWindow {
             }
         }
 
-        Ok(std::mem::take(output).into_dyn())
+        let flat_len = downsampled_len * hidden_dim;
+        Ok(output.clone().into_shape(flat_len)?.into_dyn())
     }
 
     /// Upsample output dari higher level attention
@@ -530,7 +533,10 @@ impl HierarchicalSlidingWindow {
             }
         }
 
-        Ok(std::mem::take(upsampled).into_dyn())
+        Ok(upsampled
+            .clone()
+            .into_shape(target_len * hidden_dim)?
+            .into_dyn())
     }
 
     /// Fuse hierarchical outputs dengan learned weights
@@ -545,12 +551,11 @@ impl HierarchicalSlidingWindow {
         let output_view = first_output.view().into_dimensionality::<ndarray::Ix1>()?;
         let output_len = output_view.len();
 
-        let mut pooled_fused = PooledTensor2D::new(1, output_len)?;
-        let fused = pooled_fused.get_mut();
+        let mut fused = vec![0.0f32; output_len];
 
         // Initialize with first output
         for i in 0..output_len {
-            fused[[0, i]] = output_view[i];
+            fused[i] = output_view[i];
         }
 
         // Add weighted outputs from other levels
@@ -559,11 +564,11 @@ impl HierarchicalSlidingWindow {
             let output_view = output.view().into_dimensionality::<ndarray::Ix1>()?;
 
             for i in 0..output_len {
-                fused[[0, i]] += weight * output_view[i];
+                fused[i] += weight * output_view[i];
             }
         }
 
-        Ok(std::mem::take(fused).into_dyn())
+        Ok(Array1::from_vec(fused).into_dyn())
     }
 }
 

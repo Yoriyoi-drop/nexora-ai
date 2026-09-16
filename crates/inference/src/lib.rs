@@ -343,11 +343,6 @@ pub fn inference_reasoning() -> nexora_cognition::reasoning::ReasoningChain {
     }
 }
 
-// Nyata: database untuk session persistence
-pub fn inference_db() -> nexora_database::DatabaseManager {
-    nexora_database::DatabaseManager::new()
-}
-
 // Nyata: ERP compression untuk model weight pruning
 pub fn inference_erp() -> nexora_erp::ERPEngine {
     nexora_erp::ERPEngine::new(nexora_erp::ERPConfig::default())

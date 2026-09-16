@@ -415,7 +415,7 @@ pub trait ModelForward: Send + Sync {
             // Restore caches and store results
             for (batch_idx, &seq_idx) in batch_indices.iter().enumerate() {
                 let entries = std::mem::take(&mut cpu_caches[batch_idx].entries);
-                let mut cpu_cache = CpuKVCache { entries };
+                let cpu_cache = CpuKVCache { entries };
                 caches[seq_idx] = Box::new(cpu_cache);
                 if batch_idx < logits_vec.len() && pos == inputs[seq_idx].len() - 1 {
                     results[seq_idx] = Some(logits_vec[batch_idx].clone());

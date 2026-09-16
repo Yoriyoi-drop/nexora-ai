@@ -49,9 +49,6 @@ pub enum NexoraError {
 
     #[error("Permission denied: {action}")]
     PermissionDenied { action: String },
-
-    #[error("Rate limit exceeded: limit={limit}, window={window}s")]
-    RateLimit { limit: u32, window: u64 },
 }
 
 impl NexoraError {
@@ -133,7 +130,6 @@ impl NexoraError {
             Self::Timeout { .. } => "TIMEOUT_ERROR",
             Self::NotFound { .. } => "NOT_FOUND",
             Self::PermissionDenied { .. } => "PERMISSION_DENIED",
-            Self::RateLimit { .. } => "RATE_LIMIT_EXCEEDED",
         }
     }
 
@@ -149,7 +145,6 @@ impl NexoraError {
             Self::Timeout { .. } => 408,
             Self::NotFound { .. } => 404,
             Self::PermissionDenied { .. } => 403,
-            Self::RateLimit { .. } => 429,
         }
     }
 }

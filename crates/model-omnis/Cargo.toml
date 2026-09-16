@@ -5,8 +5,8 @@ edition = "2021"
 description = "NXR-OMNIS Model"
 
 [dependencies]
-nexora-model-core = { path = "../model-core" }
 nexora-shared = { path = "../shared" }
+nexora-model-core = { path = "../model-core" }
 nexora-transformer = { path = "../transformer" }
 nexora-has-moe-ffn = { path = "../has-moe-ffn" }
 nexora-erp = { path = "../erp" }
@@ -25,6 +25,6 @@ futures.workspace = true
 
 [features]
 default = []
-gpu = ["nexora-model-core/gpu", "nexora-shared/gpu", "nexora-has-moe-ffn/gpu"]
-cuda = ["nexora-model-core/cuda", "nexora-shared/cuda", "nexora-has-moe-ffn/cuda"]
-
+gpu = ["nexora-shared/gpu", "nexora-has-moe-ffn/gpu"]
+cuda = ["nexora-shared/cuda"
+]

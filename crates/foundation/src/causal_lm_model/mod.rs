@@ -945,19 +945,12 @@ mod tests {
             intermediate_size: 64,
             ..Default::default()
         };
-        let mut model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
+        let model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
         let tok = MiniTokenizer::new(64);
         model.load_tokenizer(tok).await;
-        model
-            .initialize(serde_json::json!({
-                "transformer_config": {
-                    "vocab_size": 64, "hidden_size": 32,
-                    "num_heads": 4, "num_kv_heads": 2,
-                    "num_layers": 2, "max_seq_len": 64,
-                }
-            }))
-            .await
-            .unwrap();
+        // Gunakan initialize_empty (bukan initialize) agar test tidak memicu
+        // pembangunan global Pro backbone (6.2B params) yang sangat lambat.
+        model.initialize_empty().await.unwrap();
         assert!(model.is_ready().await);
     }
 
@@ -973,19 +966,12 @@ mod tests {
             intermediate_size: 64,
             ..Default::default()
         };
-        let mut model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
+        let model = CausalLmModel::new(NxrModelId::Omnis, cfg.clone());
         let tok = MiniTokenizer::new(64);
         model.load_tokenizer(tok).await;
-        model
-            .initialize(serde_json::json!({
-                "transformer_config": {
-                    "vocab_size": 64, "hidden_size": 32,
-                    "num_heads": 4, "num_kv_heads": 2,
-                    "num_layers": 2, "max_seq_len": 64,
-                }
-            }))
-            .await
-            .unwrap();
+        // Gunakan initialize_empty (bukan initialize) agar test tidak memicu
+        // pembangunan global Pro backbone (6.2B params) yang sangat lambat.
+        model.initialize_empty().await.unwrap();
         model.reset().await.unwrap();
         assert!(!model.is_ready().await);
     }

@@ -31,7 +31,6 @@ nexora-deeplearning = { path = "../deeplearning", optional = true }
 
 # Cross-layer dependencies (Phase 5 wiring)
 nexora-alignment = { path = "../alignment" }
-nexora-database = { path = "../database" }
 nexora-cognition = { path = "../cognition" }
 nexora-monitoring = { path = "../monitoring" }
 nexora-utils = { path = "../infrastructure/utils" }

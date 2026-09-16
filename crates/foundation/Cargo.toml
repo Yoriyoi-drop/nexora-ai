@@ -27,20 +27,20 @@ nexora-hldva-t = { path = "../hldva-t" }
 nexora-vogp = { path = "../vogp" }
 nexora-transformer = { path = "../transformer" }
 nexora-shared = { path = "../shared" }
+nexora-tokenizer = { path = "../tokenizer" }
+nexora-models = { path = "../models" }
+nexora-model-core = { path = "../model-core" }
 nexora-validation = { path = "../validation" }
 nexora-alignment = { path = "../alignment" }
 nexora-oracle = { path = "../oracle" }
 nexora-training = { path = "../training" }
 nexora-cognition = { path = "../cognition" }
-nexora-models = { path = "../models" }
 nexora-deeplearning = { path = "../deeplearning" }
 nexora-core = { path = "../core" }
 nexora-common = { path = "../infrastructure/common" }
-# tokenizer + model_core modules are now internal (merged into foundation)
 nexora-monitoring = { path = "../monitoring" }
 nexora-memory = { path = "../memory" }
 nexora-utils = { path = "../infrastructure/utils" }
-nexora-database = { path = "../database", features = ["postgres", "sqlite"] }
 
 # Framework-specific dependencies
 async-trait.workspace = true
@@ -72,6 +72,7 @@ bincode = "1.3"
 [features]
 default = ["gpu"]
 gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
+cuda = ["gpu", "nexora-deeplearning/cuda"]
 
 [dev-dependencies]
 mockall.workspace = true

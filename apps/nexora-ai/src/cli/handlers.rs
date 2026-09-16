@@ -159,9 +159,6 @@ impl Cli {
             NexoraConfig::default()
         };
 
-        // Override config with CLI arguments
-        let config = self.override_config(config);
-
         // Validate configuration
         if let Err(e) = config.validate() {
             return Err(NexoraError::config(format!(
@@ -185,16 +182,6 @@ impl Cli {
                     NexoraError::initialization(format!("Nexora AI initialization failed: {}", e))
                 })?;
                 match &self.command {
-                    Commands::Start {
-                        host,
-                        port,
-                        tls,
-                        cert_path,
-                        key_path,
-                    } => {
-                        self.run_server(&nexora, host, *port, *tls, cert_path, key_path)
-                            .await
-                    }
                     Commands::Process {
                         input,
                         format,
@@ -407,32 +394,6 @@ impl Cli {
         }
     }
 
-    /// Override configuration with CLI arguments
-    fn override_config(&self, mut config: NexoraConfig) -> NexoraConfig {
-        match &self.command {
-            Commands::Start {
-                host,
-                port,
-                tls,
-                cert_path,
-                key_path,
-            } => {
-                config.server.host = host.clone();
-                config.server.port = *port;
-                config.server.enable_tls = *tls;
-                if let Some(cert) = cert_path {
-                    config.server.cert_path = Some(cert.to_string_lossy().to_string());
-                }
-                if let Some(key) = key_path {
-                    config.server.key_path = Some(key.to_string_lossy().to_string());
-                }
-            }
-            _ => {}
-        }
-
-        config
-    }
-
     /// Write output to file or stdout
     fn write_output(&self, content: &str, output: &Option<PathBuf>) -> NexoraResult<()> {
         match output {
@@ -446,42 +407,6 @@ impl Cli {
             }
         }
         Ok(())
-    }
-
-    /// Run server command
-    async fn run_server(
-        &self,
-        nexora: &NexoraAI,
-        host: &str,
-        port: u16,
-        tls: bool,
-        cert_path: &Option<PathBuf>,
-        key_path: &Option<PathBuf>,
-    ) -> NexoraResult<()> {
-        info!("Starting Nexora AI server on http://{}:{}", host, port);
-
-        let config = crate::ServerConfig {
-            host: host.to_string(),
-            port,
-            enable_tls: tls,
-            cert_path: cert_path.as_ref().map(|p| p.to_string_lossy().to_string()),
-            key_path: key_path.as_ref().map(|p| p.to_string_lossy().to_string()),
-            max_connections: 1000,
-            request_timeout_seconds: 30,
-            enable_cors: true,
-            cors_origins: vec![],
-            api_keys: vec![],
-            enable_auth: false,
-            rate_limit_rpm: None,
-        };
-
-        let server = crate::NexoraServer::new(config);
-        let nexora = Arc::new(nexora.clone());
-
-        server
-            .start(nexora)
-            .await
-            .map_err(|e| NexoraError::system(format!("Server start failed: {}", e)))
     }
 
     /// Run process command

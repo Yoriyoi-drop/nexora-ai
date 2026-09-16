@@ -100,11 +100,6 @@ pub type Result<T> = std::result::Result<T, AgentError>;
 
 // ─── Cross-layer integration (Phase 5 wiring) ───────────────────────
 // Isolation check sudah di-wire via QuarantineManager di AgentManager (CF-3)
-// Database untuk persist agent state
-pub fn agent_db() -> nexora_database::DatabaseManager {
-    nexora_database::DatabaseManager::new()
-}
-
 // Nyata: cognition planning untuk agent task decomposition
 pub fn agent_create_plan() -> nexora_cognition::planning::Plan {
     let step = nexora_cognition::planning::PlanStep {

@@ -31,11 +31,11 @@ impl std::error::Error for FoundationError {}
 
 pub type FoundationResult<T> = std::result::Result<T, FoundationError>;
 
-// Tokenizer module (merged from nexora-tokenizer)
-pub mod tokenizer;
+// Re-export tokenizer (from standalone nexora-tokenizer crate)
+pub use nexora_tokenizer as tokenizer;
 
-// Model core module (merged from nexora-model-core)
-pub mod model_core;
+// Re-export model-core (from standalone nexora-model-core crate)
+pub use nexora_model_core as model_core;
 
 // Include framework modules
 
@@ -107,11 +107,6 @@ pub fn init_memory() -> nexora_memory::MemoryManager {
 // Nyata: wire isolation orchestrator for pre-inference security checks
 pub fn init_isolation(cfg: nexora_alignment::isolation::config::IsolationConfig) -> nexora_alignment::isolation::IsolationOrchestrator {
     nexora_alignment::isolation::IsolationOrchestrator::new(cfg)
-}
-
-// Nyata: wire database manager for model checkpoint persistence
-pub async fn init_database() -> anyhow::Result<nexora_database::DatabaseManager> {
-    Ok(nexora_database::DatabaseManager::new())
 }
 
 // Nyata: wire utils manager for text processing, crypto, validation

@@ -37,6 +37,12 @@ impl AsyncExecutor {
                 }
             }
 
+            // Allow weight tensors to be supplied directly keyed by node id
+            // (e.g. MatMul/Linear weights), appended after edge inputs.
+            if let Some(t) = tensors.get(&node_id) {
+                inputs_for_node.push(t.clone());
+            }
+
             let result =
                 match node.node_type {
                     NodeType::MatMul | NodeType::Linear => {

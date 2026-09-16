@@ -1,13 +1,11 @@
 [workspace]
 resolver = "2"
-exclude = ["crates/Telemetry"]
 members = [
     "crates/agent",
     "crates/atqs",
     "crates/blaa",
     "crates/core",
     "crates/cognition",
-    "crates/database",
     "crates/deeplearning",
     "crates/erp",
     "crates/foundation",
@@ -45,8 +43,9 @@ members = [
     "crates/eventbus",
     "crates/cost-optimizer",
     "apps/nexora-ai",
-    "apps/dashboard",
     "crates/benchmark",
+    "crates/tokenizer",
+    "crates/model-core",
 ]
 
 [workspace.package]
@@ -115,14 +114,6 @@ rand = "0.8"
 itertools = "0.12"
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
-# HTTP server
-axum = "0.7"
-tower = { version = "0.5", features = ["limit", "timeout"] }
-tower-http = { version = "0.5", features = ["cors", "compression-br", "trace"] }
-# Database drivers
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql", "chrono", "uuid"] }
-postgres = "0.19"
-mysql = "25"
 # HTTP client (untuk API requests)
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "blocking", "rustls-tls"] }
 
@@ -146,14 +137,8 @@ hex = "0.4"
 half = "2.4"
 
 rustls-pemfile = "2.0"
-argon2 = "0.5"
 
-# Terminal UI dependencies
-ratatui = "0.26"
-crossterm = "0.27"
-tui-input = "0.8"
-arboard = "3.3"  # For clipboard access
+# System monitoring
 sysinfo = "0.30"  # For system monitoring
-# psutil removed — use sysinfo (already included) for process stats
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }

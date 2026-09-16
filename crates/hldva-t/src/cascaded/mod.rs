@@ -292,11 +292,12 @@ pub struct UpsamplingLayers {
 
 impl UpsamplingLayers {
     pub fn new(config: &UpsamplerConfig) -> HLDVAResult<Self> {
-        // For 2x upsampling, we need to interpolate spatially
-        let input_dim = config.input_res * config.input_res * 4; // 4 channels
+        // The conv consumes the spatially-2x-upsampled latent, so its input is
+        // (input_res * 2)² channels, projecting to the target output_res² channels.
+        let upsampled_dim = (config.input_res * 2) * (config.input_res * 2) * 4; // 4 channels
         let output_dim = config.output_res * config.output_res * 4;
 
-        let upsampling_conv = Linear::new(input_dim, output_dim)?;
+        let upsampling_conv = Linear::new(upsampled_dim, output_dim)?;
         let layer_norm = LayerNorm::new(output_dim)?;
 
         Ok(Self {
@@ -356,7 +357,19 @@ impl UpsamplingLayers {
         let upsampled_tensor = Tensor::new(upsampled, vec![new_height * new_width * channels]);
         let conv_output = self.upsampling_conv.forward(&upsampled_tensor)?;
 
-        Ok(conv_output)
+        // Project back to a [H, W, C] latent grid for the DiT
+        let conv_shape = conv_output.shape();
+        if conv_shape.iter().product::<usize>() != new_height * new_width * channels {
+            return Err(HLDVAError::Model(format!(
+                "upsampling conv output size {} != expected {}",
+                conv_shape.iter().product::<usize>(),
+                new_height * new_width * channels
+            )));
+        }
+        Ok(Tensor::new(
+            conv_output.data().to_vec(),
+            vec![new_height, new_width, channels],
+        ))
     }
 
     /// Get pixel value dari flat array
@@ -383,11 +396,23 @@ impl UpsamplingLayers {
 
     /// Post-processing
     pub fn post_process(&self, latent: &LatentSpace) -> HLDVAResult<Tensor> {
-        // Apply layer norm and activation
-        let normalized = self.layer_norm.forward(&latent.data)?;
+        // GPU LayerNorm requires 2D input: flatten [H, W, C] → [1, H*W*C]
+        let (height, width, channels) = (
+            latent.resolution.height,
+            latent.resolution.width,
+            latent.channels,
+        );
+        let flat = Tensor::new(
+            latent.data.data().to_vec(),
+            vec![1, height * width * channels],
+        );
+        let normalized = self.layer_norm.forward(&flat)?;
         let activated = self.activation.forward(&normalized)?;
 
-        Ok(activated)
+        Ok(Tensor::new(
+            activated.data().to_vec(),
+            vec![height, width, channels],
+        ))
     }
 }
 

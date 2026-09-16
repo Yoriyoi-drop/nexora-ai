@@ -172,7 +172,8 @@ impl QuantizationEngine {
     }
 
     /// Dynamic quantization at runtime
-    pub fn quantize_dynamic(&self, tensor: &Array2<f32>) -> DLResult<QuantizedTensor> {
+    pub fn quantize_dynamic(&mut self, tensor: &Array2<f32>) -> DLResult<QuantizedTensor> {
+        let start_time = std::time::Instant::now();
         let (rows, cols) = tensor.dim();
 
         // Calculate per-channel scale and zero point
@@ -211,13 +212,18 @@ impl QuantizationEngine {
         let avg_scale = scales.iter().sum::<f32>() / scales.len() as f32;
         let avg_zero_point = zero_points.iter().sum::<i32>() / zero_points.len() as i32;
 
-        Ok(QuantizedTensor::new(
+        let quantized = QuantizedTensor::new(
             quantized_data,
             vec![rows, cols],
             QuantPrecision::INT8,
             avg_scale,
             avg_zero_point,
-        ))
+        );
+
+        self.quantization_time = start_time.elapsed().as_secs_f64();
+        self.memory_saved = self.calculate_memory_savings(tensor, &quantized);
+
+        Ok(quantized)
     }
 
     /// INT8 quantization dengan AWQ
@@ -706,7 +712,7 @@ mod tests {
 
     #[test]
     fn test_quantize_dynamic() -> DLResult<()> {
-        let engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
         let tensor = Array2::from_shape_vec((2, 3), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
         let quantized = engine.quantize_dynamic(&tensor)?;
         assert_eq!(quantized.shape(), &[2, 3]);
@@ -812,7 +818,7 @@ mod tests {
 
     #[test]
     fn test_calculate_memory_savings() -> DLResult<()> {
-        let engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
+        let mut engine = QuantizationEngine::new(QuantPrecision::INT8, QuantMethod::Dynamic)?;
         let tensor = Array2::from_shape_vec((100, 100), vec![0.5; 10000])?;
         let quantized = engine.quantize_dynamic(&tensor)?;
         let stats = engine.get_stats();

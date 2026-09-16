@@ -8,7 +8,7 @@ Nexora AI is a Rust-based multi-model cognitive architecture with 52 workspace m
 
 ```
 Leaf crates (no internal deps):
-  core, common, utils, deeplearning, database, data,
+  core, common, utils, deeplearning, data,
   monitoring, runtime
 
 Layer 2:
@@ -36,7 +36,6 @@ Application:
   nexora-ai     → core, foundation, tokenizer, intelligence, memory,
                   inference, blaa, infrastructure, datastream,
                   deeplearning, monitoring
-  dashboard     → standalone (ratatui TUI)
 ```
 
 ## NXR Model Series
@@ -87,8 +86,7 @@ Stream Sources → Intake Engine → Filter DAG → Intelligence Core → Delive
 
 ## Binaries
 
-- **nexora** (`apps/nexora-ai`): CLI + API server (`health`, `info`, `start` on `:8080`)
-- **dashboard** (`apps/dashboard`): TUI monitoring dashboard
+- **nexora** (`apps/nexora-ai`): AI engine CLI (`health`, `info`, `generate`, `chat`, `train`, `train-foundation`, `process`)
 
 ## Infrastructure
 

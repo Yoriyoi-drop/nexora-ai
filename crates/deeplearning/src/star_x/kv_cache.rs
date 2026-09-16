@@ -151,7 +151,7 @@ impl KVCache {
             } else {
                 0.0
             },
-            memory_usage: self.seq_len
+            memory_usage: self.capacity
                 * self.head_dim
                 * self.num_heads
                 * 2
@@ -332,7 +332,7 @@ impl std::fmt::Display for KVCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let total_tokens = self.seq_len;
         if total_tokens == 0 {
-            write!(f, "KV Cache: empty")
+            write!(f, "KV Cache: seq=0, empty")
         } else {
             write!(
                 f,

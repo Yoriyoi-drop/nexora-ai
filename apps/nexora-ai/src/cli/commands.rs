@@ -29,30 +29,6 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Start the Nexora AI server
-    #[command(aliases = &["dev", "serve"])]
-    Start {
-        /// Host to bind to
-        #[arg(short = 'H', long, default_value = "127.0.0.1")]
-        host: String,
-
-        /// Port to bind to
-        #[arg(short, long, default_value = "8080")]
-        port: u16,
-
-        /// Enable TLS
-        #[arg(long)]
-        tls: bool,
-
-        /// TLS certificate path
-        #[arg(long)]
-        cert_path: Option<PathBuf>,
-
-        /// TLS private key path
-        #[arg(long)]
-        key_path: Option<PathBuf>,
-    },
-
     /// Process a single request
     Process {
         /// Input text to process

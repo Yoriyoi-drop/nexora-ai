@@ -13,25 +13,17 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-pub mod api;
-pub mod auth;
-pub mod billing;
 pub mod cli;
 pub mod config;
 pub mod core;
 pub mod error;
-pub mod metrics;
 pub mod security;
-pub mod server;
 pub mod system;
-pub mod telemetry;
 
-pub use api::{ApiConfig, ApiResponse, NexoraApi};
 pub use cli::Cli;
 pub use config::NexoraConfig;
 pub use nexora_benchmark;
 pub use core::*;
-pub use server::{NexoraServer, ServerConfig};
 use nexora_alignment::isolation::{IsolationOrchestrator, IsolationCheckError};
 use nexora_memory::MemoryManager;
 
@@ -376,7 +368,7 @@ pub struct NexoraAI {
     /// Agent manager for multi-agent orchestration
     agent_manager: Arc<nexora_agent::AgentManager>,
 
-    /// Shared training metrics store (written by CLI, served to dashboard)
+    /// Shared training metrics store (written by CLI for training reporting)
     pub train_metrics: Arc<RwLock<Value>>,
 
     /// Isolation orchestrator for L0-L6 security checks, firewall, kill switch
@@ -390,12 +382,6 @@ pub struct NexoraAI {
 
     /// Text generator for prompt analysis and non-agent generation
     text_generator: crate::core::generation::TextGenerator,
-
-    /// Billing system for usage tracking and subscription management
-    pub billing: billing::BillingSystem,
-
-    /// Telemetry system for dashboard metrics
-    pub telemetry: telemetry::TelemetrySystem,
 
     /// Gossip protocol for distributed cluster communication
     pub gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>>,
@@ -488,14 +474,6 @@ impl NexoraAI {
             nexora_monitoring::MonitoringConfig::default(),
         );
         info!("Monitoring system initialized");
-
-        // Step 2f: Initialize billing system
-        let billing = billing::BillingSystem::new(config.billing.clone());
-        info!("Billing system initialized (enabled={})", billing.is_enabled().await);
-
-        // Step 2g: Initialize telemetry/dashboard system
-        let telemetry = telemetry::TelemetrySystem::new();
-        info!("Telemetry system initialized for dashboard");
 
         // Step 2h: Initialize gossip protocol for distributed mode
         let gossip_protocol: Option<Arc<nexora_runtime::gossip::GossipProtocol>> = if config.core.enable_distributed {
@@ -703,8 +681,6 @@ impl NexoraAI {
             train_metrics,
             isolation,
             memory_manager,
-            billing,
-            telemetry,
             gossip_protocol,
             system,
         })

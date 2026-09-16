@@ -319,6 +319,17 @@ impl SACA {
 mod tests {
     use super::*;
 
+    /// Test-only: repo path yang tidak ada agar ContextEngine tidak
+    /// men-scan seluruh repository (jauh lebih cepat).
+    fn test_context() -> TaskContext {
+        TaskContext {
+            repository_path: Some("__nexora_test_nonexistent__".to_string()),
+            existing_files: vec![],
+            dependencies: vec![],
+            coding_standards: std::collections::HashMap::new(),
+        }
+    }
+
     #[tokio::test]
     async fn test_saca_creation() -> anyhow::Result<()> {
         let config = SACAConfig::default();
@@ -338,7 +349,7 @@ mod tests {
             description: "Create a function that sorts an array of integers".to_string(),
             requirements: vec!["Use efficient sorting algorithm".to_string()],
             constraints: vec![],
-            context: None,
+            context: Some(test_context()),
         };
 
         let solution = saca.solve(task).await;

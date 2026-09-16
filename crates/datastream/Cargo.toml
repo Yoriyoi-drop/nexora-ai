@@ -26,6 +26,7 @@ unicode-segmentation = { workspace = true }
 reqwest = { workspace = true }
 
 nexora-common = { path = "../infrastructure/common" }
+nexora-tokenizer = { path = "../tokenizer" }
 nexora-deeplearning = { path = "../deeplearning", optional = true }
 nexora-validation = { path = "../validation" }
 nexora-utils = { path = "../infrastructure/utils" }
@@ -60,3 +61,4 @@ prompt-injection = []
 # Enable all dataset loading features
 dataset = ["arrow", "csv", "json", "parquet", "compression-zstd", "compression-lz4", "mmap"]
 dataset-minimal = ["arrow", "csv", "json"]
+

@@ -458,9 +458,9 @@ impl NxrModel for FoundationModel {
         }
 
         let augmented = augment_spectra_input(input)?;
-        static FOUNDATION: std::sync::OnceLock<nexora_foundation::model_core::foundation::FoundationModel> =
+        static FOUNDATION: std::sync::OnceLock<nexora_model_core::foundation::FoundationModel> =
             std::sync::OnceLock::new();
-        let foundation = FOUNDATION.get_or_init(|| nexora_foundation::model_core::foundation::FoundationModel::spectra());
+        let foundation = FOUNDATION.get_or_init(|| nexora_model_core::foundation::FoundationModel::spectra());
         foundation.infer_stream(&augmented, callback).await
     }
 

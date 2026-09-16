@@ -203,7 +203,7 @@ impl WorkerAgent {
                 }
                 drop(wm);
                 tokio::time::sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
-                return self.run_step(work_id).await;
+                return Box::pin(self.run_step(work_id)).await;
             } else {
                 w.status = types::WorkStatus::Failed(error.clone());
                 if self.config.enable_persistence {

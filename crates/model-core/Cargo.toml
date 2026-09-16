@@ -1,0 +1,27 @@
+[package]
+name = "nexora-model-core"
+version.workspace = true
+edition.workspace = true
+description = "NXR Model Core — shared model infrastructure, FoundationModel adapter, classifier utilities"
+
+[dependencies]
+nexora-shared = { path = "../shared" }
+nexora-transformer = { path = "../transformer" }
+nexora-deeplearning = { path = "../deeplearning" }
+nexora-core = { path = "../core" }
+nexora-alignment = { path = "../alignment" }
+
+async-trait.workspace = true
+ndarray.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rand.workspace = true
+tokio.workspace = true
+
+[features]
+default = []
+gpu = ["nexora-deeplearning/gpu", "nexora-transformer/gpu"]
+cuda = ["gpu", "nexora-deeplearning/cuda"]

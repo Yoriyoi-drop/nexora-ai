@@ -698,12 +698,12 @@ pub(crate) fn alloc_token_text(token_id: usize) -> String {
 }
 
 use std::sync::OnceLock;
-static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_foundation::tokenizer::BpeTokenizer>>> =
+static GLOBAL_TOKENIZER: OnceLock<parking_lot::RwLock<Option<nexora_tokenizer::BpeTokenizer>>> =
     OnceLock::new();
 
 /// Set the global tokenizer for use by `alloc_token_text`.
 /// Called once during engine initialization.
-pub fn set_global_tokenizer(tokenizer: nexora_foundation::tokenizer::BpeTokenizer) {
+pub fn set_global_tokenizer(tokenizer: nexora_tokenizer::BpeTokenizer) {
     let lock = GLOBAL_TOKENIZER.get_or_init(|| parking_lot::RwLock::new(None));
     *lock.write() = Some(tokenizer);
 }

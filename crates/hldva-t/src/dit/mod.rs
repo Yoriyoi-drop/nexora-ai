@@ -40,7 +40,8 @@ impl DiTModel {
 
         let final_layer_norm = LayerNorm::new(config.hidden_dim)?;
         let final_linear = Linear::new(config.hidden_dim, 4)?;
-        let conditioning_projection = Linear::new(512, config.hidden_dim)?;
+        // Match the CLIP text embedding dim (ClipConfig::embedding_dim default = 768).
+        let conditioning_projection = Linear::new(768, config.hidden_dim)?;
 
         Ok(Self {
             config: config.clone(),
