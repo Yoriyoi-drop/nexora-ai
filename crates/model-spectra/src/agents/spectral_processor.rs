@@ -263,7 +263,7 @@ impl SpectralProcessorAgent {
     fn apply_noise_reduction(
         &self,
         sample: f32,
-        index: usize,
+        _index: usize,
         params: &HashMap<String, f32>,
     ) -> f32 {
         let noise_threshold = params.get("threshold").unwrap_or(&0.1);
@@ -276,7 +276,7 @@ impl SpectralProcessorAgent {
 
     async fn extract_spectral_features(
         &self,
-        input: &SpectralProcessorTaskInput,
+        _input: &SpectralProcessorTaskInput,
         processed_signal: &[f32],
     ) -> AgentResult<Vec<f32>> {
         let mut features = Vec::new();

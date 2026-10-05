@@ -2,7 +2,6 @@
 
 use nexora_ai::error::NexoraResult;
 use nexora_ai::{NexoraAI, NexoraConfig};
-use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio;
 

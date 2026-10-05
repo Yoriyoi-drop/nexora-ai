@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Creation Architect Agent - Creative design and innovative solution generation
 #[derive(Debug, Clone)]

@@ -582,7 +582,7 @@ impl BaseAgent for ConsensusBuilderAgent {
             .await?;
 
         // Validate consensus
-        let validation_result = self.validate_consensus(&consensus_result).await?;
+        let _validation_result = self.validate_consensus(&consensus_result).await?;
 
         // Build output
         let output = ConsensusTaskOutput {
@@ -594,7 +594,7 @@ impl BaseAgent for ConsensusBuilderAgent {
             metadata: HashMap::new(),
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -883,7 +883,7 @@ impl ConsensusBuilderAgent {
 
         let mut scores: Vec<f32> = alternatives
             .iter()
-            .map(|a| 1.0 / alternatives.len() as f32)
+            .map(|_a| 1.0 / alternatives.len() as f32)
             .collect();
 
         // Round 1: initial scoring based on reasoning evaluation relevance
@@ -986,7 +986,7 @@ impl ConsensusBuilderAgent {
         &self,
         input: &ConsensusTaskInput,
         _disagreement: &DisagreementResult,
-        reasoning: &ReasoningEvaluation,
+        _reasoning: &ReasoningEvaluation,
     ) -> AgentResult<ConsensusResult> {
         // Simple majority vote
         let mut vote_counts: HashMap<String, usize> =

@@ -23,7 +23,7 @@ pub fn decomposition_strategy(level: &str) -> &'static str {
     }
 }
 
-pub fn detect_complexity(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn detect_complexity(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let clf = match CLASSIFIER.get() {
         Some(c) => c,
         None => return vec![(COMPLEXITY_LEVELS[0].to_string(), 1.0)],

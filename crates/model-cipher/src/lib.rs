@@ -12,7 +12,6 @@ pub mod config;
 pub mod identity;
 
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
@@ -23,14 +22,12 @@ use nexora_shared::{
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
-    safety_gate::{global_safety, ConsentScope, ConsentToken, SafetyGate},
+    safety_gate::global_safety,
 };
 
 use self::{
-    agents::CipherAgents, capabilities::CipherCapabilities, config::CipherConfig,
+    capabilities::CipherCapabilities, config::CipherConfig,
     identity::CipherIdentity,
 };
 
@@ -171,7 +168,7 @@ impl FoundationModel {
         ))
     }
 
-    fn scan_vulnerabilities(&self, target: &str) -> NxrModelResult<VulnerabilityScan> {
+    fn scan_vulnerabilities(&self, _target: &str) -> NxrModelResult<VulnerabilityScan> {
         Ok(VulnerabilityScan {
             count: 3,
             vulnerabilities: vec![
@@ -203,7 +200,7 @@ impl FoundationModel {
 
     fn generate_recommendations(
         &self,
-        assessment: &ThreatAssessment,
+        _assessment: &ThreatAssessment,
     ) -> NxrModelResult<Vec<String>> {
         Ok(vec![
             "Update all dependencies".to_string(),

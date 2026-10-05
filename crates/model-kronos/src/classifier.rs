@@ -25,7 +25,7 @@ pub fn temporal_framing(mode: &str) -> &'static str {
     }
 }
 
-pub fn detect_temporal_mode(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn detect_temporal_mode(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let clf = match CLASSIFIER.get() {
         Some(c) => c,
         None => return vec![(TEMPORAL_MODES[0].to_string(), 1.0)],

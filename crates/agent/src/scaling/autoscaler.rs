@@ -1,8 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::pool_manager::AgentPoolManager;
 use super::scaling_policy::ScalingDecision;

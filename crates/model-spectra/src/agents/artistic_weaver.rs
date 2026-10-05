@@ -362,7 +362,7 @@ impl BaseAgent for ArtisticWeaverAgent {
             },
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -476,7 +476,7 @@ impl ArtisticWeaverAgent {
         content: &str,
         target_style: &str,
     ) -> AgentResult<String> {
-        let adaptation_strength = self.config.adaptation_strength;
+        let _adaptation_strength = self.config.adaptation_strength;
 
         // Simplified style adaptation
         let adapted_content = match target_style {
@@ -510,7 +510,7 @@ impl ArtisticWeaverAgent {
     /// Calculate quality scores
     async fn calculate_quality_scores(
         &self,
-        input: &ArtisticTaskInput,
+        _input: &ArtisticTaskInput,
         content: &str,
     ) -> AgentResult<QualityScores> {
         let aesthetic_quality = self.calculate_aesthetic_quality(content);

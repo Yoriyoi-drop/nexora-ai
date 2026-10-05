@@ -686,7 +686,7 @@ impl RequestProcessor {
 mod tests {
     use super::*;
     use nexora_foundation::shared::model_registry::NxrModelRegistry;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::AtomicU64;
 
     fn make_processor() -> RequestProcessor {
         let request_count = Arc::new(AtomicU64::new(0));

@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Axiom Prime Agent - Fundamental truth discovery and logical reasoning
 #[derive(Debug, Clone)]

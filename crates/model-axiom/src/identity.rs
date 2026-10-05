@@ -2,10 +2,7 @@
 //!
 //! Identity and metadata for NXR-AXIOM logical reasoning and mathematical proof system
 
-use nexora_shared::{
-    capability_spec::CapabilityVector,
-    model_identity::{ModelMeta, ModelTier, NxrModelId},
-};
+use nexora_shared::model_identity::{ModelMeta, ModelTier, NxrModelId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

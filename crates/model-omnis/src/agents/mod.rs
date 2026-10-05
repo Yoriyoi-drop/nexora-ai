@@ -12,7 +12,6 @@ pub use synth_prime_runtime::SynthPrimeRuntimeAgent;
 pub use truth_arbiter_runtime::TruthArbiterRuntimeAgent;
 pub use world_model_x_runtime::WorldModelRuntimeAgent;
 
-use nexora_shared::base_model::NxrModelResult;
 
 #[derive(Debug, Clone)]
 pub struct OmnisAgents {

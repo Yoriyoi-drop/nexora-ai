@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Axiom Discoverer Agent - Axiom discovery and fundamental principle identification
 #[derive(Debug, Clone)]

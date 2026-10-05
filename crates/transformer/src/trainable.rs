@@ -1,6 +1,6 @@
 use ndarray::{Array1, Array2};
 use nexora_deeplearning::autograd::ops::{causal_softmax, embedding, rms_norm_2d};
-use nexora_deeplearning::autograd::{self, Tensor, TensorOps};
+use nexora_deeplearning::autograd::{Tensor, TensorOps};
 
 use super::config::TransformerConfig;
 use super::model::CausalLM;

@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Genesis Prime Agent - Origin creation and foundational system design
 #[derive(Debug, Clone)]

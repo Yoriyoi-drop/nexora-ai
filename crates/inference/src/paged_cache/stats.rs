@@ -1,4 +1,4 @@
-use std::sync::{Mutex, RwLock};
+use std::sync::RwLock;
 
 use crate::paged_cache::PagedKVCache;
 use crate::GLOBAL_PAGED_CACHE;

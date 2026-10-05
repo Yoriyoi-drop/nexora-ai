@@ -261,7 +261,7 @@ pub fn load_safetensors(path: impl AsRef<Path>) -> FoundationResult<HashMap<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::arr0;
+    
     use std::io::Write;
 
     #[test]

@@ -2,9 +2,6 @@
 //!
 //! Coordination system for creative multimodal synthesis agents
 
-use super::agents::{
-    ArtisticWeaverAgent, CreativeMuseAgent, InnovationEngineAgent, StyleAdapterAgent,
-};
 use nexora_shared::{
     agent_coordinator::{AgentCoordinator, CoordinationStrategy},
     agent_types::{AgentResult, CommunicationChannel, TaskRoutingRule},

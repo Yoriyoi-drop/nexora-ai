@@ -20,9 +20,7 @@ use nexora_shared::{
     gnac_integration::GnacIntegrationConfig,
     model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 
 // Include all Vortex modules
@@ -679,7 +677,7 @@ impl NxrModel for FoundationModel {
 
     async fn validate(&self) -> Result<ValidationResult, nexora_shared::base_model::NxrModelError> {
         let mut errors = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         if !self.base.is_initialized().await {
             errors.push("Model not initialized".to_string());

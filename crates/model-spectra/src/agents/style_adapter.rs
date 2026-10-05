@@ -428,7 +428,7 @@ impl BaseAgent for StyleAdapterAgent {
             metadata: adaptation_result.metadata,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -563,7 +563,7 @@ impl StyleAdapterAgent {
     /// Select adaptation method
     fn select_adaptation_method(
         &self,
-        input: &StyleAdaptationTaskInput,
+        _input: &StyleAdaptationTaskInput,
         source_analysis: &StyleAnalysis,
         target_analysis: &StyleAnalysis,
     ) -> AdaptationMethod {
@@ -690,7 +690,7 @@ impl StyleAdapterAgent {
     fn extract_style_characteristics(
         &self,
         content: &str,
-        style_name: &str,
+        _style_name: &str,
     ) -> HashMap<String, f32> {
         let mut characteristics = HashMap::new();
 

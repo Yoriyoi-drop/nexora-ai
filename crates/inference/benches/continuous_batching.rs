@@ -11,6 +11,11 @@ use nexora_transformer::{CpuKVCache, KVCacheProvider};
 
 // ─── Mock Model ─────────────────────────────────────────────────────────────────
 
+/// Logits width for the mock model. These benches measure batching/scheduling
+/// overhead, not transformer math, so the real 32k vocab only adds a large
+/// per-step zeroed allocation that drowns out the signal.
+const MOCK_VOCAB: usize = 1024;
+
 struct MockModel {
     vocab_size: usize,
     forward_cost_ns: u64,
@@ -79,7 +84,7 @@ fn run_bench(
         b.iter_batched(
             || {
                 let model = MockModel {
-                    vocab_size: 32000,
+                    vocab_size: MOCK_VOCAB,
                     forward_cost_ns,
                 };
                 let mut engine = ContinuousBatchingEngine::with_config(model, config.clone());
@@ -221,7 +226,7 @@ fn bench_paged_vs_flat_cache(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let model = MockModel {
-                    vocab_size: 32000,
+                    vocab_size: MOCK_VOCAB,
                     forward_cost_ns: 0,
                 };
                 let cfg = ContinuousBatchingConfig {
@@ -249,7 +254,7 @@ fn bench_paged_vs_flat_cache(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let model = MockModel {
-                    vocab_size: 32000,
+                    vocab_size: MOCK_VOCAB,
                     forward_cost_ns: 0,
                 };
                 let cfg = ContinuousBatchingConfig {

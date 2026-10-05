@@ -1,5 +1,9 @@
 use super::*;
 
+/// Vocab size of [`tiny_transformer_config`] — kept in sync so assertions on
+/// `logits.len()` stay correct.
+const TINY_VOCAB: usize = 32;
+
 fn test_config() -> PagedCacheConfig {
     PagedCacheConfig {
         block_size: 4,
@@ -8,6 +12,38 @@ fn test_config() -> PagedCacheConfig {
         num_kv_heads: 2,
         head_dim: 4,
         max_seq_len: 64,
+        f16_storage: false,
+        q4_storage: false,
+        enable_memory_tiering: false,
+        enable_cold_disk_offload: false,
+        ..Default::default()
+    }
+}
+
+/// Smallest model dims that still exercise every paged-cache path:
+/// GQA (2 kv heads vs 2 q heads), 2 layers, RoPE (head_dim must stay even).
+fn tiny_transformer_config() -> nexora_transformer::TransformerConfig {
+    nexora_transformer::TransformerConfig {
+        hidden_size: 16,
+        intermediate_size: 32,
+        num_heads: 2,
+        num_kv_heads: 2,
+        num_layers: 2,
+        max_seq_len: 32,
+        vocab_size: TINY_VOCAB,
+        ..Default::default()
+    }
+}
+
+/// Paged cache dims matching [`tiny_transformer_config`].
+fn tiny_paged_config() -> PagedCacheConfig {
+    PagedCacheConfig {
+        block_size: 4,
+        num_layers: 2,
+        num_kv_heads: 2,
+        head_dim: 8,
+        max_blocks: 16,
+        max_seq_len: 32,
         f16_storage: false,
         q4_storage: false,
         enable_memory_tiering: false,
@@ -275,30 +311,10 @@ fn test_alloc_stats() {
 
 #[test]
 fn test_forward_paged_integration() {
-    use ndarray::Array1;
-    use nexora_transformer::{CausalLM, TransformerConfig};
+    use nexora_transformer::CausalLM;
 
-    let cfg = PagedCacheConfig {
-        block_size: 4,
-        num_layers: 2,
-        num_kv_heads: 4,
-        head_dim: 64,
-        max_blocks: 1024,
-        max_seq_len: 512,
-        f16_storage: false,
-        ..Default::default()
-    };
-
-    let mc = TransformerConfig {
-        hidden_size: 512,
-        intermediate_size: 1024,
-        num_heads: 8,
-        num_kv_heads: 4,
-        num_layers: 2,
-        max_seq_len: 512,
-        vocab_size: 256,
-        ..Default::default()
-    };
+    let cfg = tiny_paged_config();
+    let mc = tiny_transformer_config();
 
     let model = CausalLM::new(mc);
     let mut paged_cache = PagedKVCache::new(cfg);
@@ -309,7 +325,7 @@ fn test_forward_paged_integration() {
         let logits = model
             .forward_paged(&[token], &mut paged_cache, 1)
             .expect("forward_paged should succeed in test");
-        assert_eq!(logits.len(), 256);
+        assert_eq!(logits.len(), TINY_VOCAB);
         if i > 0 {
             let got = paged_cache.num_tokens(1).unwrap_or(0);
             assert_eq!(
@@ -492,7 +508,7 @@ fn test_prefix_sharing_cow_data_integrity() {
     }
 
     // Verify seq 10 unchanged at position 4
-    let (k10_p4, v10_p4) = cache.read(10, 0, 4).unwrap();
+    let (k10_p4, _v10_p4) = cache.read(10, 0, 4).unwrap();
     for i in 0..kv_dim {
         assert!(
             (k10_p4[i] - (4 * 10 + i) as f32).abs() < 1e-6,
@@ -501,7 +517,7 @@ fn test_prefix_sharing_cow_data_integrity() {
     }
 
     // Verify seq 20 has cow value at position 0
-    let (k20_p0, v20_p0) = cache.read(20, 0, 0).unwrap();
+    let (k20_p0, _v20_p0) = cache.read(20, 0, 0).unwrap();
     for i in 0..kv_dim {
         assert!(
             (k20_p0[i] - (999.0 + i as f32)).abs() < 1e-6,
@@ -510,7 +526,7 @@ fn test_prefix_sharing_cow_data_integrity() {
     }
 
     // Verify seq 20 has new value at position 4 (new block, not shared)
-    let (k20_p4, v20_p4) = cache.read(20, 0, 4).unwrap();
+    let (k20_p4, _v20_p4) = cache.read(20, 0, 4).unwrap();
     for i in 0..kv_dim {
         assert!(
             (k20_p4[i] - (777.0 + i as f32)).abs() < 1e-6,
@@ -759,33 +775,10 @@ fn test_prefix_trie_empty_prompt() {
 
 #[test]
 fn test_paged_vs_flat_cache_parity() {
-    use ndarray::Array1;
-    use nexora_transformer::{CausalLM, KVCacheEntry, TransformerConfig};
+    use nexora_transformer::CausalLM;
 
-    let cfg = PagedCacheConfig {
-        block_size: 4,
-        num_layers: 2,
-        num_kv_heads: 4,
-        head_dim: 64,
-        max_blocks: 1024,
-        max_seq_len: 512,
-        f16_storage: false,
-        q4_storage: false,
-        enable_memory_tiering: false,
-        enable_cold_disk_offload: false,
-        ..Default::default()
-    };
-
-    let mc = TransformerConfig {
-        hidden_size: 512,
-        intermediate_size: 1024,
-        num_heads: 8,
-        num_kv_heads: 4,
-        num_layers: 2,
-        max_seq_len: 512,
-        vocab_size: 256,
-        ..Default::default()
-    };
+    let cfg = tiny_paged_config();
+    let mc = tiny_transformer_config();
 
     let model = CausalLM::new(mc);
     let mut flat_cache = model.reset_cache();

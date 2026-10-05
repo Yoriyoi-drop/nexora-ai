@@ -95,7 +95,7 @@ pub fn domain_system_prompt(domain: &str) -> &'static str {
         .unwrap_or("You are a general-purpose assistant. Respond helpfully and accurately.")
 }
 
-pub fn detect_domains(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn detect_domains(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let router = match ROUTER.get() {
         Some(r) => r,
         None => return vec![(DOMAINS[0].to_string(), 1.0)],

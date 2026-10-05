@@ -32,7 +32,7 @@ pub fn refinement_focus(dimension: &str) -> &'static str {
     }
 }
 
-pub fn detect_quality_focus(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn detect_quality_focus(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let clf = match CLASSIFIER.get() {
         Some(c) => c,
         None => return vec![(QUALITY_DIMENSIONS[0].to_string(), 1.0)],

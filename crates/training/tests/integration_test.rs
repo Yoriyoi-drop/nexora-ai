@@ -186,7 +186,7 @@ fn test_adam_converges_on_quadratic() {
 
     let mut opt = Adam::new(vec![x.clone()], 0.1);
 
-    let mut prev_loss = f32::INFINITY;
+    let _prev_loss = f32::INFINITY;
     for step in 0..100 {
         let pred = x.clone().mul(&x.clone());
         let t_tensor = nexora_deeplearning::autograd::Tensor::from_slice(&[target * target], &[1]);

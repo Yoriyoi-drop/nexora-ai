@@ -4,7 +4,6 @@
 
 use nexora_shared::{
     deeplearning_integration::DeepLearningConfig, gnac_integration::GnacIntegrationConfig,
-    model_config::NxrModelConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1825,7 +1824,7 @@ impl AxiomConfig {
             },
         };
 
-        let state_evolution = StateEvolutionConfig::default();
+        let _state_evolution = StateEvolutionConfig::default();
 
         let knowledge_base = KnowledgeBaseConfig {
             knowledge_sources: vec![

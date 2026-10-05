@@ -6,8 +6,7 @@ use async_trait::async_trait;
 use nexora_model_core::foundation::{call_model, FoundationModel as CoreFoundation};
 use nexora_shared::{
     agent_types::{AgentCapability, AgentError, AgentMetrics, AgentResult, AgentStatus},
-    base_agent::{AgentLifecycle, BaseAgent, BaseAgentConfig},
-    base_model::NxrModelResult,
+    base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -416,7 +415,7 @@ impl CreativeMuseAgent {
     }
 
     /// Calculate creativity score from generated content characteristics.
-    fn calculate_creativity_score(&self, input: &CreativeTaskInput, content: &str) -> f32 {
+    fn calculate_creativity_score(&self, _input: &CreativeTaskInput, content: &str) -> f32 {
         let base = match self.config.creativity_level {
             CreativityLevel::Conservative => 0.3,
             CreativityLevel::Moderate => 0.5,

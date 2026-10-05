@@ -41,7 +41,7 @@ pub fn category_focus(category: &str) -> &'static str {
         .unwrap_or("Provide a comprehensive code review covering all aspects.")
 }
 
-pub fn analyze_review_type(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn analyze_review_type(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let analyzer = match ANALYZER.get() {
         Some(a) => a,
         None => return vec![(REVIEW_CATEGORIES[0].to_string(), 1.0)],

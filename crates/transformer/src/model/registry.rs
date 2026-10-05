@@ -5,7 +5,7 @@ use crate::model::builder::GpuWeights;
 #[cfg(feature = "gpu")]
 use crate::model::config::sample_token_gpu;
 use crate::model::config::{sample_token, sample_token_gpu_keep_gpu};
-use crate::{TransformerConfig, TransformerError, TransformerResult};
+use crate::{TransformerError, TransformerResult};
 use ndarray::{Array1, Array2};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;

@@ -329,7 +329,7 @@ mod tests {
     fn test_mtp_loss_finite() {
         let config = MTPConfig::default();
         let heads = MTPHeads::new(config, 1000, 64);
-        let cfg = MTPConfig::default();
+        let _cfg = MTPConfig::default();
         let model = CausalLM::new(test_config());
         let mtp = MTPInference::new(model, heads);
         let loss = mtp.mtp_loss(&[0.1f32; 64], &[5, 10]);

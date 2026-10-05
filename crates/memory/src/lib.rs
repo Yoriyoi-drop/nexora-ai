@@ -29,7 +29,6 @@ pub use memory_model::{
     NeuralAttentionMemoryConfig, NeuralMemoryEntry,
 };
 pub use pool::*;
-pub use types::*;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

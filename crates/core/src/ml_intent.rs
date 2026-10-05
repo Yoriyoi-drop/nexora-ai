@@ -381,7 +381,7 @@ mod tests {
             "buat fungsi rust".to_string(),
             crate::types::InputType::Text,
         );
-        let result = detector.detect_intent(&input_data).await.unwrap();
+        let _result = detector.detect_intent(&input_data).await.unwrap();
 
         // The test passes if we can detect intent without panicking
         // ML results can be unpredictable, so we just ensure the process works

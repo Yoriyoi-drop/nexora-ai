@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 
 use nexora_core::types::{
     ContextInfo, IntentType, ModelId, SpecialistModel as CoreSpecialistModel,

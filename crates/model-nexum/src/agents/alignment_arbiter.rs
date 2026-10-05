@@ -1096,7 +1096,7 @@ impl BaseAgent for AlignmentArbiterAgent {
             recommendations,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -1299,8 +1299,8 @@ impl AlignmentArbiterAgent {
     /// Make alignment decisions
     async fn make_alignment_decisions(
         &self,
-        input: &AlignmentTaskInput,
-        alignment_analysis: &AlignmentAnalysis,
+        _input: &AlignmentTaskInput,
+        _alignment_analysis: &AlignmentAnalysis,
         conflict_resolutions: &[ConflictResolutionResult],
     ) -> AgentResult<Vec<AlignmentDecision>> {
         let mut decisions = Vec::new();
@@ -1346,7 +1346,7 @@ impl AlignmentArbiterAgent {
     /// Generate recommendations
     async fn generate_recommendations(
         &self,
-        input: &AlignmentTaskInput,
+        _input: &AlignmentTaskInput,
         alignment_analysis: &AlignmentAnalysis,
         conflict_resolutions: &[ConflictResolutionResult],
     ) -> AgentResult<Vec<AlignmentRecommendation>> {
@@ -1439,7 +1439,7 @@ impl AlignmentArbiterAgent {
     /// Assess ethical compliance for a framework
     fn assess_ethical_compliance(
         &self,
-        input: &AlignmentTaskInput,
+        _input: &AlignmentTaskInput,
         framework: &EthicalFramework,
     ) -> f32 {
         // Simplified ethical compliance assessment

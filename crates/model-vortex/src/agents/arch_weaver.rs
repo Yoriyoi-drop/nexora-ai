@@ -2591,7 +2591,7 @@ impl BaseAgent for ArchWeaverAgent {
             compliance_report,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -3002,7 +3002,7 @@ impl ArchWeaverAgent {
     /// Evaluate design quality
     async fn evaluate_design_quality(
         &self,
-        input: &ArchWeaverTaskInput,
+        _input: &ArchWeaverTaskInput,
     ) -> AgentResult<DesignEvaluationResults> {
         let quality_attribute_scores = QualityAttributeScores {
             performance_score: 0.8,
@@ -3191,7 +3191,7 @@ impl ArchWeaverAgent {
     /// Generate recommendations
     async fn generate_recommendations(
         &self,
-        input: &ArchWeaverTaskInput,
+        _input: &ArchWeaverTaskInput,
         _structural_analysis: &StructuralAnalysisResults,
         _behavioral_analysis: &BehavioralAnalysisResults,
         _interface_analysis: &InterfaceAnalysisResults,

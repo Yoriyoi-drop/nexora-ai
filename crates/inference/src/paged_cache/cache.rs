@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use ndarray::Array2;
 use nexora_transformer::KVCacheEntry;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::cold_storage::{ColdStorage, ColdStorageConfig};
 use crate::paged_cache::{

@@ -72,8 +72,8 @@ fn test_classifier_weights_save_load() {
 
     let w1_loaded = loaded.to_w1();
     let b1_loaded = loaded.to_b1();
-    let w2_loaded = loaded.to_w2();
-    let b2_loaded = loaded.to_b2();
+    let _w2_loaded = loaded.to_w2();
+    let _b2_loaded = loaded.to_b2();
 
     assert_eq!(w1.shape(), w1_loaded.shape());
     assert_eq!(b1.len(), b1_loaded.len());

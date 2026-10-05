@@ -5,9 +5,8 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use once_cell::sync::Lazy;
-use std::sync::Arc;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info, span, warn, Instrument, Level};
+use tracing::{debug, info, span, Level};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static RUNTIME: Lazy<Runtime> =
@@ -18,8 +17,8 @@ use nexora_foundation::atqs::prelude::*;
 use nexora_foundation::has_moe_ffn::*;
 use nexora_foundation::multimodal::{ActionConfig, EncodersConfig, QFormerConfig, TokenizerConfig};
 use nexora_foundation::multimodal::{
-    ActionOutput, ContextInfo, ImageFormat, ImageInput, ModalityType, MultiModalOutputs,
-    PerformanceMetrics, TaskType, TextInput, UnifiedToken,
+    ContextInfo, MultiModalOutputs,
+    PerformanceMetrics, TaskType, TextInput,
 };
 use nexora_foundation::multimodal::{Caffeine, CaffeineConfig, MultiModalInputs};
 
@@ -363,7 +362,7 @@ fn benchmark_individual_components(c: &mut Criterion) {
             |b, &input_size| {
                 b.iter(|| {
                     let config = create_moe_config();
-                    let mut moe = HasMoeFFN::new(config);
+                    let moe = HasMoeFFN::new(config);
 
                     let input =
                         ndarray::Array2::from_shape_vec((1, input_size), vec![0.5f32; input_size])

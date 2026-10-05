@@ -522,13 +522,13 @@ mod tests {
 
     #[test]
     fn test_intent_detector_default_threshold() {
-        let detector = IntentDetector::default();
+        let _detector = IntentDetector::default();
         // Just verify it creates without panicking
     }
 
     #[test]
     fn test_with_threshold_clamps() {
-        let detector = IntentDetector::new().with_threshold(1.5);
+        let _detector = IntentDetector::new().with_threshold(1.5);
         // threshold should be clamped to 1.0
     }
 }

@@ -2,11 +2,7 @@
 //!
 //! Contoh penggunaan lengkap SPARO untuk pelatihan model bahasa
 
-use nexora_foundation::alignment::sparo::data;
-use nexora_foundation::alignment::sparo::kto;
 use nexora_foundation::alignment::sparo::prelude::*;
-use nexora_foundation::alignment::sparo::trainer;
-use std::collections::HashMap;
 
 fn main() -> anyhow::Result<()> {
     println!("🚀 SPARO Framework Example");

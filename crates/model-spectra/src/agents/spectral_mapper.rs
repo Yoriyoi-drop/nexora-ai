@@ -240,7 +240,7 @@ impl SpectralMapperAgent {
 
     async fn generate_visualization(
         &self,
-        input: &SpectralMapperTaskInput,
+        _input: &SpectralMapperTaskInput,
         mapped_data: &[(f32, f32, f32)],
     ) -> AgentResult<Vec<u8>> {
         // Simple visualization data generation

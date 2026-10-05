@@ -485,7 +485,7 @@ impl CausalLM {
     /// Restore all f32 weights from the ATQS compressed cache.
     /// Requires `atqs_compressed` to be populated.
     pub fn restore_weights(&mut self) -> TransformerResult<()> {
-        use crate::atqs::WeightsAtqs;
+        
         let cache = self.atqs_compressed.take().ok_or_else(|| {
             TransformerError::Implementation(
                 "ATQS: restore_weights called but atqs_compressed is None. Call compress_atqs() first.".into()

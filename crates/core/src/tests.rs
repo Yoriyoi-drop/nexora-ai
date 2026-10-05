@@ -2,7 +2,6 @@ use crate::controller::CoreController;
 use crate::types::{
     ControllerConfig, DefaultSpecialistModel, InputType, IntentType, ModelId, SpecialistModel,
 };
-use std::sync::Arc;
 
 fn controller_low_threshold() -> CoreController {
     let mut config = ControllerConfig::default();

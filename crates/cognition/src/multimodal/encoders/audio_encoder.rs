@@ -93,7 +93,7 @@ impl FFT {
             return vec![window.first().copied().unwrap_or(0.0)];
         }
 
-        let (mut real, mut imag) = self.fft_inner(window);
+        let (real, imag) = self.fft_inner(window);
         let mut magnitudes = vec![0.0f32; self.n_fft.min(real.len())];
         for k in 0..magnitudes.len() {
             magnitudes[k] = (real[k] * real[k] + imag[k] * imag[k]).sqrt();

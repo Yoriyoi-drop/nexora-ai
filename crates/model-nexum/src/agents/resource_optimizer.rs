@@ -1324,7 +1324,7 @@ impl BaseAgent for ResourceOptimizerAgent {
             recommendations,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -1455,7 +1455,7 @@ impl ResourceOptimizerAgent {
         allocation_analysis: &AllocationAnalysis,
     ) -> AgentResult<OptimizationResult> {
         let mut optimized_allocation = HashMap::new();
-        let mut total_improvement = 0.0;
+        let _total_improvement = 0.0;
 
         // Sort demands by priority
         let mut sorted_demands = input.resource_demands.clone();
@@ -1630,7 +1630,7 @@ impl ResourceOptimizerAgent {
     /// Generate optimization recommendations
     async fn generate_recommendations(
         &self,
-        input: &ResourceOptimizationTaskInput,
+        _input: &ResourceOptimizationTaskInput,
         optimization_result: &OptimizationResult,
         performance_improvements: &PerformanceImprovements,
     ) -> AgentResult<Vec<OptimizationRecommendation>> {

@@ -5,7 +5,6 @@
 //! TASK-ROUTER, MERGE-SYNTH, and PRIORITY-GOD.
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use nexora_shared::base_model::NxrModelResult;
 
@@ -773,7 +772,7 @@ impl NexumAgents {
         &mut self.priority_god
     }
 
-    pub fn get(&self, kind: AgentKind) -> AgentRef {
+    pub fn get(&self, kind: AgentKind) -> AgentRef<'_> {
         match kind {
             AgentKind::SwarmCtl => AgentRef::SwarmCtl(&self.swarm_ctl),
             AgentKind::DelegateX => AgentRef::DelegateX(&self.delegate_x),
@@ -784,7 +783,7 @@ impl NexumAgents {
         }
     }
 
-    pub fn get_mut(&mut self, kind: AgentKind) -> AgentRefMut {
+    pub fn get_mut(&mut self, kind: AgentKind) -> AgentRefMut<'_> {
         match kind {
             AgentKind::SwarmCtl => AgentRefMut::SwarmCtl(&mut self.swarm_ctl),
             AgentKind::DelegateX => AgentRefMut::DelegateX(&mut self.delegate_x),

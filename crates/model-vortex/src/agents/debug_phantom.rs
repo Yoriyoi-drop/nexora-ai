@@ -2662,7 +2662,7 @@ impl BaseAgent for DebugPhantomAgent {
             debug_artifacts,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -2743,7 +2743,7 @@ impl DebugPhantomAgent {
     /// Perform root cause analysis
     async fn perform_root_cause_analysis(
         &self,
-        input: &DebugPhantomTaskInput,
+        _input: &DebugPhantomTaskInput,
     ) -> AgentResult<RootCauseAnalysisResults> {
         let identified_root_causes = vec![RootCause {
             root_cause_id: "rc_001".to_string(),
@@ -2798,7 +2798,7 @@ impl DebugPhantomAgent {
     /// Perform bug localization
     async fn perform_bug_localization(
         &self,
-        input: &DebugPhantomTaskInput,
+        _input: &DebugPhantomTaskInput,
     ) -> AgentResult<BugLocalizationResults> {
         let localized_bugs = vec![LocalizedBug {
             bug_id: "bug_001".to_string(),
@@ -2831,7 +2831,7 @@ impl DebugPhantomAgent {
     async fn generate_fix_recommendations(
         &self,
         _input: &DebugPhantomTaskInput,
-        root_cause_analysis: &RootCauseAnalysisResults,
+        _root_cause_analysis: &RootCauseAnalysisResults,
         bug_localization: &BugLocalizationResults,
     ) -> AgentResult<Vec<FixRecommendation>> {
         let mut recommendations = Vec::new();

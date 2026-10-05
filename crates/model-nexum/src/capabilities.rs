@@ -683,7 +683,7 @@ impl NexumCapabilities {
         let base_throughput = 1000.0_f32; // Base throughput in tasks/hour
         let coordination_factor = self.performance_metrics.agent_coordination_latency;
         let response_factor =
-            ((1000.0_f32 / self.performance_metrics.avg_response_time_ms as f32).min(1.0));
+            (1000.0_f32 / self.performance_metrics.avg_response_time_ms as f32).min(1.0);
 
         base_throughput * coordination_factor * response_factor
     }

@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Frequency Analyzer Agent - Frequency domain analysis and signal decomposition
 #[derive(Debug, Clone)]

@@ -12,7 +12,6 @@ pub mod config;
 pub mod identity;
 
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
@@ -23,9 +22,7 @@ use nexora_shared::{
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    model_config::NxrModelConfig,
-    model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
+    model_identity::ModelMeta,
 };
 
 use self::{
@@ -203,7 +200,7 @@ impl FoundationModel {
         })
     }
 
-    fn retrieve_from_graph(&self, analysis: &QueryAnalysis) -> NxrModelResult<KnowledgeRetrieval> {
+    fn retrieve_from_graph(&self, _analysis: &QueryAnalysis) -> NxrModelResult<KnowledgeRetrieval> {
         Ok(KnowledgeRetrieval {
             facts_count: 15,
             facts: vec![
@@ -227,7 +224,7 @@ impl FoundationModel {
 
     fn synthesize_knowledge(
         &self,
-        retrieval: &KnowledgeRetrieval,
+        _retrieval: &KnowledgeRetrieval,
         verification: &FactVerification,
     ) -> NxrModelResult<KnowledgeSynthesis> {
         Ok(KnowledgeSynthesis {

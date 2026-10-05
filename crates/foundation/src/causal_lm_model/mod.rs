@@ -5,7 +5,6 @@ pub use tokenizer::MiniTokenizer;
 pub use types::{EchoNetInjectionConfig, TrainingReport};
 
 use async_trait::async_trait;
-use ndarray::Array1;
 use rand::seq::SliceRandom;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,9 +21,8 @@ use crate::echo_net_injector::EchoNetInjector;
 use crate::model_agent_manager::global_model_agents;
 use crate::shared::base_model::ValidationResult;
 use crate::shared::{
-    CapabilityVector, FinishReason, GenerationMetadata, InputData, ModelMeta, ModelStatistics,
-    ModelTier, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
-    NxrStreamChunk, OutputData, PerformanceMetrics, ResourceUsage, StreamChunkData, TokenOutput,
+    CapabilityVector, ModelMeta, ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrModelId, NxrModelResult, NxrOutput,
+    NxrStreamChunk, ResourceUsage,
 };
 
 pub struct CausalLmModel {

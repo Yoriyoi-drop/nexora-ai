@@ -1,16 +1,3 @@
-/// Dynamic Agent Scaling — Kubernetes-like autoscaler untuk AI agents
-///
-/// Strategi:
-/// - Target utilization: 70-80% CPU/memory
-/// - Scale up saat utilization > 80% atau queue depth > threshold
-/// - Scale down saat utilization < 40% selama N cycle
-/// - Min/max agents: 3/49
-/// - Cooldown period: 30s antara scale events
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
 
 mod autoscaler;
 mod manager_autoscaler;

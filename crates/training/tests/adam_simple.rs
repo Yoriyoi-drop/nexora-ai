@@ -1,4 +1,4 @@
-use nexora_deeplearning::autograd::{Adam, Tensor, TensorOps};
+use nexora_deeplearning::autograd::{Tensor, TensorOps};
 
 #[test]
 fn test_adam_manual_trace() {

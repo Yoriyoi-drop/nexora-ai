@@ -1,9 +1,7 @@
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use super::scaling_policy::{ScalingDecision, ScalingPolicy};
 use super::AgentScalingConfig;

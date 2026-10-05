@@ -1,9 +1,14 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use nexora_transformer::{CausalLM, TransformerConfig};
 
+/// Vocab for the micro-benches. Kept small on purpose: these measure per-token
+/// transformer cost, and a real 50k vocab makes the `lm_head` matmul dominate
+/// the signal we actually care about. Prompt ids stay in range.
+const BENCH_VOCAB: usize = 1024;
+
 fn bench_generate_short(c: &mut Criterion) {
     let config = TransformerConfig {
-        vocab_size: 50257,
+        vocab_size: BENCH_VOCAB,
         hidden_size: 128,
         num_heads: 4,
         num_kv_heads: 2,
@@ -13,7 +18,7 @@ fn bench_generate_short(c: &mut Criterion) {
         ..Default::default()
     };
     let model = CausalLM::new(config);
-    let prompt: Vec<u32> = (0..64).map(|i| (i % 50257) as u32).collect();
+    let prompt: Vec<u32> = (0..64).map(|i| (i % BENCH_VOCAB) as u32).collect();
 
     let mut group = c.benchmark_group("causal_lm_generate");
     group.throughput(Throughput::Elements(64));
@@ -28,7 +33,7 @@ fn bench_generate_short(c: &mut Criterion) {
 
 fn bench_forward_single(c: &mut Criterion) {
     let config = TransformerConfig {
-        vocab_size: 50257,
+        vocab_size: BENCH_VOCAB,
         hidden_size: 128,
         num_heads: 4,
         num_kv_heads: 2,
@@ -53,7 +58,7 @@ fn bench_forward_single(c: &mut Criterion) {
 
 fn bench_generate_long(c: &mut Criterion) {
     let config = TransformerConfig {
-        vocab_size: 50257,
+        vocab_size: BENCH_VOCAB,
         hidden_size: 256,
         num_heads: 8,
         num_kv_heads: 4,
@@ -63,7 +68,7 @@ fn bench_generate_long(c: &mut Criterion) {
         ..Default::default()
     };
     let model = CausalLM::new(config);
-    let prompt: Vec<u32> = (0..256).map(|i| (i % 50257) as u32).collect();
+    let prompt: Vec<u32> = (0..256).map(|i| (i % BENCH_VOCAB) as u32).collect();
 
     let mut group = c.benchmark_group("causal_lm_generate_long");
     group.throughput(Throughput::Elements(256));

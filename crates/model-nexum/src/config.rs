@@ -1128,12 +1128,12 @@ impl NexumConfig {
             {
                 OrchestrationMode::Centralized
             }
-            (count, complexity, frequency)
+            (count, complexity, _frequency)
                 if count < 100 && *complexity == TaskComplexity::Medium =>
             {
                 OrchestrationMode::Hierarchical
             }
-            (count, complexity, frequency)
+            (_count, complexity, frequency)
                 if *complexity == TaskComplexity::High
                     || *frequency == CommunicationFrequency::High =>
             {

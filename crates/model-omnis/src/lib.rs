@@ -15,21 +15,18 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexora_erp::{CompressionMode, ERPConfig, ERPEngine};
+use nexora_erp::{CompressionMode, ERPConfig};
 use nexora_has_moe_ffn::HasMoeFFNConfig;
 use nexora_shared::{
     base_model::{
-        ModelStatistics, NxrInput, NxrModel, NxrModelError, NxrModelResult, NxrOutput,
+        ModelStatistics, NxrInput, NxrModel, NxrModelResult, NxrOutput,
         NxrStreamChunk, ResourceUsage, ValidationResult,
     },
     capability_spec::CapabilityVector,
     deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    model_config::NxrModelConfig,
-    model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
+    model_identity::ModelMeta,
 };
-use nexora_vogp::VOGPConfig;
 
 use self::{
     agents::OmnisAgents, capabilities::OmnisCapabilities, config::OmnisConfig,
@@ -319,7 +316,7 @@ impl FoundationModel {
             tokens.iter().map(|&t| t as f32).collect::<Vec<_>>(),
         )
         .unwrap_or_else(|_| ndarray::Array2::zeros((1, 1)));
-        let moe_output = self.components.moe.forward(&moe_input);
+        let _moe_output = self.components.moe.forward(&moe_input);
 
         // Step 1: Decompose the problem
         let decomposition = self.agents.oracle_7().decompose_problem(input).await?;

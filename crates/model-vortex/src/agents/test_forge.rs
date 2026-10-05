@@ -2004,7 +2004,7 @@ impl BaseAgent for TestForgeAgent {
             recommendations,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -2391,8 +2391,8 @@ function {}() {{
     /// Create test strategy
     async fn create_test_strategy(
         &self,
-        input: &TestForgeTaskInput,
-        generated_tests: &[GeneratedTest],
+        _input: &TestForgeTaskInput,
+        _generated_tests: &[GeneratedTest],
     ) -> AgentResult<TestStrategy> {
         let strategy_id = format!("strategy_{}", uuid::Uuid::new_v4());
         let strategy_name = "Automated Test Strategy".to_string();
@@ -2454,8 +2454,8 @@ function {}() {{
     /// Create execution plan
     async fn create_execution_plan(
         &self,
-        input: &TestForgeTaskInput,
-        test_strategy: &TestStrategy,
+        _input: &TestForgeTaskInput,
+        _test_strategy: &TestStrategy,
     ) -> AgentResult<TestExecutionPlan> {
         let plan_id = format!("plan_{}", uuid::Uuid::new_v4());
         let plan_name = "Test Execution Plan".to_string();
@@ -2683,7 +2683,7 @@ function {}() {{
     async fn generate_recommendations(
         &self,
         input: &TestForgeTaskInput,
-        generated_tests: &[GeneratedTest],
+        _generated_tests: &[GeneratedTest],
         quality_assessment: &QualityAssessmentResults,
     ) -> AgentResult<Vec<TestRecommendation>> {
         let mut recommendations = Vec::new();

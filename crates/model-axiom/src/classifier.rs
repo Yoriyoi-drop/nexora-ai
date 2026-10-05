@@ -55,7 +55,7 @@ pub fn reasoning_prompt(reasoning_type: &str) -> &'static str {
         .unwrap_or("Use systematic analytical reasoning breaking down the problem into components.")
 }
 
-pub fn detect_reasoning_type(text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
+pub fn detect_reasoning_type(_text: &str, token_ids: &[u32]) -> Vec<(String, f32)> {
     let clf = match CLASSIFIER.get() {
         Some(c) => c,
         None => return vec![(REASONING_TYPES[0].to_string(), 1.0)],

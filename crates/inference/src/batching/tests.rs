@@ -676,7 +676,7 @@ fn test_fairness_token_bucket() {
     );
 
     // 4 sequences with different max_tokens
-    let ids: Vec<u64> = (0..4)
+    let _ids: Vec<u64> = (0..4)
         .map(|i| engine.add_request(test_request(vec![1, 2], 10 + i * 5)))
         .collect();
 
@@ -805,8 +805,8 @@ fn test_scheduling_policy_fifo() {
     );
 
     let id1 = engine.add_request(test_request(vec![1], 10));
-    let id2 = engine.add_request(test_request(vec![2], 10));
-    let id3 = engine.add_request(test_request(vec![3], 10));
+    let _id2 = engine.add_request(test_request(vec![2], 10));
+    let _id3 = engine.add_request(test_request(vec![3], 10));
 
     // With Fifo, id1 should be selected first since it was added first
     let ready = engine.select_ready_sequences();
@@ -830,7 +830,7 @@ fn test_scheduling_policy_priority_aging() {
 
     // Add sequences with increasing delays
     let ids: Vec<u64> = (0..4)
-        .map(|i| {
+        .map(|_i| {
             let id = engine.add_request(test_request(vec![1], 20));
             std::thread::sleep(std::time::Duration::from_millis(2));
             id

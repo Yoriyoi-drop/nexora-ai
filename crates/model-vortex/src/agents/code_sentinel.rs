@@ -2641,7 +2641,7 @@ impl BaseAgent for CodeSentinelAgent {
             auto_fixes_available,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -2887,7 +2887,7 @@ impl CodeSentinelAgent {
     /// Perform architectural analysis
     async fn perform_architectural_analysis(
         &self,
-        input: &CodeSentinelTaskInput,
+        _input: &CodeSentinelTaskInput,
     ) -> AgentResult<ArchitecturalAnalysisResult> {
         Ok(ArchitecturalAnalysisResult {
             design_patterns_detected: vec![],
@@ -3048,8 +3048,8 @@ impl CodeSentinelAgent {
     fn generate_issues_and_suggestions(
         security_analysis: &SecurityAnalysisResult,
         performance_analysis: &PerformanceAnalysisResult,
-        maintainability_analysis: &MaintainabilityAnalysisResult,
-        architectural_analysis: &ArchitecturalAnalysisResult,
+        _maintainability_analysis: &MaintainabilityAnalysisResult,
+        _architectural_analysis: &ArchitecturalAnalysisResult,
         style_analysis: &StyleAnalysisResult,
         _documentation_analysis: &DocumentationAnalysisResult,
     ) -> (Vec<CodeIssue>, Vec<CodeSuggestion>) {

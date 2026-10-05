@@ -10,7 +10,7 @@ use crate::causal_lm_model::{CausalLmModel, MiniTokenizer};
 use crate::shared::{
     capability_spec::predefined as cap_predefined,
     model_config::NxrModelConfig,
-    model_identity::{ModelTier, NxrModelId},
+    model_identity::NxrModelId,
     model_registry::{global_registry, RegistryError},
     ModelMeta,
 };

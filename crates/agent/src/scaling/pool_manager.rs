@@ -1,10 +1,9 @@
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use super::metrics_collector::ScalingMetrics;

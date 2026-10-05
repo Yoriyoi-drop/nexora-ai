@@ -5,7 +5,6 @@
 pub mod classifier;
 pub mod delegation;
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
@@ -19,7 +18,6 @@ use nexora_shared::{
     gnac_integration::GnacIntegrationConfig,
     model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
     safety_gate::global_safety,
 };
 
@@ -245,7 +243,7 @@ impl FoundationModel {
         ))
     }
 
-    fn create_orchestration_plan(&self, task: &str) -> NxrModelResult<OrchestrationPlan> {
+    fn create_orchestration_plan(&self, _task: &str) -> NxrModelResult<OrchestrationPlan> {
         Ok(OrchestrationPlan {
             strategy: "consensus-based".to_string(),
             required_agents: 10,
@@ -261,7 +259,7 @@ impl FoundationModel {
         })
     }
 
-    fn build_consensus(&self, result: &CoordinationResult) -> NxrModelResult<ConsensusResult> {
+    fn build_consensus(&self, _result: &CoordinationResult) -> NxrModelResult<ConsensusResult> {
         Ok(ConsensusResult {
             agreement_level: 0.92,
             consensus_reached: true,

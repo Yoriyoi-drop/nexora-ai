@@ -542,7 +542,7 @@ impl BaseAgent for OrchestratorPrimeAgent {
             success: true,
         };
 
-        let processing_time = start_time.elapsed().as_millis() as u64;
+        let _processing_time = start_time.elapsed().as_millis() as u64;
 
         Ok(output)
     }
@@ -669,7 +669,7 @@ impl OrchestratorPrimeAgent {
     /// Create task schedule
     async fn create_task_schedule(
         &self,
-        input: &OrchestrationTaskInput,
+        _input: &OrchestrationTaskInput,
         assignments: &[AgentAssignment],
     ) -> AgentResult<Vec<ScheduledTask>> {
         let mut schedule = Vec::new();

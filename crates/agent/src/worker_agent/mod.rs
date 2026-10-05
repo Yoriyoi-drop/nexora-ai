@@ -675,7 +675,7 @@ mod tests {
             ..Default::default()
         };
         let agent = WorkerAgent::new(config);
-        let now = chrono::Utc::now();
+        let _now = chrono::Utc::now();
 
         let step1 = PlanStep {
             step_id: Uuid::new_v4(),

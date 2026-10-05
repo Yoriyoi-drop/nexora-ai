@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Innovation Catalyst Agent - Innovation acceleration and transformation leadership
 #[derive(Debug, Clone)]

@@ -532,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_detect_intent_returns_unknown_for_empty() {
-        let controller = CoreController::new();
+        let _controller = CoreController::new();
         // Can't test blocking, but we can verify the fn exists
     }
 }

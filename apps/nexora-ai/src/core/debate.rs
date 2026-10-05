@@ -747,7 +747,7 @@ impl ContextCompressor {
         let mut est_tokens = 0;
 
         for msg in responses {
-            let lower = msg.content.to_lowercase();
+            let _lower = msg.content.to_lowercase();
             let lines: Vec<&str> = msg.content.lines().collect();
 
             // Ekstrak klaim utama (kalimat pertama dari setiap paragraf)
@@ -940,7 +940,7 @@ pub struct DebateVerifier;
 impl DebateVerifier {
     /// Verifikasi hasil debat: cek fakta, logika, kontradiksi
     pub fn verify(result: &DebateResult) -> VerificationReport {
-        let mut factual_issues = Vec::new();
+        let factual_issues = Vec::new();
         let mut logical_issues = Vec::new();
         let mut contradictions = Vec::new();
 
@@ -1366,7 +1366,7 @@ impl DebateOrchestrator {
         round: usize,
         hub_model: Option<NxrModelId>,
     ) -> Result<String, String> {
-        let timeout = Duration::from_millis(self.config.model_timeout_ms);
+        let _timeout = Duration::from_millis(self.config.model_timeout_ms);
 
         let result = if messages.is_empty() {
             // Round 1: prompt langsung
@@ -1637,7 +1637,7 @@ impl DebateOrchestrator {
         winner: &NxrModelId,
         votes: &[WeightedVote],
         all_responses: &HashMap<NxrModelId, String>,
-        participants: &[NxrModelId],
+        _participants: &[NxrModelId],
         k: usize,
     ) -> String {
         // Hitung top-K models berdasarkan weighted votes

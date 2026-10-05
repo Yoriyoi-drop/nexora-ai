@@ -8,7 +8,6 @@ use nexora_shared::{
     base_agent::{BaseAgent, BaseAgentConfig},
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Spectrum Analyzer Agent - Spectral analysis and frequency domain processing
 #[derive(Debug, Clone)]

@@ -194,7 +194,7 @@ impl KVCache {
         let idx = self.select_shard(key);
         let hash = hash_key(key);
         let mut store = self.shards[idx].write().await;
-        let mut entry = store.entries.remove(&hash)?;
+        let entry = store.entries.remove(&hash)?;
         if entry.key != key {
             store.entries.insert(hash, entry);
             self.stats_misses.fetch_add(1, Ordering::Relaxed);

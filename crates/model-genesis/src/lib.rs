@@ -12,7 +12,6 @@ pub mod config;
 pub mod identity;
 
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexora_shared::{
@@ -21,11 +20,9 @@ use nexora_shared::{
         ResourceUsage, ValidationResult,
     },
     capability_spec::CapabilityVector,
-    deeplearning_integration::{DeepLearningConfig, DeepLearningModel, HasComponents},
+    deeplearning_integration::{DeepLearningModel, HasComponents},
     foundation_components::FoundationComponents,
-    model_config::NxrModelConfig,
     model_identity::{ModelMeta, NxrModelId},
-    model_registry::{global_registry, NxrModelRegistry},
     safety_gate::global_safety,
 };
 
@@ -232,7 +229,7 @@ impl FoundationModel {
 
     fn generate_evolved_response(
         &self,
-        input: &str,
+        _input: &str,
         evolution: &EvolutionAnalysis,
         emergence: &EmergenceDetection,
     ) -> NxrModelResult<String> {

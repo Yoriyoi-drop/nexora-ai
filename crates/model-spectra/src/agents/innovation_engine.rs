@@ -769,7 +769,7 @@ impl InnovationEngineAgent {
     fn calculate_innovation_scores(
         &self,
         concepts: &[GeneratedConcept],
-        novelty_analysis: &NoveltyAnalysis,
+        _novelty_analysis: &NoveltyAnalysis,
     ) -> InnovationScores {
         let mut total_novelty = 0.0;
         let mut total_originality = 0.0;
