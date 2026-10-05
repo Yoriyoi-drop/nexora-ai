@@ -274,7 +274,7 @@ fn reshape_to_2d(tensor: &ArrayD<f32>) -> Result<Array<f32, ndarray::Ix2>, crate
 
     tensor
         .clone()
-        .into_shape((rows, cols))
+        .into_shape_with_order((rows, cols))
         .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape to 2D".to_string()))
         .and_then(|arr| {
             arr.into_dimensionality().map_err(|_| {
@@ -294,7 +294,7 @@ fn reshape_from_2d(
 
     array_2d
         .clone()
-        .into_shape(original_shape)
+        .into_shape_with_order(original_shape)
         .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape from 2D".to_string()))
         .map(|arr| arr.into_dyn())
 }

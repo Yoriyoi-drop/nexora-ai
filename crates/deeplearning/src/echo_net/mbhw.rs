@@ -513,7 +513,7 @@ impl MultiBandHolographicWriter {
         for (i, t) in tensors.iter().enumerate() {
             if i < self.frequency_filters.len() {
                 let d = t.data();
-                if let Ok(arr) = d.clone().into_shape(self.frequency_filters[i].dim()) {
+                if let Ok(arr) = d.clone().into_shape_with_order(self.frequency_filters[i].dim()) {
                     self.frequency_filters[i] = arr;
                 }
             }

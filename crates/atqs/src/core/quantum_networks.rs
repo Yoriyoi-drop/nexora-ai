@@ -199,7 +199,7 @@ pub fn apply_trg_coarse_graining(
     let new_shape = [virtual_dim, virtual_dim, shape[2], shape[3]];
 
     Ok(truncated
-        .into_shape(new_shape)
+        .into_shape_with_order(new_shape)
         .map_err(|_| {
             crate::ATQSError::InvalidInput("Failed to reshape truncated tensor".to_string())
         })?
@@ -216,7 +216,7 @@ fn create_mpo_tensor(
     let (rows, cols) = (matrix.shape()[0], matrix.shape()[1]);
 
     // Reshape matrix for tensor decomposition
-    let reshaped = matrix.clone().into_shape((rows, cols)).map_err(|_| {
+    let reshaped = matrix.clone().into_shape_with_order((rows, cols)).map_err(|_| {
         crate::ATQSError::InvalidInput("Failed to reshape matrix for decomposition".to_string())
     })?;
 
@@ -432,7 +432,7 @@ fn contract_neighbors(tensor: &ArrayD<f32>) -> Result<ArrayD<f32>, crate::ATQSEr
     }
 
     Ok(result
-        .into_shape((shape[0], shape[1], shape[2], shape[3]))
+        .into_shape_with_order((shape[0], shape[1], shape[2], shape[3]))
         .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape MPO result".to_string()))?
         .into_dyn())
 }
@@ -442,7 +442,7 @@ fn truncate_bonds(tensor: &ArrayD<f32>, max_dim: usize) -> Result<ArrayD<f32>, c
     let shape = tensor.shape();
     let reshaped = tensor
         .view()
-        .into_shape((shape[0] * shape[1], shape[2] * shape[3]))?;
+        .into_shape_with_order((shape[0] * shape[1], shape[2] * shape[3]))?;
 
     let (u, s, vt) = compute_svd_truncated(&reshaped, max_dim)?;
 
@@ -450,7 +450,7 @@ fn truncate_bonds(tensor: &ArrayD<f32>, max_dim: usize) -> Result<ArrayD<f32>, c
     let truncated = u.dot(&Array::from_diag(&Array::from_vec(s))).dot(&vt);
 
     Ok(truncated
-        .into_shape(shape)
+        .into_shape_with_order(shape)
         .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape SVD result".to_string()))?
         .into_dyn())
 }

@@ -309,7 +309,7 @@ impl InverseSpectralCollapse {
         let output_1d = output.reshape(&[real_representation.len()]);
 
         let out_data = output_1d.data();
-        let out_1d = Array1::from_shape_vec(out_data.len(), out_data.into_raw_vec())
+        let out_1d = Array1::from_shape_vec(out_data.len(), out_data.into_raw_vec_and_offset().0)
             .unwrap_or_else(|_| Array1::zeros(real_representation.len()));
         let collapse_time = start_time.elapsed().as_secs_f32();
         self.record_collapse_event(context, &out_1d, collapse_time, timestamp)?;
@@ -674,7 +674,7 @@ impl InverseSpectralCollapse {
         let d = t.data();
         self.output_weights = d
             .clone()
-            .into_shape(self.output_weights.dim())
+            .into_shape_with_order(self.output_weights.dim())
             .unwrap_or(self.output_weights.clone());
     }
     pub fn set_output_bias(&mut self, t: &Tensor) {

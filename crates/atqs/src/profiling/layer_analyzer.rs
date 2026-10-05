@@ -438,8 +438,8 @@ fn estimate_weight_rank(weights: &ArrayD<f32>) -> Result<(usize, Vec<f32>), crat
 
     // Reshape to 2D for SVD
     let rows = shape[0];
-    let cols = shape.iter().skip(1).product();
-    let reshaped = weights.view().into_shape((rows, cols))?;
+    let cols: usize = shape.iter().skip(1).product();
+    let reshaped = weights.view().into_shape_with_order((rows, cols))?;
 
     // Compute SVD
     let (_u, s, _vt) = compute_weight_svd(&reshaped)?;
@@ -610,7 +610,7 @@ fn generate_random_input(shape: &[usize]) -> Result<ArrayD<f32>, crate::ATQSErro
             *elem = rand::random::<f32>();
         }
         Ok(array
-            .into_shape(shape)
+            .into_shape_with_order(shape)
             .map_err(|_| {
                 crate::ATQSError::InvalidInput("Failed to reshape random array".to_string())
             })?

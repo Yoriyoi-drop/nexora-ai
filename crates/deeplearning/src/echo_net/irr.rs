@@ -503,21 +503,21 @@ impl IterativeResonanceReasoner {
         let d = t.data();
         self.query_weights = d
             .clone()
-            .into_shape(self.query_weights.dim())
+            .into_shape_with_order(self.query_weights.dim())
             .unwrap_or(self.query_weights.clone());
     }
     pub fn set_refinement_weights(&mut self, t: &Tensor) {
         let d = t.data();
         self.refinement_weights = d
             .clone()
-            .into_shape(self.refinement_weights.dim())
+            .into_shape_with_order(self.refinement_weights.dim())
             .unwrap_or(self.refinement_weights.clone());
     }
     pub fn set_output_weights(&mut self, t: &Tensor) {
         let d = t.data();
         self.output_weights = d
             .clone()
-            .into_shape(self.output_weights.dim())
+            .into_shape_with_order(self.output_weights.dim())
             .unwrap_or(self.output_weights.clone());
     }
     pub fn get_reasoning_history(&self) -> &[ReasoningStep] {

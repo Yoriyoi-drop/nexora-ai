@@ -424,40 +424,40 @@ impl AdaptivePhaseSeparationStabilizer {
         // Uses tensor.data() which returns ArrayD<f32> (always succeeds)
         if tensors.len() >= 7 {
             // Phase adjustment parameters
-            let strength_val = tensors[0].data().into_raw_vec();
+            let strength_val = tensors[0].data().into_raw_vec_and_offset().0;
             if !strength_val.is_empty() {
                 self.phase_separation_strength = strength_val[0];
             }
 
-            let threshold_val = tensors[1].data().into_raw_vec();
+            let threshold_val = tensors[1].data().into_raw_vec_and_offset().0;
             if !threshold_val.is_empty() {
                 self.similarity_threshold = threshold_val[0];
             }
 
-            let adjustment_val = tensors[2].data().into_raw_vec();
+            let adjustment_val = tensors[2].data().into_raw_vec_and_offset().0;
             if !adjustment_val.is_empty() {
                 self.max_phase_adjustment = adjustment_val[0];
             }
 
             // Phase stabilization parameters
-            let momentum_val = tensors[3].data().into_raw_vec();
+            let momentum_val = tensors[3].data().into_raw_vec_and_offset().0;
             if !momentum_val.is_empty() {
                 self.momentum_factor = momentum_val[0];
             }
 
             // Conflict detection parameters
-            let conflict_thresh_val = tensors[4].data().into_raw_vec();
+            let conflict_thresh_val = tensors[4].data().into_raw_vec_and_offset().0;
             if !conflict_thresh_val.is_empty() {
                 self.conflict_threshold = conflict_thresh_val[0];
             }
 
-            let conflict_penalty_val = tensors[5].data().into_raw_vec();
+            let conflict_penalty_val = tensors[5].data().into_raw_vec_and_offset().0;
             if !conflict_penalty_val.is_empty() {
                 self.conflict_penalty = conflict_penalty_val[0];
             }
 
             // Phase normalization parameters
-            let norm_strength_val = tensors[6].data().into_raw_vec();
+            let norm_strength_val = tensors[6].data().into_raw_vec_and_offset().0;
             if !norm_strength_val.is_empty() {
                 self.normalization_strength = norm_strength_val[0];
             }

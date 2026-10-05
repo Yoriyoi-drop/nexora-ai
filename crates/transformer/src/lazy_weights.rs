@@ -288,10 +288,10 @@ pub fn load_lazy_into_causal_lm(
     let (cos_full, sin_full) = rope.precompute_freqs_cis();
     let half = config.head_dim() / 2;
     model.precomputed_cos = cos_full
-        .into_shape(config.max_seq_len * half)
+        .into_shape_with_order(config.max_seq_len * half)
         .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
     model.precomputed_sin = sin_full
-        .into_shape(config.max_seq_len * half)
+        .into_shape_with_order(config.max_seq_len * half)
         .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
 
     Ok(model)

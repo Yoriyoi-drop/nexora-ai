@@ -151,7 +151,7 @@ pub fn tensor_train_decompose(
         let (core, next_tensor) = if k == order - 1 {
             // Last core
             let core_shape = vec![ranks[k - 1], shape[k]];
-            let reshaped = current_tensor.into_shape(core_shape)?;
+            let reshaped = current_tensor.into_shape_with_order(core_shape)?;
             (reshaped.into_dyn(), ArrayD::zeros(IxDyn(&[])))
         } else {
             unfold_and_svd(&current_tensor, k, shape[k], ranks[k])?
@@ -352,7 +352,7 @@ fn unfold_and_svd(
     let rows = shape.iter().take(mode + 1).product();
     let cols = shape.iter().skip(mode + 1).product();
 
-    let reshaped = tensor.view().into_shape((rows, cols))?;
+    let reshaped = tensor.view().into_shape_with_order((rows, cols))?;
 
     // Perform SVD
     let (u, s, vt) = compute_svd_truncated(&reshaped, rank)?;
@@ -562,7 +562,7 @@ pub fn tensor_train_reconstruct(
 
     // Reshape to original shape
     result
-        .into_shape(decomposition.original_shape.as_slice())
+        .into_shape_with_order(decomposition.original_shape.as_slice())
         .map_err(|e| {
             crate::ATQSError::CompressionError(format!(
                 "Failed to reshape to original dimensions: {}",

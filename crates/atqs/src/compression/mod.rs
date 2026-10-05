@@ -100,7 +100,7 @@ impl AtqsCompression {
             Err(_) => {
                 // Fallback: use TensorCompressor trait
                 let tensor_2d = tensor
-                    .into_shape(vec![tensor_len, 1])
+                    .into_shape_with_order(vec![tensor_len, 1])
                     .map_err(|e| crate::ATQSError::TensorError(e.to_string()))?;
                 let decomp = self.compressor.compress(&tensor_2d.into_dyn())?;
                 match &decomp {

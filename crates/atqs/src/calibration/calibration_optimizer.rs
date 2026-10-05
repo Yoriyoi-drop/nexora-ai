@@ -706,11 +706,11 @@ fn apply_layer_operation(
 ) -> Result<ArrayD<f32>, crate::ATQSError> {
     if weights.ndim() == 2 && input.ndim() == 1 {
         let weights_2d = weights.view().into_dimensionality::<ndarray::Ix2>()?;
-        let input_reshaped = input.view().into_shape((input.len(), 1))?;
+        let input_reshaped = input.view().into_shape_with_order((input.len(), 1))?;
         let output = weights_2d.dot(&input_reshaped);
         let flat_len = output.len();
         Ok(output
-            .into_shape((flat_len,))
+            .into_shape_with_order((flat_len,))
             .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape output".to_string()))?
             .into_dyn())
     } else {

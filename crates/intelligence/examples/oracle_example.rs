@@ -432,7 +432,7 @@ fn demo_backbone_components() -> anyhow::Result<()> {
     let mut test_input = ndarray::Array3::zeros((2, 4, 4096));
     test_input.fill(0.1);
 
-    let flat_input = test_input.clone().into_shape((8, 4096))?.to_owned();
+    let flat_input = test_input.clone().into_shape_with_order((8, 4096))?.to_owned();
     let output = moe_layer.forward(&flat_input);
     println!("✅ HasMoeFFN output shape: {:?}", output.dim());
 

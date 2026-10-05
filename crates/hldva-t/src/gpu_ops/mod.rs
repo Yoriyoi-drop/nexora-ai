@@ -104,7 +104,7 @@ pub fn gpu_to_tensor(g: GpuTensor) -> HLDVAResult<Tensor> {
         .to_cpu()
         .map_err(|e| HLDVAError::Tensor(format!("gpu→cpu: {}", e)))?;
     let shape = g.shape();
-    let data: Vec<f32> = arr.into_raw_vec();
+    let data: Vec<f32> = arr.into_raw_vec_and_offset().0;
     Ok(Tensor::new(data, shape))
 }
 

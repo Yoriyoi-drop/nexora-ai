@@ -111,7 +111,7 @@ impl SlidingWindowAttention {
         }
 
         // Reshape input untuk multi-head attention
-        let input_reshaped = input_view.into_shape((seq_len, self.hidden_dim))?;
+        let input_reshaped = input_view.into_shape_with_order((seq_len, self.hidden_dim))?;
 
         // Compute Q, K, V projections
         let (q, k, v) = self.compute_qkv(&input_reshaped)?;
@@ -124,7 +124,7 @@ impl SlidingWindowAttention {
 
         // Flatten back to 1D [seq_len * hidden_dim] to match input contract
         let output_len = output.len();
-        Ok(output.into_shape(output_len)?.into_dyn())
+        Ok(output.into_shape_with_order(output_len)?.into_dyn())
     }
 
     /// Compute Q, K, V projections dengan BLAS optimization
@@ -194,13 +194,13 @@ impl SlidingWindowAttention {
         // Reshape untuk multi-head attention
         let q_heads = q
             .view()
-            .into_shape((seq_len_q, self.num_heads, self.head_dim))?;
+            .into_shape_with_order((seq_len_q, self.num_heads, self.head_dim))?;
         let k_heads = k
             .view()
-            .into_shape((seq_len_k, self.num_heads, self.head_dim))?;
+            .into_shape_with_order((seq_len_k, self.num_heads, self.head_dim))?;
         let v_heads = v
             .view()
-            .into_shape((seq_len_k, self.num_heads, self.head_dim))?;
+            .into_shape_with_order((seq_len_k, self.num_heads, self.head_dim))?;
 
         // Initialize output tensor
         let mut pooled_output = PooledTensor2D::new(seq_len_q, hidden_dim)?;
@@ -509,7 +509,7 @@ impl HierarchicalSlidingWindow {
         }
 
         let flat_len = downsampled_len * hidden_dim;
-        Ok(output.clone().into_shape(flat_len)?.into_dyn())
+        Ok(output.clone().into_shape_with_order(flat_len)?.into_dyn())
     }
 
     /// Upsample output dari higher level attention
@@ -535,7 +535,7 @@ impl HierarchicalSlidingWindow {
 
         Ok(upsampled
             .clone()
-            .into_shape(target_len * hidden_dim)?
+            .into_shape_with_order(target_len * hidden_dim)?
             .into_dyn())
     }
 

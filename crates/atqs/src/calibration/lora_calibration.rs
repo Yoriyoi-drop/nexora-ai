@@ -320,7 +320,7 @@ fn compute_lora_update(
 
     // Reshape input for matrix multiplication if needed
     let input_2d = if input.ndim() == 1 {
-        input.view().into_shape((1, input.len()))?
+        input.view().into_shape_with_order((1, input.len()))?
     } else {
         input.view().into_dimensionality::<ndarray::Ix2>()?
     };
@@ -356,11 +356,11 @@ fn apply_layer_operation(
     // Simplified matrix multiplication
     if weights.ndim() == 2 && input.ndim() == 1 {
         let weights_2d = weights.view().into_dimensionality::<ndarray::Ix2>()?;
-        let input_reshaped = input.view().into_shape((input.len(), 1))?;
+        let input_reshaped = input.view().into_shape_with_order((input.len(), 1))?;
         let output = weights_2d.dot(&input_reshaped);
         let output_len = output.len();
         Ok(output
-            .into_shape((output_len,))
+            .into_shape_with_order((output_len,))
             .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape output".to_string()))?
             .into_dyn())
     } else {

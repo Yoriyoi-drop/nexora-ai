@@ -548,18 +548,18 @@ impl SparseCausalAttention {
         // Compute query, key, value
         let query = self
             .query_weights
-            .dot(&input.view().into_shape((self.hidden_dim, 1))?)
-            .into_shape(self.hidden_dim)?
+            .dot(&input.view().into_shape_with_order((self.hidden_dim, 1))?)
+            .into_shape_with_order(self.hidden_dim)?
             .into_dyn();
         let key = self
             .key_weights
-            .dot(&input.view().into_shape((self.hidden_dim, 1))?)
-            .into_shape(self.hidden_dim)?
+            .dot(&input.view().into_shape_with_order((self.hidden_dim, 1))?)
+            .into_shape_with_order(self.hidden_dim)?
             .into_dyn();
         let value = self
             .value_weights
-            .dot(&input.view().into_shape((self.hidden_dim, 1))?)
-            .into_shape(self.hidden_dim)?
+            .dot(&input.view().into_shape_with_order((self.hidden_dim, 1))?)
+            .into_shape_with_order(self.hidden_dim)?
             .into_dyn();
 
         // Use cache if available
@@ -599,8 +599,8 @@ impl SparseCausalAttention {
         // Final output projection
         let output = self
             .output_weights
-            .dot(&attention_output.view().into_shape((self.hidden_dim, 1))?)
-            .into_shape(self.hidden_dim)?
+            .dot(&attention_output.view().into_shape_with_order((self.hidden_dim, 1))?)
+            .into_shape_with_order(self.hidden_dim)?
             .into_dyn();
 
         Ok(output)
@@ -657,8 +657,8 @@ impl crate::star_x::traits::Forward for SparseCausalAttention {
         // Fallback to standard implementation
         let output = self
             .output_weights
-            .dot(&input.view().into_shape((self.hidden_dim, 1))?)
-            .into_shape(self.hidden_dim)?
+            .dot(&input.view().into_shape_with_order((self.hidden_dim, 1))?)
+            .into_shape_with_order(self.hidden_dim)?
             .into_dyn();
 
         Ok(output)

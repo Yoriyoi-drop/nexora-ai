@@ -96,7 +96,7 @@ impl QuantizedLinearLayer {
     pub fn from_linear(layer: &LinearLayer) -> Self {
         Self {
             weight: Q8Weight::from_f32(&layer.weight),
-            bias: Some(layer.bias.clone().into_raw_vec()),
+            bias: Some(layer.bias.clone().into_raw_vec_and_offset().0),
         }
     }
 

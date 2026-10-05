@@ -80,8 +80,8 @@ impl KVCache {
         }
 
         // Convert to 2D arrays for consistency
-        let key_2d = key.into_shape((1, self.head_dim * self.num_heads))?;
-        let value_2d = value.into_shape((1, self.head_dim * self.num_heads))?;
+        let key_2d = key.into_shape_with_order((1, self.head_dim * self.num_heads))?;
+        let value_2d = value.into_shape_with_order((1, self.head_dim * self.num_heads))?;
 
         // Ensure capacity before appending (geometric growth)
         let needed = self.seq_len + 1;
@@ -113,7 +113,7 @@ impl KVCache {
 
         let query_2d = query
             .view()
-            .into_shape((1, self.head_dim * self.num_heads))?;
+            .into_shape_with_order((1, self.head_dim * self.num_heads))?;
 
         // Only use active sequence portion (not pre-allocated capacity)
         let active_keys = self.cached_keys.slice(s![0..self.seq_len, ..]);
@@ -124,13 +124,13 @@ impl KVCache {
 
         // Apply softmax
         let softmax_scores =
-            self.softmax(&attention_scores.view().into_shape(self.seq_len)?.to_owned())?;
+            self.softmax(&attention_scores.view().into_shape_with_order(self.seq_len)?.to_owned())?;
 
         // Compute output: weights @ values
         let output = softmax_scores.dot(&active_values);
 
         self.cache_hits += 1;
-        Ok(output.into_shape(self.head_dim * self.num_heads)?)
+        Ok(output.into_shape_with_order(self.head_dim * self.num_heads)?)
     }
 
     /// Reset cache

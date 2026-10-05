@@ -300,7 +300,7 @@ impl GQA {
                 let f32_t = ctx.f16_packed_to_f32(f16_t)?;
                 let arr_d = f32_t.to_cpu()?;
                 let shape = vec![orig_shape[0], orig_shape[1]];
-                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec_and_offset().0)
                     .map_err(|e| {
                         nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                     })?;
@@ -315,7 +315,7 @@ impl GQA {
                 let t_t = ctx.transpose(t)?;
                 let arr_d = t_t.to_cpu()?;
                 let shape = vec![orig_shape[0], orig_shape[1]];
-                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec())
+                let arr_dyn = ndarray::ArrayD::from_shape_vec(shape, arr_d.into_raw_vec_and_offset().0)
                     .map_err(|e| {
                         nexora_deeplearning::autograd::gpu::GpuError::Unsupported(e.to_string())
                     })?;
@@ -389,17 +389,17 @@ impl GQA {
         let v_proj = self.maybe_f16_matmul(x, wv, &self.wv_f16);
 
         let mut q = q_proj
-            .into_shape((batch_size, self.num_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
             });
         let mut k = k_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
         let v = v_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
@@ -407,28 +407,28 @@ impl GQA {
         {
             let k_shape = k.dim();
             let k_2d = k
-                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .into_shape_with_order((k_shape.0 * k_shape.1, k_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
             k = k_rotated
-                .into_shape(k_shape)
+                .into_shape_with_order(k_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
         {
             let q_shape = q.dim();
             let q_2d = q
-                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .into_shape_with_order((q_shape.0 * q_shape.1, q_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
             q = q_rotated
-                .into_shape(q_shape)
+                .into_shape_with_order(q_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 
@@ -551,45 +551,45 @@ impl GQA {
         let v_proj = x.dot(&wv.t());
 
         let mut q = q_proj
-            .into_shape((batch_size, self.num_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
             });
         let mut k = k_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
         let v = v_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
         {
             let k_shape = k.dim();
             let k_2d = k
-                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .into_shape_with_order((k_shape.0 * k_shape.1, k_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
             k = k_rotated
-                .into_shape(k_shape)
+                .into_shape_with_order(k_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
         {
             let q_shape = q.dim();
             let q_2d = q
-                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .into_shape_with_order((q_shape.0 * q_shape.1, q_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
             q = q_rotated
-                .into_shape(q_shape)
+                .into_shape_with_order(q_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 
@@ -697,17 +697,17 @@ impl GQA {
         let v_proj = self.maybe_f16_matmul(x, wv, &self.wv_f16);
 
         let mut q = q_proj
-            .into_shape((batch_size, self.num_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_heads, self.head_dim))
             });
         let mut k = k_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
         let v = v_proj
-            .into_shape((batch_size, self.num_kv_heads, self.head_dim))
+            .into_shape_with_order((batch_size, self.num_kv_heads, self.head_dim))
             .unwrap_or_else(|_| {
                 ndarray::Array3::zeros((batch_size, self.num_kv_heads, self.head_dim))
             });
@@ -715,28 +715,28 @@ impl GQA {
         {
             let k_shape = k.dim();
             let k_2d = k
-                .into_shape((k_shape.0 * k_shape.1, k_shape.2))
+                .into_shape_with_order((k_shape.0 * k_shape.1, k_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((k_shape.0 * k_shape.1, k_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let k_rotated = RoPE::apply(&k_2d, &cos_1d, &sin_1d, self.head_dim);
             k = k_rotated
-                .into_shape(k_shape)
+                .into_shape_with_order(k_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(k_shape));
         }
 
         {
             let q_shape = q.dim();
             let q_2d = q
-                .into_shape((q_shape.0 * q_shape.1, q_shape.2))
+                .into_shape_with_order((q_shape.0 * q_shape.1, q_shape.2))
                 .unwrap_or_else(|_| ndarray::Array2::zeros((q_shape.0 * q_shape.1, q_shape.2)));
             let half = self.head_dim / 2;
             let cos_1d = ndarray::Array1::from_shape_fn(half, |i| cos[i]);
             let sin_1d = ndarray::Array1::from_shape_fn(half, |i| sin[i]);
             let q_rotated = RoPE::apply(&q_2d, &cos_1d, &sin_1d, self.head_dim);
             q = q_rotated
-                .into_shape(q_shape)
+                .into_shape_with_order(q_shape)
                 .unwrap_or_else(|_| ndarray::Array3::zeros(q_shape));
         }
 

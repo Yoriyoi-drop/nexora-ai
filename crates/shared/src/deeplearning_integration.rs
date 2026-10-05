@@ -379,7 +379,7 @@ impl DeepLearningEngine {
             DeepLearningState::EchoNet(echo_net_state) => {
                 let flat_input = input
                     .clone()
-                    .into_shape(input.len())
+                    .into_shape_with_order(input.len())
                     .map_err(DeepLearningError::from)?;
                 let amp_dim = echo_net_state.amplitude_spectrum.len().max(1);
                 let phase_dim = echo_net_state.semantic_phase.len().max(1);
@@ -453,7 +453,7 @@ impl DeepLearningEngine {
                 let echo_output = {
                     let flat_input = input
                         .clone()
-                        .into_shape(input.len())
+                        .into_shape_with_order(input.len())
                         .map_err(DeepLearningError::from)?;
                     let amp_dim = echo_net.amplitude_spectrum.len().max(1);
                     let phase_dim = echo_net.semantic_phase.len().max(1);
@@ -525,7 +525,7 @@ impl DeepLearningEngine {
                 let hidden_size = starx_state.hidden_state.len();
                 let flat_grad = gradient
                     .clone()
-                    .into_shape(gradient.len())
+                    .into_shape_with_order(gradient.len())
                     .map_err(DeepLearningError::from)?;
 
                 let result_data: Vec<f32> = flat_grad
@@ -548,7 +548,7 @@ impl DeepLearningEngine {
             DeepLearningState::EchoNet(_) => {
                 let flat_grad = gradient
                     .clone()
-                    .into_shape(gradient.len())
+                    .into_shape_with_order(gradient.len())
                     .map_err(DeepLearningError::from)?;
 
                 let result_data: Vec<f32> = flat_grad.iter().map(|g| g * 0.1).collect();
@@ -562,7 +562,7 @@ impl DeepLearningEngine {
             } => {
                 let flat_grad = gradient
                     .clone()
-                    .into_shape(gradient.len())
+                    .into_shape_with_order(gradient.len())
                     .map_err(DeepLearningError::from)?;
                 let hidden_size = star_x.hidden_state.len();
 

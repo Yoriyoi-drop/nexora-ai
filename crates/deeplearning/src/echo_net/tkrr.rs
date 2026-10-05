@@ -743,7 +743,7 @@ impl TopKResonanceRouting {
             let d = t.data();
             match i {
                 0 => {
-                    if let Ok(arr) = d.clone().into_shape(self.relevance_weights.dim()) {
+                    if let Ok(arr) = d.clone().into_shape_with_order(self.relevance_weights.dim()) {
                         self.relevance_weights = arr;
                     }
                 }

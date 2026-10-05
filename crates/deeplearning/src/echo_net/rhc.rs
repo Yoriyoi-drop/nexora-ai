@@ -580,7 +580,7 @@ impl RecursiveHolographicCompression {
         for (i, t) in tensors.iter().enumerate() {
             if i < self.feature_extractors.len() {
                 let d = t.data();
-                if let Ok(arr) = d.clone().into_shape(self.feature_extractors[i].dim()) {
+                if let Ok(arr) = d.clone().into_shape_with_order(self.feature_extractors[i].dim()) {
                     self.feature_extractors[i] = arr;
                 }
             }

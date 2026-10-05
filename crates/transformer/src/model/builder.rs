@@ -272,10 +272,10 @@ impl CausalLM {
         let (cos_full, sin_full) = rope.precompute_freqs_cis();
         let half = head_dim / 2;
         let precomputed_cos = cos_full
-            .into_shape(config.max_seq_len * half)
+            .into_shape_with_order(config.max_seq_len * half)
             .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
         let precomputed_sin = sin_full
-            .into_shape(config.max_seq_len * half)
+            .into_shape_with_order(config.max_seq_len * half)
             .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half));
 
         let collective = if config.is_sharded() {
@@ -398,10 +398,10 @@ impl CausalLM {
             lm_head: None,
             rope,
             precomputed_cos: cos_full
-                .into_shape(config.max_seq_len * half)
+                .into_shape_with_order(config.max_seq_len * half)
                 .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
             precomputed_sin: sin_full
-                .into_shape(config.max_seq_len * half)
+                .into_shape_with_order(config.max_seq_len * half)
                 .unwrap_or_else(|_| Array1::zeros(config.max_seq_len * half)),
             injectors: Vec::new(),
             keep_on_gpu: false,

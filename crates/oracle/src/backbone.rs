@@ -103,9 +103,9 @@ impl MultiHeadLatentAttention {
     ) -> Result<Array3<f32>> {
         let (batch_size, seq_len, d_model) = (x.dim().0, x.dim().1, x.dim().2);
 
-        let x_reshaped = x.view().into_shape((batch_size * seq_len, d_model))?;
+        let x_reshaped = x.view().into_shape_with_order((batch_size * seq_len, d_model))?;
         let latent = self.latent_projection.forward(&x_reshaped)?;
-        let latent_3d = latent.into_shape((batch_size, seq_len, self.config.latent_dim))?;
+        let latent_3d = latent.into_shape_with_order((batch_size, seq_len, self.config.latent_dim))?;
 
         let compressed = self.latent_compression.compress(&latent_3d, None)?;
 
@@ -119,10 +119,10 @@ impl MultiHeadLatentAttention {
 
         let output_reshaped = concatenated
             .view()
-            .into_shape((batch_size * seq_len, self.config.latent_dim))?;
+            .into_shape_with_order((batch_size * seq_len, self.config.latent_dim))?;
         let output = self.output_projection.forward(&output_reshaped)?;
 
-        Ok(output.into_shape((batch_size, seq_len, d_model))?)
+        Ok(output.into_shape_with_order((batch_size, seq_len, d_model))?)
     }
 
     /// GPU forward pass: per-head QKV projections + fused_attention, all GPU-resident.
@@ -211,15 +211,15 @@ impl LatentAttentionHead {
         // Project to Q, K, V
         let x_reshaped = x
             .view()
-            .into_shape((batch_size * seq_len, self.latent_dim))?;
+            .into_shape_with_order((batch_size * seq_len, self.latent_dim))?;
 
         let q = self.q_proj.forward(&x_reshaped)?;
         let k = self.k_proj.forward(&x_reshaped)?;
         let v = self.v_proj.forward(&x_reshaped)?;
 
-        let q_3d = q.into_shape((batch_size, seq_len, self.head_dim))?;
-        let k_3d = k.into_shape((batch_size, seq_len, self.head_dim))?;
-        let v_3d = v.into_shape((batch_size, seq_len, self.head_dim))?;
+        let q_3d = q.into_shape_with_order((batch_size, seq_len, self.head_dim))?;
+        let k_3d = k.into_shape_with_order((batch_size, seq_len, self.head_dim))?;
+        let v_3d = v.into_shape_with_order((batch_size, seq_len, self.head_dim))?;
 
         // Apply Rotary Position Embedding to Q and K before attention
         let (q_3d, k_3d) = self.rope.apply_rotary_emb(&q_3d, &k_3d, positions)?;
@@ -228,10 +228,10 @@ impl LatentAttentionHead {
         let attention_output = self.scaled_dot_product_attention(&q_3d, &k_3d, &v_3d, mask)?;
 
         // Project output
-        let output_reshaped = attention_output.into_shape((batch_size * seq_len, self.head_dim))?;
+        let output_reshaped = attention_output.into_shape_with_order((batch_size * seq_len, self.head_dim))?;
         let output = self.out_proj.forward(&output_reshaped)?;
 
-        Ok(output.into_shape((batch_size, seq_len, self.latent_dim))?)
+        Ok(output.into_shape_with_order((batch_size, seq_len, self.latent_dim))?)
     }
 
     fn scaled_dot_product_attention(
@@ -588,9 +588,9 @@ impl OracleBackbone {
 
             // MoE layer - reshape from 3D to 2D
             let (b, s, d) = hidden.dim();
-            let hidden_2d = hidden.view().into_shape((b * s, d))?.to_owned();
+            let hidden_2d = hidden.view().into_shape_with_order((b * s, d))?.to_owned();
             let moe_output = self.moe_layers[i].forward(&hidden_2d);
-            let moe_output_3d = moe_output.into_shape((b, s, d))?;
+            let moe_output_3d = moe_output.into_shape_with_order((b, s, d))?;
             hidden = hidden + moe_output_3d;
 
             // Pre-norm
@@ -604,10 +604,10 @@ impl OracleBackbone {
         // Output projection
         let hidden_reshaped = hidden
             .view()
-            .into_shape((batch_size * seq_len, self.config.d_model))?;
+            .into_shape_with_order((batch_size * seq_len, self.config.d_model))?;
         let logits = self.output_projection.forward(&hidden_reshaped)?;
 
-        Ok(logits.into_shape((batch_size, seq_len, self.output_projection.weight.dim().1))?)
+        Ok(logits.into_shape_with_order((batch_size, seq_len, self.output_projection.weight.dim().1))?)
     }
 
     #[cfg(feature = "gpu")]
@@ -651,7 +651,7 @@ impl OracleBackbone {
     pub fn get_expert_usage_stats(&self, input_ids: &Array2<i32>) -> Result<Vec<Vec<f32>>> {
         let hidden = self.embedding.forward(input_ids)?;
         let (batch_size, seq_len, d_model) = hidden.dim();
-        let hidden_2d = hidden.view().into_shape((batch_size * seq_len, d_model))?;
+        let hidden_2d = hidden.view().into_shape_with_order((batch_size * seq_len, d_model))?;
         let mut usage_stats = Vec::new();
 
         for moe_layer in &self.moe_layers {

@@ -608,12 +608,12 @@ impl PersistentResonanceMemory {
             let d = t.data();
             match i {
                 0 => {
-                    if let Ok(arr) = d.clone().into_shape(self.novelty_weights.dim()) {
+                    if let Ok(arr) = d.clone().into_shape_with_order(self.novelty_weights.dim()) {
                         self.novelty_weights = arr;
                     }
                 }
                 1 => {
-                    if let Ok(arr) = d.clone().into_shape(self.resonance_kernel.dim()) {
+                    if let Ok(arr) = d.clone().into_shape_with_order(self.resonance_kernel.dim()) {
                         self.resonance_kernel = arr;
                     }
                 }

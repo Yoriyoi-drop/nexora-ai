@@ -635,39 +635,39 @@ impl DualEntropicResonanceRetrieval {
         // Uses tensor.data() which returns ArrayD<f32> (always succeeds)
         if tensors.len() >= 7 {
             // Gate parameters
-            let alpha_val = tensors[0].data().into_raw_vec();
+            let alpha_val = tensors[0].data().into_raw_vec_and_offset().0;
             if !alpha_val.is_empty() {
                 self.gate_alpha = alpha_val[0];
             }
 
-            let beta_val = tensors[1].data().into_raw_vec();
+            let beta_val = tensors[1].data().into_raw_vec_and_offset().0;
             if !beta_val.is_empty() {
                 self.gate_beta = beta_val[0];
             }
 
-            let delta_val = tensors[2].data().into_raw_vec();
+            let delta_val = tensors[2].data().into_raw_vec_and_offset().0;
             if !delta_val.is_empty() {
                 self.gate_delta = delta_val[0];
             }
 
             // Weight parameters
-            let energy_val = tensors[3].data().into_raw_vec();
+            let energy_val = tensors[3].data().into_raw_vec_and_offset().0;
             if !energy_val.is_empty() {
                 self.energy_weight = energy_val[0];
             }
 
-            let entropy_val = tensors[4].data().into_raw_vec();
+            let entropy_val = tensors[4].data().into_raw_vec_and_offset().0;
             if !entropy_val.is_empty() {
                 self.entropy_weight = entropy_val[0];
             }
 
-            let coherence_val = tensors[5].data().into_raw_vec();
+            let coherence_val = tensors[5].data().into_raw_vec_and_offset().0;
             if !coherence_val.is_empty() {
                 self.coherence_weight = coherence_val[0];
             }
 
             // Learning rate
-            let update_rate_val = tensors[6].data().into_raw_vec();
+            let update_rate_val = tensors[6].data().into_raw_vec_and_offset().0;
             if !update_rate_val.is_empty() {
                 self.weight_update_rate = update_rate_val[0];
             }

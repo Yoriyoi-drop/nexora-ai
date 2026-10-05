@@ -545,7 +545,7 @@ pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2
     // CPU: L2 normalize each row (O(T·D))
     let emb_2d = embeddings
         .clone()
-        .into_shape(vec![num_tokens, emb_dim])
+        .into_shape_with_order(vec![num_tokens, emb_dim])
         .map_err(|e| DeepLearningError::Computation {
             reason: e.to_string(),
         })?;
@@ -565,7 +565,7 @@ pub fn gpu_cosine_similarity_matrix(embeddings: &ArrayD<f32>) -> DLResult<Array2
     // GPU: upload normalized embeddings as 1D then reshape to [T, D]
     let normed_flat = normed_arr
         .clone()
-        .into_shape(vec![num_tokens * emb_dim])
+        .into_shape_with_order(vec![num_tokens * emb_dim])
         .map_err(|e| DeepLearningError::Computation {
             reason: e.to_string(),
         })?;

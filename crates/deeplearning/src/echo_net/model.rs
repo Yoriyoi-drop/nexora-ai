@@ -278,7 +278,7 @@ impl EchoNetModel {
         let emb_flat: ArrayD<f32> = wave
             .amplitude
             .clone()
-            .into_shape(wave.amplitude.len())
+            .into_shape_with_order(wave.amplitude.len())
             .map_err(DeepLearningError::from)?
             .into_dyn();
         self.apss.forward(
@@ -294,8 +294,8 @@ impl EchoNetModel {
         let band_memories = self.mbhw.forward(&wave, timestamp)?;
 
         // 4. RHC
-        if let Ok(wave_flat) = wave.amplitude.clone().into_shape(wave.amplitude.len()) {
-            if let Ok(wave_2d) = wave_flat.clone().into_shape((wave_flat.len(), 1)) {
+        if let Ok(wave_flat) = wave.amplitude.clone().into_shape_with_order(wave.amplitude.len()) {
+            if let Ok(wave_2d) = wave_flat.clone().into_shape_with_order((wave_flat.len(), 1)) {
                 self.rhc.forward(&wave_2d, timestamp)?;
             }
         }
@@ -310,7 +310,7 @@ impl EchoNetModel {
         } else {
             ArrayD::zeros(vec![1])
         };
-        if let Ok(wave_amp_flat) = wave.amplitude.clone().into_shape(wave.amplitude.len()) {
+        if let Ok(wave_amp_flat) = wave.amplitude.clone().into_shape_with_order(wave.amplitude.len()) {
             let wave_amp_dyn = wave_amp_flat.into_dyn();
             self.irr.forward(&wave_amp_dyn, &flat_memory)?;
         }

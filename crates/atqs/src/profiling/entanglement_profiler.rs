@@ -232,7 +232,7 @@ fn truncate_trg_bonds(
     // Reshape for SVD
     let rows = shape[0];
     let cols = shape[1] * shape[2] * shape[3];
-    let reshaped = tensor.view().into_shape((rows, cols))?;
+    let reshaped = tensor.view().into_shape_with_order((rows, cols))?;
 
     // Perform SVD
     let (u, s, vt) = compute_truncated_svd(&reshaped, max_dim)?;
@@ -243,7 +243,7 @@ fn truncate_trg_bonds(
     // Reshape back to iPEPS format
     let new_shape = [max_dim, shape[1], shape[2], shape[3]];
     Ok(truncated
-        .into_shape(new_shape)
+        .into_shape_with_order(new_shape)
         .map_err(|_| crate::ATQSError::InvalidInput("Failed to reshape iPEPS result".to_string()))?
         .into_dyn())
 }
@@ -261,7 +261,7 @@ fn compute_entanglement_spectrum(ipeps: &iPEPSNetwork) -> Result<Vec<f32>, crate
     let rows = shape[0] * shape[1]; // Virtual dimensions
     let cols = shape[2] * shape[3]; // Physical dimensions
 
-    let reshaped = tensor.view().into_shape((rows, cols))?;
+    let reshaped = tensor.view().into_shape_with_order((rows, cols))?;
 
     // Compute SVD to get singular values (entanglement spectrum)
     let (_u, s, _vt) = compute_truncated_svd(&reshaped, rows.min(cols))?;

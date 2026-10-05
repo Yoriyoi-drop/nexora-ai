@@ -344,25 +344,25 @@ impl SemanticSpectralEmbedding {
                 0 => {
                     self.embedding_matrix = d
                         .clone()
-                        .into_shape(self.embedding_matrix.dim())
+                        .into_shape_with_order(self.embedding_matrix.dim())
                         .unwrap_or(self.embedding_matrix.clone())
                 }
                 1 => {
                     self.amplitude_weights = d
                         .clone()
-                        .into_shape(self.amplitude_weights.dim())
+                        .into_shape_with_order(self.amplitude_weights.dim())
                         .unwrap_or(self.amplitude_weights.clone())
                 }
                 2 => {
                     self.phase_weights = d
                         .clone()
-                        .into_shape(self.phase_weights.dim())
+                        .into_shape_with_order(self.phase_weights.dim())
                         .unwrap_or(self.phase_weights.clone())
                 }
                 3 => {
                     self.frequency_weights = d
                         .clone()
-                        .into_shape(self.frequency_weights.dim())
+                        .into_shape_with_order(self.frequency_weights.dim())
                         .unwrap_or(self.frequency_weights.clone())
                 }
                 _ => {}

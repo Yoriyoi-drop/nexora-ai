@@ -743,7 +743,7 @@ where
             // Generate first output token for each prefill sequence using
             // the logits from the batched prefill forward pass
             for (sid, logits_arr) in prefill_logits {
-                let logits_vec: Vec<f32> = logits_arr.into_raw_vec();
+                let logits_vec: Vec<f32> = logits_arr.into_raw_vec_and_offset().0;
 
                 let sampler = match self.samplers.get_mut(&sid) {
                     Some(s) => s,
